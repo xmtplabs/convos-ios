@@ -40,6 +40,21 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default -- gates the per-conversation agent participation control
+    /// ("Listen"): Speak freely / Mentions only / Paused. Toggle from
+    /// App Settings -> Debug. Hard-locked off in production while the feature is
+    /// still in development.
+    var isListenParticipationEnabled: Bool {
+        get {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            return UserDefaults.standard.bool(forKey: Constant.listenParticipationEnabledKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            UserDefaults.standard.set(newValue, forKey: Constant.listenParticipationEnabledKey)
+        }
+    }
+
     /// Off by default -- opts libxmtp streams onto the shared bidi wire by
     /// exporting `XMTP_BIDI_STREAMS_ENABLED` at launch (see `ConvosApp.init`;
     /// flips take effect on the next launch). Deliberately not prod-locked
@@ -95,6 +110,7 @@ final class FeatureFlags {
         static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"
         static let selectedAgentVariantKey: String = "featureFlags.selectedAgentVariant"
         static let agentVariantSelectorEnabledKey: String = "featureFlags.agentVariantSelectorEnabled"
+        static let listenParticipationEnabledKey: String = "featureFlags.listenParticipationEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
     }
 }

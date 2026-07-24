@@ -107,6 +107,9 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     @State private var voiceMemoReturnFocus: MessagesViewInputFocus?
     @State private var didSelectPhotoThisSession: Bool = false
     @Namespace private var namespace: Namespace.ID
+    // Injected by the host on conversations that hold an agent; nil elsewhere,
+    // and the bubble simply isn't drawn.
+    @Environment(\.agentParticipation) private var agentParticipation: AgentParticipationContext?
 
     public init(
         profile: Profile,

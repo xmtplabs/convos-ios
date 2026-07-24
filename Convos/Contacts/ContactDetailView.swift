@@ -77,6 +77,7 @@ struct ContactDetailView: View {
     @State private var isBlocked: Bool
     @State private var isApplyingBlockChange: Bool = false
     @State private var presentingBlockConfirmation: Bool = false
+    @State private var presentingRemoveConfirmation: Bool = false
     @State private var presentingPicker: Bool = false
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
@@ -189,6 +190,19 @@ struct ContactDetailView: View {
                 pushedConversationView(vm)
             }
             .overlay { agentShareOverlay }
+            .alert(
+                "Remove \(contact.resolvedDisplayName)?",
+                isPresented: $presentingRemoveConfirmation
+            ) {
+                Button("Remove", role: .destructive) { onRemove?() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(
+                    (isVerifiedAgent || isAgentTemplate)
+                        ? "This removes the agent from the conversation. It stops responding here, and you can add it back later."
+                        : "This removes them from the conversation."
+                )
+            }
     }
 
     /// Existing conversation pushed when a "Convos with you" row is tapped.
@@ -569,7 +583,8 @@ struct ContactDetailView: View {
     }
 
     private func handleRemoveTap() {
-        onRemove?()
+        // Removing the agent is destructive, so confirm natively before firing.
+        presentingRemoveConfirmation = true
     }
 
     private func applyBlockChange(block: Bool) {
@@ -939,10 +954,10 @@ private struct ContactDetailActionRow: View {
                 Text(label)
                     .font(.body)
                     .foregroundStyle(color)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, DesignConstants.Spacing.step4x)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-                    .background(Capsule().fill(.colorFillMinimal))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, DesignConstants.Spacing.step4x)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .background(Capsule().fill(.colorFillMinimal))
             }
             .buttonStyle(.plain)
             .disabled(isDisabled)
