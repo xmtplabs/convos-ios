@@ -1,0 +1,4 @@
+prototypeId: "agent-reads-a-user-s-google-doc-from-chat-either-a-link-shared-d"
+side: "app"
+requestedLifetime: "2026-07-30T23:02:32.747Z"
+whatToTest: "Agent reads a user's Google Doc from chat — either a link-shared doc (no auth, public export endpoint) or a private doc via a user-pasted short-lived Google OAuth access token — entirely inside the agent's own runtime container. No convos-backend or Composio connections-catalog change (today only googlecalendar is wired into bundles.config.ts). New Hermes tools: convos_connect_google_doc, convos_read_google_doc."
