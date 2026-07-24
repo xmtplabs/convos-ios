@@ -35,6 +35,28 @@ struct BatchCatchUpTimeoutTests {
         }
     }
 
+    @Test("A cancellation-ignoring operation cannot hold the timeout hostage")
+    func nonCooperativeOperationStillTimesOut() async {
+        let started = Date()
+        await #expect(throws: BatchCatchUpPrepareTimeout.self) {
+            try await BatchCatchUp.withTimeout(seconds: 0.05) { () -> Int in
+                // Simulates a hung FFI sync: swallows cancellation and
+                // keeps running. The race must resolve at the deadline
+                // anyway, leaving this loop orphaned in the background.
+                let deadline = Date().addingTimeInterval(45)
+                while Date() < deadline {
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                }
+                return 1
+            }
+        }
+        // Generous bound: a task-group implementation would block on the
+        // 45s hung operation, while the race resolves at the 0.05s
+        // deadline plus scheduling lag - which reaches several seconds
+        // when the parallel suite saturates the cooperative pool.
+        #expect(Date().timeIntervalSince(started) < 20)
+    }
+
     @Test("The losing operation is cancelled when the deadline fires")
     func operationIsCancelledOnTimeout() async throws {
         let cancelled = CancellationProbe()

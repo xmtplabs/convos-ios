@@ -376,6 +376,10 @@ struct BatchCatchUp {
                     } catch is CancellationError {
                         return nil
                     } catch {
+                        // A conversation that fails for a non-transient reason
+                        // retries on every catch-up. That is bounded (one
+                        // prepare per batch) and the skipped counter surfaces
+                        // it; a retry-attempt cap is deliberate future work.
                         Log.error("catchup.conversation.skipped: \(group.id) prepare failed: \(error.localizedDescription); cursor not advanced, retrying next catch-up")
                         return nil
                     }
@@ -443,32 +447,51 @@ struct BatchCatchUp {
         )
     }
 
-    /// Races `operation` against a deadline. The losing side is cancelled,
-    /// though a cancelled libxmtp sync may keep running to completion in
-    /// the background - that is harmless because prepare is
-    /// transaction-free and every downstream persist is idempotent.
+    /// Races `operation` against a deadline without blocking on a hung
+    /// operation. Deliberately built on unstructured tasks and a
+    /// resume-once continuation: a task-group implementation cannot work
+    /// here because the group scope awaits all children after
+    /// `cancelAll()`, and cancellation is only cooperative - a hung
+    /// libxmtp sync that never checks it would hold the "timeout"
+    /// hostage, which is the exact failure this helper exists to bound.
+    ///
+    /// The losing operation is cancelled cooperatively and otherwise left
+    /// running detached until it completes; that is harmless because
+    /// prepare is transaction-free and every downstream persist is
+    /// idempotent.
     static func withTimeout<T: Sendable>(
         seconds: TimeInterval,
         operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try await operation()
-            }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                throw BatchCatchUpPrepareTimeout()
-            }
+        let race = BatchCatchUpTimeoutRace<T>()
+        let operationTask = Task {
+            let result: Result<T, any Error>
             do {
-                guard let first = try await group.next() else {
-                    throw BatchCatchUpPrepareTimeout()
-                }
-                group.cancelAll()
-                return first
+                result = .success(try await operation())
             } catch {
-                group.cancelAll()
-                throw error
+                result = .failure(error)
             }
+            await race.finish(result)
+        }
+        let deadlineTask = Task {
+            do {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            } catch {
+                // Deadline cancelled: the operation already won.
+                return
+            }
+            operationTask.cancel()
+            await race.finish(.failure(BatchCatchUpPrepareTimeout()))
+        }
+        defer { deadlineTask.cancel() }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                Task { await race.register(continuation) }
+            }
+        } onCancel: {
+            operationTask.cancel()
+            deadlineTask.cancel()
+            Task { await race.finish(.failure(CancellationError())) }
         }
     }
 
@@ -520,6 +543,32 @@ struct BatchCatchUp {
                 WHERE conversationId = ?
             """, arguments: [conversationId])
             return value ?? 0
+        }
+    }
+}
+
+/// Resume-once state for `BatchCatchUp.withTimeout`'s two-sided race.
+/// Buffers a result that arrives before the continuation registers, and
+/// drops any result that arrives after the race already resolved (e.g.
+/// a timed-out operation eventually completing).
+private actor BatchCatchUpTimeoutRace<T: Sendable> {
+    private var continuation: CheckedContinuation<T, any Error>?
+    private var result: Result<T, any Error>?
+
+    func register(_ continuation: CheckedContinuation<T, any Error>) {
+        if let result {
+            continuation.resume(with: result)
+        } else {
+            self.continuation = continuation
+        }
+    }
+
+    func finish(_ newResult: Result<T, any Error>) {
+        if let continuation {
+            self.continuation = nil
+            continuation.resume(with: newResult)
+        } else if result == nil {
+            result = newResult
         }
     }
 }
