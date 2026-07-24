@@ -9,8 +9,9 @@ import Foundation
 public actor MockAbilitiesService: AbilitiesServiceProtocol {
     /// Seed states for previews and tests.
     public enum Scenario: Sendable {
-        /// Entitled active Google Calendar extended to two conversations,
-        /// an expired Spotify, a pending Gmail, and catalog-only abilities.
+        /// The full first-round catalog: an entitled active Google Calendar
+        /// extended to two conversations, a pending-auth Spotify, an
+        /// expired Coinbase, and catalog-only Gmail, Shopify, and YouTube.
         case standard
         /// The standard catalog served under `entitlementsUnavailable`
         /// after the caller has seen an authoritative response: last-known
@@ -198,9 +199,11 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
 
     // MARK: - Fixtures
 
-    /// The six launch abilities, with the standard scenario's entitlement
-    /// states baked in: Google Calendar active, Spotify expired, Gmail
-    /// pending auth, the rest catalog-only. Non-throwing for previews: the
+    /// The six first-round abilities with the standard scenario's
+    /// entitlement states baked in: Google Calendar active, Spotify
+    /// pending auth, Coinbase expired, the rest catalog-only. Display
+    /// copy mirrors the backend manifests; bundles are mock-only fixtures
+    /// in the style the service catalog will serve. Non-throwing for previews: the
     /// fixture is known-valid, and a wire-validation failure here is a
     /// programmer error surfaced by the fixture tests, not a recoverable
     /// condition.
@@ -219,21 +222,11 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
                 id: "googlecalendar",
                 version: 2,
                 displayName: AbilitiesAPI.LocalizedText(en: "Google Calendar"),
-                subtitle: AbilitiesAPI.LocalizedText(en: "Read and edit events"),
+                subtitle: AbilitiesAPI.LocalizedText(en: "View and edit events"),
                 auth: AbilitiesAPI.AbilityAuth(type: .oauth),
                 bundles: [
-                    AbilitiesAPI.AbilityBundle(
-                        id: "calendar.events",
-                        title: AbilitiesAPI.LocalizedText(en: "Events"),
-                        description: AbilitiesAPI.LocalizedText(en: "View and edit events on all calendars"),
-                        defaultEnabled: true
-                    ),
-                    AbilitiesAPI.AbilityBundle(
-                        id: "calendar.availability",
-                        title: AbilitiesAPI.LocalizedText(en: "Availability"),
-                        description: AbilitiesAPI.LocalizedText(en: "Share when you are free or busy"),
-                        defaultEnabled: false
-                    ),
+                    bundle("calendar.events", title: "Events", description: "View and edit events on all calendars", defaultEnabled: true),
+                    bundle("calendar.availability", title: "Availability", description: "Share when you are free or busy", defaultEnabled: false),
                 ],
                 entitlementState: .entitled(AbilitiesAPI.Entitlement(
                     status: .active,
@@ -242,40 +235,26 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
                 ))
             ),
             AbilitiesAPI.Ability(
-                id: "gmail",
+                id: "spotify",
                 version: 1,
-                displayName: AbilitiesAPI.LocalizedText(en: "Gmail"),
-                subtitle: AbilitiesAPI.LocalizedText(en: "Read mail and draft replies"),
+                displayName: AbilitiesAPI.LocalizedText(en: "Spotify"),
+                subtitle: AbilitiesAPI.LocalizedText(en: "Playlists, artists, and concerts"),
                 auth: AbilitiesAPI.AbilityAuth(type: .oauth),
                 bundles: [
-                    AbilitiesAPI.AbilityBundle(
-                        id: "gmail.read",
-                        title: AbilitiesAPI.LocalizedText(en: "Read mail"),
-                        description: AbilitiesAPI.LocalizedText(en: "Search and read your messages"),
-                        defaultEnabled: true
-                    ),
-                    AbilitiesAPI.AbilityBundle(
-                        id: "gmail.compose",
-                        title: AbilitiesAPI.LocalizedText(en: "Compose drafts"),
-                        description: AbilitiesAPI.LocalizedText(en: "Create drafts for you to review"),
-                        defaultEnabled: false
-                    ),
+                    bundle("spotify.playback", title: "Playback", description: "Play music and manage the queue", defaultEnabled: true),
+                    bundle("spotify.playlists", title: "Playlists", description: "Create and edit your playlists", defaultEnabled: false),
                 ],
                 entitlementState: .entitled(AbilitiesAPI.Entitlement(status: .pendingAuth, expiresAt: nil, extensionCount: 0))
             ),
             AbilitiesAPI.Ability(
-                id: "spotify",
+                id: "coinbase",
                 version: 1,
-                displayName: AbilitiesAPI.LocalizedText(en: "Spotify"),
-                subtitle: AbilitiesAPI.LocalizedText(en: "Control playback and playlists"),
+                displayName: AbilitiesAPI.LocalizedText(en: "Coinbase"),
+                subtitle: AbilitiesAPI.LocalizedText(en: "Check prices and balances"),
                 auth: AbilitiesAPI.AbilityAuth(type: .oauth),
                 bundles: [
-                    AbilitiesAPI.AbilityBundle(
-                        id: "spotify.playback",
-                        title: AbilitiesAPI.LocalizedText(en: "Playback"),
-                        description: AbilitiesAPI.LocalizedText(en: "Play music and manage the queue"),
-                        defaultEnabled: true
-                    ),
+                    bundle("coinbase.prices", title: "Prices", description: "Check live market prices", defaultEnabled: true),
+                    bundle("coinbase.portfolio", title: "Portfolio", description: "View balances and positions, read-only", defaultEnabled: false),
                 ],
                 entitlementState: .entitled(AbilitiesAPI.Entitlement(
                     status: .expired,
@@ -284,56 +263,56 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
                 ))
             ),
             AbilitiesAPI.Ability(
-                id: "coinbase",
+                id: "youtube",
                 version: 1,
-                displayName: AbilitiesAPI.LocalizedText(en: "Coinbase"),
-                subtitle: AbilitiesAPI.LocalizedText(en: "View balances and prices"),
+                displayName: AbilitiesAPI.LocalizedText(en: "YouTube"),
+                subtitle: AbilitiesAPI.LocalizedText(en: "Search and share videos"),
                 auth: AbilitiesAPI.AbilityAuth(type: .oauth),
                 bundles: [
-                    AbilitiesAPI.AbilityBundle(
-                        id: "coinbase.portfolio",
-                        title: AbilitiesAPI.LocalizedText(en: "Portfolio"),
-                        description: AbilitiesAPI.LocalizedText(en: "View balances and positions, read-only"),
-                        defaultEnabled: true
-                    ),
+                    bundle("youtube.search", title: "Search", description: "Find videos to share in the convo", defaultEnabled: true),
+                    bundle("youtube.library", title: "Library", description: "Browse playlists and subscriptions", defaultEnabled: false),
                 ]
             ),
             AbilitiesAPI.Ability(
                 id: "shopify",
                 version: 1,
                 displayName: AbilitiesAPI.LocalizedText(en: "Shopify"),
-                subtitle: AbilitiesAPI.LocalizedText(en: "Check orders and inventory"),
+                subtitle: AbilitiesAPI.LocalizedText(en: "Manage your shop"),
                 auth: AbilitiesAPI.AbilityAuth(type: .oauth),
                 bundles: [
-                    AbilitiesAPI.AbilityBundle(
-                        id: "shopify.orders",
-                        title: AbilitiesAPI.LocalizedText(en: "Orders"),
-                        description: AbilitiesAPI.LocalizedText(en: "View and update store orders"),
-                        defaultEnabled: true
-                    ),
+                    bundle("shopify.orders", title: "Orders", description: "View and update store orders", defaultEnabled: true),
+                    bundle("shopify.products", title: "Products", description: "Manage listings and inventory", defaultEnabled: false),
                 ]
             ),
             AbilitiesAPI.Ability(
-                id: "youtube",
+                id: "gmail",
                 version: 1,
-                displayName: AbilitiesAPI.LocalizedText(en: "YouTube"),
-                subtitle: AbilitiesAPI.LocalizedText(en: "Search videos and playlists"),
+                displayName: AbilitiesAPI.LocalizedText(en: "Gmail"),
+                subtitle: AbilitiesAPI.LocalizedText(en: "Read and send email"),
                 auth: AbilitiesAPI.AbilityAuth(type: .oauth),
                 bundles: [
-                    AbilitiesAPI.AbilityBundle(
-                        id: "youtube.library",
-                        title: AbilitiesAPI.LocalizedText(en: "Library"),
-                        description: AbilitiesAPI.LocalizedText(en: "Browse playlists and subscriptions"),
-                        defaultEnabled: true
-                    ),
+                    bundle("gmail.read", title: "Read mail", description: "Search and read your messages", defaultEnabled: true),
+                    bundle("gmail.compose", title: "Compose drafts", description: "Create drafts for you to review", defaultEnabled: false),
                 ]
             ),
         ]
     }
 
+    /// One-line bundle factory keeping the fixture readable: mock bundles
+    /// carry English-only copy by construction.
+    private static func bundle(_ id: String, title: String, description: String, defaultEnabled: Bool) -> AbilitiesAPI.AbilityBundle {
+        AbilitiesAPI.AbilityBundle(
+            id: id,
+            title: AbilitiesAPI.LocalizedText(en: title),
+            description: AbilitiesAPI.LocalizedText(en: description),
+            defaultEnabled: defaultEnabled
+        )
+    }
+
     /// Per-conversation opt-ins consistent with `standardCatalog()`'s
-    /// extension counts: Google Calendar in two conversations, Spotify in
-    /// one (extended while it was still active).
+    /// extension counts: Google Calendar in two conversations, Coinbase in
+    /// one (extended while its entitlement was still active). Pending-auth
+    /// Spotify holds none: extending requires an active entitlement.
     public static func standardExtensions() -> [String: [ConversationAbility]] {
         [
             Constant.mockConversationOneId: [
@@ -343,9 +322,9 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
                     bundleIds: ["calendar.events"]
                 ),
                 ConversationAbility(
-                    abilityId: "spotify",
+                    abilityId: "coinbase",
                     agentInboxId: Constant.mockAgentInboxId,
-                    bundleIds: ["spotify.playback"]
+                    bundleIds: ["coinbase.prices"]
                 ),
             ],
             Constant.mockConversationTwoId: [

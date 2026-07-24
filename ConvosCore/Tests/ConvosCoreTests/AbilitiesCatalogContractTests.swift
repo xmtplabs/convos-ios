@@ -454,9 +454,13 @@ struct MockAbilitiesServiceTests {
         #expect(catalog.abilities.count == 6)
         #expect(catalog.abilities.first { $0.id == "googlecalendar" }?.entitlement?.status == .active)
         #expect(catalog.abilities.first { $0.id == "googlecalendar" }?.entitlement?.extensionCount == 2)
-        #expect(catalog.abilities.first { $0.id == "spotify" }?.entitlement?.status == .expired)
-        #expect(catalog.abilities.first { $0.id == "gmail" }?.entitlement?.status == .pendingAuth)
-        #expect(catalog.abilities.first { $0.id == "coinbase" }?.entitlementState == .notEntitled)
+        #expect(catalog.abilities.first { $0.id == "spotify" }?.entitlement?.status == .pendingAuth)
+        #expect(catalog.abilities.first { $0.id == "spotify" }?.entitlement?.extensionCount == 0)
+        #expect(catalog.abilities.first { $0.id == "coinbase" }?.entitlement?.status == .expired)
+        #expect(catalog.abilities.first { $0.id == "coinbase" }?.entitlement?.extensionCount == 1)
+        #expect(catalog.abilities.first { $0.id == "gmail" }?.entitlementState == .notEntitled)
+        #expect(catalog.abilities.first { $0.id == "shopify" }?.entitlementState == .notEntitled)
+        #expect(catalog.abilities.first { $0.id == "youtube" }?.entitlementState == .notEntitled)
     }
 
     @Test("Unavailable scenario serves the flag and keeps last-known state")
