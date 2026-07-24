@@ -53,7 +53,8 @@ extension ConvosAPIClientProtocol {
     /// should override these on their fixture.
     func setAgentParticipation(
         conversationId: String,
-        mode: String
+        mode: String,
+        variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse {
         ConvosAPI.AgentParticipationResponse(
             success: true,
@@ -63,7 +64,8 @@ extension ConvosAPIClientProtocol {
     }
 
     func getAgentParticipation(
-        conversationId: String
+        conversationId: String,
+        variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse {
         ConvosAPI.AgentParticipationResponse(
             success: true,

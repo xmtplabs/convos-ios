@@ -117,7 +117,8 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func setAgentParticipation(
         conversationId: String,
-        mode: String
+        mode: String,
+        variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse {
         // Echo the request back, matching the real endpoint: the caller renders
         // the level it just set.
@@ -125,7 +126,8 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     }
 
     func getAgentParticipation(
-        conversationId: String
+        conversationId: String,
+        variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse {
         .init(success: true, conversationId: conversationId, mode: "speak")
     }

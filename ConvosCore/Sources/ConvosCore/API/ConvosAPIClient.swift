@@ -114,7 +114,8 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// the room, and an agent that joins later inherits it.
     func setAgentParticipation(
         conversationId: String,
-        mode: String
+        mode: String,
+        variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse
 
     /// The level a conversation is currently in. Any member may change it, so
@@ -122,7 +123,8 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// control has to render from the shared record. Answered upstream without
     /// waking an agent.
     func getAgentParticipation(
-        conversationId: String
+        conversationId: String,
+        variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse
 
     // Agent templates
@@ -900,11 +902,17 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func setAgentParticipation(
         conversationId: String,
-        mode: String
+        mode: String,
+        variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse {
+        // `variantId` is load-bearing, exactly as on the join poll: an agent
+        // provisioned on a variant worker only exists there, so a write that
+        // omits it lands on the default worker — which has no such conversation
+        // and rejects the update.
         var request = try authenticatedRequest(
             for: "v2/conversations/\(participationPathComponent(conversationId))/participation",
-            method: "PATCH"
+            method: "PATCH",
+            queryParameters: prodSafeVariantId(variantId).map { ["variantId": $0] }
         )
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // One small write that fans out to every agent in the conversation and,
@@ -918,11 +926,15 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     }
 
     func getAgentParticipation(
-        conversationId: String
+        conversationId: String,
+        variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse {
+        // Read and write must resolve to the same worker (see setAgentParticipation),
+        // or the control renders a level that isn't the conversation's.
         var request = try authenticatedRequest(
             for: "v2/conversations/\(participationPathComponent(conversationId))/participation",
-            method: "GET"
+            method: "GET",
+            queryParameters: prodSafeVariantId(variantId).map { ["variantId": $0] }
         )
         // Read on open; the control falls back to its default if this is slow,
         // so it must not hold the view.

@@ -21,13 +21,20 @@ public final class AgentParticipationStore {
 
     private let conversationId: String
 
+    /// Dev-only variant routing key. An agent built on a variant worker only
+    /// exists there, so both participation calls must carry this or the backend
+    /// routes them to the default worker and the write fails. Nil (and stripped
+    /// in production) for a normal agent.
+    private let variantId: String?
+
     /// Bumped on every local `set()`. `load()` captures it before its network
     /// read and bails if it changed meanwhile, so a tap that lands mid-read is
     /// never clobbered by the older server value the read was already fetching.
     private var writeGeneration: Int = 0
 
-    public init(conversationId: String) {
+    public init(conversationId: String, variantId: String? = nil) {
         self.conversationId = conversationId
+        self.variantId = variantId
     }
 
     public func dismissError() {
@@ -44,7 +51,8 @@ public final class AgentParticipationStore {
         let generationAtStart = writeGeneration
         do {
             let response = try await client().getAgentParticipation(
-                conversationId: conversationId
+                conversationId: conversationId,
+                variantId: variantId
             )
             // A set() that landed while this read was in flight is newer than the
             // value the server just returned; don't overwrite it with stale data.
@@ -71,7 +79,8 @@ public final class AgentParticipationStore {
         do {
             _ = try await client().setAgentParticipation(
                 conversationId: conversationId,
-                mode: newLevel.wireMode
+                mode: newLevel.wireMode,
+                variantId: variantId
             )
             Log.info("participation set mode=\(newLevel.wireMode)")
         } catch {

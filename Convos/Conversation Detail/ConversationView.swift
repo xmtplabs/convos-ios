@@ -985,7 +985,8 @@ private extension ConversationView {
             return
         }
         let store = AgentParticipationStore(
-            conversationId: viewModel.conversation.id
+            conversationId: viewModel.conversation.id,
+            variantId: FeatureFlags.shared.selectedAgentVariant?.slug
         )
         participation = store
         await store.load()
