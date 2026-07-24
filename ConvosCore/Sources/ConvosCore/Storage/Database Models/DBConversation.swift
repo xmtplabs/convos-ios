@@ -100,7 +100,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         imageLastRenewed: Date?,
         isUnused: Bool,
         hasHadVerifiedAgent: Bool,
-        isAgentDm: Bool
+        isAgentDm: Bool = false
     ) {
         self.id = id
         self.clientConversationId = clientConversationId

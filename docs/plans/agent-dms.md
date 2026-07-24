@@ -445,6 +445,25 @@ Deferred (tracked):
   second `ConversationViewModel` is eagerly built per open conversation with a
   DM-able agent (lazy-bind on first visit).
 
+### 6.4.2 Eager DM creation (client) -- shipped 2026-07-24
+
+`AgentDmReconciler` (session-scoped, started with the other session services):
+observes the conversations publisher and creates the DM for every verified
+agent the moment it appears in a conversation -- agent creation, joining a chat
+with an agent, or an agent joining an existing convo all flow through the same
+membership-driven trigger. No per-view creation; the DM page's first-send path
+remains only as a fallback.
+
+Dedup layers: reconcile skips agents with an existing DM, an in-flight set
+guards the create window, `startOrFindDm` is lookup-first, and the backend
+atomic reserve is the cross-device authority. A failed creation is not retried
+within the session (the publisher re-emits on every DB write, so retrying
+would hammer a failing backend and pile up half-created conversations).
+
+Verified live: launching with an existing DM creates nothing (idempotent);
+creating a new agent produced its DM ~40s after the agent joined, with zero
+user interaction, backend `agent-dm attached`, and exactly one DM per agent.
+
 ## 7. Phasing and PR sequencing
 
 - **Phase 0 — protocol validation spike** (throwaway code, local stack): S1 confirm Herald can observe a welcome for a 2-member group it was never asked to attach (conversation stream) and measure add→observation latency; S2 confirm attach-then-stream works for such a group end to end (profile publish renders + verifies on iOS, agent replies land); S3 exercise the membership edges — third member added (revocation fires), peer removed from primary (revocation fires), agent removed from the DM (channel closes, instance survives); S4 confirm `ConversationCustomMetadata` classification syncs to a second device of the same user; S5 confirm fleet convergence — a rebooted container of a pre-deploy instance boots the *new* Hermes image. Exit criteria: all five demonstrably true, add→first-reply latency acceptable (< ~10s including container wake). *This closes CON-761 with a viability verdict and hard numbers.*
