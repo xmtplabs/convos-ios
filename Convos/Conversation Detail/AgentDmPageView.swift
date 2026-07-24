@@ -14,6 +14,11 @@ import SwiftUI
 struct AgentDmPageView: View {
     @Bindable var viewModel: ConversationViewModel
     let agentInboxId: String
+    /// Clearance for the pager dots floating under the composer. Owned by
+    /// ConversationView because it is keyboard-aware there (the dots hide when
+    /// the keyboard is up, so the inset drops to zero -- a fixed value would
+    /// leave the DM transcript floating above the composer while typing).
+    let extraBottomInset: CGFloat
 
     @State private var dmViewModel: ConversationViewModel?
     @State private var contextMenuState: MessageContextMenuState = .init()
@@ -262,14 +267,9 @@ struct AgentDmPageView: View {
             onVoiceMemoTap: { dmVm.onVoiceMemoTapped() },
             voiceMemoRecorder: dmVm.voiceMemoRecorder,
             onSendVoiceMemo: { dmVm.sendVoiceMemo() },
-            extraBottomInset: Constant.pagerDotsInset,
+            extraBottomInset: extraBottomInset,
             bottomBarContent: { EmptyView() }
         )
-    }
-
-    private enum Constant {
-        /// Clearance for the pager dots floating under the composer.
-        static let pagerDotsInset: CGFloat = 24.0
     }
 }
 

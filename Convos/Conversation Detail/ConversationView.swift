@@ -564,7 +564,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             scrollingDisabled: contextMenuState.isPresented,
             messagesPage: { messagesView },
             agentDmPage: { agentInboxId in
-                AgentDmPageView(viewModel: viewModel, agentInboxId: agentInboxId)
+                AgentDmPageView(viewModel: viewModel, agentInboxId: agentInboxId, extraBottomInset: pagerDotsInset)
             },
             thingsPage: { thingsPage }
         )
