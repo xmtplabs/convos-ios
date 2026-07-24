@@ -192,6 +192,33 @@ sqlite3 "$DB" "SELECT count(*) FROM conversation WHERE isAgentDm=1;"
 | DM shows up in the main conversations list | client `isAgentDm=0` on a real 2-member DM | on-wire marker transiently rewritten; client re-derives `isAgentDm=false` | client classification robustness (tracked); one-way latch keeps a once-classified DM hidden |
 | Client keeps creating new DMs for one agent | `findAgentDm` returns nil because the existing DM's agent left, or its marker flipped | client can't find its own DM, so it makes another | backend keeps one DM alive (dedup); client reconciler + classification fix (tracked) |
 
+## 8.1 Resolved during QA (2026-07-24)
+
+The full sequence was driven end to end on the local stack (idb-driven sim:
+send "What is 2+2?" -> agent replies "4" in the DM; read receipts; channel
+isolation confirmed -- asking the agent to relay to the group gets a refusal).
+Root causes found and fixed along the way, in the order they surfaced:
+
+- **Double-delivery eviction**: conversation_added arrives twice (live stream +
+  catch-up). The reserve-race loser was leaving the DM the winner had just
+  attached. Fixed: the loser recognizes its own conversation and bails.
+- **Stale slot rows**: dead active/pending rows held the peer's single-DM slot
+  forever. Fixed: blocked reserves revalidate against real membership and drop
+  dead rows (cleanupStalePeerDms).
+- **Interrupted attach** (the "agent joined but never replies" state): a worker
+  restart mid-attach strands the registry at pending and leaves Herald without
+  the persisted conversation -- so Herald never streams the DM and every message
+  dies before reaching the worker. Fixed twice over: isDmDeliverable promotes a
+  live-membership pending row, and a re-delivered conversation_added retries the
+  idempotent attach instead of early-returning.
+- **Herald boot lock orphan**: pkill kills Herald's node process but not the
+  flock child holding data/herald.lock; the next boot blocks on the lock
+  (readyz shows lock_acquired:false). Kill the orphaned `sleep 2147483647`.
+- **Dispatch gave-up window**: Herald retries a webhook 5 times (~12s) and
+  permanently drops the event; messages sent while the worker is mid-restart
+  are lost until a Herald restart replays catch-up. Restart order matters:
+  worker first, then Herald.
+
 ## 9. Registry reference
 
 `dm_conversation` rows live in the per-agent DO SQLite under `$DODIR`. Each row:
