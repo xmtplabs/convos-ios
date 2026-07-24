@@ -165,7 +165,6 @@ struct AgentFilesLinksView: View {
     @State private var loadingCanvasPrewarmerKey: String?
     @State private var canvasLoadGeneration: UUID = .init()
     @State private var canvasBodyBackgroundColor: Color?
-    @State private var presentingFilesAndLinks: Bool = false
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -287,11 +286,7 @@ struct AgentFilesLinksView: View {
             }
             .applyTitle(usesInlineHeader: usesInlineHeader)
             .safeAreaBar(edge: .bottom) {
-                if usesInlineHeader, canvasPresentation != nil {
-                    CanvasFilesLinksButton {
-                        presentingFilesAndLinks = true
-                    }
-                } else {
+                if !usesInlineHeader || canvasPresentation == nil {
                     ThingsSearchBar(
                         searchText: $viewModel.searchText,
                         filter: $viewModel.filter,
@@ -305,15 +300,6 @@ struct AgentFilesLinksView: View {
                     fileURL: preview.fileURL,
                     sender: preview.sender,
                     sentAt: preview.sentAt,
-                    profileSheetContent: profileSheetContent
-                )
-                .presentationDetents([.large])
-            }
-            .sheet(isPresented: $presentingFilesAndLinks) {
-                CanvasFilesLinksSheet(
-                    conversationId: conversationId,
-                    repository: repository,
-                    members: members,
                     profileSheetContent: profileSheetContent
                 )
                 .presentationDetents([.large])
@@ -335,7 +321,6 @@ struct AgentFilesLinksView: View {
                 resetCanvas()
                 viewModel.observe(repository)
                 presentingPreview = nil
-                presentingFilesAndLinks = false
             }
             .onAppear {
                 ensureNavigator()
@@ -383,6 +368,7 @@ struct AgentFilesLinksView: View {
             )
             .id(canvasPresentation.id)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea(.container, edges: .vertical)
         } else if viewModel.isLoading {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -701,51 +687,6 @@ private extension View {
             self
                 .navigationTitle("Things")
                 .toolbarTitleDisplayMode(.large)
-        }
-    }
-}
-
-private struct CanvasFilesLinksButton: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label("Files & Links", systemImage: "folder")
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.colorTextPrimary)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-                .padding(.vertical, DesignConstants.Spacing.step3x)
-        }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .capsule)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
-        .accessibilityIdentifier("canvas-files-links-button")
-    }
-}
-
-private struct CanvasFilesLinksSheet: View {
-    let conversationId: String
-    let repository: AgentFilesLinksRepository
-    let members: [ConversationMember]
-    var profileSheetContent: ((ConversationMember) -> AnyView)?
-
-    @Environment(\.dismiss) private var dismiss: DismissAction
-
-    var body: some View {
-        NavigationStack {
-            AgentFilesLinksView(
-                conversationId: conversationId,
-                repository: repository,
-                members: members,
-                profileSheetContent: profileSheetContent
-            )
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
         }
     }
 }

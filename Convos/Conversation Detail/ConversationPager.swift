@@ -11,17 +11,11 @@ enum ConversationPagerPage: Int, CaseIterable, Identifiable {
 
 struct ConversationPager<MessagesPage: View, ThingsPage: View>: View {
     @Binding var selectedPage: ConversationPagerPage
-    /// Whether the dots are mounted at all. Drives the `safeAreaInset`
-    /// itself, so flipping this resizes the pager content — only set it
-    /// based on keyboard presence, which already animates via the
-    /// system. Don't piggyback context-menu-driven hiding on this flag
-    /// or the bottom bar's own fade-out animation has to compete with a
-    /// layout reflow inside MessagesView.
+    /// Whether the dots are mounted at all. Only set it based on keyboard
+    /// presence, which already animates via the system.
     let showsPageDots: Bool
-    /// Hides the dots in-place when true (opacity + scale only, layout
-    /// space preserved). Used while the long-press context menu is
-    /// presented so the dots fade out without resizing anything around
-    /// them.
+    /// Hides the dots in-place when true (opacity + scale only). Used while
+    /// the long-press context menu is presented so the dots fade out.
     var dotsHidden: Bool = false
     /// When true, horizontal paging between `messages` and `things` is
     /// blocked. Used while the message long-press context menu is
@@ -57,7 +51,7 @@ struct ConversationPager<MessagesPage: View, ThingsPage: View>: View {
                 scrollView.bounces = false
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .overlay(alignment: .bottom) {
             if showsPageDots {
                 ConversationPagerDots(selectedPage: $selectedPage)
                     .opacity(dotsHidden ? 0 : 1)
