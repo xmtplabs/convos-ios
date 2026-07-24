@@ -55,6 +55,23 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default -- gates the V2 abilities surfaces (the abilities
+    /// catalog list in App Settings and the per-conversation abilities
+    /// section), currently backed by `MockAbilitiesService`. Toggle from
+    /// App Settings -> Debug. Hard-locked off in production so the V1
+    /// connections UI stays the default until the live transport ships;
+    /// public enablement is a default flip in a client release.
+    var isAbilitiesV2Enabled: Bool {
+        get {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            return UserDefaults.standard.bool(forKey: Constant.abilitiesV2EnabledKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            UserDefaults.standard.set(newValue, forKey: Constant.abilitiesV2EnabledKey)
+        }
+    }
+
     /// Mock credits/subscription state used by the in-app paywall preview surface
     /// in the Debug menu. Non-production only; defaults to `.plusAmple`.
     var mockCreditsPreset: CreditsStatePreset {
@@ -96,5 +113,6 @@ final class FeatureFlags {
         static let selectedAgentVariantKey: String = "featureFlags.selectedAgentVariant"
         static let agentVariantSelectorEnabledKey: String = "featureFlags.agentVariantSelectorEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
+        static let abilitiesV2EnabledKey: String = "featureFlags.abilitiesV2Enabled"
     }
 }
