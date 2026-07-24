@@ -96,6 +96,22 @@ public struct IOSImageCompression: ImageCompressionProviding {
         maxBytes: Int,
         maxDimension: CGFloat
     ) -> Data? {
+        // The render and encode passes autorelease bitmap-sized buffers.
+        // Draining them here keeps sequential compressions (multi-photo
+        // share staging) from stacking transients until the caller's pool
+        // drains - which inside an async loop can be never, and inside the
+        // share extension's 120 MB budget is fatal.
+        autoreleasepool {
+            compressForPhotoAttachmentInPool(image, targetBytes: targetBytes, maxBytes: maxBytes, maxDimension: maxDimension)
+        }
+    }
+
+    private func compressForPhotoAttachmentInPool(
+        _ image: UIImage,
+        targetBytes: Int,
+        maxBytes: Int,
+        maxDimension: CGFloat
+    ) -> Data? {
         let size = image.size
         guard size.width > 0 && size.height > 0 else {
             Log.error("compressForPhotoAttachment: Invalid image size \(size)")

@@ -474,7 +474,7 @@ main() {
         echo "  - Review and merge the PR on GitHub"
         echo "  - GitHub Actions creates the tag automatically"
         echo "  - auto-release.yml creates the GitHub Release"
-        echo "  - Bitrise builds and deploys to TestFlight"
+        echo "  - GitHub Actions builds and deploys to TestFlight"
         echo ""
         print_status "To perform the actual release, run: ./Scripts/create-release-tag.sh"
     else

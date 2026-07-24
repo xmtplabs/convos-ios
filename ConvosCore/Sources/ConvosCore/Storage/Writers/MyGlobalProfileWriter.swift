@@ -102,8 +102,7 @@ final class MyGlobalProfileWriter: MyGlobalProfileWriterProtocol, Sendable {
     /// identifier — independent of photos library access — so activate-sync can detect
     /// when the image changed and re-upload to per-conversation members.
     private static func digest(of imageData: Data?) -> String? {
-        guard let imageData else { return nil }
-        return Data(SHA256.hash(data: imageData)).base64EncodedString()
+        ProfileImageDigest.digest(of: imageData)
     }
 
     func delete() async throws {
@@ -137,5 +136,17 @@ final class MyGlobalProfileWriter: MyGlobalProfileWriterProtocol, Sendable {
             trimmed = String(trimmed.prefix(NameLimits.maxDisplayNameLength))
         }
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+/// Content-addressed identity for profile image bytes: base64-encoded SHA-256.
+/// The single definition both the writer (which stores the digest on save) and
+/// the profile editors (which compare a candidate upload against the stored
+/// digest to skip republishing an unchanged image) must share - a divergence
+/// would silently defeat the skip.
+public enum ProfileImageDigest {
+    public static func digest(of imageData: Data?) -> String? {
+        guard let imageData else { return nil }
+        return Data(SHA256.hash(data: imageData)).base64EncodedString()
     }
 }

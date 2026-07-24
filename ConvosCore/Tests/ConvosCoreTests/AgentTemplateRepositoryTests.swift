@@ -65,7 +65,7 @@ struct AgentTemplateRepositoryTests {
         let api = HappyStubAPIClient()
         let repository = makeRepository(database: database, apiClient: api)
 
-        repository.startGeneration(prompt: "build me a chef", conversationId: "convo-1", slug: "chef.abcd")
+        await repository.startGeneration(prompt: "build me a chef", conversationId: "convo-1", slug: "chef.abcd")
 
         let row = try await waitForStatus(.invited, conversationId: "convo-1", in: database)
         #expect(row?.statusValue == .invited)
@@ -105,7 +105,7 @@ struct AgentTemplateRepositoryTests {
         let api = HappyStubAPIClient()
         let repository = makeRepository(database: database, apiClient: api)
 
-        repository.startGeneration(prompt: "build me a chef", conversationId: "convo-key", slug: "chef.abcd")
+        await repository.startGeneration(prompt: "build me a chef", conversationId: "convo-key", slug: "chef.abcd")
 
         let row = try await waitForStatus(.invited, conversationId: "convo-key", in: database)
         let persisted = try #require(row?.joinIdempotencyKey)
@@ -119,7 +119,7 @@ struct AgentTemplateRepositoryTests {
         let api = RetryJoinStubAPIClient(firstJoinError: URLError(.timedOut))
         let repository = makeRepository(database: database, apiClient: api)
 
-        repository.startGeneration(prompt: "build me a chef", conversationId: "convo-reuse", slug: "chef.abcd")
+        await repository.startGeneration(prompt: "build me a chef", conversationId: "convo-reuse", slug: "chef.abcd")
 
         let row = try await waitForStatus(.invited, conversationId: "convo-reuse", in: database)
         #expect(row?.statusValue == .invited)
@@ -136,7 +136,7 @@ struct AgentTemplateRepositoryTests {
         let api = RetryJoinStubAPIClient(firstJoinError: APIError.forbidden)
         let repository = makeRepository(database: database, apiClient: api)
 
-        repository.startGeneration(prompt: "build me a chef", conversationId: "convo-403", slug: "chef.abcd")
+        await repository.startGeneration(prompt: "build me a chef", conversationId: "convo-403", slug: "chef.abcd")
 
         let row = try await waitForStatus(.invited, conversationId: "convo-403", in: database)
         #expect(row?.statusValue == .invited)
@@ -153,7 +153,7 @@ struct AgentTemplateRepositoryTests {
         let api = RowDeletingProvisionFailStubAPIClient(database: database)
         let repository = makeRepository(database: database, apiClient: api)
 
-        repository.startGeneration(prompt: "build me a chef", conversationId: "convo-cleared", slug: "chef.abcd")
+        await repository.startGeneration(prompt: "build me a chef", conversationId: "convo-cleared", slug: "chef.abcd")
 
         // The stub deletes the row inside the first join call and then throws
         // an explicit provision failure. The re-mint branch must notice the
@@ -182,7 +182,7 @@ struct AgentTemplateRepositoryTests {
         let api = RetryJoinStubAPIClient(firstJoinError: APIError.agentProvisionFailed)
         let repository = makeRepository(database: database, apiClient: api)
 
-        repository.startGeneration(prompt: "build me a chef", conversationId: "convo-remint", slug: "chef.abcd")
+        await repository.startGeneration(prompt: "build me a chef", conversationId: "convo-remint", slug: "chef.abcd")
 
         let row = try await waitForStatus(.invited, conversationId: "convo-remint", in: database)
         #expect(row?.statusValue == .invited)
@@ -203,7 +203,7 @@ struct AgentTemplateRepositoryTests {
         let api = ModeratedStubAPIClient()
         let repository = makeRepository(database: database, apiClient: api)
 
-        repository.startGeneration(prompt: "disallowed", conversationId: "convo-2", slug: "x.y")
+        await repository.startGeneration(prompt: "disallowed", conversationId: "convo-2", slug: "x.y")
 
         let row = try await waitForStatus(.failed, conversationId: "convo-2", in: database)
         #expect(row?.statusValue == .failed)
@@ -222,7 +222,7 @@ struct AgentTemplateRepositoryTests {
             mimeType: "image/jpeg",
             filename: nil
         )
-        repository.startGeneration(
+        await repository.startGeneration(
             prompt: "build me a chef",
             conversationId: "convo-3",
             slug: "chef.abcd",

@@ -188,7 +188,7 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
 
     public func setIsOnConversationsList(_ isOn: Bool) {}
 
-    public func wakeInboxForNotification(conversationId: String) {}
+    public func wakeInboxForNotification() {}
 
     // MARK: - Helpers
 

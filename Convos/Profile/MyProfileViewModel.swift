@@ -1,4 +1,5 @@
 import Combine
+import ConvosComposer
 import ConvosCore
 import SwiftUI
 
@@ -155,7 +156,12 @@ class MyProfileViewModel {
         beginUpdate()
         let displayNameTask = updateDisplayNameTask
         let repository = messagingService.profilesRepository()
-        let avatarBytes = profileImage.jpegData(compressionQuality: 1.0)
+        // Compress for upload: every conversation re-encrypts and re-uploads
+        // whatever we pass, so a raw multi-MB encode multiplies across the
+        // whole conversation list. Falls back to the uncompressed encode only
+        // if compression fails.
+        let avatarBytes = ImageCache.shared.prepareForUpload(profileImage, forIdentifier: profile.imageCacheIdentifier)
+            ?? profileImage.jpegData(compressionQuality: 1.0)
         updateImageTask = Task { [weak self] in
             guard self != nil else { return }
             defer { Task { @MainActor [weak self] in self?.endUpdate() } }

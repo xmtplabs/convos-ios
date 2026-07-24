@@ -126,16 +126,55 @@ struct ProfilePublishStoreTests {
         #expect((fJob?.seq ?? 0) > 0)
 
         // reclaimStalledJobs returns an in-flight (uploading) job to pending so
-        // it is ready again; nextReadyJob excludes it while uploading.
+        // it is ready again; nextReadyJob excludes it while uploading, and an
+        // excluded (live) job keeps its claim.
         if var uploading = try await store.job(id: "F") {
             uploading.state = .uploading
             try await store.update(uploading)
         }
         let readyWhileUploading = try await store.nextReadyJob(now: now)
         #expect(readyWhileUploading == nil)
-        try await store.reclaimStalledJobs()
+        // earliestNextAttempt counts pending jobs only: an in-flight
+        // (uploading) job's past deadline must not arm a zero-delay retry
+        // timer that spins against work the drain cannot claim.
+        let earliestWhileUploading = try await store.earliestNextAttempt()
+        #expect(earliestWhileUploading == nil)
+        try await store.reclaimStalledJobs(excluding: ["F"])
+        let stillClaimed = try await store.nextReadyJob(now: now)
+        #expect(stillClaimed == nil)
+        try await store.reclaimStalledJobs(excluding: [])
         let readyAfterReclaim = try await store.nextReadyJob(now: now)
         #expect(readyAfterReclaim?.id == "F")
+        let earliestAfterReclaim = try await store.earliestNextAttempt()
+        #expect(earliestAfterReclaim == past1)
+
+        // enqueueNext returns the job it inserted.
+        let returned = try await store.enqueueNext { seq in
+            DBProfilePublishJob(id: "G", seq: seq, conversationId: "conv-2", nextAttemptAt: past1, createdAt: past1, updatedAt: past1)
+        }
+        #expect(returned.id == "G")
+        let storedG = try await store.job(id: "G")
+        #expect(storedG?.seq == returned.seq)
+
+        // claimJob atomically transitions pending -> uploading; a second claim
+        // (no longer pending) and a claim of a missing job both return nil.
+        let claimed = try await store.claimJob(id: "G", updatedAt: now)
+        #expect(claimed?.state == .uploading)
+        let claimedTwice = try await store.claimJob(id: "G", updatedAt: now)
+        #expect(claimedTwice == nil)
+        let claimedMissing = try await store.claimJob(id: "Z", updatedAt: now)
+        #expect(claimedMissing == nil)
+
+        // update refuses to resurrect a deleted job: a superseded in-flight
+        // job's state writes must throw, not re-insert the row.
+        try await store.deleteJob(id: "G")
+        var ghost = returned
+        ghost.state = .pending
+        await #expect(throws: (any Error).self) {
+            try await store.update(ghost)
+        }
+        let resurrected = try await store.job(id: "G")
+        #expect(resurrected == nil)
 
         // clearSource and deleteAll.
         try await store.clearSource(inboxId: "me")
