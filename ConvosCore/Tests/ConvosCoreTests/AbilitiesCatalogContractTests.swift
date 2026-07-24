@@ -472,6 +472,28 @@ struct MockAbilitiesServiceTests {
         #expect(catalog.abilities.first { $0.id == "googlecalendar" }?.entitlement?.status == .active)
     }
 
+    @Test("Outage-mode mutations persist across subsequent fetches")
+    func outageMutationsPersist() async throws {
+        let service = makeService(scenario: .entitlementsUnavailable)
+
+        // Begin only: the pending state must survive the next merge (the
+        // cancel path relies on the row showing Continue connecting).
+        _ = try await service.beginEntitlement(abilityId: "youtube")
+        var catalog = try await service.fetchCatalog()
+        #expect(catalog.entitlementsUnavailable)
+        #expect(catalog.abilities.first { $0.id == "youtube" }?.entitlement?.status == .pendingAuth)
+
+        // Completion flips it active; the merge must not revert it.
+        try await service.completeEntitlement(abilityId: "youtube")
+        catalog = try await service.fetchCatalog()
+        #expect(catalog.abilities.first { $0.id == "youtube" }?.entitlement?.status == .active)
+
+        // A revoke must not be resurrected by the stale cache either.
+        try await service.revokeEntitlement(abilityId: "googlecalendar")
+        catalog = try await service.fetchCatalog()
+        #expect(catalog.abilities.first { $0.id == "googlecalendar" }?.entitlementState == .notEntitled)
+    }
+
     @Test("Cold-start outage serves the flag with every state unknown")
     func coldStartOutageServesUnknown() async throws {
         let service = makeService(scenario: .entitlementsUnavailableColdStart)

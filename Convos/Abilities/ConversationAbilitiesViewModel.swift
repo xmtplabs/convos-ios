@@ -94,9 +94,15 @@ final class ConversationAbilitiesViewModel {
     }
 
     func refresh() async {
+        // Fetch both halves before committing either: publishing a fresh
+        // catalog with stale or empty opt-ins would render opted-in rows
+        // as off, and toggling one on would then overwrite the agent's
+        // real bundle selection with defaults.
         do {
-            catalog = try await service.fetchCatalog()
-            optIns = try await service.conversationAbilities(conversationId: conversationId)
+            let fetchedCatalog = try await service.fetchCatalog()
+            let fetchedOptIns = try await service.conversationAbilities(conversationId: conversationId)
+            catalog = fetchedCatalog
+            optIns = fetchedOptIns
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -127,6 +133,7 @@ final class ConversationAbilitiesViewModel {
         isBusy = true
         errorMessage = nil
         Task {
+            var mutationError: String?
             do {
                 try await service.extendAbility(
                     conversationId: conversationId,
@@ -137,19 +144,22 @@ final class ConversationAbilitiesViewModel {
             } catch AbilitiesServiceError.needsEntitlement {
                 needsEntitlementAbility = ability
             } catch {
-                errorMessage = error.localizedDescription
+                mutationError = error.localizedDescription
             }
             isBusy = false
             await refresh()
+            // The refresh clears errorMessage on success; re-assert the
+            // mutation failure so the bounced-back toggle is explained.
+            if let mutationError {
+                errorMessage = mutationError
+            }
         }
     }
 
-    /// Factory for the needs-entitlement deep link: the abilities list
-    /// presented in a sheet, driven by the same service so a connect there
-    /// is visible here after dismissal.
-    func makeAbilitiesListViewModel() -> AbilitiesListViewModel {
-        AbilitiesListViewModel(service: service)
-    }
+    /// The service driving this conversation's rows. The needs-entitlement
+    /// deep link hands it to `AbilitiesListScreen` so a connect there is
+    /// visible here after dismissal.
+    var abilitiesService: any AbilitiesServiceProtocol { service }
 
     private func requestExtension(for row: Row) {
         let ability = row.ability
@@ -168,6 +178,7 @@ final class ConversationAbilitiesViewModel {
         isBusy = true
         errorMessage = nil
         Task {
+            var mutationError: String?
             do {
                 try await service.withdrawAbility(
                     conversationId: conversationId,
@@ -175,10 +186,13 @@ final class ConversationAbilitiesViewModel {
                     agentInboxId: agent.inboxId
                 )
             } catch {
-                errorMessage = error.localizedDescription
+                mutationError = error.localizedDescription
             }
             isBusy = false
             await refresh()
+            if let mutationError {
+                errorMessage = mutationError
+            }
         }
     }
 

@@ -149,10 +149,12 @@ struct ConversationAbilitiesSection: View {
 
     /// The needs-entitlement deep link: the account-level abilities list on
     /// the same service, so connecting here is reflected in the toggles
-    /// after dismissal.
+    /// after dismissal (`handleSheetDismissed` refreshes). The screen
+    /// wrapper owns the list view model via `@State`, so re-evaluations of
+    /// this sheet-content builder cannot replace it mid-presentation.
     private func needsEntitlementSheet(_ ability: AbilitiesAPI.Ability) -> some View {
         NavigationStack {
-            AbilitiesListView(viewModel: viewModel.makeAbilitiesListViewModel())
+            AbilitiesListScreen(service: viewModel.abilitiesService)
                 .navigationTitle("Connect \(ability.displayName.resolved())")
                 .navigationBarTitleDisplayMode(.inline)
         }

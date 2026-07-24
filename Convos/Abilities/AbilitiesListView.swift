@@ -1,11 +1,33 @@
 import ConvosCore
 import SwiftUI
 
+/// Owns the abilities list view model via `@State`, so it is created once
+/// per navigation push or sheet presentation and survives re-evaluation
+/// of the presenting builder. Entry points must present this wrapper:
+/// constructing `AbilitiesListViewModel` inline in a navigation
+/// destination or sheet-content builder would hand `AbilitiesListView` a
+/// fresh model on every parent invalidation, silently dropping loaded
+/// catalog, busy, and pending-authorization state (and the list's
+/// `.task`, keyed to view identity, would not re-fire for the
+/// replacement).
+struct AbilitiesListScreen: View {
+    @State private var viewModel: AbilitiesListViewModel
+
+    init(service: any AbilitiesServiceProtocol) {
+        _viewModel = State(initialValue: AbilitiesListViewModel(service: service))
+    }
+
+    var body: some View {
+        AbilitiesListView(viewModel: viewModel)
+    }
+}
+
 /// The V2 abilities catalog list (account level): searchable, split into
 /// entitled and available sections, with status badges and
 /// connect/disconnect actions stubbed through `AbilitiesServiceProtocol`.
 ///
-/// Entry points (all flag-gated behind Abilities V2):
+/// Entry points (all flag-gated behind Abilities V2, all via
+/// `AbilitiesListScreen`, which owns the view model):
 /// - App Settings connections row (`AppSettingsView.connectionsDestination`)
 ///   pushes it in place of the V1 `ConnectionsListView`.
 /// - The conversation abilities section presents it as a sheet when a
@@ -277,32 +299,24 @@ struct AbilitiesListView: View {
 
 #Preview("Standard") {
     NavigationStack {
-        AbilitiesListView(
-            viewModel: AbilitiesListViewModel(service: MockAbilitiesService())
-        )
+        AbilitiesListScreen(service: MockAbilitiesService())
     }
 }
 
 #Preview("Entitlements unavailable") {
     NavigationStack {
-        AbilitiesListView(
-            viewModel: AbilitiesListViewModel(service: MockAbilitiesService(scenario: .entitlementsUnavailable))
-        )
+        AbilitiesListScreen(service: MockAbilitiesService(scenario: .entitlementsUnavailable))
     }
 }
 
 #Preview("Cold-start outage") {
     NavigationStack {
-        AbilitiesListView(
-            viewModel: AbilitiesListViewModel(service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart))
-        )
+        AbilitiesListScreen(service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart))
     }
 }
 
 #Preview("Device only") {
     NavigationStack {
-        AbilitiesListView(
-            viewModel: AbilitiesListViewModel(service: MockAbilitiesService(scenario: .deviceOnly))
-        )
+        AbilitiesListScreen(service: MockAbilitiesService(scenario: .deviceOnly))
     }
 }

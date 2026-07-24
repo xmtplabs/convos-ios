@@ -252,11 +252,13 @@ struct AppSettingsView: View {
     /// The V1 connections list, or the V2 abilities list behind the
     /// Abilities V2 feature flag (dev builds only; the flag is hard-locked
     /// off in production). Read at push time, so flipping the flag in the
-    /// debug menu takes effect on the next visit.
+    /// debug menu takes effect on the next visit. The V2 branch presents
+    /// `AbilitiesListScreen`, which owns its view model via `@State`, so
+    /// re-evaluations of this builder cannot replace the model mid-push.
     @ViewBuilder
     private var connectionsDestination: some View {
         if FeatureFlags.shared.isAbilitiesV2Enabled {
-            AbilitiesListView(viewModel: AbilitiesListViewModel(service: AbilitiesServices.shared))
+            AbilitiesListScreen(service: AbilitiesServices.shared)
         } else {
             ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
         }

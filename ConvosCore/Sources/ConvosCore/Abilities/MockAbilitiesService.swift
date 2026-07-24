@@ -177,6 +177,38 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
 
     private func setEntitlementState(_ state: AbilitiesAPI.EntitlementState, at index: Int) {
         abilities[index] = abilities[index].withEntitlementState(state)
+        updateLastKnownState(state, forAbilityId: abilities[index].id)
+    }
+
+    /// A successful mutation is authoritative knowledge for that ability
+    /// even while fetches serve `entitlementsUnavailable`: fold it into
+    /// the last-known catalog so the next fetch's merge does not visually
+    /// revert a connect, completion, revoke, or extension-count change.
+    /// With no cache yet the mutated ability becomes the only known state
+    /// (only reachable mid-outage; authoritative fetches rebuild the cache
+    /// from live state anyway).
+    private func updateLastKnownState(_ state: AbilitiesAPI.EntitlementState, forAbilityId abilityId: String) {
+        let baseline: AbilitiesCatalog
+        if let lastKnownCatalog {
+            baseline = lastKnownCatalog
+        } else if servesEntitlementsUnavailable {
+            baseline = AbilitiesCatalog(
+                catalogVersion: Constant.catalogVersion,
+                entitlementsUnavailable: true,
+                abilities: abilities.map { $0.withEntitlementState(.unknown) }
+            )
+        } else {
+            return
+        }
+        let updated: [AbilitiesAPI.Ability] = baseline.abilities.map { (ability: AbilitiesAPI.Ability) -> AbilitiesAPI.Ability in
+            guard ability.id == abilityId else { return ability }
+            return ability.withEntitlementState(state)
+        }
+        lastKnownCatalog = AbilitiesCatalog(
+            catalogVersion: baseline.catalogVersion,
+            entitlementsUnavailable: baseline.entitlementsUnavailable,
+            abilities: updated
+        )
     }
 
     /// Distinct conversations holding at least one live extension for the

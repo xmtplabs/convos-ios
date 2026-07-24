@@ -20,6 +20,13 @@ import Foundation
 /// invariants decoding does (throwing `WireValidationError`), so a
 /// schema-invalid response can neither be decoded nor constructed
 /// programmatically and encoded.
+///
+/// One deliberate exception: unknown object keys are tolerated on decode
+/// even though the schema declares `additionalProperties: false`.
+/// Rejecting them would need bespoke allKeys checks on every keyed type
+/// (including the currently synthesized ones) and would break the client
+/// on any backward-compatible server addition; strictness applies to the
+/// fields the client consumes, tolerant-reader to the rest.
 public enum AbilitiesAPI {
     /// Typed failures thrown by the wire models' public initializers,
     /// which enforce the same schema invariants decoding does.
@@ -89,6 +96,9 @@ public enum AbilitiesAPI {
     /// omits it until its asset story lands; clients fall back to a local
     /// symbol), but when present the schema requires both URLs, and both
     /// must parse as URLs with a scheme -- on decode and on construction.
+    /// Any scheme is accepted deliberately: the schema promises only
+    /// `format: uri`, so restricting to http(s) would over-tighten the
+    /// client beyond the contract.
     public struct AbilityIcon: Codable, Sendable, Hashable {
         public let iosUrl: String
         public let androidUrl: String
