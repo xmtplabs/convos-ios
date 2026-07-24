@@ -105,6 +105,26 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// the poll hit the default worker, which has no record of the instance.
     func getAgentJoinStatus(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentJoinStatusResponse
 
+    /// Sets how much the agents in a conversation may speak. The backend holds
+    /// the assistant control-plane key and forwards this; the app cannot reach
+    /// that plane directly. Paused depends on the hop: the level has to be
+    /// recorded there for a message to be refused before an agent is woken.
+    ///
+    /// Keyed by conversation, not by agent: one level governs every agent in
+    /// the room, and an agent that joins later inherits it.
+    func setAgentParticipation(
+        conversationId: String,
+        mode: String
+    ) async throws -> ConvosAPI.AgentParticipationResponse
+
+    /// The level a conversation is currently in. Any member may change it, so
+    /// a device-local guess goes stale the moment someone else does — the
+    /// control has to render from the shared record. Answered upstream without
+    /// waking an agent.
+    func getAgentParticipation(
+        conversationId: String
+    ) async throws -> ConvosAPI.AgentParticipationResponse
+
     // Agent templates
     /// Public detail fetch for a published agent template, keyed by its
     /// template id (UUID) or hashed url slug (e.g. `gandalf.felpl`). Backs the
@@ -876,6 +896,42 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // request fails fast and the next iteration's deadline check fires.
         request.timeoutInterval = 10
         return try await performRequest(request)
+    }
+
+    func setAgentParticipation(
+        conversationId: String,
+        mode: String
+    ) async throws -> ConvosAPI.AgentParticipationResponse {
+        var request = try authenticatedRequest(
+            for: "v2/conversations/\(participationPathComponent(conversationId))/participation",
+            method: "PATCH"
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // One small write that fans out to every agent in the conversation and,
+        // for the two speaking levels, on to their containers. Bounded so a
+        // stuck call cannot leave the menu waiting.
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(
+            ConvosAPI.AgentParticipationRequest(mode: mode)
+        )
+        return try await performRequest(request)
+    }
+
+    func getAgentParticipation(
+        conversationId: String
+    ) async throws -> ConvosAPI.AgentParticipationResponse {
+        var request = try authenticatedRequest(
+            for: "v2/conversations/\(participationPathComponent(conversationId))/participation",
+            method: "GET"
+        )
+        // Read on open; the control falls back to its default if this is slow,
+        // so it must not hold the view.
+        request.timeoutInterval = 10
+        return try await performRequest(request)
+    }
+
+    private func participationPathComponent(_ conversationId: String) -> String {
+        conversationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? conversationId
     }
 
     // MARK: - Agent templates

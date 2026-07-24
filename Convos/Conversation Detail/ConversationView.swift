@@ -4,6 +4,16 @@ import ConvosCoreiOS
 import ConvosMetrics
 import SwiftUI
 
+/// Publishes the composer's bounds up to the root so the floating participation
+/// card can be placed exactly above it — never reflowing the message list,
+/// never scrolling with it, never covering the input.
+private struct ComposerBoundsKey: PreferenceKey {
+    static let defaultValue: Anchor<CGRect>? = nil
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = nextValue() ?? value
+    }
+}
+
 struct ConversationView<MessagesBottomBar: View>: View {
     @Bindable var viewModel: ConversationViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
@@ -51,6 +61,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var showingAgentsInfo: Bool = false
+    /// Agent participation for this conversation, behind the Listen debug flag.
+    /// It lives here rather than in the composer because the level belongs to
+    /// the conversation; the composer only draws the control.
+    @State private var participation: AgentParticipationStore?
+    @State private var showingParticipationMenu: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     /// Tracks keyboard visibility so the pager dots hide and the pager-dots
     /// inset collapses while the keyboard is up.
@@ -373,8 +388,68 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
+                // Publish the bottom bar's bounds so the card can float exactly
+                // above it from the root overlay — never tied to scroll.
+                .anchorPreference(
+                    key: ComposerBoundsKey.self,
+                    value: .bounds
+                ) { $0 }
             }
         )
+        // Only where there is an agent to govern, and only while the Listen
+        // flag is on. Absent, the composer draws no bubble at all.
+        .environment(\.agentParticipation, participationContext)
+        .task(id: participationTaskKey) { await prepareParticipation() }
+        // The participation card floats just ABOVE the composer, placed against
+        // the composer's real bounds — so it never reflows the message list,
+        // never scrolls with it, and never covers the input. A full-screen scrim
+        // behind it dismisses on an outside tap without eating the card's taps.
+        .overlayPreferenceValue(ComposerBoundsKey.self) { anchor in
+            GeometryReader { proxy in
+                if showingParticipationMenu, let participation, let anchor {
+                    let composerRect = proxy[anchor]
+                    ZStack(alignment: .bottomLeading) {
+                        Color.black.opacity(0.001)
+                            .ignoresSafeArea()
+                            .contentShape(.rect)
+                            .onTapGesture {
+                                withAnimation(.snappy(duration: 0.2)) {
+                                    showingParticipationMenu = false
+                                }
+                            }
+
+                        AgentParticipationMenu(
+                            selection: participation.level,
+                            showsBackground: true
+                        ) { level in
+                            withAnimation(.snappy(duration: 0.2)) {
+                                showingParticipationMenu = false
+                            }
+                            Task { await participation.set(level) }
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                        .padding(
+                            .bottom,
+                            proxy.size.height - composerRect.minY + DesignConstants.Spacing.step3x
+                        )
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                }
+            }
+        }
+        .alert(
+            "Participation not updated",
+            isPresented: Binding(
+                get: { participation?.errorMessage != nil },
+                set: { if !$0 { participation?.dismissError() } }
+            )
+        ) {
+            Button("OK", role: .cancel) { participation?.dismissError() }
+        } message: {
+            Text(participation?.errorMessage ?? "Please try again.")
+        }
     }
 
     @ToolbarContentBuilder
@@ -875,5 +950,44 @@ extension ConversationView {
             onNewConvoInviteChanged: handleNewConvoInviteChanged(from:to:),
             onAddFromContactsChanged: handleAddFromContactsChanged(from:to:)
         )
+    }
+}
+
+private extension ConversationView {
+    /// What the composer needs to draw the bubble: the level, and the tap.
+    /// `nil` in a conversation with no agent — a control for agents has no
+    /// business in a room without one.
+    var participationContext: AgentParticipationContext? {
+        guard let participation else { return nil }
+        return AgentParticipationContext(level: participation.level) {
+            withAnimation(.snappy(duration: 0.2)) {
+                showingParticipationMenu.toggle()
+            }
+        }
+    }
+
+    /// Keys the participation `.task` on the conversation AND on whether it has
+    /// an agent, so an agent that joins an already-open conversation re-runs
+    /// `prepareParticipation` and surfaces the control — keying on the
+    /// conversation id alone would miss that transition.
+    var participationTaskKey: String {
+        let hasAgent = viewModel.conversation.members.contains(where: \.isAgent)
+        return "\(viewModel.conversation.id)-\(hasAgent)"
+    }
+
+    /// Builds the store for this conversation and reads its current level.
+    /// Skipped where the control would be meaningless, so a conversation
+    /// without agents never spends a request on it.
+    func prepareParticipation() async {
+        guard FeatureFlags.shared.isListenParticipationEnabled,
+              viewModel.conversation.members.contains(where: \.isAgent) else {
+            participation = nil
+            return
+        }
+        let store = AgentParticipationStore(
+            conversationId: viewModel.conversation.id
+        )
+        participation = store
+        await store.load()
     }
 }
