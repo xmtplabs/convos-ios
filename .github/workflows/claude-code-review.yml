@@ -12,7 +12,10 @@ on:
 
 jobs:
   claude-review:
-    if: github.event.pull_request.head.repo.fork == false
+    # Train-authored PRs (release/hotfix branches and bot version bumps) don't
+    # need automatic review; @claude / /claude mentions still work to
+    # explicitly summon a review on any PR, including these.
+    if: github.event.pull_request.head.repo.fork == false && github.event.pull_request.user.login != 'convos-conductor[bot]'
     # Optional: Filter by PR author
     # if: |
     #   github.event.pull_request.user.login == 'external-contributor' ||

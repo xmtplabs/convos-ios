@@ -34,10 +34,17 @@ actor ProfilePublisher {
     private let selfInboxIdProvider: @Sendable () async -> String?
     private let now: @Sendable () -> Date
     private let backoff: PublishBackoff
+    private let sleep: @Sendable (TimeInterval) async throws -> Void
 
     private var session: (any ProfilePublishSession)?
     private var draining: Bool = false
+    private var redrainRequested: Bool = false
+    /// Jobs currently claimed by the inline publish or the drain loop, so a
+    /// concurrent drain's stalled-job reclaim never returns live work to the
+    /// ready pool and processes it twice.
+    private var inFlightJobIds: Set<String> = []
     private var cachedSelfInboxId: String?
+    private var retryTimer: Task<Void, Never>?
 
     init(
         publishStore: any ProfilePublishStoreProtocol,
@@ -46,7 +53,8 @@ actor ProfilePublisher {
         conversationLocalStateWriter: any ConversationLocalStateWriterProtocol,
         selfInboxIdProvider: @escaping @Sendable () async -> String?,
         now: @escaping @Sendable () -> Date = { Date() },
-        backoff: PublishBackoff = .default
+        backoff: PublishBackoff = .default,
+        sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
     ) {
         self.publishStore = publishStore
         self.profileStore = profileStore
@@ -55,6 +63,7 @@ actor ProfilePublisher {
         self.selfInboxIdProvider = selfInboxIdProvider
         self.now = now
         self.backoff = backoff
+        self.sleep = sleep
     }
 
     private func resolveSelfInboxId() async -> String? {
@@ -71,6 +80,8 @@ actor ProfilePublisher {
 
     func detach() {
         session = nil
+        retryTimer?.cancel()
+        retryTimer = nil
     }
 
     /// Records a new source avatar so subsequent per-conversation publishes
@@ -97,53 +108,149 @@ actor ProfilePublisher {
     }
 
     /// Seeds a single conversation with the current profile (e.g. a freshly
-    /// created or joined group), then drains.
+    /// created or joined group). Processes that conversation's job inline -
+    /// callers include the pre-send hook on every outgoing message, which must
+    /// never wait behind other conversations' uploads - and kicks a background
+    /// drain for whatever else is ready.
     func publishConversation(_ conversationId: String) async throws {
         guard let selfInboxId = await resolveSelfInboxId() else { return }
         let source = try await publishStore.source(inboxId: selfInboxId)
-        try await enqueueJob(conversationId: conversationId, sourceVersion: source?.version, hasAvatar: source != nil)
-        await drainReadyJobs()
+        let selfProfile = try await selfProfileStore.load()
+        let job = try await enqueueJob(
+            conversationId: conversationId,
+            sourceVersion: source?.version,
+            hasAvatar: source != nil,
+            profileUpdatedAt: selfProfile?.updatedAt
+        )
+        if let session {
+            // Registered before the claim write, not after it returns: a
+            // concurrent drain snapshots this set for its stalled-job reclaim,
+            // and in the suspension window between the claim committing
+            // (pending -> uploading) and this actor resuming, an unregistered
+            // id would look stranded - the reclaim would flip it back to
+            // pending and the drain would process it a second time.
+            inFlightJobIds.insert(job.id)
+            defer { inFlightJobIds.remove(job.id) }
+            // A claim failure is logged, not thrown: the job is already
+            // durably enqueued, so the background drain retries it, and the
+            // pre-send hook must not fail the user's message over a transient
+            // store error when eventual publish is guaranteed.
+            let claimed: DBProfilePublishJob?
+            do {
+                claimed = try await publishStore.claimJob(id: job.id, updatedAt: now())
+            } catch {
+                claimed = nil
+                Log.error("ProfilePublisher: failed to claim inline job \(job.id): \(error)")
+            }
+            if let claimed {
+                await process(claimed, session: session, selfInboxId: selfInboxId)
+            }
+        }
+        kickBackgroundDrain()
+    }
+
+    /// Runs a full drain off the caller's execution path. The `draining` guard
+    /// serializes with any drain already in flight.
+    private func kickBackgroundDrain() {
+        Task { await drainReadyJobs() }
     }
 
     func drainReadyJobs() async {
-        guard !draining, let session else { return }
+        // A drain requested while one is running must not be dropped: the
+        // running drain's job scan and timer snapshot may both predate the
+        // requester's enqueue, which would leave that job waiting for the next
+        // external trigger. Flag it and let the running drain loop once more.
+        if draining {
+            redrainRequested = true
+            return
+        }
+        guard session != nil else { return }
         draining = true
         defer { draining = false }
-        guard let selfInboxId = await resolveSelfInboxId() else { return }
-        // Return jobs a previous drain left mid-flight to the ready pool.
-        try? await publishStore.reclaimStalledJobs()
-        while let job = try? await publishStore.nextReadyJob(now: now()) {
-            guard let claimed = await claim(job) else { break }
+        repeat {
+            redrainRequested = false
+            // A pass that hit a store error stops without re-arming the timer:
+            // the failing job's past deadline would arm a zero-delay timer
+            // that immediately re-enters the failing pass, a hot loop. The
+            // next external trigger (message send, launch, attach) retries.
+            guard await drainPass() else { return }
+            await armRetryTimer()
+        } while redrainRequested
+    }
+
+    /// Runs one drain pass. Returns false when a store error stopped the pass
+    /// early - the caller must not re-arm the retry timer off that state.
+    private func drainPass() async -> Bool {
+        guard let session else { return true }
+        guard let selfInboxId = await resolveSelfInboxId() else { return true }
+        // Return jobs a previous process instance left mid-flight to the ready
+        // pool. Jobs currently being processed inline by publishConversation
+        // are alive, not stalled - reclaiming one mid-upload would let this
+        // drain claim and process it a second time.
+        try? await publishStore.reclaimStalledJobs(excluding: inFlightJobIds)
+        while true {
+            // A fetch error must be distinguishable from an empty queue: with
+            // `try?` a persistently failing row read looks like "done", while
+            // the failing job stays pending forever with no signal.
+            let job: DBProfilePublishJob?
+            do {
+                job = try await publishStore.nextReadyJob(now: now())
+            } catch {
+                Log.error("ProfilePublisher: failed to fetch next ready job, stopping drain: \(error)")
+                return false
+            }
+            guard let job else { return true }
+            // The atomic claim (pending -> uploading) is what keeps this loop
+            // and the inline per-conversation path from double-processing a
+            // job. A nil claim means the job was claimed or superseded between
+            // fetch and claim - skip it; it is no longer pending so the next
+            // fetch cannot return it again. A thrown claim (persistent write
+            // error) stops the drain so it can't hot-loop.
+            let claimed: DBProfilePublishJob?
+            do {
+                claimed = try await publishStore.claimJob(id: job.id, updatedAt: now())
+            } catch {
+                Log.error("ProfilePublisher: failed to claim job \(job.id): \(error)")
+                return false
+            }
+            guard let claimed else { continue }
+            inFlightJobIds.insert(claimed.id)
+            defer { inFlightJobIds.remove(claimed.id) }
             await process(claimed, session: session, selfInboxId: selfInboxId)
         }
     }
 
-    /// Marks a ready job in-flight (`uploading`) before processing it. Because
-    /// `nextReadyJob` only returns `pending` jobs, this guarantees a job whose
-    /// delete or reschedule fails can't be handed straight back to the loop and
-    /// spin it. Returns nil (stop draining) if the claim write itself fails, so
-    /// a persistent write error can't hot-loop. A job left `uploading` by an
-    /// interrupted drain is reclaimed at the next drain.
-    private func claim(_ job: DBProfilePublishJob) async -> DBProfilePublishJob? {
-        var claimed = job
-        claimed.state = .uploading
-        claimed.updatedAt = now()
-        do {
-            try await publishStore.update(claimed)
-            return claimed
-        } catch {
-            Log.error("ProfilePublisher: failed to claim job \(job.id): \(error)")
-            return nil
+    /// Schedules the next drain for the earliest rescheduled job, so backoff
+    /// deadlines actually fire instead of waiting for the next app launch or
+    /// message send. Re-armed after every drain; cancelled on detach.
+    private func armRetryTimer() async {
+        retryTimer?.cancel()
+        retryTimer = nil
+        guard session != nil else { return }
+        guard let earliest = try? await publishStore.earliestNextAttempt() else { return }
+        let delay = max(0, earliest.timeIntervalSince(now()))
+        retryTimer = Task { [sleep] in
+            do {
+                try await sleep(delay)
+            } catch {
+                return
+            }
+            await self.drainReadyJobs()
         }
     }
 
     // MARK: - Enqueue
 
-    private func enqueueJob(conversationId: String, sourceVersion: Int64?, hasAvatar: Bool) async throws {
+    private func enqueueJob(
+        conversationId: String,
+        sourceVersion: Int64?,
+        hasAvatar: Bool,
+        profileUpdatedAt: Date?
+    ) async throws -> DBProfilePublishJob {
         let timestamp = now()
         // Assign seq, insert, and supersede this conversation's older jobs in one
         // atomic write so concurrent enqueues can't collide on seq.
-        try await publishStore.enqueueNext { seq in
+        return try await publishStore.enqueueNext { seq in
             DBProfilePublishJob(
                 id: UUID().uuidString,
                 seq: seq,
@@ -151,6 +258,7 @@ actor ProfilePublisher {
                 sourceVersion: sourceVersion,
                 hasAvatar: hasAvatar,
                 nextAttemptAt: timestamp,
+                profileUpdatedAt: profileUpdatedAt,
                 createdAt: timestamp,
                 updatedAt: timestamp
             )
@@ -168,6 +276,13 @@ actor ProfilePublisher {
             }
             try? await publishStore.deleteJob(id: job.id)
         } catch is PublishDropError {
+            try? await publishStore.deleteJob(id: job.id)
+        } catch is ProfilePublishSessionError {
+            // The XMTP conversation is gone (deleted or left) - the send can
+            // never succeed, so drop the job instead of retrying forever at
+            // the backoff cap. The avatar path already drops via a nil image
+            // key; this covers name-only jobs.
+            Log.warning("ProfilePublisher: dropping job \(job.id) for missing conversation \(job.conversationId)")
             try? await publishStore.deleteJob(id: job.id)
         } catch {
             await reschedule(job, error: error)
@@ -228,7 +343,7 @@ actor ProfilePublisher {
             updatedAt: now()
         )
         try await profileStore.saveAvatar(slot)
-        await stampPublished(selfProfile, conversationId: job.conversationId)
+        await stampPublished(job)
     }
 
     private func processNameOnlyJob(_ job: DBProfilePublishJob, session: any ProfilePublishSession, selfInboxId: String) async throws {
@@ -237,7 +352,7 @@ actor ProfilePublisher {
         let selfProfile = try await selfProfileStore.load()
         let metadata = try await outgoingMetadata(for: job.conversationId, selfInboxId: selfInboxId, selfProfile: selfProfile)
         try await session.sendProfileUpdate(name: selfProfile?.name, metadata: metadata, avatar: published, conversationId: job.conversationId)
-        await stampPublished(selfProfile, conversationId: job.conversationId)
+        await stampPublished(job)
     }
 
     // MARK: - Scoped metadata
@@ -300,15 +415,20 @@ actor ProfilePublisher {
         return merged.isEmpty ? nil : merged
     }
 
-    /// Records that the self profile as of `selfProfile.updatedAt` has actually
-    /// been delivered to this conversation, so the change-aware lazy sync stops
-    /// re-publishing until the next edit. Stamped only after a successful send -
-    /// never optimistically - so a failed or dropped publish leaves the
-    /// conversation marked stale and eligible for retry. Best-effort: a stamp
-    /// failure just means a harmless duplicate publish next time.
-    private func stampPublished(_ selfProfile: DBMyProfile?, conversationId: String) async {
-        guard let updatedAt = selfProfile?.updatedAt else { return }
-        try? await conversationLocalStateWriter.setPublishedProfileUpdatedAt(updatedAt, for: conversationId)
+    /// Records that the self profile as of the job's enqueue time has been
+    /// delivered to this conversation, so the change-aware lazy sync stops
+    /// re-publishing until the next edit. The stamp is the enqueue-time
+    /// `profileUpdatedAt` pinned on the job, never the send-time value: the
+    /// job's content decisions were made at enqueue, so an edit made after
+    /// enqueue must leave the conversation stale and eligible for re-publish
+    /// (stamping the newer value would suppress that edit's publish forever).
+    /// Stamped only after a successful send - never optimistically - so a
+    /// failed or dropped publish leaves the conversation stale. Best-effort: a
+    /// stamp failure or a nil pin (legacy job rows) just means a harmless
+    /// duplicate publish next time.
+    private func stampPublished(_ job: DBProfilePublishJob) async {
+        guard let profileUpdatedAt = job.profileUpdatedAt else { return }
+        try? await conversationLocalStateWriter.setPublishedProfileUpdatedAt(profileUpdatedAt, for: job.conversationId)
     }
 
     private func publishedAvatar(from slot: DBProfileAvatar?) -> PublishedAvatar? {

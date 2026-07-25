@@ -1,4 +1,5 @@
 import Combine
+import ConvosComposer
 import ConvosCore
 import SwiftUI
 
@@ -38,6 +39,12 @@ class ProfileSettingsViewModel {
     /// `Profile.imageSourceContentDigest` to confirm a per-conversation avatar was synced
     /// from the current global photo (used to avoid avatar flicker mid-sync).
     var profileImageContentDigest: String?
+    /// The persisted image bytes exactly as stored, kept so an unchanged-image
+    /// save can re-persist the same bytes (and digest) instead of re-encoding
+    /// the decoded `profileImage`, which would produce new bytes and defeat the
+    /// republish skip.
+    @ObservationIgnored
+    private var loadedImageData: Data?
 
     var exampleDisplayName: String = "Somebody"
 
@@ -135,6 +142,7 @@ class ProfileSettingsViewModel {
         editingDisplayName = profile?.name ?? ""
         loadedDisplayName = profile?.name
         loadedMetadata = profile?.metadata
+        loadedImageData = profile?.imageData
         profileImage = profile?.imageData.flatMap(UIImage.init(data:))
         profileImageAssetIdentifier = profile?.imageAssetIdentifier
         profileImageContentDigest = profile?.imageContentDigest
@@ -169,7 +177,23 @@ class ProfileSettingsViewModel {
         // stores truncated locally but publishes the full string, so other
         // conversations show a different name than the one saved.
         let resolvedName: String? = rawName.map { String($0.prefix(NameLimits.maxDisplayNameLength)) }
-        let imageData = profileImage?.jpegData(compressionQuality: 1.0)
+        // Compress for upload (a raw picker image is multi-MB; every
+        // conversation re-encrypts and re-uploads whatever we pass), falling
+        // back to the uncompressed encode only if compression fails. An
+        // unchanged image - same digest as the stored bytes - re-persists the
+        // stored bytes and skips the republish entirely, so a pure name edit
+        // no longer fans identical image uploads out to every conversation.
+        let preparedImage: Data?
+        if let profileImage {
+            preparedImage = ImageCache.shared.prepareForUpload(profileImage, forIdentifier: Constant.uploadStagingIdentifier)
+                ?? profileImage.jpegData(compressionQuality: 1.0)
+        } else {
+            preparedImage = nil
+        }
+        let imageUnchanged = preparedImage != nil
+            && profileImageContentDigest != nil
+            && ProfileImageDigest.digest(of: preparedImage) == profileImageContentDigest
+        let imageData = imageUnchanged ? loadedImageData : preparedImage
         let assetIdentifier = imageData == nil ? nil : profileImageAssetIdentifier
         try await writer.save(
             name: resolvedName,
@@ -182,7 +206,7 @@ class ProfileSettingsViewModel {
         // `writer.save` above still owns the edit-side form model (DBMyProfile).
         try await session?.messagingServiceSync().profilesRepository().publishMyProfile(
             displayName: resolvedName,
-            avatarBytes: imageData,
+            avatarBytes: imageUnchanged ? nil : preparedImage,
             priorityConversationId: nil
         )
         // Arm the empty-save guard immediately. `loadedDisplayName` is otherwise
@@ -230,8 +254,15 @@ class ProfileSettingsViewModel {
         editingDisplayName = ""
         loadedDisplayName = nil
         loadedMetadata = nil
+        loadedImageData = nil
         profileImage = nil
         profileImageAssetIdentifier = nil
         profileImageContentDigest = nil
+    }
+
+    private enum Constant {
+        /// Staging-cache key for the compressed self-profile upload; there is
+        /// exactly one global self image, so a fixed identifier suffices.
+        static let uploadStagingIdentifier: String = "my-global-profile-upload"
     }
 }

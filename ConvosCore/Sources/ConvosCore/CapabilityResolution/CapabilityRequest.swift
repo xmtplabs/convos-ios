@@ -27,6 +27,10 @@ public struct CapabilityRequest: Codable, Sendable, Hashable {
     /// agree on the asking identity even when the message hasn't been verified yet —
     /// and so that the persisted grant row, the connection_event credit, and the
     /// resolver lookup all key off the same value the sender chose to publish.
+    ///
+    /// On iOS this is not trusted blindly: `validateCapabilityRequest` drops the
+    /// message at persist time unless `askerInboxId` matches the XMTP-attested
+    /// sender, so a hostile member cannot claim another agent's inbox.
     public let askerInboxId: String
     public let subject: CapabilitySubject
     public let capability: ConnectionCapability

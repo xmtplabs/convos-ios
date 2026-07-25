@@ -594,6 +594,11 @@ extension XMTPiOS.DecodedMessage {
         guard let request = content as? CapabilityRequest else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
+        try Self.validateCapabilityRequest(
+            request,
+            senderInboxId: senderInboxId,
+            messageId: id
+        )
         let json = try JSONEncoder().encode(request)
         let text = String(data: json, encoding: .utf8)
         return DBMessageComponents(
@@ -605,6 +610,28 @@ extension XMTPiOS.DecodedMessage {
             text: text,
             update: nil
         )
+    }
+
+    /// Validates a `CapabilityRequest` against its actual sender. Throws
+    /// `untrustedSender` when the payload's `askerInboxId` does not match the
+    /// XMTP-attested sender. The asker identity is bound on the wire so the
+    /// runtime, CLI, and iOS agree on it, but a hostile group member on a
+    /// custom client could otherwise claim a verified agent's inbox and trick
+    /// the user into approving a real grant the agent never requested. The
+    /// legitimate Herald path stamps the authenticated agent inbox as sender,
+    /// so this check passes for genuine requests. Mirrors
+    /// `validateConnectionGrantRequest`.
+    static func validateCapabilityRequest(
+        _ request: CapabilityRequest,
+        senderInboxId: String,
+        messageId: String
+    ) throws {
+        guard request.askerInboxId == senderInboxId else {
+            Log.warning(
+                "Dropping CapabilityRequest \(messageId): sender \(senderInboxId) does not match askerInboxId \(request.askerInboxId)"
+            )
+            throw DecodedMessageDBRepresentationError.untrustedSender
+        }
     }
 
     /// Result rows are persisted verbatim; legitimacy is enforced at derivation

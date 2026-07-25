@@ -183,6 +183,18 @@ public struct FileLogHandler: LogHandler {
     }
 }
 
+// MARK: - Flushing
+
+public extension FileLogHandler {
+    /// Blocks until every log line enqueued so far has been written to the
+    /// shared file. Writes run async on a serial queue, so a process that is
+    /// about to be terminated (an app extension calling completeRequest)
+    /// loses its tail of pending lines unless it flushes first.
+    static func flush() {
+        Self.queue.sync {}
+    }
+}
+
 // MARK: - Factory methods
 
 public extension FileLogHandler {

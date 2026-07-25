@@ -1,3 +1,4 @@
+import ConvosComposer
 import ConvosCore
 import ConvosCoreiOS
 import SwiftUI
@@ -121,9 +122,52 @@ struct MessagesView<BottomBarContent: View>: View {
     /// for HTML attachments. Non-HTML previews still go through the
     /// UIKit path in `MessagesViewController.presentAttachmentPreview`.
     @State private var htmlAttachmentPreview: HTMLAttachmentPreviewItem?
+    /// Same bridge for non-HTML file attachments (PDFs etc.) - no zoom
+    /// transition, just the preview sheet.
+    @State private var fileAttachmentPreview: FileAttachmentPreviewItem?
     /// Shared namespace between the `HTMLAttachmentBubble` source and
     /// the sheet's `.navigationTransition(.zoom(...))` destination.
     @Namespace private var htmlAttachmentTransitionNamespace: Namespace.ID
+
+    @MainActor @ViewBuilder
+    private func composerQuickEditView(placeholderText: String, isImagePickerPresented: Binding<Bool>) -> some View {
+        QuickEditView(
+            placeholderText: placeholderText,
+            text: $displayName,
+            image: $profileImage,
+            isImagePickerPresented: isImagePickerPresented,
+            imageAssetIdentifier: Binding(
+                get: { ProfileSettingsViewModel.shared.profileImageAssetIdentifier },
+                set: { ProfileSettingsViewModel.shared.profileImageAssetIdentifier = $0 }
+            ),
+            focusState: $focusState,
+            focused: .displayName,
+            settingsSymbolName: "lanyardcard.fill",
+            showsSettingsButton: false,
+            onSubmit: onDisplayNameEndedEditing,
+            onSettings: onProfileSettings
+        )
+    }
+
+    private var composerAgentShareChip: some View {
+        AgentContactCardChip(
+            displayName: pendingAgentShareName ?? "Agent",
+            emoji: pendingAgentShareEmoji,
+            summary: pendingAgentShareSummary,
+            onRemove: { onClearAgentShare?() }
+        )
+    }
+
+    private var representableAgentBuilderSummaryProvider: (AgentBuilderCardContent) -> AnyView {
+        { content in
+            AnyView(AgentBuilderSummaryView(
+                content: content,
+                connectionChipImageName: { identifier in
+                    AgentBuilderConnection(rawValue: identifier)?.chipImageName
+                }
+            ))
+        }
+    }
 
     var body: some View {
         MessagesViewRepresentable(
@@ -176,11 +220,22 @@ struct MessagesView<BottomBarContent: View>: View {
                     sentAt: sentAt
                 )
             },
+            onPresentFileAttachmentPreview: { attachment, fileURL, sender, sentAt in
+                fileAttachmentPreview = FileAttachmentPreviewItem(
+                    attachment: attachment,
+                    fileURL: fileURL,
+                    sender: sender,
+                    sentAt: sentAt
+                )
+            },
             showsInviteScanCard: showsInviteScanCard,
             inviteScanMode: inviteScanMode,
             inviteScanInitialSegment: inviteScanInitialSegment,
             onScannedInviteCode: onScannedInviteCode,
             onInviteShareCompleted: onInviteShareCompleted,
+            agentBuilderSummaryProvider: representableAgentBuilderSummaryProvider,
+            currentUserProfileImage: { ProfileSettingsViewModel.shared.profileImage },
+            backwardsSecrecyInfoSheet: { AnyView(BackwardsSecrecyInfoView()) },
             bottomBarHeight: bottomBarHeight + extraBottomInset,
             // Read-only hosts never render the composer (see the
             // `safeAreaBar` below), so the controller must not wait for a
@@ -217,17 +272,12 @@ struct MessagesView<BottomBarContent: View>: View {
                     pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                     onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                     onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
-                    pendingAgentShareName: pendingAgentShareName,
-                    pendingAgentShareEmoji: pendingAgentShareEmoji,
-                    pendingAgentShareSummary: pendingAgentShareSummary,
                     isShowingAgentShareChip: isShowingAgentShareChip,
-                    onClearAgentShare: onClearAgentShare,
                     sendButtonEnabled: sendButtonEnabled,
                     profileImage: $profileImage,
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     focusState: $focusState,
                     focusCoordinator: focusCoordinator,
-                    onboardingCoordinator: onboardingCoordinator,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
                     onSendMessage: {
                         scrollToBottom?()
@@ -261,6 +311,18 @@ struct MessagesView<BottomBarContent: View>: View {
                             // bar (same reason the context-menu overlay does).
                             .environment(\.agentShareResolver, agentShareResolver)
                         }
+                    },
+                    quickEditView: { placeholderText, isImagePickerPresented in
+                        composerQuickEditView(
+                            placeholderText: placeholderText,
+                            isImagePickerPresented: isImagePickerPresented
+                        )
+                    },
+                    fileAttachmentPreview: { file in
+                        ComposerFileAttachmentPreview(file: file)
+                    },
+                    agentShareChip: {
+                        composerAgentShareChip
                     }
                 )
                 .opacity(contextMenuState.isPresented ? 0.0 : 1.0)
@@ -297,6 +359,15 @@ struct MessagesView<BottomBarContent: View>: View {
             )
             .navigationTransition(.zoom(sourceID: item.attachment.key, in: htmlAttachmentTransitionNamespace))
         }
+        .sheet(item: $fileAttachmentPreview) { item in
+            AttachmentPreviewSheet(
+                attachment: item.attachment,
+                fileURL: item.fileURL,
+                sender: item.sender,
+                sentAt: item.sentAt,
+                profileSheetContent: profileSheetForMember
+            )
+        }
     }
 }
 
@@ -306,6 +377,16 @@ struct MessagesView<BottomBarContent: View>: View {
 /// representable bridges the call into SwiftUI state when an HTML
 /// attachment is tapped, so the matched-geometry zoom transition can fire.
 struct HTMLAttachmentPreviewItem: Identifiable, Equatable {
+    let id: UUID = UUID()
+    let attachment: HydratedAttachment
+    let fileURL: URL
+    let sender: ConversationMember
+    let sentAt: Date
+}
+
+/// Same payload for non-HTML file attachments; presented without the zoom
+/// transition (the file bubble has no matched-geometry source).
+struct FileAttachmentPreviewItem: Identifiable, Equatable {
     let id: UUID = UUID()
     let attachment: HydratedAttachment
     let fileURL: URL

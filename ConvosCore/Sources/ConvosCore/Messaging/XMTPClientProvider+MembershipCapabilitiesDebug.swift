@@ -1,6 +1,6 @@
 import ConvosAppData
 import Foundation
-import XMTPiOS
+@_spi(Unstable) import XMTPiOS
 
 public struct GroupMembershipCapabilitiesDebugInfo: Sendable {
     public struct InstallationEntry: Sendable {
@@ -129,7 +129,7 @@ public extension XMTPClientProvider {
 
     /// Enable membership proposals ("migrate" the group) from the debug view.
     ///
-    /// Wraps the SDK `Group.enableProposals(force:minVersion:)`. When set,
+    /// Wraps the SDK `UnstableGroup.enableProposals(force:minVersion:)`. When set,
     /// `minVersion` is the minimum libxmtp version an installation must run for
     /// the migration to proceed; installations below it block it. `force`
     /// bypasses the per-member capability precheck (the SDK otherwise hard-fails
@@ -143,7 +143,7 @@ public extension XMTPClientProvider {
               case .group(let group) = xmtpConversation else {
             throw XMTPClientProviderError.conversationNotFound(id: conversationId)
         }
-        try await group.enableProposals(force: force, minVersion: minVersion)
+        try await group.unstable.enableProposals(force: force, minVersion: minVersion)
     }
 }
 

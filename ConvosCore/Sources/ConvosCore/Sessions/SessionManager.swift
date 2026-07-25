@@ -427,7 +427,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 databaseReader: databaseReader,
                 databaseWriter: databaseWriter,
                 environment: environment,
-                startsStreamingServices: true,
+                startsStreamingServices: platformProviders.startsStreamingServices,
                 platformProviders: platformProviders,
                 deviceRegistrationManager: deviceRegistrationManager,
                 apiClient: apiClient,
@@ -759,7 +759,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         notificationChangeReporter.notifyChangesInDatabase()
     }
 
-    public func wakeInboxForNotification(conversationId: String) {
+    public func wakeInboxForNotification() {
         _ = loadOrCreateService()
     }
 

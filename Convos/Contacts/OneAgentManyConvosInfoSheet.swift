@@ -1,3 +1,4 @@
+import ConvosComposer
 import SwiftUI
 
 /// Shown as a confirmation step before starting a conversation that

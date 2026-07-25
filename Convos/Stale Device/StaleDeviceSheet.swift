@@ -1,3 +1,4 @@
+import ConvosComposer
 import SwiftUI
 
 /// Presented from `ConversationsView` as a self-sizing sheet when

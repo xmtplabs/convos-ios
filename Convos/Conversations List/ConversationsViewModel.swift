@@ -1,4 +1,5 @@
 import Combine
+import ConvosComposer
 import ConvosCore
 import ConvosMetrics
 import Foundation
@@ -159,6 +160,11 @@ final class ConversationsViewModel {
     var presentingPinLimitInfo: Bool = false
 
     var conversations: [Conversation] = []
+    /// Whether `conversations` has received its first real value from the
+    /// database (first-frame prime or first publisher emission). Until then
+    /// an empty array means "not loaded yet", not "no conversations", so the
+    /// empty-state CTA must stay hidden.
+    private(set) var hasLoadedInitialConversations: Bool = false
     private(set) var hiddenConversationIds: Set<String> = []
     private var conversationsCount: Int = 0 {
         didSet {
@@ -235,9 +241,13 @@ final class ConversationsViewModel {
     /// `ConversationsListEmptyCTA` ("Pop-up private convos"). Mirrors the
     /// SwiftUI-side gate inside `ConversationsView.sidebarContent` so the
     /// shell can swap the chats tab for an inline agent builder and hide
-    /// the bottom chrome.
+    /// the bottom chrome. Gated on the initial read having landed: on cold
+    /// launch `conversations` starts empty while the first database read is
+    /// still in flight, and rendering the CTA then shows a user with
+    /// conversations a false "no convos yet" screen for seconds.
     var isEmptyCTAActive: Bool {
-        unpinnedConversations.isEmpty
+        hasLoadedInitialConversations
+            && unpinnedConversations.isEmpty
             && pinnedConversations.isEmpty
             && activeFilter == .all
     }
@@ -272,6 +282,19 @@ final class ConversationsViewModel {
     /// Resolved to a selection once the row appears.
     @ObservationIgnored
     private var pendingScanNavigationConversationId: String?
+    /// A connection-grant deep link that arrived before its conversation was
+    /// in the list (cold launch races the initial load). Resolved once the
+    /// conversation appears; mirrors `pendingScanNavigationConversationId`.
+    @ObservationIgnored
+    private var pendingConnectionGrantLink: (serviceId: String, conversationId: String)?
+    /// Whether the conversations / count publishers have delivered at least
+    /// one emission. The late prime path must skip applying its stale
+    /// snapshot after any emission, including a legitimately empty or zero
+    /// one, so this cannot be inferred from the data values themselves.
+    @ObservationIgnored
+    private var conversationsObservationHasEmitted: Bool = false
+    @ObservationIgnored
+    private var conversationsCountObservationHasEmitted: Bool = false
     /// Mirrors whether the Chats tab is frontmost in the tab shell (kept
     /// current by `MainTabView`). Scan navigation must not select a
     /// conversation while another tab is visible: selecting hides the tab bar
@@ -323,17 +346,9 @@ final class ConversationsViewModel {
             for: .allowed,
             kinds: .groups
         )
-        do {
-            self.conversations = try conversationsRepository.fetchAll()
-            self.conversationsCount = try conversationsCountRepository.fetchCount()
-            if conversationsCount > 1 {
-                hasCreatedMoreThanOneConvo = true
-            }
-        } catch {
-            Log.error("Error fetching conversations: \(error)")
-            self.conversations = []
-            self.conversationsCount = 0
-        }
+        self.conversations = []
+        self.conversationsCount = 0
+        primeInitialConversations()
         observe()
         observeIncomingPairingRequests()
     }
@@ -390,14 +405,15 @@ final class ConversationsViewModel {
             join(from: inviteCode)
         case let .connectionGrant(serviceId: serviceId, conversationId: conversationId):
             guard conversations.contains(where: { $0.id == conversationId }) else {
-                Log.warning("Dropping connection grant deep link for unknown conversationId")
+                // On cold launch the list may not have loaded yet (the
+                // initial prime and the repository publisher both arrive
+                // asynchronously), so park the link and resolve it once the
+                // conversation appears instead of dropping it outright.
+                Log.warning("Parking connection grant deep link until its conversation loads")
+                pendingConnectionGrantLink = (serviceId: serviceId, conversationId: conversationId)
                 return
             }
-            _selectedConversationId = conversationId
-            pendingGrantRequest = PendingGrantRequest(
-                serviceId: serviceId,
-                conversationId: conversationId
-            )
+            openConnectionGrant(serviceId: serviceId, conversationId: conversationId)
         case let .pairDevice(pairingId, expiresAt, initiatorName):
             pendingPairDevice = PendingPairDevice(
                 pairingId: pairingId,
@@ -592,6 +608,7 @@ final class ConversationsViewModel {
         conversationsCountRepository.conversationsCount
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversationsCount in
+                self?.conversationsCountObservationHasEmitted = true
                 self?.conversationsCount = conversationsCount
             }
             .store(in: &cancellables)
@@ -599,9 +616,13 @@ final class ConversationsViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversations in
                 guard let self else { return }
+                self.conversationsObservationHasEmitted = true
+                self.hasLoadedInitialConversations = true
                 self.conversations = hiddenConversationIds.isEmpty
                     ? conversations
                     : conversations.filter { !hiddenConversationIds.contains($0.id) }
+
+                ShareSuggestionDonator.donate(self.conversations)
 
                 if let selectedId = _selectedConversationId,
                    !conversations.contains(where: { $0.id == selectedId }) {
@@ -609,6 +630,7 @@ final class ConversationsViewModel {
                 }
 
                 resolvePendingScanNavigationIfPossible()
+                resolvePendingConnectionGrantIfPossible()
 
                 if !conversations.contains(where: { !$0.isPinned && $0.kind == .group }) {
                     activeFilter = .all
@@ -1379,6 +1401,100 @@ extension ConversationsViewModel {
         let client = ConvosClient.mock()
         let vm = ConversationsViewModel(session: client.session)
         vm.conversations = conversations
+        vm.hasLoadedInitialConversations = true
         return vm
+    }
+}
+
+// MARK: - Initial Prime
+
+/// Bounded-deadline first load, in an extension to keep the class body
+/// under the type-body-length limit. `init` used to fetch the list and
+/// count synchronously on the main thread, which hung the UI whenever a
+/// conversation's last-message row carried a huge text payload or the
+/// SQLite page cache was contended by a background writer (Sentry
+/// CONVOS-IOS-4A). In the common case the read finishes inside the
+/// deadline and the list is populated in the first rendered frame,
+/// exactly as before; otherwise the result is applied when the read
+/// lands, and the repository publishers in `observe()` remain the source
+/// of truth either way.
+extension ConversationsViewModel {
+    fileprivate struct InitialPrime {
+        let conversations: [Conversation]?
+        let count: Int?
+    }
+
+    fileprivate func primeInitialConversations() {
+        // The reads are pure GRDB pool reads and thread-safe; the
+        // existentials just aren't Sendable.
+        nonisolated(unsafe) let primeRepository = conversationsRepository
+        nonisolated(unsafe) let primeCountRepository = conversationsCountRepository
+        let primed: InitialPrime? = BoundedInitialRead.prime(read: {
+            var fetched: [Conversation]?
+            var count: Int?
+            do {
+                fetched = try primeRepository.fetchAll()
+            } catch {
+                // Distinguish a failed read from a merely slow one: the
+                // deadline-miss log alone would hide real database errors.
+                Log.error("Initial conversations prime failed: \(error.localizedDescription)")
+            }
+            do {
+                count = try primeCountRepository.fetchCount()
+            } catch {
+                Log.error("Initial conversations count prime failed: \(error.localizedDescription)")
+            }
+            return InitialPrime(conversations: fetched, count: count)
+        }, late: { [weak self] payload in
+            self?.applyInitialPrime(payload, deliveredLate: true)
+        })
+        if let primed {
+            applyInitialPrime(primed, deliveredLate: false)
+        } else {
+            Log.info("[PERF] ConversationsViewModel: initial conversations read missed the first-frame deadline; applying when it completes")
+        }
+    }
+
+    private func applyInitialPrime(_ prime: InitialPrime, deliveredLate: Bool) {
+        if prime.conversations != nil {
+            // The read succeeded, so the database state is known even when
+            // the snapshot below is discarded in favor of a publisher
+            // emission that arrived first.
+            hasLoadedInitialConversations = true
+        }
+        if let fetched = prime.conversations {
+            // On the late path the conversations publisher may have emitted
+            // already; it is the source of truth, so never replace its
+            // emission with this older snapshot. An emission can legitimately
+            // be an empty list (the last conversation was just deleted), so
+            // check the explicit flag rather than inferring from the data.
+            if !deliveredLate || (!conversationsObservationHasEmitted && conversations.isEmpty) {
+                conversations = fetched
+                resolvePendingConnectionGrantIfPossible()
+            }
+        }
+        // Assigning the count latches hasCreatedMoreThanOneConvo via its
+        // didSet, matching what the old synchronous init fetch did.
+        if let count = prime.count, !deliveredLate || (!conversationsCountObservationHasEmitted && conversationsCount == 0) {
+            conversationsCount = count
+        }
+    }
+
+    private func openConnectionGrant(serviceId: String, conversationId: String) {
+        // Discard any older parked link so it cannot fire later and yank the
+        // user away from the grant that is being handled now.
+        pendingConnectionGrantLink = nil
+        _selectedConversationId = conversationId
+        pendingGrantRequest = PendingGrantRequest(
+            serviceId: serviceId,
+            conversationId: conversationId
+        )
+    }
+
+    fileprivate func resolvePendingConnectionGrantIfPossible() {
+        guard let link = pendingConnectionGrantLink,
+              conversations.contains(where: { $0.id == link.conversationId }) else { return }
+        pendingConnectionGrantLink = nil
+        openConnectionGrant(serviceId: link.serviceId, conversationId: link.conversationId)
     }
 }

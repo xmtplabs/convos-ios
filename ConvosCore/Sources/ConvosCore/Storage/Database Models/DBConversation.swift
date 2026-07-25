@@ -201,6 +201,35 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         request: lastMessageRequest
     )
 
+    /// Content types that never surface as a conversation-list preview.
+    /// Bound twice into `lastMessageWithSourceCTE` (once for the grouped-MAX
+    /// subquery, once for the join-back filter); each placeholder list in
+    /// the SQL must stay the same length as this array.
+    private static let previewExcludedContentTypes: [String] = [
+        MessageContentType.update.rawValue,
+        MessageContentType.assistantJoinRequest.rawValue,
+        MessageContentType.connectionGrantRequest.rawValue,
+        MessageContentType.connectionInvocation.rawValue,
+        MessageContentType.connectionInvocationResult.rawValue,
+        MessageContentType.connectionPayload.rawValue,
+    ]
+
+    /// The text columns are capped with substr so a pathological message
+    /// body (XMTP allows just under 1MB, roughly 250 SQLite overflow pages
+    /// per row) cannot drag overflow pages for every conversation's last
+    /// message through the page cache on each list read. 4096 characters
+    /// covers the longest preview and the ConnectionEventSummary JSON that
+    /// `hydrateMessagePreview` decodes out of `text`.
+    ///
+    /// The winners are found with a grouped MAX over
+    /// `message_on_conversationId_contentType_dateNs` (an index-only scan)
+    /// and then joined back to `message` to load just those rows. The
+    /// earlier per-row correlated subquery re-scanned each conversation's
+    /// index entries once per message, which made materializing this CTE
+    /// scale with messages-per-conversation squared and dominated the
+    /// conversation-list read on message-heavy databases. Ties on dateNs
+    /// keep the same behavior as before: every tied eligible row comes
+    /// through, and the outer query's GROUP BY collapses them.
     nonisolated(unsafe) static let lastMessageWithSourceCTE: CommonTableExpression<DBLastMessageWithSource> =
         CommonTableExpression<DBLastMessageWithSource>(
             named: "conversationLastMessageWithSource",
@@ -208,47 +237,42 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                 SELECT
                     m.id, m.clientMessageId, m.conversationId, m.senderId,
                     m.dateNs, m.date, m.status, m.messageType, m.contentType,
-                    m.text, m.emoji, m.invite, m.linkPreview, m.sourceMessageId, m.attachmentUrls,
-                    src.text as sourceMessageText
-                FROM message m
+                    substr(m.text, 1, 4096) as text,
+                    m.emoji, m.invite, m.linkPreview, m.sourceMessageId, m.attachmentUrls,
+                    substr(src.text, 1, 4096) as sourceMessageText
+                FROM (
+                    SELECT conversationId, MAX(dateNs) AS maxDateNs
+                    FROM message
+                    WHERE contentType NOT IN (?, ?, ?, ?, ?, ?)
+                    GROUP BY conversationId
+                ) last
+                JOIN message m
+                    ON m.conversationId = last.conversationId
+                    AND m.dateNs = last.maxDateNs
+                    AND m.contentType NOT IN (?, ?, ?, ?, ?, ?)
                 LEFT JOIN message src ON m.sourceMessageId = src.id
-                WHERE m.contentType NOT IN (?, ?, ?, ?, ?, ?)
-                AND m.dateNs = (
-                    SELECT MAX(m2.dateNs)
-                    FROM message m2
-                    WHERE m2.conversationId = m.conversationId
-                    AND m2.contentType NOT IN (?, ?, ?, ?, ?, ?)
-                )
                 """,
-            arguments: [
-                MessageContentType.update.rawValue,
-                MessageContentType.assistantJoinRequest.rawValue,
-                MessageContentType.connectionGrantRequest.rawValue,
-                MessageContentType.connectionInvocation.rawValue,
-                MessageContentType.connectionInvocationResult.rawValue,
-                MessageContentType.connectionPayload.rawValue,
-                MessageContentType.update.rawValue,
-                MessageContentType.assistantJoinRequest.rawValue,
-                MessageContentType.connectionGrantRequest.rawValue,
-                MessageContentType.connectionInvocation.rawValue,
-                MessageContentType.connectionInvocationResult.rawValue,
-                MessageContentType.connectionPayload.rawValue,
-            ]
+            arguments: StatementArguments(previewExcludedContentTypes + previewExcludedContentTypes)
         )
 
+    /// Same grouped-MAX shape as `lastMessageWithSourceCTE`, served
+    /// index-only by the partial `message_assistantJoinRequest_conversationId`
+    /// index.
     nonisolated(unsafe) static let latestAgentJoinRequestCTE: CommonTableExpression<DBAgentJoinRequest> =
         CommonTableExpression<DBAgentJoinRequest>(
             named: "conversationAgentJoinRequest",
             sql: """
                 SELECT m.conversationId, m.text AS status, m.date
-                FROM message m
-                WHERE m.contentType = ?
-                AND m.dateNs = (
-                    SELECT MAX(m2.dateNs)
-                    FROM message m2
-                    WHERE m2.conversationId = m.conversationId
-                    AND m2.contentType = ?
-                )
+                FROM (
+                    SELECT conversationId, MAX(dateNs) AS maxDateNs
+                    FROM message
+                    WHERE contentType = ?
+                    GROUP BY conversationId
+                ) last
+                JOIN message m
+                    ON m.conversationId = last.conversationId
+                    AND m.dateNs = last.maxDateNs
+                    AND m.contentType = ?
                 """,
             arguments: [
                 MessageContentType.assistantJoinRequest.rawValue,

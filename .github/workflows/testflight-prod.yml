@@ -1,5 +1,5 @@
 # Prod TestFlight Release — thin caller. The job lives in convos-releases:
-# https://github.com/xmtplabs/convos-releases/blob/main/.github/workflows/ios-testflight-prod.yml
+# https://github.com/xmtplabs/convos-releases/blob/main/.github/workflows/ios-testflight.yml
 #
 # Scheduled (not per-merge): Apple limits TestFlight uploads per version —
 # a train closes entirely once that version ships to the App Store
@@ -67,8 +67,9 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    uses: xmtplabs/convos-releases/.github/workflows/ios-testflight-prod.yml@main
+    uses: xmtplabs/convos-releases/.github/workflows/ios-testflight.yml@main
     with:
+      flavor: prod
       runner: warp-macos-latest-arm64-12x
       xcode-app-path: /Applications/Xcode_26.3.app
       xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app

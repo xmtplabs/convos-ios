@@ -5,6 +5,7 @@
 // user's inbox, and offers "Add new device" which presents the
 // initiator pairing sheet.
 
+import ConvosComposer
 import ConvosCore
 import ConvosMetrics
 import SwiftUI

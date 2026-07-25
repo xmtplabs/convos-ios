@@ -457,14 +457,33 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let filename = photoService.generateFilename()
         let localCacheURL = try photoService.localCacheURL(for: filename)
 
-        ImageCacheContainer.shared.cacheImage(image, for: localCacheURL.absoluteString, storageTier: .persistent)
+        // Persist the compressed photo at stage time, before any network
+        // work. If the sending process dies mid-pipeline (share extension
+        // suspended on dismissal, app force-quit), the message row plus this
+        // file are enough for retryFailedMessage to re-send later from
+        // another process.
+        let saved = try photoService.saveLocally(image: image, filename: filename)
+
+        // Everything downstream holds the compressed JPEG (decoded lazily)
+        // rather than the full decoded original. Inside the share extension
+        // the retained decode is the difference between staying under the
+        // 120 MB jetsam ceiling and being killed mid-send.
+        let stagedImage: ImageType = ImageType(data: saved.compressedData) ?? image
+
+        // The cache write only warms future renders; constrained processes
+        // render sent photos from the staged file instead, and the write's
+        // decode-and-re-encode churn (per photo, concurrently) was breaching
+        // the extension's memory ceiling on multi-photo sends.
+        if !ImageCacheContainer.isMemoryConstrainedProcess {
+            ImageCacheContainer.shared.cacheImage(stagedImage, for: localCacheURL.absoluteString, storageTier: .persistent)
+        }
 
         // Save dimensions FIRST so they're available when the UI observes the message
         try await attachmentLocalStateWriter.saveWithDimensions(
             attachmentKey: localCacheURL.absoluteString,
             conversationId: conversationId,
-            width: Int(image.size.width),
-            height: Int(image.size.height)
+            width: Int(stagedImage.size.width),
+            height: Int(stagedImage.size.height)
         )
 
         // Now save to database - dimensions will already be available for initial render
@@ -472,7 +491,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         let queued = QueuedPhotoMessage(
             clientMessageId: clientMessageId,
-            image: image,
+            image: stagedImage,
             localCacheURL: localCacheURL,
             filename: filename
         )
@@ -2484,11 +2503,23 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         let prepared: PreparedBackgroundUpload
         do {
-            prepared = try await photoService.prepareForBackgroundUpload(
-                image: queued.image,
-                apiClient: inboxReady.apiClient,
-                filename: queued.filename
-            )
+            // send(image:) staged the final compressed JPEG to disk; reuse
+            // those bytes instead of re-running the compression pipeline,
+            // which would repeat the send path's most expensive allocation.
+            if let stagedData = try? Data(contentsOf: queued.localCacheURL, options: .mappedIfSafe),
+               !stagedData.isEmpty {
+                prepared = try await photoService.prepareForBackgroundUpload(
+                    compressedData: stagedData,
+                    apiClient: inboxReady.apiClient,
+                    filename: queued.filename
+                )
+            } else {
+                prepared = try await photoService.prepareForBackgroundUpload(
+                    image: queued.image,
+                    apiClient: inboxReady.apiClient,
+                    filename: queued.filename
+                )
+            }
         } catch {
             tracker.setStage(.failed, for: trackingKey)
             try? await markMessageFailed(clientMessageId: queued.clientMessageId)

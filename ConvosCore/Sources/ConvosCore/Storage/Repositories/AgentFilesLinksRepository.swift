@@ -78,6 +78,13 @@ public final class AgentFilesLinksRepository: Sendable {
             .eraseToAnyPublisher()
     }
 
+    /// Agent-sent files for a conversation.
+    ///
+    /// The sender check reads `profile`, the unified per-inbox table, because
+    /// that is the only one agent verification writes to. `memberProfile` is
+    /// still populated, but only with the kind that arrived on the wire —
+    /// plain `agent` — and nothing upgrades it to a verified kind, so a check
+    /// against it matches nothing and every agent's files disappear.
     private static func loadFiles(db: Database, conversationId: String) throws -> [AgentFile] {
         let rows = try Row.fetchAll(db, sql: """
             SELECT m.id, m.date, m.attachmentUrls, m.senderId
@@ -86,10 +93,9 @@ public final class AgentFilesLinksRepository: Sendable {
                 AND m.contentType = 'attachments'
                 AND EXISTS (
                     SELECT 1
-                    FROM memberProfile mp
-                    WHERE mp.conversationId = m.conversationId
-                        AND mp.inboxId = m.senderId
-                        AND mp.memberKind IN ('agent:convos', 'agent:user-oauth')
+                    FROM profile p
+                    WHERE p.inboxId = m.senderId
+                        AND p.memberKind IN ('agent:convos', 'agent:user-oauth')
                 )
             ORDER BY m.date DESC
             """,
@@ -134,6 +140,8 @@ public final class AgentFilesLinksRepository: Sendable {
         return deduped
     }
 
+    /// Agent-shared links. Same sender check as `loadFiles`, and the same
+    /// reason: verification only ever lands on the unified `profile` row.
     private static func loadLinks(db: Database, conversationId: String) throws -> [AgentLink] {
         let rows = try Row.fetchAll(db, sql: """
             SELECT m.id, m.date, m.linkPreview, m.senderId
@@ -142,10 +150,9 @@ public final class AgentFilesLinksRepository: Sendable {
                 AND m.contentType = 'linkPreview'
                 AND EXISTS (
                     SELECT 1
-                    FROM memberProfile mp
-                    WHERE mp.conversationId = m.conversationId
-                        AND mp.inboxId = m.senderId
-                        AND mp.memberKind IN ('agent:convos', 'agent:user-oauth')
+                    FROM profile p
+                    WHERE p.inboxId = m.senderId
+                        AND p.memberKind IN ('agent:convos', 'agent:user-oauth')
                 )
             ORDER BY m.date DESC
             """,

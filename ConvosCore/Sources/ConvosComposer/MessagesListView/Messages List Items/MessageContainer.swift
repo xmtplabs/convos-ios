@@ -1,0 +1,88 @@
+#if canImport(UIKit)
+import ConvosCore
+import SwiftUI
+
+struct MessageContainer<Content: View>: View {
+    let style: MessageBubbleType
+    let isOutgoing: Bool
+    let cornerRadius: CGFloat = Constant.bubbleCornerRadius
+    @ViewBuilder let content: () -> Content
+
+    var spacer: some View {
+        Spacer()
+            .frame(minWidth: 50.0)
+            .layoutPriority(-1)
+    }
+
+    var mask: UnevenRoundedRectangle {
+        switch style {
+        case .normal:
+            return .rect(
+                topLeadingRadius: cornerRadius,
+                bottomLeadingRadius: cornerRadius,
+                bottomTrailingRadius: cornerRadius,
+                topTrailingRadius: cornerRadius
+            )
+        case .tailed:
+            if isOutgoing {
+                return .rect(
+                    topLeadingRadius: cornerRadius,
+                    bottomLeadingRadius: cornerRadius,
+                    bottomTrailingRadius: 4.0,
+                    topTrailingRadius: cornerRadius
+                )
+            } else {
+                return .rect(
+                    topLeadingRadius: cornerRadius,
+                    bottomLeadingRadius: 4.0,
+                    bottomTrailingRadius: cornerRadius,
+                    topTrailingRadius: cornerRadius
+                )
+            }
+        case .none:
+            return .rect(cornerRadii: .init())
+        }
+    }
+
+    /// Pins the bubble to the sender's edge when the row is wider than
+    /// `Constant.maxBubbleRowWidth` (regular-width layouts like iPad).
+    private var bubbleAlignment: Alignment {
+        isOutgoing ? .trailing : .leading
+    }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 0.0) {
+            if isOutgoing {
+                spacer
+            }
+
+            switch style {
+            case .none:
+                content()
+                    .foregroundColor(isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary)
+            default:
+                content()
+                    .background(isOutgoing ? Color.colorBubble : Color.colorBubbleIncoming)
+                    .foregroundColor(isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary)
+                    .compositingGroup()
+                    .mask(mask)
+            }
+
+            if !isOutgoing {
+                spacer
+            }
+        }
+        .bubbleRowWidthCap(alignment: bubbleAlignment)
+    }
+}
+
+extension View {
+    /// Caps a bubble row at `Constant.maxBubbleRowWidth`, pinning it to the
+    /// sender's edge when the container offers more width (regular-width
+    /// layouts like iPad), then re-expands so the row still spans the list.
+    public func bubbleRowWidthCap(alignment: Alignment) -> some View {
+        frame(maxWidth: Constant.maxBubbleRowWidth, alignment: alignment)
+            .frame(maxWidth: .infinity, alignment: alignment)
+    }
+}
+#endif

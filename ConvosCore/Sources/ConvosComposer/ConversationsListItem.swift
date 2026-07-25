@@ -1,0 +1,175 @@
+#if canImport(UIKit)
+import ConvosCore
+import SwiftUI
+
+public extension Conversation {
+    var title: String {
+        title(memberNameOverride: { _ in nil })
+    }
+
+    /// Resolves the conversation list cell title with an inbox → contact-name
+    /// override applied to auto-generated DM/group titles. When the
+    /// conversation has an explicit `name`, that's returned verbatim — the
+    /// override only affects auto-generated titles built from member names.
+    /// See `Conversation.computedDisplayName(memberNameOverride:)`.
+    func title(memberNameOverride: (String) -> String?) -> String {
+        switch kind {
+        case .dm:
+            guard let other = otherMember else { return "" }
+            return other.displayName(memberNameOverride: memberNameOverride)
+        case .group:
+            return computedDisplayName(memberNameOverride: memberNameOverride)
+        }
+    }
+}
+
+public struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryContent: View>: View {
+    let title: String
+    let isMuted: Bool
+    let isUnread: Bool
+    @ViewBuilder let leadingContent: () -> LeadingContent
+    @ViewBuilder let subtitle: () -> SubtitleContent
+    @ViewBuilder let accessoryContent: () -> AccessoryContent
+
+    public init(
+        title: String,
+        isMuted: Bool,
+        isUnread: Bool,
+        @ViewBuilder leadingContent: @escaping () -> LeadingContent,
+        @ViewBuilder subtitle: @escaping () -> SubtitleContent,
+        @ViewBuilder accessoryContent: @escaping () -> AccessoryContent
+    ) {
+        self.title = title
+        self.isMuted = isMuted
+        self.isUnread = isUnread
+        self.leadingContent = leadingContent
+        self.subtitle = subtitle
+        self.accessoryContent = accessoryContent
+    }
+
+    public var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            leadingContent()
+                .frame(width: 56.0, height: 56.0)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                Text(title)
+                    .font(isUnread ? .body.weight(.medium) : .body)
+                    .foregroundStyle(.colorTextPrimary)
+                    .truncationMode(.tail)
+                    .lineLimit(1)
+
+                subtitle()
+                    .font(.callout)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            accessoryContent()
+
+            if isMuted {
+                Image(systemName: "bell.slash.fill")
+                    .font(.callout)
+                    .foregroundStyle(.colorFillTertiary)
+                    .accessibilityHidden(true)
+                    .transition(.scale.combined(with: .opacity))
+            }
+
+            if isUnread {
+                Circle()
+                    .fill(Color.primary)
+                    .frame(width: 16, height: 16)
+                    .accessibilityHidden(true)
+                    .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isMuted)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isUnread)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step3x)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+public struct ConversationsListItem: View {
+    let conversation: Conversation
+
+    public init(conversation: Conversation) {
+        self.conversation = conversation
+    }
+
+    @Environment(\.memberNameOverride) private var memberNameOverride: @Sendable (String) -> String?
+
+    // Extract computed values to prevent unnecessary recalculations
+    private var title: String {
+        let base: String = conversation.title(memberNameOverride: memberNameOverride)
+        guard !ConfigManager.shared.currentEnvironment.isProduction, conversation.agentVariant != nil else {
+            return base
+        }
+        return "🧪 \(base)"
+    }
+    private var isMuted: Bool { conversation.isMuted }
+    private var isUnread: Bool { conversation.isUnread }
+    private var lastMessage: MessagePreview? { conversation.lastMessage }
+    private var createdAt: Date { conversation.createdAt }
+
+    private var isPendingInvite: Bool { conversation.isPendingInvite }
+
+    private var accessibilityDescription: String {
+        var parts: [String] = [title]
+        if isPendingInvite { parts.append("verifying") }
+        if isUnread { parts.append("unread") }
+        if isMuted { parts.append("muted") }
+        if let message = lastMessage {
+            parts.append(message.text)
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    public var body: some View {
+        ListItemView(
+            title: title,
+            isMuted: isPendingInvite ? false : isMuted,
+            isUnread: isPendingInvite ? false : isUnread,
+            leadingContent: {
+                ConversationAvatarView(conversation: conversation, conversationImage: nil)
+            },
+            subtitle: {
+                HStack(spacing: DesignConstants.Spacing.stepX) {
+                    if isPendingInvite {
+                        RelativeDateLabel(date: createdAt)
+                        Text("·").foregroundStyle(.colorTextTertiary)
+                        Text("Verifying")
+                    } else if let message = lastMessage {
+                        RelativeDateLabel(date: message.createdAt)
+                        Text("·").foregroundStyle(.colorTextTertiary)
+                        Text(message.text)
+                    } else {
+                        RelativeDateLabel(date: createdAt)
+                    }
+                }
+            },
+            accessoryContent: {
+                if let expiresAt = conversation.scheduledExplosionDate {
+                    ExplosionCountdownBadge(expiresAt: expiresAt)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+        )
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: conversation.scheduledExplosionDate)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityDescription)
+        .accessibilityIdentifier("conversation-list-item-\(conversation.id)")
+    }
+}
+
+#Preview("Regular") {
+    ConversationsListItem(conversation: .mock())
+}
+
+#Preview("Pending Invite") {
+    ConversationsListItem(conversation: .mockPendingInvite())
+}
+#endif

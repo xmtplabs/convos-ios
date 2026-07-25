@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import ConvosComposer
 import ConvosConnections
 import ConvosCore
 import ConvosCoreiOS
@@ -34,71 +35,6 @@ struct PendingAgentShare {
     var resolved: AgentShareInfo?
 }
 
-struct PendingFileAttachment: Identifiable, Equatable {
-    let id: UUID
-    let url: URL
-    let filename: String
-    let mimeType: String
-    let fileSize: Int
-
-    init(id: UUID = UUID(), url: URL, filename: String, mimeType: String, fileSize: Int) {
-        self.id = id
-        self.url = url
-        self.filename = filename
-        self.mimeType = mimeType
-        self.fileSize = fileSize
-    }
-
-    /// Mirrors `HydratedAttachment.isHTMLFile` so the composer's staged-file
-    /// preview can match the in-chat HTML tile (square thumbnail) instead of
-    /// the generic filename + type chip.
-    var isHTMLFile: Bool {
-        let ext = (filename as NSString).pathExtension.lowercased()
-        if ext == "html" || ext == "htm" {
-            return true
-        }
-        return mimeType.lowercased() == "text/html"
-    }
-
-    static func == (lhs: PendingFileAttachment, rhs: PendingFileAttachment) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
-struct PendingPhotoAttachment: Identifiable, Equatable {
-    let id: UUID
-    let image: UIImage
-    var eagerUploadKey: String?
-
-    init(id: UUID = UUID(), image: UIImage, eagerUploadKey: String? = nil) {
-        self.id = id
-        self.image = image
-        self.eagerUploadKey = eagerUploadKey
-    }
-
-    static func == (lhs: PendingPhotoAttachment, rhs: PendingPhotoAttachment) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
-struct PendingVideoAttachment: Identifiable, Equatable {
-    let id: UUID
-    let url: URL
-    var thumbnail: UIImage?
-    var eagerUploadKey: String?
-
-    init(id: UUID = UUID(), url: URL, thumbnail: UIImage? = nil, eagerUploadKey: String? = nil) {
-        self.id = id
-        self.url = url
-        self.thumbnail = thumbnail
-        self.eagerUploadKey = eagerUploadKey
-    }
-
-    static func == (lhs: PendingVideoAttachment, rhs: PendingVideoAttachment) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
 /// Snapshot of a recorded voice memo handed from the agent builder to
 /// `sendBuilderBundle`. Carries the source URL, duration, and waveform
 /// levels so the builder can release its recorder state before the bundle
@@ -107,67 +43,6 @@ struct BuilderVoiceMemoSnapshot: Sendable {
     let url: URL
     let duration: TimeInterval
     let levels: [Float]
-}
-
-enum PendingMediaAttachment: Identifiable, Equatable {
-    case photo(PendingPhotoAttachment)
-    case video(PendingVideoAttachment)
-    case file(PendingFileAttachment)
-
-    var id: UUID {
-        switch self {
-        case .photo(let p): return p.id
-        case .video(let v): return v.id
-        case .file(let f): return f.id
-        }
-    }
-}
-
-let maxPendingMediaAttachments: Int = 8
-
-enum ExplodeDuration: CaseIterable {
-    case sixtySeconds
-    case oneHour
-    case twentyFourHours
-    case sundayAtMidnight
-
-    var label: String {
-        switch self {
-        case .sixtySeconds: return "60 seconds"
-        case .oneHour: return "1 hour"
-        case .twentyFourHours: return "24 hours"
-        case .sundayAtMidnight: return "Sunday at midnight"
-        }
-    }
-
-    var shortLabel: String {
-        switch self {
-        case .sixtySeconds: return "60s"
-        case .oneHour: return "1h"
-        case .twentyFourHours: return "24h"
-        case .sundayAtMidnight: return "Sun"
-        }
-    }
-
-    var timeInterval: TimeInterval {
-        switch self {
-        case .sixtySeconds: return 60
-        case .oneHour: return 3600
-        case .twentyFourHours: return 86400
-        case .sundayAtMidnight:
-            let calendar = Calendar.current
-            let now = Date()
-            var components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
-            components.weekday = 1
-            components.hour = 0
-            components.minute = 0
-            components.second = 0
-            if let nextSunday = calendar.nextDate(after: now, matching: DateComponents(hour: 0, minute: 0, second: 0, weekday: 1), matchingPolicy: .nextTime) {
-                return nextSunday.timeIntervalSince(now)
-            }
-            return 604800
-        }
-    }
 }
 
 @MainActor
@@ -374,6 +249,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var agentBuilderSummaryCancellable: AnyCancellable?
     @ObservationIgnored
     private var observedAgentBuilderSummaryConversationId: String?
+    /// Whether the messages list / summary observations have delivered at
+    /// least one emission. The late prime path must skip applying its stale
+    /// snapshot after any emission, including a legitimately empty or nil
+    /// one, so this cannot be inferred from the data values themselves.
+    @ObservationIgnored
+    private var messagesObservationHasEmitted: Bool = false
+    @ObservationIgnored
+    private var summaryObservationHasEmitted: Bool = false
     @ObservationIgnored
     private var directBuildGenerationCancellable: AnyCancellable?
     /// One-shot backstop: cleared/re-armed as the direct build reaches the
@@ -599,9 +482,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     ///
     /// The agent-template flows ("Chat on a contact" + the
     /// `convos://template/<id>` deep link) take priority and supply the real
-    /// identity (`showsContactCard == true`). The Agent Builder is the
+    /// identity (`showsContactCard == true`). The Agent Builder starts as the
     /// generic "no identity" case (`name`/`emoji` nil, `showsContactCard
-    /// == false`) -- it keeps its own gating in
+    /// == false`) and adopts the direct build's draft preview identity once
+    /// the backend streams one -- it keeps its own gating in
     /// `shouldRenderAsPendingAgentBuilder` and its own summary card. Both
     /// drop the moment a real verified Convos agent joins
     /// `conversation.members`, and both are time-boxed as a backstop.
@@ -618,16 +502,21 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 showsContactCard: hasIdentity
             )
         }
-        // Direct builder: the header intentionally stays generic ("Agent" title
-        // + add-agent glyph + "Making agent..." subtitle) for the whole build.
-        // The draft preview identity is revealed progressively by the dedicated
-        // `.agentActivating` card, not the header; the header only adopts the
-        // real name/emoji once the verified agent actually joins. So fall
-        // through to the generic no-identity pending case below.
+        // Direct builder: the header starts generic ("New Agent" title +
+        // add-agent glyph) and adopts the draft preview identity (name +
+        // emoji) as soon as the build streams one, so the header matches the
+        // `.agentActivating` card instead of staying a placeholder while the
+        // agent's name is already on screen. The card keeps owning the
+        // progressive reveal (`showsContactCard` stays false); the repository
+        // retains the last preview through the terminal poll, so the identity
+        // doesn't regress before the agent joins.
         if shouldRenderAsPendingAgentBuilder {
+            let preview: ConvosAPI.AgentPreview? = directBuildGeneration?.preview
+            let previewName: String? = preview?.agentName.flatMap { $0.isEmpty ? nil : $0 }
+            let previewEmoji: String? = preview?.emoji.flatMap { $0.isEmpty ? nil : $0 }
             return PendingAgentPresentation(
-                name: nil,
-                emoji: nil,
+                name: previewName,
+                emoji: previewEmoji,
                 avatarURL: nil,
                 agentDescription: nil,
                 showsContactCard: false
@@ -1310,14 +1199,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         )
         messagesListRepo.currentOtherMemberCount = conversation.membersWithoutCurrent.count
         messagesListRepo.verifiedAgent = conversation.members.first(where: \.isVerifiedConvosAgent)
-        // Hydrate the persisted summary *before* `fetchInitial()` so the first
-        // emission already includes the `.agentBuilderSummary` card and the
-        // cutoff-filtered messages. The publisher subscription below picks up
-        // any subsequent writes.
-        let initialSummary: AgentBuilderSummary? = session.agentBuilderSummaryRepository().summarySync(for: conversation.id)
-        messagesListRepo.agentBuilderSummary = initialSummary
         self.messagesListRepository = messagesListRepo
-        self.agentBuilderSummary = initialSummary
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
@@ -1344,17 +1226,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.voiceMemoTranscriptionService = transcriptionService
         self.typingIndicatorManager = .shared
 
-        do {
-            self.messages = try messagesListRepository.fetchInitial()
-        } catch {
-            Log.error("Error fetching messages: \(error.localizedDescription)")
-            self.messages = []
-        }
+        self.messages = []
 
         editingConversationName = self.conversation.name ?? ""
         editingDescription = self.conversation.description ?? ""
 
         presentingConversationForked = shouldPresentConversationForked
+
+        primeInitialMessages(messagesRepository: messagesRepository)
 
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
         let individualMessageCount = messages.reduce(0) { count, item in
@@ -1375,7 +1254,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
         startOnboarding()
         registerInlineAttachmentRecovery()
-        scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
 
         // The initial assignment of `conversation` does not run its
         // `didSet`, so a conversation that already has other members must
@@ -1392,6 +1270,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         applyGlobalDefaultsForNewConversation: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
+        let perfStart = CFAbsoluteTimeGetCurrent()
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
@@ -1412,10 +1291,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         )
         messagesListRepo2.currentOtherMemberCount = conversation.membersWithoutCurrent.count
         messagesListRepo2.verifiedAgent = conversation.members.first(where: \.isVerifiedConvosAgent)
-        let initialSummary2: AgentBuilderSummary? = session.agentBuilderSummaryRepository().summarySync(for: conversation.id)
-        messagesListRepo2.agentBuilderSummary = initialSummary2
         self.messagesListRepository = messagesListRepo2
-        self.agentBuilderSummary = initialSummary2
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
@@ -1439,13 +1315,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.voiceMemoTranscriptionService = transcriptionService
         self.typingIndicatorManager = .shared
 
-        do {
-            self.messages = try messagesListRepository.fetchInitial()
-        } catch {
-            Log.error("Error fetching messages: \(error.localizedDescription)")
-            self.messages = []
-        }
+        self.messages = []
 
+        primeInitialMessages(messagesRepository: messagesRepository)
+
+        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+        let individualMessageCount = messages.reduce(0) { count, item in
+            if case .messages(let group) = item { return count + group.messages.count }
+            return count
+        }
+        Log.info("[PERF] ConversationViewModel.init(draft): \(perfElapsed)ms, \(individualMessageCount) messages loaded (\(messages.count) list items)")
         Log.info("Created for draft conversation: \(conversation.id)")
 
         applyGlobalDefaultsForDraftConversationIfNeeded()
@@ -1454,7 +1333,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
         observeAgentBuilderSummary()
-        scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -1466,6 +1344,74 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
 
     // MARK: - Private
+
+    private struct InitialPrime {
+        let summary: AgentBuilderSummary?
+        let result: ConversationMessagesResult?
+    }
+
+    /// Loads the persisted agent-builder summary and the initial message
+    /// page on a background queue, waiting only a bounded time for the
+    /// result. `init` used to run both reads synchronously on the main
+    /// thread, which hung the UI whenever a message row carried a large
+    /// text payload or a background writer had the SQLite page cache
+    /// contended (Sentry CONVOS-IOS-4A). In the common case the read
+    /// finishes inside the deadline and messages are on screen in the
+    /// first rendered frame, exactly as before; in the pathological case
+    /// the wait gives up and the result is applied as soon as the read
+    /// lands, keeping the app responsive instead of hanging.
+    private func primeInitialMessages(messagesRepository: any MessagesRepositoryProtocol) {
+        // The reads are thread-safe (GRDB pool reads plus stateQueue-guarded
+        // pagination state); the existential just isn't Sendable.
+        nonisolated(unsafe) let primeRepository = messagesRepository
+        let summaryRepository = session.agentBuilderSummaryRepository()
+        let conversationId = conversation.id
+        let primed: InitialPrime? = BoundedInitialRead.prime(read: {
+            let summary = summaryRepository.summarySync(for: conversationId)
+            do {
+                return InitialPrime(summary: summary, result: try primeRepository.fetchInitialResult())
+            } catch {
+                // Distinguish a failed read from a merely slow one: the
+                // deadline-miss log alone would hide real database errors.
+                Log.error("Initial message prime failed for \(conversationId): \(error.localizedDescription)")
+                return InitialPrime(summary: summary, result: nil)
+            }
+        }, late: { [weak self] payload in
+            self?.applyInitialPrime(payload, deliveredLate: true)
+        })
+        if let primed {
+            applyInitialPrime(primed, deliveredLate: false)
+        } else {
+            Log.info("[PERF] ConversationViewModel: initial message read missed the first-frame deadline; applying when it completes")
+        }
+    }
+
+    private func applyInitialPrime(_ prime: InitialPrime, deliveredLate: Bool) {
+        // Setting the summary before processing the message page keeps the
+        // original ordering guarantee: the first emission already carries
+        // the summary card and the cutoff-filtered messages. The didSet
+        // seeds messagesListRepository and arms the placeholder expiry.
+        if let summary = prime.summary, !summaryObservationHasEmitted, agentBuilderSummary == nil {
+            agentBuilderSummary = summary
+        }
+        guard let result = prime.result else { return }
+        // On the late path the observation pipeline may have emitted
+        // already; it is the source of truth, so never replace its emission
+        // with this older snapshot. An emission can legitimately be empty
+        // (for example the last message was just deleted), so check the
+        // explicit flag rather than inferring from the data.
+        if deliveredLate, messagesObservationHasEmitted || !messages.isEmpty { return }
+        let items = messagesListRepository.processInitial(result)
+        messages = items
+        scheduleVoiceMemoTranscriptionsIfNeeded(in: items)
+        if deliveredLate {
+            let individualMessageCount = items.reduce(0) { (count: Int, item: MessagesListItemType) -> Int in
+                if case .messages(let group) = item { return count + group.messages.count }
+                return count
+            }
+            Log.info("[PERF] ConversationViewModel.applyInitialPrime: \(individualMessageCount) messages applied after the deadline (\(items.count) list items)")
+        }
+    }
 
     private func loadPhotoPreferences() {
         Task { @MainActor [weak self] in
@@ -1498,6 +1444,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .summaryPublisher(for: conversationId)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] summary in
+                self?.summaryObservationHasEmitted = true
                 self?.agentBuilderSummary = summary
             }
         // The summary set during `init` doesn't fire `agentBuilderSummary`'s
@@ -1623,6 +1570,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages in
                 guard let self else { return }
+                self.messagesObservationHasEmitted = true
                 self.clearTypingForNewMessages(old: self.messages, new: messages)
                 let messageCount = messages.countMessages
                 let messagesChanged = messageCount != self.lastMessageCountForReadReceipt

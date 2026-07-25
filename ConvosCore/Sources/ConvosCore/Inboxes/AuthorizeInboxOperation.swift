@@ -90,7 +90,7 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             databaseWriter: databaseWriter,
             networkMonitor: networkMonitor,
             environment: environment,
-            startsStreamingServices: true,
+            startsStreamingServices: platformProviders.startsStreamingServices,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
             apiClient: apiClient,

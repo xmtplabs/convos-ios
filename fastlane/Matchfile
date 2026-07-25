@@ -14,7 +14,9 @@ app_identifier([
   "org.convos.ios-testnet.ConvosNSE",
   "org.convos.ios-preview.Clip",
   "org.convos.ios.ShareExtension",
-  "org.convos.ios-preview.pr.ShareExtension"
+  "org.convos.ios-preview.ShareExtension",
+  "org.convos.ios-preview.pr.ShareExtension",
+  "org.convos.ios-testnet.ShareExtension"
 ])
 
 team_id("FY4NZR34Z3")

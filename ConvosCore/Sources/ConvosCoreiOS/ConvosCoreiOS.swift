@@ -67,7 +67,10 @@ extension PlatformProviders {
             appLifecycle: MockAppLifecycleProvider(),
             deviceInfo: MockDeviceInfoProvider(),
             pushNotificationRegistrar: MockPushNotificationRegistrarProvider(),
-            notificationCenter: MockUserNotificationCenter()
+            notificationCenter: MockUserNotificationCenter(),
+            // Extensions publish and read the local database; the streaming
+            // sync engine costs memory an appex doesn't have (120 MB ceiling).
+            startsStreamingServices: false
         )
     }
 }

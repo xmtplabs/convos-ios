@@ -24,16 +24,6 @@ import UIKit
 // (`QRScannerView`) and an "Or scan from camera roll" button that decodes a code picked
 // from the photo library. Both decoded paths feed the same `onScannedCode` handler.
 
-/// Variant of the invite-code screen. Mirrors the `ContactCardMode` pattern:
-/// the structure is shared; only caption copy and nav metadata branch on the
-/// mode.
-enum InviteCodeMode {
-    /// Presented over an existing conversation.
-    case inConvo
-    /// Presented for a freshly created conversation (no other members yet).
-    case newConvo
-}
-
 /// The Scan/Invite toggle screen from the invite design. Composes the shared
 /// `InviteCodeBody` (segmented control + Invite/Scan tabs) under the floating
 /// liquid-glass nav.
