@@ -1,3 +1,4 @@
+import ConvosComposer
 import SwiftUI
 import XCTest
 @testable import Convos

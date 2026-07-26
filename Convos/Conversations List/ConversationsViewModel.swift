@@ -160,6 +160,11 @@ final class ConversationsViewModel {
     var presentingPinLimitInfo: Bool = false
 
     var conversations: [Conversation] = []
+    /// Whether `conversations` has received its first real value from the
+    /// database (first-frame prime or first publisher emission). Until then
+    /// an empty array means "not loaded yet", not "no conversations", so the
+    /// empty-state CTA must stay hidden.
+    private(set) var hasLoadedInitialConversations: Bool = false
     private(set) var hiddenConversationIds: Set<String> = []
     private var conversationsCount: Int = 0 {
         didSet {
@@ -236,9 +241,13 @@ final class ConversationsViewModel {
     /// `ConversationsListEmptyCTA` ("Pop-up private convos"). Mirrors the
     /// SwiftUI-side gate inside `ConversationsView.sidebarContent` so the
     /// shell can swap the chats tab for an inline agent builder and hide
-    /// the bottom chrome.
+    /// the bottom chrome. Gated on the initial read having landed: on cold
+    /// launch `conversations` starts empty while the first database read is
+    /// still in flight, and rendering the CTA then shows a user with
+    /// conversations a false "no convos yet" screen for seconds.
     var isEmptyCTAActive: Bool {
-        unpinnedConversations.isEmpty
+        hasLoadedInitialConversations
+            && unpinnedConversations.isEmpty
             && pinnedConversations.isEmpty
             && activeFilter == .all
     }
@@ -608,6 +617,7 @@ final class ConversationsViewModel {
             .sink { [weak self] conversations in
                 guard let self else { return }
                 self.conversationsObservationHasEmitted = true
+                self.hasLoadedInitialConversations = true
                 self.conversations = hiddenConversationIds.isEmpty
                     ? conversations
                     : conversations.filter { !hiddenConversationIds.contains($0.id) }
@@ -1391,6 +1401,7 @@ extension ConversationsViewModel {
         let client = ConvosClient.mock()
         let vm = ConversationsViewModel(session: client.session)
         vm.conversations = conversations
+        vm.hasLoadedInitialConversations = true
         return vm
     }
 }
@@ -1445,6 +1456,12 @@ extension ConversationsViewModel {
     }
 
     private func applyInitialPrime(_ prime: InitialPrime, deliveredLate: Bool) {
+        if prime.conversations != nil {
+            // The read succeeded, so the database state is known even when
+            // the snapshot below is discarded in favor of a publisher
+            // emission that arrived first.
+            hasLoadedInitialConversations = true
+        }
         if let fetched = prime.conversations {
             // On the late path the conversations publisher may have emitted
             // already; it is the source of truth, so never replace its

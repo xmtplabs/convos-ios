@@ -332,6 +332,34 @@ public enum ConvosAPI {
         }
     }
 
+    // MARK: - v2/conversations/:conversationId/participation
+
+    /// How much the agents in a conversation may speak. The level belongs to
+    /// the conversation, not to one agent: a room with several agents has one
+    /// setting that governs all of them, and an agent that joins later
+    /// inherits it.
+    public struct AgentParticipationRequest: Codable {
+        /// "speak", "mention" or "paused".
+        public let mode: String
+
+        public init(mode: String) {
+            self.mode = mode
+        }
+    }
+
+    public struct AgentParticipationResponse: Codable {
+        public let success: Bool
+        public let conversationId: String
+        /// The level now in force — echoed on a write, read on a fetch.
+        public let mode: String
+
+        public init(success: Bool, conversationId: String, mode: String) {
+            self.success = success
+            self.conversationId = conversationId
+            self.mode = mode
+        }
+    }
+
     // MARK: - v2/agent-templates/:id
 
     // Subset of the agent-template object the backend returns from the

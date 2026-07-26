@@ -98,7 +98,7 @@ final class PendingAgentPresentationTests: XCTestCase {
 
         XCTAssertEqual(viewModel.conversationName, "Tifoso")
         XCTAssertEqual(viewModel.untitledConversationPlaceholder, "Tifoso")
-        XCTAssertEqual(viewModel.conversationInfoSubtitle, "Joining...")
+        XCTAssertEqual(viewModel.conversationInfoSubtitle, "Activating")
     }
 
     func testNeutralPresentationHidesContactCard() {
@@ -112,8 +112,8 @@ final class PendingAgentPresentationTests: XCTestCase {
                        "No contact card until an identity (name/emoji) exists")
         XCTAssertNil(presentation?.avatarIdentity,
                      "No avatar identity -> falls back to the add-agent glyph")
-        XCTAssertEqual(viewModel.untitledConversationPlaceholder, "Agent")
-        XCTAssertEqual(viewModel.conversationInfoSubtitle, "Joining...")
+        XCTAssertEqual(viewModel.untitledConversationPlaceholder, "New Agent")
+        XCTAssertEqual(viewModel.conversationInfoSubtitle, "Activating")
     }
 
     func testDeepLinkIdentityUpgradesInPlace() {
@@ -153,7 +153,63 @@ final class PendingAgentPresentationTests: XCTestCase {
         XCTAssertFalse(viewModel.shouldRenderAsPendingAgent)
     }
 
+    func testDirectBuildWithoutPreviewStaysGeneric() {
+        let viewModel = makeViewModel()
+        viewModel.directBuildGeneration = makeGeneration(preview: nil)
+
+        let presentation = viewModel.pendingAgentPresentation
+        XCTAssertNotNil(presentation, "An in-flight direct build renders as pending")
+        XCTAssertNil(presentation?.name)
+        XCTAssertNil(presentation?.avatarIdentity,
+                     "No preview yet -> falls back to the add-agent glyph")
+        XCTAssertEqual(presentation?.showsContactCard, false)
+        XCTAssertEqual(viewModel.conversationName, "New Agent")
+    }
+
+    func testDirectBuildPreviewDrivesHeaderIdentity() {
+        let viewModel = makeViewModel()
+        viewModel.directBuildGeneration = makeGeneration(preview: ConvosAPI.AgentPreview(
+            agentName: "Fin Watch",
+            emoji: "🦈",
+            description: "Tracks live shark data"
+        ))
+
+        let presentation = viewModel.pendingAgentPresentation
+        XCTAssertEqual(presentation?.name, "Fin Watch")
+        XCTAssertEqual(presentation?.emoji, "🦈")
+        XCTAssertEqual(presentation?.showsContactCard, false,
+                       "The builder keeps its own activating card, not the contact card")
+        XCTAssertEqual(presentation?.avatarIdentity?.emoji, "🦈")
+        XCTAssertEqual(viewModel.conversationName, "Fin Watch")
+        XCTAssertEqual(viewModel.untitledConversationPlaceholder, "Fin Watch")
+        XCTAssertEqual(viewModel.conversationInfoSubtitle, "Activating")
+    }
+
+    func testDirectBuildEmptyPreviewFieldsStayGeneric() {
+        let viewModel = makeViewModel()
+        viewModel.directBuildGeneration = makeGeneration(preview: ConvosAPI.AgentPreview(
+            agentName: "",
+            emoji: "",
+            description: nil
+        ))
+
+        let presentation = viewModel.pendingAgentPresentation
+        XCTAssertNil(presentation?.name)
+        XCTAssertNil(presentation?.avatarIdentity)
+        XCTAssertEqual(viewModel.conversationName, "New Agent")
+    }
+
     // MARK: - Helpers
+
+    private func makeGeneration(preview: ConvosAPI.AgentPreview?) -> AgentTemplateGeneration {
+        AgentTemplateGeneration(
+            conversationId: "test-convo",
+            status: .running,
+            templateId: nil,
+            errorMessage: nil,
+            preview: preview
+        )
+    }
 
     private func makeAgentMember(metadata: ProfileMetadata?) -> ConversationMember {
         let profile = Profile(
