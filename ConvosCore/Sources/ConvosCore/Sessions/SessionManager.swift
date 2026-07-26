@@ -13,6 +13,7 @@ public extension Notification.Name {
 public typealias AnyMessagingService = any MessagingServiceProtocol
 public typealias AnyClientProvider = any XMTPClientProvider
 
+// swiftlint:disable:next type_body_length
 /// Coordinates the XMTP inbox that backs the app.
 ///
 /// On first access (`prepareNewConversation` / `messagingService`) the
@@ -23,7 +24,6 @@ public typealias AnyClientProvider = any XMTPClientProvider
 /// @unchecked Sendable: mutable state is protected by `cachedMessagingService`. Long-lived
 /// tasks (initialization, foreground observation, asset renewal) are created
 /// during init and cancelled in deinit.
-// swiftlint:disable:next type_body_length
 public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// Pending invite drafts older than this are removed during cleanup.
     public static let stalePendingInviteInterval: TimeInterval = 24 * 60 * 60
