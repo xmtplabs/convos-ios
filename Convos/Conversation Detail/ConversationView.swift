@@ -92,136 +92,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         viewModel.conversation.id
     }
 
-    private func handleConversationSettingsChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(conversationInfo: ConversationInfoNavigatorArgs(conversationId: conversationIdForMetrics))
-    }
-
-    private func handleProfileSettingsChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(myInfo: MyInfoNavigatorArgs())
-    }
-
-    private func handleShareViewChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        // Moving into the Scan/Invite overlay must leave the keyboard down.
-        // The composer's first responder lives across the messages view
-        // controller's UIKit boundary, so clear both layers: the coordinator
-        // (so no focus-restore logic re-raises it) and the actual first
-        // responder. The invite picker sheet additionally re-resigns on its
-        // dismissal (see `AddFromContactsPickerModifier`), because UIKit
-        // restores the composer's first responder when the sheet finishes
-        // dismissing.
-        focusCoordinator.moveFocus(to: nil)
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        navigator?.present(shareInvite: ShareInviteNavigatorArgs(conversationId: conversationIdForMetrics))
-    }
-
-    private func handleConversationForkedChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(conversationForkedInfo: ConversationForkedInfoNavigatorArgs(conversationId: conversationIdForMetrics))
-    }
-
-    private func handleExplodedInviteInfoChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(explodedInviteInfo: ExplodedInviteInfoNavigatorArgs())
-    }
-
-    private func handleAgentsIntroChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(assistantConfirmation: AssistantConfirmationNavigatorArgs(conversationId: conversationIdForMetrics))
-    }
-
-    private func handlePaywallChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(paywall: PaywallNavigatorArgs(source: .lowBalanceBanner))
-    }
-
-    private func handleAgentsInfoChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(agentInfo: AgentInfoNavigatorArgs())
-    }
-
-    private func handleLockedInfoChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(lockedConvoInfo: LockedConvoInfoNavigatorArgs(conversationId: conversationIdForMetrics))
-    }
-
-    private func handleFullInfoChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(fullConvoInfo: FullConvoInfoNavigatorArgs())
-    }
-
-    private func handlePhotosInfoChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(photosInfo: PhotosInfoNavigatorArgs())
-    }
-
-    private func handleAgentBuilderChanged(from wasPresenting: Bool, to isPresenting: Bool) {
-        guard !wasPresenting, isPresenting else { return }
-        navigator?.present(agentBuilder: AgentBuilderNavigatorArgs(conversationId: conversationIdForMetrics, entryMode: .sheet))
-    }
-
-    private func handleNewConvoInviteChanged(from wasPresenting: Bool, to isPresenting: Bool) {
-        guard !wasPresenting, isPresenting else { return }
-        navigator?.present(newConversation: NewConversationNavigatorArgs(mode: .joinInvite))
-    }
-
-    /// The agent-share placeholder card reports as a member-profile present
-    /// with the placeholder's sentinel inbox id (`agent-share:<templateId>`),
-    /// keeping "a profile card opened from this conversation" consistent in
-    /// analytics with the member-avatar path while staying distinguishable.
-    private func handleAgentShareContactChanged(from oldContact: Contact?, to newContact: Contact?) {
-        guard oldContact == nil, let newContact else { return }
-        navigator?.present(
-            memberProfile: MemberProfileNavigatorArgs(
-                conversationId: conversationIdForMetrics,
-                memberId: newContact.inboxId
-            )
-        )
-    }
-
-    private func handleMemberProfileChanged(from oldMember: ConversationMember?, to newMember: ConversationMember?) {
-        guard oldMember == nil, let newMember else { return }
-        navigator?.present(
-            memberProfile: MemberProfileNavigatorArgs(
-                conversationId: conversationIdForMetrics,
-                memberId: newMember.profile.inboxId
-            )
-        )
-    }
-
-    private func handleReactionsChanged(from oldMessage: AnyMessage?, to newMessage: AnyMessage?) {
-        guard oldMessage == nil, let newMessage else { return }
-        navigator?.present(
-            reactions: ReactionsNavigatorArgs(
-                conversationId: conversationIdForMetrics,
-                messageId: newMessage.id
-            )
-        )
-    }
-
-    private func handleThinkingDetailChanged(from oldValue: ThinkingSessionDescriptor?, to newValue: ThinkingSessionDescriptor?) {
-        guard oldValue == nil, let newValue else { return }
-        navigator?.present(
-            thinkingDetail: ThinkingDetailNavigatorArgs(
-                conversationId: conversationIdForMetrics,
-                senderInboxId: newValue.sender.profile.inboxId,
-                messageId: newValue.targetMessageId
-            )
-        )
-    }
-
-    private func handleAddFromContactsChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(
-            addMembers: AddMembersNavigatorArgs(
-                conversationId: conversationIdForMetrics,
-                conversationTitle: viewModel.conversation.name
-            )
-        )
-    }
-
     /// Substitutes the user's contact (name + avatar) for any member's
     /// per-conversation profile when the inbox is a known contact. The
     /// chat surfaces this so the join-system row reads
@@ -813,6 +683,140 @@ struct ConversationView<MessagesBottomBar: View>: View {
             VoiceMemoPlayer.shared.stop()
             viewModel.voiceMemoRecorder.cancelRecording()
         }
+    }
+}
+
+// The sheet/navigation onChange handlers: each maps a viewModel
+// presentation flag flipping true to a navigator present call.
+private extension ConversationView {
+    func handleConversationSettingsChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(conversationInfo: ConversationInfoNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    func handleProfileSettingsChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(myInfo: MyInfoNavigatorArgs())
+    }
+
+    func handleShareViewChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        // Moving into the Scan/Invite overlay must leave the keyboard down.
+        // The composer's first responder lives across the messages view
+        // controller's UIKit boundary, so clear both layers: the coordinator
+        // (so no focus-restore logic re-raises it) and the actual first
+        // responder. The invite picker sheet additionally re-resigns on its
+        // dismissal (see `AddFromContactsPickerModifier`), because UIKit
+        // restores the composer's first responder when the sheet finishes
+        // dismissing.
+        focusCoordinator.moveFocus(to: nil)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        navigator?.present(shareInvite: ShareInviteNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    func handleConversationForkedChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(conversationForkedInfo: ConversationForkedInfoNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    func handleExplodedInviteInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(explodedInviteInfo: ExplodedInviteInfoNavigatorArgs())
+    }
+
+    func handleAgentsIntroChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(assistantConfirmation: AssistantConfirmationNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    func handlePaywallChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(paywall: PaywallNavigatorArgs(source: .lowBalanceBanner))
+    }
+
+    func handleAgentsInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(agentInfo: AgentInfoNavigatorArgs())
+    }
+
+    func handleLockedInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(lockedConvoInfo: LockedConvoInfoNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    func handleFullInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(fullConvoInfo: FullConvoInfoNavigatorArgs())
+    }
+
+    func handlePhotosInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(photosInfo: PhotosInfoNavigatorArgs())
+    }
+
+    func handleAgentBuilderChanged(from wasPresenting: Bool, to isPresenting: Bool) {
+        guard !wasPresenting, isPresenting else { return }
+        navigator?.present(agentBuilder: AgentBuilderNavigatorArgs(conversationId: conversationIdForMetrics, entryMode: .sheet))
+    }
+
+    func handleNewConvoInviteChanged(from wasPresenting: Bool, to isPresenting: Bool) {
+        guard !wasPresenting, isPresenting else { return }
+        navigator?.present(newConversation: NewConversationNavigatorArgs(mode: .joinInvite))
+    }
+
+    /// The agent-share placeholder card reports as a member-profile present
+    /// with the placeholder's sentinel inbox id (`agent-share:<templateId>`),
+    /// keeping "a profile card opened from this conversation" consistent in
+    /// analytics with the member-avatar path while staying distinguishable.
+    func handleAgentShareContactChanged(from oldContact: Contact?, to newContact: Contact?) {
+        guard oldContact == nil, let newContact else { return }
+        navigator?.present(
+            memberProfile: MemberProfileNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                memberId: newContact.inboxId
+            )
+        )
+    }
+
+    func handleMemberProfileChanged(from oldMember: ConversationMember?, to newMember: ConversationMember?) {
+        guard oldMember == nil, let newMember else { return }
+        navigator?.present(
+            memberProfile: MemberProfileNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                memberId: newMember.profile.inboxId
+            )
+        )
+    }
+
+    func handleReactionsChanged(from oldMessage: AnyMessage?, to newMessage: AnyMessage?) {
+        guard oldMessage == nil, let newMessage else { return }
+        navigator?.present(
+            reactions: ReactionsNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                messageId: newMessage.id
+            )
+        )
+    }
+
+    func handleThinkingDetailChanged(from oldValue: ThinkingSessionDescriptor?, to newValue: ThinkingSessionDescriptor?) {
+        guard oldValue == nil, let newValue else { return }
+        navigator?.present(
+            thinkingDetail: ThinkingDetailNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                senderInboxId: newValue.sender.profile.inboxId,
+                messageId: newValue.targetMessageId
+            )
+        )
+    }
+
+    func handleAddFromContactsChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(
+            addMembers: AddMembersNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                conversationTitle: viewModel.conversation.name
+            )
+        )
     }
 }
 

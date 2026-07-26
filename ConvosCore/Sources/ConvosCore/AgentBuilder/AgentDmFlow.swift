@@ -18,7 +18,7 @@ public enum AgentDmFlow {
     /// finish and then resolves via lookup instead of minting a duplicate.
     /// (The backend's atomic per-peer reserve remains the cross-device
     /// authority; this only prevents same-process duplicates.)
-    private static let creating = OSAllocatedUnfairLock<Set<String>>(initialState: [])
+    private static let creating: OSAllocatedUnfairLock<Set<String>> = .init(initialState: [])
 
     /// Lookup-first: reuse an existing 1:1 with the agent, otherwise create a
     /// conversation, stamp the agent-DM marker, and add the agent's inbox.

@@ -1022,12 +1022,6 @@ extension SharedDatabaseMigrator {
         }
     }
 
-    /// The templateId-keyed agent-template contact table. Separate from the
-    /// inboxId-keyed `contact` table because a template instantiated into N
-    /// conversations produces N distinct agent inboxIds - the stable
-    /// identity of the contact is the template. Registered after the
-    /// contacts-MVP migrations so the `addedViaConversationId` foreign key
-    /// against `conversation` resolves.
     // Registered last: migrations must only ever be appended to the chain --
     // inserting into an earlier group runs after already-shipped identifiers
     // on upgraded installs and diverges fresh-install/upgrade schema order.
@@ -1039,11 +1033,16 @@ extension SharedDatabaseMigrator {
         }
     }
 
+    /// The templateId-keyed agent-template contact table. Separate from the
+    /// inboxId-keyed `contact` table because a template instantiated into N
+    /// conversations produces N distinct agent inboxIds - the stable
+    /// identity of the contact is the template. Registered after the
+    /// contacts-MVP migrations so the `addedViaConversationId` foreign key
+    /// against `conversation` resolves.
     private static func registerAgentTemplateContactMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("createAgentTemplateContactTable") { db in
             try SharedDatabaseMigrator.createAgentTemplateContactSchema(db)
         }
-
     }
 
     /// Tighten capabilityResolution + connectionEnablement + connectionGrant so a grant

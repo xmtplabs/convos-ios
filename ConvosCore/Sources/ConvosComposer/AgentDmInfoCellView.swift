@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
@@ -75,3 +76,4 @@ public struct AgentDmInfoCellView: View {
         static let avatarSize: CGFloat = 40.0
     }
 }
+#endif
