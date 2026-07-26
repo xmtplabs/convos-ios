@@ -1,24 +1,20 @@
 import Foundation
 import os
 
-public enum AgentDmFlowError: Error {
-    /// A concurrent create for the same agent did not resolve in time.
-    case creationInProgress
-}
-
 /// Client flow for starting (or resuming) a private DM with an agent that is
 /// already a member of one of the user's conversations. The DM is a standard
 /// 2-member conversation carrying the agent-DM custom-metadata marker; the
 /// agent side accepts or leaves based on its own policy. See
 /// docs/plans/agent-dms.md.
 public enum AgentDmFlow {
-    /// Agents with a create currently in flight in this process. Closes the
+    /// The create currently in flight per agent in this process. Closes the
     /// lookup-then-create race between the reconciler and the DM page's
-    /// first-send path: the second caller waits for the first create to
-    /// finish and then resolves via lookup instead of minting a duplicate.
-    /// (The backend's atomic per-peer reserve remains the cross-device
-    /// authority; this only prevents same-process duplicates.)
-    private static let creating: OSAllocatedUnfairLock<Set<String>> = .init(initialState: [])
+    /// first-send path: a second caller awaits the first create's own task -
+    /// however long it takes - instead of minting a duplicate or racing a
+    /// poll against the create's timeout budget. (The backend's atomic
+    /// per-peer reserve remains the cross-device authority; this only
+    /// prevents same-process duplicates.)
+    private static let inFlight: OSAllocatedUnfairLock<[String: Task<String, Error>]> = .init(initialState: [:])
 
     /// Lookup-first: reuse an existing 1:1 with the agent, otherwise create a
     /// conversation, stamp the agent-DM marker, and add the agent's inbox.
@@ -37,32 +33,33 @@ public enum AgentDmFlow {
             return existing.id
         }
 
-        let claimed: Bool = Self.creating.withLock { set in
-            guard !set.contains(agentInboxId) else { return false }
-            set.insert(agentInboxId)
-            return true
-        }
-        if !claimed {
-            // Another caller is mid-create; wait it out and resolve by lookup.
-            for _ in 0..<40 {
-                try await Task.sleep(nanoseconds: 250_000_000)
-                if let existing = try? session
-                    .conversationsRepository(for: [.allowed, .unknown])
-                    .findAgentDm(with: agentInboxId) {
-                    return existing.id
-                }
-                let stillCreating = Self.creating.withLock { $0.contains(agentInboxId) }
-                if !stillCreating { break }
+        let task: Task<String, Error> = Self.inFlight.withLock { map in
+            if let running = map[agentInboxId] {
+                return running
             }
-            if let existing = try session
-                .conversationsRepository(for: [.allowed, .unknown])
-                .findAgentDm(with: agentInboxId) {
-                return existing.id
+            let created = Task {
+                // The task removes itself so the entry lives exactly as long
+                // as the create, independent of any awaiting caller's
+                // cancellation. The removal's withLock cannot run before the
+                // insertion below completes: it blocks on this same lock.
+                defer { Self.inFlight.withLock { $0[agentInboxId] = nil } }
+                return try await createDm(
+                    agentInboxId: agentInboxId,
+                    originConversationId: originConversationId,
+                    session: session
+                )
             }
-            throw AgentDmFlowError.creationInProgress
+            map[agentInboxId] = created
+            return created
         }
-        defer { Self.creating.withLock { _ = $0.remove(agentInboxId) } }
+        return try await task.value
+    }
 
+    private static func createDm(
+        agentInboxId: String,
+        originConversationId: String?,
+        session: any SessionManagerProtocol
+    ) async throws -> String {
         let stateManager = session.messagingService().conversationStateManager()
         try await stateManager.createConversation(startsUnused: false)
         let conversationId = try await AgentCreationFlow.awaitReadyConversationId(stateManager: stateManager)
