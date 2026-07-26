@@ -28,7 +28,10 @@ public enum AgentDmFlow {
         originConversationId: String?,
         session: any SessionManagerProtocol
     ) async throws -> String {
-        if let existing = try? session
+        // The lookup must propagate read errors: swallowing one here would
+        // treat "read failed" as "no DM exists" and mint a duplicate. Callers
+        // retry; the single-flight below keeps concurrent retries single.
+        if let existing = try session
             .conversationsRepository(for: [.allowed, .unknown])
             .findAgentDm(with: agentInboxId) {
             return existing.id
@@ -51,7 +54,7 @@ public enum AgentDmFlow {
                 let stillCreating = Self.creating.withLock { $0.contains(agentInboxId) }
                 if !stillCreating { break }
             }
-            if let existing = try? session
+            if let existing = try session
                 .conversationsRepository(for: [.allowed, .unknown])
                 .findAgentDm(with: agentInboxId) {
                 return existing.id
