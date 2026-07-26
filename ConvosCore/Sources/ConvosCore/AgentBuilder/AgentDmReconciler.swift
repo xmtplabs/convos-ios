@@ -27,19 +27,22 @@ import os
 public final class AgentDmReconciler: @unchecked Sendable {
     private let conversationsPublisher: AnyPublisher<[Conversation], Never>
     private let hasExistingDm: @Sendable (String) -> Bool
-    /// Creates the DM; returns false on failure. A failed agent is not retried
-    /// this session (see `failedAgents`).
+    /// Creates the DM; the result is informational only -- the agent is
+    /// marked attempted before the call (see `attemptedAgents`).
     private let createDm: @Sendable (_ agentInboxId: String, _ originConversationId: String?) async -> Bool
     private let isEnabled: Bool
 
     /// Agents whose DM is mid-creation. Guards the window between issuing a
     /// create and the new conversation row becoming visible to `hasExistingDm`.
     private let inFlight: OSAllocatedUnfairLock<Set<String>> = .init(initialState: [])
-    /// Agents whose creation failed once. The publisher re-emits on every
-    /// database change, so retrying on each emission would hammer a failing
-    /// backend and pile up half-created conversations. One attempt per agent
-    /// per session; the DM page's first-send path remains the fallback.
-    private let failedAgents: OSAllocatedUnfairLock<Set<String>> = .init(initialState: [])
+    /// Agents already attempted this session, successful or not. The publisher
+    /// re-emits on every database change, so retrying on each emission would
+    /// hammer a failing backend -- and a creation that succeeds but whose DM
+    /// the agent later leaves (backend policy, dedup race) would otherwise
+    /// recreate forever, stranding a hidden conversation per cycle. One
+    /// attempt per agent per session; the DM page's first-send path remains
+    /// the fallback.
+    private let attemptedAgents: OSAllocatedUnfairLock<Set<String>> = .init(initialState: [])
     private let task: OSAllocatedUnfairLock<Task<Void, Never>?> = .init(initialState: nil)
 
     public init(
@@ -94,7 +97,7 @@ public final class AgentDmReconciler: @unchecked Sendable {
 
         for (agentInboxId, originConversationId) in originByAgent {
             if Task.isCancelled { return }
-            if failedAgents.withLock({ $0.contains(agentInboxId) }) { continue }
+            if attemptedAgents.withLock({ $0.contains(agentInboxId) }) { continue }
             if hasExistingDm(agentInboxId) { continue }
             let claimed: Bool = inFlight.withLock { set in
                 guard !set.contains(agentInboxId) else { return false }
@@ -102,10 +105,8 @@ public final class AgentDmReconciler: @unchecked Sendable {
                 return true
             }
             guard claimed else { continue }
-            let created = await createDm(agentInboxId, originConversationId)
-            if !created {
-                failedAgents.withLock { _ = $0.insert(agentInboxId) }
-            }
+            attemptedAgents.withLock { _ = $0.insert(agentInboxId) }
+            _ = await createDm(agentInboxId, originConversationId)
             inFlight.withLock { $0.remove(agentInboxId) }
         }
     }

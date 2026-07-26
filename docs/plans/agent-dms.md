@@ -415,16 +415,22 @@ non-production-gated, so blast radius is dev/internal. Fixed:
 - **Verified-agent gate on the pager DM page** — the pager dot (the real entry
   point) gated only on `isAgent`, bypassing the CTA's verified requirement; now
   requires `isVerifiedAgent`.
-- **Classification requires 2 members; one-way latch removed** — a marker on a
-  larger group no longer hides it, and a DM whose agent left (count → 1)
-  reappears instead of being permanently hidden/orphaned. The latch had traded
-  a minor flicker for those worse bugs; the re-stamp self-heals the flicker.
+- **Classification requires 2 members; latch scoped to <= 2 members** (updated
+  2026-07-26 after review). History: the first fix removed the latch entirely,
+  which let live DMs de-classify and leak into the list whenever the on-wire
+  marker was transiently rewritten, so the latch came back. The final shape:
+  extraction classifies only marker AND exactly two members, and the latch
+  re-marks only while the conversation still has at most two members. A marker
+  stamped on a larger group can never hide it (the marker is member-writable
+  appData, so this was a production-reachable hide-any-group vector), while a
+  DM whose agent left stays hidden as designed (banner/composer UX deferred).
 - **Conversations count excludes agent DMs** — was inflating the onboarding
   "more than one convo" gate.
 - **Multi-agent pages** — every verified agent in the group gets its own DM
-  pager segment (sorted by inbox for stable order), and the contact card
-  navigates to each agent's own page. Previously only the first verified agent
-  got a page; a second agent's contact-card button was a silent no-op.
+  pager segment (member join order, so adding an agent appends a page rather
+  than relocating an existing DM), and the contact card navigates to each
+  agent's own page. Previously only the first verified agent got a page; a
+  second agent's contact-card button was a silent no-op.
 
 Deferred (tracked):
 

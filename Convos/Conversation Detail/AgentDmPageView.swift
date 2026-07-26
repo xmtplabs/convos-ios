@@ -48,6 +48,23 @@ struct AgentDmPageView: View {
             }
         }
         .onAppear(perform: bindExistingDm)
+        .task(id: agentInboxId) { await rebindWhenDmAppears() }
+    }
+
+    /// The eager reconciler (or another device) can create the DM while this
+    /// page is already mounted; a single onAppear bind would leave the page on
+    /// the empty state until remount. Re-attempt the bind on every repository
+    /// emission until it succeeds.
+    private func rebindWhenDmAppears() async {
+        guard dmViewModel == nil else { return }
+        let publisher = viewModel.session
+            .conversationsRepository(for: [.allowed, .unknown])
+            .conversationsPublisher
+        for await _ in publisher.values {
+            if Task.isCancelled || dmViewModel != nil { return }
+            bindExistingDm()
+            if dmViewModel != nil { return }
+        }
     }
 
     private func bindExistingDm() {
@@ -72,7 +89,7 @@ struct AgentDmPageView: View {
     // MARK: - Pre-creation
 
     /// The same disclosure cell the transcript leads with, standing alone
-    /// before the DM exists — so the empty state is literally the list's
+    /// before the DM exists - so the empty state is literally the list's
     /// first cell.
     private var emptyStateWithComposer: some View {
         ScrollView {
@@ -96,7 +113,7 @@ struct AgentDmPageView: View {
                 return nil
             case .messages(var group):
                 // The processor pins the agent contact card to the agent's
-                // first group (synthesizing an empty one when needed) — an
+                // first group (synthesizing an empty one when needed) - an
                 // origin-conversation affordance the info cell replaces here.
                 group.agentContactCard = nil
                 guard !group.messages.isEmpty else { return nil }
@@ -150,10 +167,17 @@ struct AgentDmPageView: View {
                     originConversationId: viewModel.conversation.id,
                     session: viewModel.session
                 )
+                _ = conversationId
+                // Bind to whatever DM now exists for this agent, not only the
+                // one this send created: the eager reconciler can win the
+                // create race, and converging on the surviving DM both keeps
+                // the message and avoids stranding it in a conversation the
+                // backend's dedup will make the agent leave.
                 guard let conversation = try viewModel.session
                     .conversationsRepository(for: [.allowed, .unknown])
-                    .findAgentDm(with: agentInboxId), conversation.id == conversationId else {
+                    .findAgentDm(with: agentInboxId) else {
                     Log.error("Agent DM created but not found for binding")
+                    await MainActor.run { draftText = text }
                     return
                 }
                 let dmVm = makeDmViewModel(for: conversation)

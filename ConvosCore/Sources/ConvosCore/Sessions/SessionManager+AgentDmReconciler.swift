@@ -29,9 +29,10 @@ extension SessionManager {
                 hasExistingDm: { [weak self] agentInboxId in
                     guard let self else { return true }
                     let repository = self.conversationsRepository(for: [.allowed, .unknown])
-                    guard let found = try? repository.findAgentDm(with: agentInboxId) else {
-                        return false
-                    }
+                    // try? on an optional-returning call flattens to a single
+                    // optional; nil means "no DM found or lookup failed" and
+                    // either way creation may proceed (lookup-first downstream).
+                    let found: Conversation? = (try? repository.findAgentDm(with: agentInboxId)) ?? nil
                     return found != nil
                 },
                 createDm: { [weak self] agentInboxId, originConversationId in

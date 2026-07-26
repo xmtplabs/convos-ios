@@ -431,21 +431,26 @@ struct ConversationView<MessagesBottomBar: View>: View {
         { presentingAddFromContactsPicker = true }
     }
 
-    @ViewBuilder
-    // Every verified agent in the group has its own DM pager page, so the
-    // contact card navigates to that agent's segment. A member with no page
-    // (not a verified agent) passes nil and falls back to direct-create.
+    /// Non-nil only for members whose agent has a DM pager page (every
+    /// verified agent gets its own segment; anyone else falls back to the
+    /// contact card's direct-create path). Hoisted out of the view function
+    /// so it stays a single builder expression.
+    private func startAgentDmAction(for member: ConversationMember) -> ((String) -> Void)? {
+        guard agentDmPageInboxIds.contains(member.profile.inboxId) else { return nil }
+        return { agentInboxId in
+            viewModel.presentingProfileForMember = nil
+            withAnimation(.easeInOut(duration: 0.25)) {
+                pagerSelectedPage = .agentDm(agentInboxId: agentInboxId)
+            }
+        }
+    }
+
     private func memberContactDetailSheet(for member: ConversationMember) -> some View {
         MemberContactDetailSheetContent(
             viewModel: viewModel,
             member: member,
             profileSettingsViewModel: profileSettingsViewModel,
-            onStartAgentDm: agentDmPageInboxIds.contains(member.profile.inboxId) ? { agentInboxId in
-                viewModel.presentingProfileForMember = nil
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    pagerSelectedPage = .agentDm(agentInboxId: agentInboxId)
-                }
-            } : nil
+            onStartAgentDm: startAgentDmAction(for: member)
         )
     }
 
@@ -494,7 +499,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Approval sheet for the pending capability request, opened from the
     /// transcript's connect pill. Extracted to keep `body`'s type-check time
     /// in budget. The layout can clear while the sheet is up (another device
-    /// resolved the request) — the view model auto-dismisses in that case and
+    /// resolved the request) - the view model auto-dismisses in that case and
     /// the EmptyView only covers the dismissal animation frame.
     @ViewBuilder
     private var capabilityApprovalSheet: some View {
@@ -608,7 +613,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             capabilityApprovalSheet
         }
         .sheet(isPresented: $viewModel.presentingProfileSettings) {
-            // ProfileSetupSheet owns the full save; no dismiss handler —
+            // ProfileSetupSheet owns the full save; no dismiss handler -
             // the old onProfileSettingsDismissed re-saved from the stale
             // myProfileViewModel and clobbered the just-saved profile.
             ProfileSetupSheet(mode: .edit)

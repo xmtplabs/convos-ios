@@ -156,21 +156,40 @@ struct AgentDmRegressionTests {
         #expect(found == nil)
     }
 
-    @Test("one-way latch: extraction reading false must not un-mark a DM")
+    @Test("one-way latch: extraction reading false must not un-mark a live DM")
     func latchKeepsClassification() {
         let existing = makeConversation(id: "dm-1", isAgentDm: true)
         let incoming = makeConversation(id: "dm-1", isAgentDm: false)
-        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing)
+        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 2)
         #expect(saved.isAgentDm)
+    }
+
+    @Test("latch keeps a DM hidden after the agent leaves (count 1)")
+    func latchKeepsAgentLeftDmHidden() {
+        let existing = makeConversation(id: "dm-1", isAgentDm: true)
+        let incoming = makeConversation(id: "dm-1", isAgentDm: false)
+        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 1)
+        #expect(saved.isAgentDm)
+    }
+
+    @Test("latch releases when the conversation grew beyond two members")
+    func latchReleasesForGrownGroup() {
+        // A marked conversation that gained members must never be re-marked:
+        // the marker is member-writable, so honoring the latch here would let
+        // anyone permanently hide an arbitrary group from every client.
+        let existing = makeConversation(id: "c1", isAgentDm: true)
+        let incoming = makeConversation(id: "c1", isAgentDm: false)
+        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 3)
+        #expect(!saved.isAgentDm)
     }
 
     @Test("latch does not invent classification for unmarked rows")
     func latchDoesNotUpgradeUnmarked() {
         let existing = makeConversation(id: "c1", isAgentDm: false)
         let incoming = makeConversation(id: "c1", isAgentDm: false)
-        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing)
+        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 2)
         #expect(!saved.isAgentDm)
-        let fresh = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: nil)
+        let fresh = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: nil, memberCount: 2)
         #expect(!fresh.isAgentDm)
     }
 
@@ -178,7 +197,7 @@ struct AgentDmRegressionTests {
     func latchKeepsIncomingTrue() {
         let existing = makeConversation(id: "dm-1", isAgentDm: false)
         let incoming = makeConversation(id: "dm-1", isAgentDm: true)
-        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing)
+        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 2)
         #expect(saved.isAgentDm)
     }
 }

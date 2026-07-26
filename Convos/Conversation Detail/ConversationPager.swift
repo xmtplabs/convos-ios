@@ -25,7 +25,7 @@ struct ConversationPager<MessagesPage: View, AgentDmPage: View, ThingsPage: View
     /// `ConversationView`.
     let pages: [ConversationPagerPage]
     /// Whether the dots are mounted at all. Drives the `safeAreaInset`
-    /// itself, so flipping this resizes the pager content — only set it
+    /// itself, so flipping this resizes the pager content - only set it
     /// based on keyboard presence, which already animates via the
     /// system. Don't piggyback context-menu-driven hiding on this flag
     /// or the bottom bar's own fade-out animation has to compete with a
@@ -37,7 +37,7 @@ struct ConversationPager<MessagesPage: View, AgentDmPage: View, ThingsPage: View
     /// them.
     var dotsHidden: Bool = false
     /// When true, horizontal paging between pages is blocked. Used while
-    /// the message long-press context menu is presented — without it the
+    /// the message long-press context menu is presented - without it the
     /// user can drag past the menu into another page mid-interaction.
     var scrollingDisabled: Bool = false
     @ViewBuilder let messagesPage: () -> MessagesPage

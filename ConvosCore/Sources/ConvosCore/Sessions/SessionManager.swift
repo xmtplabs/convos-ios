@@ -586,6 +586,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func tearDownInbox() async throws {
+        // Stop the agent-DM reconciler before rows are wiped: an in-flight
+        // create finishing after teardown would re-insert conversation state.
+        agentDmReconcilerLock.withLock { reconciler in
+            reconciler?.stop()
+            reconciler = nil
+        }
+
         // Cancel the launch-time bootstrap and the freshly-built profile-services
         // task first so neither can rebuild - and re-register - an inbox after the
         // wipe below clears the keychain and the cached service.

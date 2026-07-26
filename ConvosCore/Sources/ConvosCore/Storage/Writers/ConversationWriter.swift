@@ -337,7 +337,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Save conversation (handle local conversation updates).
         // Also handles imageLastRenewed preservation inside the transaction.
-        let saveResult = try saveConversation(prepared.dbConversation, in: db)
+        let saveResult = try saveConversation(prepared.dbConversation, memberCount: prepared.dbMembers.count, in: db)
 
         // Save local state
         let localState = ConversationLocalState(
@@ -776,6 +776,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let isLocked: Bool
         let hasHadVerifiedAgent: Bool
         let isAgentDm: Bool
+        let memberCount: Int
     }
 
     private func extractConversationMetadata(from conversation: XMTPiOS.Group) async throws -> ConversationMetadata {
@@ -787,6 +788,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let imageEncryptionKey = try? conversation.imageEncryptionKey
         let conversationEmoji = try? conversation.conversationEmoji
         Log.info("extractConversationMetadata: emoji=\(conversationEmoji ?? "nil") for convo: \(conversation.id)")
+
+        // Classification requires the marker AND exactly two members: the
+        // marker alone is member-writable appData, so honoring it on a
+        // larger group would let any member hide that group from every
+        // client (list + count filters key on this flag).
+        let hasAgentDmMarker = (try? conversation.currentCustomMetadata.hasAgentDm) ?? false
+        let memberCount = (try? await conversation.members.count) ?? 0
 
         return ConversationMetadata(
             kind: .group,
@@ -801,7 +809,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             debugInfo: debugInfo,
             isLocked: isLocked,
             hasHadVerifiedAgent: false,
-            isAgentDm: (try? conversation.currentCustomMetadata.hasAgentDm) ?? false
+            isAgentDm: hasAgentDmMarker && memberCount == 2,
+            memberCount: memberCount
         )
     }
 
@@ -810,11 +819,17 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     /// and can briefly rewrite it without the agent-DM marker, so an
     /// extraction reading false must not un-mark a row that was ever marked
     /// locally -- a de-classified DM would leak into the conversations list.
+    ///
+    /// The latch only applies while the conversation still has at most two
+    /// members: a marked DM whose agent left (count 1) stays hidden, but a
+    /// conversation that grew beyond two members must never be re-marked --
+    /// otherwise a transiently marked group could be hidden permanently.
     static func applyingAgentDmLatch(
         incoming: DBConversation,
-        existing: DBConversation?
+        existing: DBConversation?,
+        memberCount: Int
     ) -> DBConversation {
-        guard existing?.isAgentDm == true, !incoming.isAgentDm else {
+        guard existing?.isAgentDm == true, !incoming.isAgentDm, memberCount <= 2 else {
             return incoming
         }
         return incoming.with(isAgentDm: true)
@@ -882,6 +897,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     /// ensures atomic read-modify-write, preventing concurrent asset renewal from losing timestamps).
     private func saveConversation(
         _ dbConversation: DBConversation,
+        memberCount: Int,
         in db: Database
     ) throws -> ConversationSaveResult {
         let firstTimeSeeingConversationExpired: Bool
@@ -908,7 +924,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         conversationToSave = Self.applyingAgentDmLatch(
             incoming: conversationToSave,
-            existing: existingConversation
+            existing: existingConversation,
+            memberCount: memberCount
         )
 
         if dbConversation.inviteTag.isEmpty,
