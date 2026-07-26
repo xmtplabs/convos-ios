@@ -16,6 +16,15 @@ extension SessionManager {
         }
     }
 
+    /// Stops and clears the session's reconciler; called from inbox teardown
+    /// so an in-flight create cannot re-insert rows after the wipe.
+    func stopAgentDmReconciler() {
+        agentDmReconcilerLock.withLock { reconciler in
+            reconciler?.stop()
+            reconciler = nil
+        }
+    }
+
     /// Returns the session-wide agent-DM reconciler, instantiating and starting
     /// it on first access. Ensures a DM exists for every verified agent in the
     /// user's conversations (see `AgentDmReconciler`).
@@ -29,11 +38,13 @@ extension SessionManager {
                 hasExistingDm: { [weak self] agentInboxId in
                     guard let self else { return true }
                     let repository = self.conversationsRepository(for: [.allowed, .unknown])
-                    // try? on an optional-returning call flattens to a single
-                    // optional; nil means "no DM found or lookup failed" and
-                    // either way creation may proceed (lookup-first downstream).
-                    let found: Conversation? = (try? repository.findAgentDm(with: agentInboxId)) ?? nil
-                    return found != nil
+                    do {
+                        // A lookup failure means "no DM known"; creation may
+                        // proceed (the downstream flow is lookup-first anyway).
+                        return try repository.findAgentDm(with: agentInboxId) != nil
+                    } catch {
+                        return false
+                    }
                 },
                 createDm: { [weak self] agentInboxId, originConversationId in
                     guard let self else { return false }

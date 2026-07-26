@@ -23,6 +23,7 @@ public typealias AnyClientProvider = any XMTPClientProvider
 /// @unchecked Sendable: mutable state is protected by `cachedMessagingService`. Long-lived
 /// tasks (initialization, foreground observation, asset renewal) are created
 /// during init and cancelled in deinit.
+// swiftlint:disable type_body_length
 public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// Pending invite drafts older than this are removed during cleanup.
     public static let stalePendingInviteInterval: TimeInterval = 24 * 60 * 60
@@ -588,10 +589,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private func tearDownInbox() async throws {
         // Stop the agent-DM reconciler before rows are wiped: an in-flight
         // create finishing after teardown would re-insert conversation state.
-        agentDmReconcilerLock.withLock { reconciler in
-            reconciler?.stop()
-            reconciler = nil
-        }
+        stopAgentDmReconciler()
 
         // Cancel the launch-time bootstrap and the freshly-built profile-services
         // task first so neither can rebuild - and re-register - an inbox after the
