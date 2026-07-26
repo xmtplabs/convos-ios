@@ -102,7 +102,9 @@ sqlite3 -header -column "$DB" "SELECT substr(c.id,1,10) id, c.isAgentDm ad,
      WHERE m.conversationId=c.id AND p.memberKind LIKE 'agent%') agent
   FROM conversation c ORDER BY c.createdAt DESC LIMIT 3;"
 ```
-Pass: newest row has `mem=2`, `ad=0`, a non-null `agent`.
+Pass: the newest `ad=0` row has `mem=2` and a non-null `agent`. (The eager
+reconciler creates the agent's DM moments after the join, so the newest row
+overall is often the `ad=1` DM -- look at the newest builder row, not row one.)
 
 Fail signature: `mem=1` (agent never joined). Check the worker log for the join
 workflow, and confirm the worker was restarted (step 1.2).
@@ -166,11 +168,13 @@ again (swipe back to the DM page and send).
 
 **Expect:** you land in the **same** DM; no new conversation is created.
 
-**Verify:** the `ad=1 mem=2` count for this agent stays at **1**; no new ghost
-`ad=1 mem=1` rows appear.
+**Verify:** the DM id bound to this agent's page is unchanged, and no new
+`ad=1` row was created during the re-open (compare before/after):
 ```bash
-sqlite3 "$DB" "SELECT count(*) FROM conversation WHERE isAgentDm=1;"
+sqlite3 "$DB" "SELECT substr(id,1,10), datetime(createdAt) FROM conversation WHERE isAgentDm=1 ORDER BY datetime(createdAt) DESC LIMIT 3;"
 ```
+Pre-existing ghost DMs from prior runs are expected (Section 2); the pass
+criterion is that this agent's DM id is reused, not a global count.
 
 ## 7. Pass criteria (all must hold)
 

@@ -429,9 +429,16 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         try await group.markAsAgentDm(originConversationId: originIdData)
 
         try await databaseWriter.write { db in
-            try DBConversation
+            let updated = try DBConversation
                 .filter(key: conversationId)
                 .updateAll(db, DBConversation.Columns.isAgentDm.set(to: true))
+            if updated == 0 {
+                // The local row may not exist yet (marker written before the
+                // first store). Not fatal -- extraction re-derives the flag
+                // from the on-wire marker on the next save -- but log it so a
+                // persistently missing row is visible.
+                Log.warning("markAsAgentDm updated no local rows for \(conversationId)")
+            }
         }
     }
 

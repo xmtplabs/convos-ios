@@ -586,6 +586,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func tearDownInbox() async throws {
+        // Cancel initialization first: if teardown lands before the session
+        // start block reached the service kicks, the reconciler would
+        // otherwise be created (and start creating conversations) after the
+        // wipe below.
+        initializationTask?.cancel()
+        initializationTask = nil
         // Stop the agent-DM reconciler before rows are wiped: an in-flight
         // create finishing after teardown would re-insert conversation state.
         stopAgentDmReconciler()

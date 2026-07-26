@@ -108,6 +108,9 @@ public final class AgentDmReconciler: @unchecked Sendable {
             attemptedAgents.withLock { _ = $0.insert(agentInboxId) }
             _ = await createDm(agentInboxId, originConversationId)
             inFlight.withLock { $0.remove(agentInboxId) }
+            // stop() cancels cooperatively; bail before starting another
+            // create if teardown raced the one that just finished.
+            if Task.isCancelled { return }
         }
     }
 }

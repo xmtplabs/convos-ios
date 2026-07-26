@@ -19,6 +19,9 @@ struct AgentDmPageView: View {
     /// the keyboard is up, so the inset drops to zero -- a fixed value would
     /// leave the DM transcript floating above the composer while typing).
     let extraBottomInset: CGFloat
+    /// Mirrors ConversationView's effectiveReadOnly: a removed or stale
+    /// device must not be able to create agent DMs or send into them.
+    let isReadOnly: Bool
 
     @State private var dmViewModel: ConversationViewModel?
     @State private var contextMenuState: MessageContextMenuState = .init()
@@ -127,7 +130,7 @@ struct AgentDmPageView: View {
     }
 
     private var draftSendEnabled: Bool {
-        !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCreatingDm
+        !isReadOnly && !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCreatingDm
     }
 
     /// Minimal composer for the not-yet-created DM; the first send creates
@@ -142,7 +145,7 @@ struct AgentDmPageView: View {
             pendingInviteImage: .constant(nil),
             sendButtonEnabled: draftSendEnabled,
             focusState: $focusState,
-            messagesTextFieldEnabled: !isCreatingDm,
+            messagesTextFieldEnabled: !isReadOnly && !isCreatingDm,
             onSendMessage: handleDraftSend,
             onClearInvite: {},
             fileAttachmentPreview: { _ in EmptyView() },
@@ -225,7 +228,7 @@ struct AgentDmPageView: View {
             onboardingCoordinator: dmVm.onboardingCoordinator,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
-            messagesTextFieldEnabled: true,
+            messagesTextFieldEnabled: !isReadOnly,
             onUserInteraction: {
                 dmVm.dismissQuickEditor()
                 focusCoordinator.dismissQuickEditor()

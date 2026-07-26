@@ -1005,6 +1005,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             // agent flag must carry forward.
             let mergedHasAgentByTag: Bool = localConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
             conversationToSave = conversationToSave.with(hasHadVerifiedAgent: mergedHasAgentByTag)
+            // Same for the agent-DM latch: the replaced row is the "existing"
+            // one for latch purposes even though the incoming id differs.
+            conversationToSave = Self.applyingAgentDmLatch(
+                incoming: conversationToSave,
+                existing: localConversation,
+                memberCount: memberCount
+            )
             try conversationToSave.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
             actualClientConversationId = preferredClientConversationId

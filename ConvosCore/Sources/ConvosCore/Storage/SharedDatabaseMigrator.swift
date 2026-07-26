@@ -191,6 +191,7 @@ extension SharedDatabaseMigrator {
         Self.registerJoinAndGenerationMigrations(on: &migrator)
         Self.registerTailMigrations(on: &migrator)
         Self.registerMemberDepartureMigrations(on: &migrator)
+        Self.registerAgentDmMigrations(on: &migrator)
 
         migrator.registerMigration("addAgentTemplateGenerationJoinIdempotencyKey",
                                    migrate: Self.addAgentTemplateGenerationJoinIdempotencyKey)
@@ -1004,16 +1005,22 @@ extension SharedDatabaseMigrator {
     /// identity of the contact is the template. Registered after the
     /// contacts-MVP migrations so the `addedViaConversationId` foreign key
     /// against `conversation` resolves.
-    private static func registerAgentTemplateContactMigrations(on migrator: inout DatabaseMigrator) {
-        migrator.registerMigration("createAgentTemplateContactTable") { db in
-            try SharedDatabaseMigrator.createAgentTemplateContactSchema(db)
-        }
-
+    // Registered last: migrations must only ever be appended to the chain --
+    // inserting into an earlier group runs after already-shipped identifiers
+    // on upgraded installs and diverges fresh-install/upgrade schema order.
+    private static func registerAgentDmMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("addConversationIsAgentDm") { db in
             try db.alter(table: "conversation") { t in
                 t.add(column: "isAgentDm", .boolean).notNull().defaults(to: false)
             }
         }
+    }
+
+    private static func registerAgentTemplateContactMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("createAgentTemplateContactTable") { db in
+            try SharedDatabaseMigrator.createAgentTemplateContactSchema(db)
+        }
+
     }
 
     /// Tighten capabilityResolution + connectionEnablement + connectionGrant so a grant
