@@ -805,6 +805,21 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         )
     }
 
+    /// One-way agent-DM latch: concurrent custom-metadata writers at creation
+    /// time (invite tag, emoji) do read-modify-write on the same appData blob
+    /// and can briefly rewrite it without the agent-DM marker, so an
+    /// extraction reading false must not un-mark a row that was ever marked
+    /// locally -- a de-classified DM would leak into the conversations list.
+    static func applyingAgentDmLatch(
+        incoming: DBConversation,
+        existing: DBConversation?
+    ) -> DBConversation {
+        guard existing?.isAgentDm == true, !incoming.isAgentDm else {
+            return incoming
+        }
+        return incoming.with(isAgentDm: true)
+    }
+
     private func createDBConversation(
         from conversation: XMTPiOS.Group,
         metadata: ConversationMetadata,
@@ -891,14 +906,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Apply the preserved timestamp
         var conversationToSave = dbConversation.with(imageLastRenewed: imageLastRenewed)
 
-        // One-way latch: concurrent custom-metadata writers at creation time
-        // (invite tag, emoji) do read-modify-write on the same appData blob
-        // and can briefly rewrite it without the agent-DM marker, so an
-        // extraction reading false must not un-mark a row that was ever
-        // marked locally.
-        if existingConversation?.isAgentDm == true && !conversationToSave.isAgentDm {
-            conversationToSave = conversationToSave.with(isAgentDm: true)
-        }
+        conversationToSave = Self.applyingAgentDmLatch(
+            incoming: conversationToSave,
+            existing: existingConversation
+        )
 
         if dbConversation.inviteTag.isEmpty,
            let existingConversation,
