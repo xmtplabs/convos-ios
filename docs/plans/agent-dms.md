@@ -176,23 +176,22 @@ is a follow-up.
 
 Per the ticket thread: one Hermes sessionID; every message entering the transcript carries a channel tag. Hermes has no `channel_id` field, so the worker/DO owns the mapping and the delivery path injects it. The concrete contract:
 
-**Channel labels.** `main` for the primary conversation; `dm-<first 8 hex of conversation_id>` for DMs (extend to 12 on the rare collision). Labels are minted at registry insert and never change; the registry is the authoritative label ↔ conversation_id map. Labels never derive from display names (names change; labels must not).
+**Channel labels.** No prefix (absence of a tag) for the primary group conversation; `dm:<first 8 hex of the peer's inbox id>` for DMs (extend on the rare collision). The label is keyed on the **peer's inbox id**, not the conversation id: it is deterministic per member, so it is unique even when two members share a display name, and it stays stable across DM revoke/re-create and member rename. The agent maps the inbox slice back to the member it already knows; the registry (peer_inbox_id ↔ conversation_id) is the authoritative resolver. Labels never derive from display names (names change and collide; labels must not).
 
-**Per-message tag (token-lean).** Every message delivered to the model is prefixed with the label only:
+**Per-message tag (token-lean).** Every DM message delivered to the model is prefixed with a short header naming the lane; primary-group messages pass through untagged:
 
 ```text
-[#dm-3f9a8c12] <sender>: <message text>
-[#main] <sender>: <message text>
+[#dm:a1b2c3d4 — a private lane for this member to reach you without the group. …] <sender>: <message text>
+<sender>: <message text>   (untagged = the group)
 ```
 
-No kind field (the prefix encodes it), no participants field (DM rosters are static and carried by the notes below). Rationale: the tag is paid on every message forever; roster/context is paid once per event.
+Rationale: the tag is paid on every message forever; the fuller roster/context is paid once per event.
 
-**Channel context, injected once per event, not per message:**
-- *Session boot*: a registry summary in the injected context — `Channels: #main = the group conversation. #dm-3f9a8c12 = private DM with Alice. ...` Regenerated every boot, so context truncation can never orphan a label.
-- *Channel opened*: system note `[#dm-3f9a8c12] Channel opened: private DM with Alice (group member).`
-- *Channel revoked/closed*: system note `[#dm-3f9a8c12] Channel closed: Alice is no longer in the group. Do not address this channel again.`
+**Channel context, injected once per event, not per message (Tier 2 roster):**
+- *Session/turn boot*: a registry summary in the injected context — `Channels: #dm:a1b2c3d4 = Alice, #dm:9f3d2e10 = Bob, …` built from the live registry (only non-revoked lanes). This is also the roster the agent addresses for proactive outreach (§ Send-tool contract), and where the label ↔ member name pairing lives.
+- *Channel opened / revoked*: reflected by the roster changing between turns; a revoked lane simply drops out.
 
-**Send-tool contract.** Send tools gain one optional string parameter `channel` (a label, e.g. `"dm-3f9a8c12"`); default is the channel of the message that triggered the turn. The DO resolves label → conversation_id against the registry and rejects unknown or revoked labels with a tool error the model can read (`channel #dm-3f9a8c12 is closed`). Reply/reaction tools derive the channel from the target message; an explicit `channel` that disagrees is an error, not a redirect. Read receipts are automatic per channel, never model-controlled. Enforcement lives at the DO — an agent must never be able to send to a revoked channel regardless of what the prompt says.
+**Send-tool contract (Tier 2 — proactive cross-member outreach).** Send tools gain one optional `channel` label (e.g. `"dm:a1b2c3d4"`); default is the channel of the message that triggered the turn. Hermes resolves the label against the **injected roster** (which contains only live, non-revoked lanes), so an unknown/stale label is rejected before any send — the roster is the guardrail by construction. Reply/reaction tools derive the channel from the target message; an explicit `channel` that disagrees is an error, not a redirect. Read receipts are automatic per channel, never model-controlled. Herald's own membership enforcement backstops the tiny mid-turn-revocation window.
 
 Other placement rules:
 - **The conversation registry lives in the DO** (new SQLite table, §6.2) — conversation_id, kind, peer_inbox_id, status, label.
@@ -322,17 +321,17 @@ Two findings the live test produced, now reflected in the code and doctrine:
 Still open: alarm-driven reconciliation cadence (currently opportunistic), and
 a unit test for the Herald `member_removed` transform.
 
-### 5.6 Confidentiality stance: shared brain, disclosed (D7 — needs product sign-off)
+### 5.6 Positioning: coordination lane, not confidential channel (D7 — decided)
 
-One transcript means member A can try to extract what member B told the agent privately. Prompt rules cannot make an LLM keep secrets against a motivated extractor — we must not pretend otherwise.
+A DM is a way to reach the agent **without bothering the group**, not a secret channel. Its power is that the agent can act *across* members: you DM your coffee availability; when another member DMs to set up coffee with you, the agent uses that availability to coordinate. One transcript is what makes this work, and prompt rules can't make an LLM keep secrets against a motivated extractor anyway — so we position the property honestly rather than pretend isolation.
 
-Proposed stance for v1:
-- **Product framing: the agent is the group's agent.** Its memory is shared across the group and all its DMs. The DM is private *from other members reading it directly*; it is not private *from the agent's shared memory*.
-- **Disclosure in UI**: one line in the DM header/first-open state: "This agent shares memory with [group name]." Copy pass needed.
-- **Prompt policy as etiquette, not security**: instruct the agent to treat DM content as confidential-by-default in other channels. This reduces casual leakage; the disclosure covers adversarial extraction.
-- **Eval, don't assume**: a cross-channel leakage eval (§9) measures how often the agent volunteers channel-B content in channel-A under benign and adversarial prompting, so the stance is grounded in measured behavior before TestFlight.
+Decided stance for v1 (**coordination-first, judgment-bounded**):
+- **Product framing: the agent is the group's agent.** Its memory is shared across the group and all its DMs. A DM is private *from other members reading it directly*; it is **not** private *from the agent's shared memory*, and the agent may relay what it learns in one lane to help coordinate in another.
+- **Disclosure in UI**: the DM first-open state says the space is not confidential and the agent can share what it knows (shipped: `AgentDmInfoCellView`). This must stay consistent with the agent-facing prompt.
+- **Prompt policy — coordinate, don't expose**: the agent is instructed to relay what serves the coordination members are seeking (availability, hand-offs, logistics), and to hold back what's sensitive or vulnerable, never surfacing a member's words as ammunition against them (the SOUL "weaponizing memory" guard). This is the judgment fence, not a confidentiality wall. External sharing (tools, third parties) still requires explicit consent.
+- **Eval, don't assume**: a cross-channel eval (§9) measures both failure modes — over-sharing sensitive content *and* refusing benign coordination — so the judgment line is grounded in measured behavior before TestFlight.
 
-Rejected alternative for v1: per-channel context filtering (build the LLM context per channel, excluding other DMs) — this is the multi-session model through the back door, reintroducing exactly the amnesia/complexity the thread decided against. Revisit only if the leakage eval fails badly AND product wants hard isolation more than coherence.
+Rejected alternative: per-channel context filtering (build the context per channel, excluding other DMs) — this is the multi-session model through the back door, reintroducing the amnesia/complexity the thread decided against, and it would *break* cross-member coordination, which is the point.
 
 ### 5.7 Billing and abuse (D8)
 
