@@ -191,7 +191,6 @@ extension SharedDatabaseMigrator {
         Self.registerJoinAndGenerationMigrations(on: &migrator)
         Self.registerTailMigrations(on: &migrator)
         Self.registerMemberDepartureMigrations(on: &migrator)
-        Self.registerAgentDmMigrations(on: &migrator)
 
         // Registration is append-only across releases: new migrations go here,
         // after every already-shipped one. Inserting earlier (e.g. into a
@@ -202,6 +201,11 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addAgentTemplateGenerationJoinIdempotencyKey",
                                    migrate: Self.addAgentTemplateGenerationJoinIdempotencyKey)
         migrator.registerMigration("addProfilePublishJobProfileUpdatedAt", migrate: Self.addProfilePublishJobProfileUpdatedAt)
+
+        // Must stay last: this migration was appended after the two above landed
+        // on dev, so existing installs applied those first. Registering it ahead
+        // of them re-triggers the erase described above.
+        Self.registerAgentDmMigrations(on: &migrator)
 
         return migrator
     }
