@@ -1,13 +1,25 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "labels": ["dependencies"],
-  "enabledManagers": ["custom.regex", "nix"],
+  "extends": [
+    "config:recommended"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "enabledManagers": [
+    "custom.regex",
+    "nix"
+  ],
+  "nix": {
+    "enabled": true
+  },
   "customManagers": [
     {
       "customType": "regex",
       "description": "Match the libxmtp tag in Package.swift `revision:` pins. Recognizes both -dev and -nightly tags as currentValue; allowedVersions in the package rule restricts update candidates to nightly only.",
-      "managerFilePatterns": ["/Package\\.swift$/"],
+      "managerFilePatterns": [
+        "/Package\\.swift$/"
+      ],
       "matchStrings": [
         "url:\\s*\"https://github\\.com/xmtp/libxmtp\\.git\"[\\s\\S]*?revision:\\s*\"(?<currentValue>ios-[^\"]+)\""
       ],
@@ -18,7 +30,9 @@
     {
       "customType": "regex",
       "description": "Match Package.resolved's libxmtp entry. SPM stores the tag under `branch` and the resolved commit SHA under `revision`; both must be updated together, captured here as currentValue + currentDigest.",
-      "managerFilePatterns": ["/Package\\.resolved$/"],
+      "managerFilePatterns": [
+        "/Package\\.resolved$/"
+      ],
       "matchStrings": [
         "\"identity\"\\s*:\\s*\"libxmtp\"[\\s\\S]*?\"branch\"\\s*:\\s*\"(?<currentValue>ios-[^\"]+)\"[\\s\\S]*?\"revision\"\\s*:\\s*\"(?<currentDigest>[a-f0-9]{40})\""
       ],
@@ -29,12 +43,18 @@
   ],
   "packageRules": [
     {
-      "matchManagers": ["nix"],
+      "matchManagers": [
+        "nix"
+      ],
       "enabled": false
     },
     {
-      "matchManagers": ["nix"],
-      "matchDepNames": ["convos-releases"],
+      "matchManagers": [
+        "nix"
+      ],
+      "matchDepNames": [
+        "convos-releases"
+      ],
       "enabled": true,
       "groupName": "convos-releases",
       "branchTopic": "convos-releases",
@@ -44,7 +64,9 @@
       "rebaseWhen": "behind-base-branch"
     },
     {
-      "matchPackageNames": ["https://github.com/xmtp/libxmtp"],
+      "matchPackageNames": [
+        "https://github.com/xmtp/libxmtp"
+      ],
       "groupName": "libxmtp",
       "branchTopic": "libxmtp",
       "prConcurrentLimit": 1,
@@ -55,8 +77,13 @@
       "commitMessageExtra": "to {{newValue}}"
     },
     {
-      "matchPackageNames": ["https://github.com/xmtp/libxmtp"],
-      "matchUpdateTypes": ["minor", "patch"],
+      "matchPackageNames": [
+        "https://github.com/xmtp/libxmtp"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
       "automerge": true,
       "platformAutomerge": true
     }
