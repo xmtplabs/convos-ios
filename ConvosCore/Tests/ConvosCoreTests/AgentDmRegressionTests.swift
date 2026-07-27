@@ -25,6 +25,15 @@ struct AgentDmRegressionTests {
         try DBInbox(inboxId: Self.selfInbox, clientId: "client-1", createdAt: Date()).insert(db)
     }
 
+    private func seedProfile(_ db: Database, inboxId: String, memberKind: DBMemberKind?) throws {
+        try DBProfile(
+            inboxId: inboxId,
+            memberKind: memberKind,
+            profileSource: .appData,
+            updatedAt: Date()
+        ).insert(db)
+    }
+
     private func seedMember(_ db: Database, conversationId: String, inboxId: String) throws {
         try DBMember(inboxId: inboxId).save(db, onConflict: .ignore)
         try DBConversationMember(
@@ -160,7 +169,7 @@ struct AgentDmRegressionTests {
     func latchKeepsClassification() {
         let existing = makeConversation(id: "dm-1", isAgentDm: true)
         let incoming = makeConversation(id: "dm-1", isAgentDm: false)
-        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 2)
+        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 2, otherMemberIsVerifiedAgent: true)
         #expect(saved.isAgentDm)
     }
 
@@ -168,7 +177,7 @@ struct AgentDmRegressionTests {
     func latchKeepsAgentLeftDmHidden() {
         let existing = makeConversation(id: "dm-1", isAgentDm: true)
         let incoming = makeConversation(id: "dm-1", isAgentDm: false)
-        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 1)
+        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 1, otherMemberIsVerifiedAgent: true)
         #expect(saved.isAgentDm)
     }
 
@@ -179,7 +188,7 @@ struct AgentDmRegressionTests {
         // anyone permanently hide an arbitrary group from every client.
         let existing = makeConversation(id: "c1", isAgentDm: true)
         let incoming = makeConversation(id: "c1", isAgentDm: false)
-        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 3)
+        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 3, otherMemberIsVerifiedAgent: true)
         #expect(!saved.isAgentDm)
     }
 
@@ -187,9 +196,9 @@ struct AgentDmRegressionTests {
     func latchDoesNotUpgradeUnmarked() {
         let existing = makeConversation(id: "c1", isAgentDm: false)
         let incoming = makeConversation(id: "c1", isAgentDm: false)
-        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 2)
+        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 2, otherMemberIsVerifiedAgent: true)
         #expect(!saved.isAgentDm)
-        let fresh = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: nil, memberCount: 2)
+        let fresh = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: nil, memberCount: 2, otherMemberIsVerifiedAgent: true)
         #expect(!fresh.isAgentDm)
     }
 
@@ -197,7 +206,63 @@ struct AgentDmRegressionTests {
     func latchKeepsIncomingTrue() {
         let existing = makeConversation(id: "dm-1", isAgentDm: false)
         let incoming = makeConversation(id: "dm-1", isAgentDm: true)
-        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 2)
+        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 2, otherMemberIsVerifiedAgent: true)
         #expect(saved.isAgentDm)
+    }
+
+    @Test("latch does not re-mark when the other member is not a verified agent")
+    func latchDoesNotReMarkHumanOneToOne() {
+        // A member-writable marker on a human 1:1 must never latch into
+        // permanent hiding: without a verified-agent member the marker is not
+        // trustworthy, so the transiently marked row is left visible.
+        let existing = makeConversation(id: "dm-1", isAgentDm: true)
+        let incoming = makeConversation(id: "dm-1", isAgentDm: false)
+        let saved = ConversationWriter.applyingAgentDmLatch(incoming: incoming, existing: existing, memberCount: 2, otherMemberIsVerifiedAgent: false)
+        #expect(!saved.isAgentDm)
+    }
+
+    @Test("classification predicate is false for a marked 1:1 whose other member is human")
+    func classificationRejectsHumanOneToOne() throws {
+        let dbQueue = try makeDatabase()
+        try dbQueue.write { db in
+            try seedInbox(db)
+            try seedConversation(db, id: "human-1", isAgentDm: false, otherInboxId: "human-peer")
+            try seedProfile(db, inboxId: Self.selfInbox, memberKind: nil)
+            try seedProfile(db, inboxId: "human-peer", memberKind: nil)
+        }
+        let hasAgent = try dbQueue.read { db in
+            try ConversationWriter.conversationHasVerifiedAgentMember(db, conversationId: "human-1")
+        }
+        #expect(!hasAgent)
+    }
+
+    @Test("classification predicate is true for a marked 1:1 whose other member is a verified agent")
+    func classificationAcceptsVerifiedAgentOneToOne() throws {
+        let dbQueue = try makeDatabase()
+        try dbQueue.write { db in
+            try seedInbox(db)
+            try seedConversation(db, id: "dm-1", isAgentDm: true)
+            try seedProfile(db, inboxId: Self.selfInbox, memberKind: nil)
+            try seedProfile(db, inboxId: Self.agentInbox, memberKind: .verifiedConvos)
+        }
+        let hasAgent = try dbQueue.read { db in
+            try ConversationWriter.conversationHasVerifiedAgentMember(db, conversationId: "dm-1")
+        }
+        #expect(hasAgent)
+    }
+
+    @Test("classification predicate is false when the other member is an unverified agent")
+    func classificationRejectsUnverifiedAgentOneToOne() throws {
+        let dbQueue = try makeDatabase()
+        try dbQueue.write { db in
+            try seedInbox(db)
+            try seedConversation(db, id: "dm-1", isAgentDm: true)
+            try seedProfile(db, inboxId: Self.selfInbox, memberKind: nil)
+            try seedProfile(db, inboxId: Self.agentInbox, memberKind: .agent)
+        }
+        let hasAgent = try dbQueue.read { db in
+            try ConversationWriter.conversationHasVerifiedAgentMember(db, conversationId: "dm-1")
+        }
+        #expect(!hasAgent)
     }
 }

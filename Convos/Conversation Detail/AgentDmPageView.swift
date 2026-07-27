@@ -229,6 +229,7 @@ struct AgentDmPageView: View {
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             messagesTextFieldEnabled: !isReadOnly,
+            isReadOnly: isReadOnly,
             onUserInteraction: {
                 dmVm.dismissQuickEditor()
                 focusCoordinator.dismissQuickEditor()
