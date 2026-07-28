@@ -1045,27 +1045,28 @@ private extension ConversationView {
 
         switch action {
         case .research:
-            draftInGroupChat(
-                "Research this from \(sender): \(context)\n\n"
-                    + "Compare the best options and keep the useful result in Things."
+            openAgentSideChat(
+                draft: "From \(groupDisplayName), \(sender) shared: \(context)\n\n"
+                    + "Research this quietly. Compare the best options and keep the useful result in Things."
             )
         case .doSomething:
-            draftInGroupChat(
-                "Do something useful with this from \(sender): \(context)\n\n"
-                    + "Use the group context, connected apps, and the right skills. Show what changed."
+            openAgentSideChat(
+                draft: "From \(groupDisplayName), \(sender) shared: \(context)\n\n"
+                    + "Do something useful with this. Use the group context, connected apps, "
+                    + "and the right skills. Show what changed in Things."
             )
         case .remind:
-            draftInGroupChat(
-                "Turn this message from \(sender) into a reminder for the right people: \(context)\n\n"
+            openAgentSideChat(
+                draft: "Turn this message from \(sender) into a reminder for the right people: \(context)\n\n"
                     + "Ask only for any missing timing."
             )
         case .addToThings:
-            draftInGroupChat(
-                "Add this message from \(sender) to Things and put it in the right place: \(context)"
+            openAgentSideChat(
+                draft: "Add this message from \(sender) to Things and put it in the right place: \(context)"
             )
         case .connectService:
-            draftInGroupChat(
-                "Connect this group to the service needed for this message from \(sender): \(context)\n\n"
+            openAgentSideChat(
+                draft: "Connect this group to the service needed for this message from \(sender): \(context)\n\n"
                     + "Explain why the connection helps and ask for the minimum access needed."
             )
         case .askAgentPrivately:
@@ -1080,11 +1081,18 @@ private extension ConversationView {
     func handleGroupDesktopAction(_ action: GroupDesktopView.Action) {
         switch action {
         case .describeGroup:
-            draftInGroupChat("This group is about ")
+            openAgentSideChat(
+                draft: "Help shape the desktop around what this group is for: "
+            )
         case .addUsefulThing:
-            draftInGroupChat("Add this to the group and put it in the right place: ")
+            openAgentSideChat(
+                draft: "Add this to Things and put it in the right place for everyone: "
+            )
         case .connectAnything, .openConnections:
-            draftInGroupChat("Connect this group to ")
+            openAgentSideChat(
+                draft: "Connect this group to an app, service, file, calendar, account, or agent. "
+                    + "Explain why it helps and ask for the minimum access needed: "
+            )
         case .askEveryone:
             openAgentSideChat(draft: "Ask everyone in \(groupDisplayName) privately for ")
         case .researchOptions:

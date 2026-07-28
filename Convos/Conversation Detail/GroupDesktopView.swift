@@ -31,8 +31,6 @@ struct GroupDesktopView: View {
 
     @State private var copiedAddress: String?
 
-    private let accent: Color = Color(red: 1, green: 0.32, blue: 0.22)
-
     private var people: [ConversationMember] {
         conversation.members.filter { !$0.isAgent }
     }
@@ -140,7 +138,11 @@ struct GroupDesktopView: View {
 
     private var start: some View {
         VStack(alignment: .leading, spacing: 16) {
-            kicker("THE THINGS YOUR GROUP IS DOING")
+            HStack {
+                kicker("THE THINGS YOUR GROUP IS DOING")
+                Spacer()
+                DesktopAddButton { onAction(.addUsefulThing) }
+            }
 
             Text("Let’s get this Convo started.")
                 .font(.system(size: 37, weight: .bold, design: .rounded))
@@ -694,5 +696,27 @@ struct GroupDesktopView: View {
             .font(.caption2.weight(.bold))
             .tracking(1.6)
             .foregroundStyle(.secondary)
+    }
+}
+
+private extension GroupDesktopView {
+    var accent: Color { Color(red: 1, green: 0.32, blue: 0.22) }
+}
+
+private struct DesktopAddButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label("Add", systemImage: "plus")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 9)
+                .background(.black)
+                .clipShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add something to Things")
     }
 }
