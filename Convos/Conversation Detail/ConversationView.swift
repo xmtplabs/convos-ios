@@ -959,7 +959,10 @@ private extension ConversationView {
     /// business in a room without one.
     var participationContext: AgentParticipationContext? {
         guard let participation else { return nil }
-        return AgentParticipationContext(level: participation.level) {
+        return AgentParticipationContext(
+            level: participation.level,
+            isLoading: !participation.hasLoaded
+        ) {
             withAnimation(.snappy(duration: 0.2)) {
                 showingParticipationMenu.toggle()
             }

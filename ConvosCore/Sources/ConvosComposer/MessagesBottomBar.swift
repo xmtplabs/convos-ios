@@ -34,6 +34,23 @@ private struct FilePickerModifier: ViewModifier {
     }
 }
 
+/// A single dot breathing in place, holding the participation bubble while the
+/// conversation's level is read. It rests at a visible opacity, so if the
+/// animation never runs the bubble still reads as occupied rather than empty.
+private struct ParticipationLoadingDot: View {
+    @State private var isBright: Bool = false
+
+    var body: some View {
+        let opacity: Double = isBright ? 0.55 : 0.2
+        Circle()
+            .fill(Color.colorTextSecondary)
+            .frame(width: 6.0, height: 6.0)
+            .opacity(opacity)
+            .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: isBright)
+            .onAppear { isBright = true }
+    }
+}
+
 public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePreview: View, AgentChip: View>: View {
     let profile: Profile
     @Binding var displayName: String
@@ -106,6 +123,11 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     @State private var previousFocus: MessagesViewInputFocus?
     @State private var voiceMemoReturnFocus: MessagesViewInputFocus?
     @State private var didSelectPhotoThisSession: Bool = false
+    /// Hides the participation bubble while the member is actually typing, so
+    /// the composer belongs to them in that moment. Kept as state rather than
+    /// read from the coordinator directly so it changes inside the same
+    /// animation as the rest of the bar.
+    @State private var showsParticipationBubble: Bool = true
     @Namespace private var namespace: Namespace.ID
     // Injected by the host on conversations that hold an agent; nil elsewhere,
     // and the bubble simply isn't drawn.
@@ -296,6 +318,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 || newValue == .message
                 || newValue == .voiceMemoRecording
                 || newValue == .sideConvoName
+            showsParticipationBubble = newValue == nil
         }
     }
 
@@ -467,9 +490,61 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         }
     }
 
+    /// The agent-participation control: how much the agents speak in this
+    /// conversation. It leads the composer row, outside the input field, since
+    /// it governs the room rather than the message being written — and it steps
+    /// aside entirely once someone starts typing.
+    @ViewBuilder
+    private var participationBubble: some View {
+        if let participation = agentParticipation, showsParticipationBubble {
+            let bubbleSize: CGFloat = DesignConstants.Spacing.step12x
+            let isLoading: Bool = participation.isLoading
+            let label: String = isLoading
+                ? "Agent participation, loading"
+                : "Agent participation: \(participation.level.title)"
+            Button(action: participation.onTap) {
+                participationGlyph(for: participation)
+            }
+            .buttonStyle(.plain)
+            .disabled(isLoading)
+            .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
+            .frame(width: bubbleSize, height: bubbleSize)
+            .clipShape(.circle)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .glassEffectID("participation", in: namespace)
+            .glassEffectTransition(.matchedGeometry)
+            .transition(.scale.combined(with: .opacity))
+            .animation(.easeInOut(duration: 0.2), value: isLoading)
+            .accessibilityLabel(label)
+            .accessibilityHint("Change how much the agents speak here")
+            .accessibilityIdentifier("agent-participation-button")
+        }
+    }
+
+    /// The icon, or the resting dot that stands in for it. The level starts at a
+    /// product default the conversation may not actually be in, so showing an
+    /// icon before the read lands would state something that can change a moment
+    /// later — the dot says "not known yet" instead.
+    @ViewBuilder
+    private func participationGlyph(for participation: AgentParticipationContext) -> some View {
+        if participation.isLoading {
+            ParticipationLoadingDot()
+                .frame(width: 32, height: 32)
+        } else {
+            Image(systemName: participation.level.iconSystemName)
+                .font(.system(size: 16.0, weight: .medium))
+                .foregroundStyle(Color.colorTextPrimary)
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+                .transition(.opacity)
+        }
+    }
+
     @ViewBuilder
     private var normalInputView: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
+            participationBubble
+
             if isMessageInputFocused {
                 Button {
                     withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
