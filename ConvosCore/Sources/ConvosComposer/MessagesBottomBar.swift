@@ -34,6 +34,35 @@ private struct FilePickerModifier: ViewModifier {
     }
 }
 
+/// Tracks whether the keyboard is on screen. The composer's stored focus is not
+/// a reliable stand-in: the coordinator stops syncing while a focus transition
+/// is open, and an interactive dismissal leaves `@FocusState` set with the
+/// keyboard already gone (see `FocusCoordinator.refocusNonce`), so each signal
+/// lies in one direction. The keyboard itself is the honest one.
+private struct KeyboardVisibilityModifier: ViewModifier {
+    @Binding var isKeyboardVisible: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+                setVisible(true, matching: notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+                setVisible(false, matching: notification)
+            }
+    }
+
+    /// Carries the keyboard's own duration into the change, so whatever moves
+    /// with it travels at the keyboard's pace instead of a spring of its own.
+    private func setVisible(_ visible: Bool, matching notification: Notification) {
+        let key: String = UIResponder.keyboardAnimationDurationUserInfoKey
+        let duration: Double = notification.userInfo?[key] as? Double ?? 0.25
+        withAnimation(.easeOut(duration: duration)) {
+            isKeyboardVisible = visible
+        }
+    }
+}
+
 /// A single dot breathing in place, holding the participation bubble while the
 /// conversation's level is read. It rests at a visible opacity, so if the
 /// animation never runs the bubble still reads as occupied rather than empty.
@@ -123,11 +152,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     @State private var previousFocus: MessagesViewInputFocus?
     @State private var voiceMemoReturnFocus: MessagesViewInputFocus?
     @State private var didSelectPhotoThisSession: Bool = false
-    /// Hides the participation bubble while the member is actually typing, so
-    /// the composer belongs to them in that moment. Kept as state rather than
-    /// read from the coordinator directly so it changes inside the same
-    /// animation as the rest of the bar.
-    @State private var showsParticipationBubble: Bool = true
+    @State private var isKeyboardVisible: Bool = false
     @Namespace private var namespace: Namespace.ID
     // Injected by the host on conversations that hold an agent; nil elsewhere,
     // and the bubble simply isn't drawn.
@@ -223,6 +248,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     public var body: some View {
         bodyContent
             .modifier(filePickerModifier)
+            .modifier(KeyboardVisibilityModifier(isKeyboardVisible: $isKeyboardVisible))
     }
 
     @ViewBuilder
@@ -318,7 +344,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 || newValue == .message
                 || newValue == .voiceMemoRecording
                 || newValue == .sideConvoName
-            showsParticipationBubble = newValue == nil
         }
     }
 
@@ -490,6 +515,14 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         }
     }
 
+    /// Whether the participation bubble stands aside: it does while the keyboard
+    /// is up, so the member typing gets that width back, and comes back the
+    /// moment it goes down. Keyed to the keyboard rather than to focus, which
+    /// desyncs in both directions - see `KeyboardVisibilityModifier`.
+    private var showsParticipationBubble: Bool {
+        !isKeyboardVisible
+    }
+
     /// The agent-participation control: how much the agents speak in this
     /// conversation. It leads the composer row, outside the input field, since
     /// it governs the room rather than the message being written — and it steps
@@ -511,8 +544,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .frame(width: bubbleSize, height: bubbleSize)
             .clipShape(.circle)
             .glassEffect(.regular.interactive(), in: .circle)
-            .glassEffectID("participation", in: namespace)
-            .glassEffectTransition(.matchedGeometry)
             .transition(.scale.combined(with: .opacity))
             .animation(.easeInOut(duration: 0.2), value: isLoading)
             .accessibilityLabel(label)
