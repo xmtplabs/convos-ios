@@ -45,6 +45,12 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     /// The caller's own inbox id for the PUT's optional `extendedByInboxId`.
     /// Nil (or a nil resolution) omits the field, which the wire allows.
     private let myInboxIdProvider: (@Sendable () async -> String?)?
+    /// V1 awareness shim: best-effort ProfileUpdate side-writes mirroring
+    /// extend/withdraw for V1-reader agents. Only consulted when
+    /// `isShimEnabled()` reads true at mutation time (a debug toggle,
+    /// default off), so flips take effect without rebuilding the service.
+    private let shimWriter: (any AbilityV1AwarenessShimWriting)?
+    private let isShimEnabled: @Sendable () -> Bool
 
     private var lastKnownCatalog: AbilitiesCatalog?
     private var hasLoadedCache: Bool = false
@@ -54,12 +60,16 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         apiClient: any ConvosAPIClientProtocol,
         callbackURLScheme: String?,
         cache: AbilitiesCatalogDiskCache?,
-        myInboxIdProvider: (@Sendable () async -> String?)? = nil
+        myInboxIdProvider: (@Sendable () async -> String?)? = nil,
+        shimWriter: (any AbilityV1AwarenessShimWriting)? = nil,
+        isShimEnabled: @escaping @Sendable () -> Bool = { false }
     ) {
         self.apiClient = apiClient
         self.redirectUri = callbackURLScheme.map { "\($0)://connections/callback" }
         self.cache = cache
         self.myInboxIdProvider = myInboxIdProvider
+        self.shimWriter = shimWriter
+        self.isShimEnabled = isShimEnabled
     }
 
     // MARK: - AbilitiesServiceProtocol
@@ -165,6 +175,14 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         } catch {
             throw mapServiceError(error, abilityId: abilityId)
         }
+        if isShimEnabled(), let shimWriter {
+            await shimWriter.recordExtension(
+                conversationId: conversationId,
+                abilityId: abilityId,
+                agentInboxId: agentInboxId,
+                bundleIds: bundleIds
+            )
+        }
     }
 
     public func withdrawAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws {
@@ -180,6 +198,15 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
             Log.info("[Abilities] withdraw found no opt-in for \(abilityId) (conversationId=\(conversationId)); treating as done")
         } catch {
             throw mapServiceError(error, abilityId: abilityId)
+        }
+        // Mirrors extend, and runs on the benign not-found path too so a
+        // stale shim entry cannot outlive a withdrawal.
+        if isShimEnabled(), let shimWriter {
+            await shimWriter.recordWithdrawal(
+                conversationId: conversationId,
+                abilityId: abilityId,
+                agentInboxId: agentInboxId
+            )
         }
     }
 
