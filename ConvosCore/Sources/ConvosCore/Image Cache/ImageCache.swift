@@ -486,27 +486,59 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             Log.debug("Cannot inline decrypt - missing encryption params for: \(urlKey)")
             return nil
         }
-        do {
-            let decryptedData = try await EncryptedImageLoader.loadAndDecrypt(
-                url: url,
-                salt: salt,
-                nonce: nonce,
-                groupKey: key,
-                priority: priority
-            )
-            guard let image = BoundedImageDecode.image(from: decryptedData) else {
-                Log.error("Failed to create UIImage from decrypted data: \(urlKey)")
+
+        // Share one in-flight fetch per URL, like the plaintext path: the
+        // same avatar visible in several rows used to fire that many
+        // concurrent downloads. The unstructured task also survives the
+        // caller's cancellation (cell reuse), so a scrolled-past avatar
+        // finishes downloading once instead of restarting on every render.
+        let existingTask = loadingTasksLock.withLock { tasks in tasks[url] }
+        if let existingTask {
+            let image = await existingTask.value
+            if let image {
+                rememberLastShown(image, for: identifier, persist: true)
+                cacheUpdateSubject.send(identifier)
+            }
+            return image
+        }
+
+        let loadingTask = Task<UIImage?, Never> {
+            defer {
+                _ = loadingTasksLock.withLock { tasks in tasks.removeValue(forKey: url) }
+            }
+            do {
+                let decryptedData = try await EncryptedImageLoader.loadAndDecrypt(
+                    url: url,
+                    salt: salt,
+                    nonce: nonce,
+                    groupKey: key,
+                    priority: priority
+                )
+                guard let image = BoundedImageDecode.image(from: decryptedData) else {
+                    // The decrypted bytes are immutable for this URL, so
+                    // undecodable now means undecodable on every retry.
+                    EncryptedImageLoader.markKnownBadURL(urlKey)
+                    Log.error("Failed to create UIImage from decrypted data: \(urlKey)")
+                    return nil
+                }
+                cacheImage(image, key: urlKey, cache: cache, logContext: "inline encrypted fetch", imageFormat: .jpg)
+                rememberLastShown(image, for: identifier, persist: true)
+                Task { await saveDataToDisk(decryptedData, key: urlKey, imageFormat: .jpg, forceOverwrite: true) }
+                publishCacheUpdate(urlKey: urlKey, identifier: identifier)
+                return image
+            } catch is EncryptedImageKnownBadURL {
+                // Already discovered and logged; every render of this avatar
+                // lands here, so keep it quiet.
+                Log.debug("Skipping known-bad encrypted image: \(urlKey)")
+                return nil
+            } catch {
+                Log.error("Failed to inline decrypt image for \(urlKey): \(error)")
                 return nil
             }
-            cacheImage(image, key: urlKey, cache: cache, logContext: "inline encrypted fetch", imageFormat: .jpg)
-            rememberLastShown(image, for: identifier, persist: true)
-            Task { await saveDataToDisk(decryptedData, key: urlKey, imageFormat: .jpg, forceOverwrite: true) }
-            publishCacheUpdate(urlKey: urlKey, identifier: identifier)
-            return image
-        } catch {
-            Log.error("Failed to inline decrypt image for \(urlKey): \(error)")
-            return nil
         }
+
+        loadingTasksLock.withLock { tasks in tasks[url] = loadingTask }
+        return await loadingTask.value
     }
 
     // MARK: - Identifier-based Methods (QR codes, generated images)
