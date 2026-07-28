@@ -49,6 +49,8 @@ struct DebugViewSection: View {
     @State private var creditsPresetSelection: CreditsStatePreset = FeatureFlags.shared.mockCreditsPreset
     @State private var useRealStoreKit: Bool = SubscriptionServices.useRealStoreKit
     @State private var useRealCredits: Bool = CreditsServices.useRealBackend
+    @State private var useLiveAbilities: Bool = AbilitiesServices.useLiveBackend
+    @State private var abilitiesV1ShimEnabled: Bool = AbilitiesServices.isV1AwarenessShimEnabled
 
     var body: some View {
         Group {
@@ -75,7 +77,7 @@ struct DebugViewSection: View {
             Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
             Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
-            Toggle("Abilities V2 (mock catalog)", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
+            abilitiesFeatureToggles
 
             let showInfoAction = { showingAgentsInfoSheet = true }
             Button(action: showInfoAction) {
@@ -93,6 +95,25 @@ struct DebugViewSection: View {
             .sheet(isPresented: $showingSafariTestSheet) {
                 SafariTestSheet()
             }
+        }
+    }
+
+    /// The Abilities V2 flag with its sub-toggles: mock/live backend
+    /// selection (default live) and the V1 awareness shim (default off).
+    /// Sub-toggles only render while the flag is on; both take effect on
+    /// the next read (no relaunch needed).
+    @ViewBuilder
+    private var abilitiesFeatureToggles: some View {
+        Toggle("Abilities V2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
+        if FeatureFlags.shared.isAbilitiesV2Enabled {
+            Toggle("Abilities: live backend", isOn: $useLiveAbilities)
+                .onChange(of: useLiveAbilities) { _, newValue in
+                    AbilitiesServices.setUseLiveBackend(newValue)
+                }
+            Toggle("Abilities: V1 awareness shim", isOn: $abilitiesV1ShimEnabled)
+                .onChange(of: abilitiesV1ShimEnabled) { _, newValue in
+                    AbilitiesServices.setV1AwarenessShimEnabled(newValue)
+                }
         }
     }
 
