@@ -79,8 +79,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var navState: ConversationNavigatorImpl = .init()
     @State private var navigator: ConversationCollector?
     @State private var showingGroupOutputs: Bool = false
-    @State private var agentSideChatViewModel: NewConversationViewModel?
-    @State private var agentSideChatDraft: String?
+    @State private var agentSideChatDraft: String = ""
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     private func ensureNavigator() {
@@ -577,7 +576,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             dotsHidden: contextMenuState.isPresented,
             scrollingDisabled: contextMenuState.isPresented,
             messagesPage: { messagesView },
-            thingsPage: { thingsPage }
+            thingsPage: { thingsPage },
+            agentPage: { agentPage }
         )
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
@@ -588,6 +588,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onChange(of: pagerSelectedPage) { _, newPage in
             if newPage != .things {
                 focusCoordinator.dismissThingsSearchIfNeeded()
+            }
+            if newPage == .messages {
+                seedAgentMentionIfNeeded()
             }
         }
         .onChange(of: viewModel.messageText) { _, _ in
@@ -646,19 +649,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             newConversationSheet(viewModel)
         }
-        .sheet(
-            item: $agentSideChatViewModel,
-            onDismiss: {
-                agentSideChatDraft = nil
-            },
-            content: { sideChatViewModel in
-                NewConversationView(
-                    viewModel: sideChatViewModel,
-                    profileSettingsViewModel: profileSettingsViewModel,
-                    initialMessageText: agentSideChatDraft
-                )
-            }
-        )
         .sheet(isPresented: $showingGroupOutputs) {
             NavigationStack {
                 AgentFilesLinksView(
@@ -995,6 +985,14 @@ private extension ConversationView {
         )
     }
 
+    var agentPage: some View {
+        GroupAgentSideChatView(
+            agentName: groupAgent?.profile.displayName ?? "Mountain Guide",
+            groupName: groupDisplayName,
+            draft: $agentSideChatDraft
+        )
+    }
+
     var isGroupConversation: Bool {
         let humanCount = viewModel.conversation.members.filter { !$0.isAgent }.count
         return humanCount >= 2 && viewModel.conversation.members.count >= 3
@@ -1012,6 +1010,7 @@ private extension ConversationView {
 
     func configureMessageWorkMenu() {
         contextMenuState.isWorkMenuEnabled = isGroupConversation
+        contextMenuState.workAgentName = groupAgent?.profile.displayName ?? "Mountain Guide"
         contextMenuState.onWorkAction = { [weak viewModel] action, message in
             guard viewModel != nil else { return }
             handleMessageWorkAction(action, message: message)
@@ -1184,26 +1183,27 @@ private extension ConversationView {
         withAnimation(.easeInOut(duration: 0.25)) {
             pagerSelectedPage = .messages
         }
-        viewModel.messageText = draft
+        let mention = "@\(groupAgent?.profile.displayName ?? "Mountain Guide")"
+        viewModel.messageText = draft.hasPrefix(mention) ? draft : "\(mention) \(draft)"
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             focusCoordinator.moveFocus(to: .message)
         }
     }
 
     func openAgentSideChat(draft: String) {
-        guard let groupAgent else {
+        guard groupAgent != nil else {
             viewModel.presentAgentBuilder()
             return
         }
-
         agentSideChatDraft = draft
-        agentSideChatViewModel = NewConversationViewModel(
-            session: viewModel.session,
-            mode: .newConversationWithMembers(
-                initialMemberInboxIds: [groupAgent.profile.inboxId]
-            ),
-            coreActions: viewModel.coreActions
-        )
+        withAnimation(.easeInOut(duration: 0.25)) {
+            pagerSelectedPage = .agent
+        }
+    }
+
+    func seedAgentMentionIfNeeded() {
+        guard let groupAgent, viewModel.messageText.isEmpty else { return }
+        viewModel.messageText = "@\(groupAgent.profile.displayName) "
     }
 
     /// What the composer needs to draw the bubble: the level, and the tap.

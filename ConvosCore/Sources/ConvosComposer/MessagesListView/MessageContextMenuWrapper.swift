@@ -37,6 +37,8 @@ struct MessageGestureModifier: ViewModifier {
     @State private var hasAppeared: Bool = false
     @State private var interactiveExclusionFrames: [CGRect] = []
     @State private var mediaContentFrame: CGRect?
+    @State private var currentBubbleFrame: CGRect = .zero
+    @State private var reportedBubbleFrame: CGRect?
     @Environment(\.messageContextMenuState) private var contextMenuState: MessageContextMenuState
     @Environment(\.isConversationReadOnly) private var isReadOnly: Bool
 
@@ -63,9 +65,16 @@ struct MessageGestureModifier: ViewModifier {
             .onAppear { hasAppeared = true }
             .background { sourceBubbleFrameTracker }
             .onPreferenceChange(SourceFrameKey.self) { frame in
-                if isSourceBubble, let frame {
-                    contextMenuState.currentSourceFrame = bubbleFrame(within: frame)
-                }
+                guard let frame else { return }
+                let resolvedFrame = reportedBubbleFrame ?? bubbleFrame(within: frame)
+                currentBubbleFrame = resolvedFrame
+                if isSourceBubble { contextMenuState.currentSourceFrame = resolvedFrame }
+            }
+            .onPreferenceChange(MessageBubbleFrameKey.self) { frame in
+                reportedBubbleFrame = frame
+                guard let frame else { return }
+                currentBubbleFrame = frame
+                if isSourceBubble { contextMenuState.currentSourceFrame = frame }
             }
             .onPreferenceChange(MessageMediaContentFrameKey.self) { frame in
                 mediaContentFrame = frame
@@ -77,9 +86,7 @@ struct MessageGestureModifier: ViewModifier {
             .offset(x: swipeOffset)
             .background(alignment: .leading) { swipeReplyIndicator }
             .overlay { gestureOverlay }
-            .overlay(alignment: message.sender.isCurrentUser ? .leading : .trailing) {
-                workMenu
-            }
+            .overlay { workButtonOverlay }
             .accessibilityActions {
                 if !isReadOnly {
                     Button("React") {
@@ -93,44 +100,50 @@ struct MessageGestureModifier: ViewModifier {
     }
 
     @ViewBuilder
-    private var workMenu: some View {
-        if contextMenuState.isWorkMenuEnabled,
-           !isReadOnly,
-           !message.content.isUpdate {
-            Menu {
-                ForEach(MessageWorkAction.allCases, id: \.rawValue) { action in
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        contextMenuState.onWorkAction?(action, message)
-                    } label: {
-                        Label(action.title, systemImage: action.systemImage)
-                    }
+    private var workButtonOverlay: some View {
+        GeometryReader { geometry in
+            if contextMenuState.isWorkMenuEnabled,
+               !isReadOnly,
+               !message.content.isUpdate,
+               currentBubbleFrame != .zero {
+                let origin = geometry.frame(in: .global).origin
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    contextMenuState.present(
+                        message: message,
+                        bubbleFrame: currentBubbleFrame,
+                        bubbleStyle: bubbleStyle,
+                        isExpanded: isExpanded,
+                        segment: segment,
+                        presentation: .work
+                    )
+                } label: {
+                    Image(systemName: isSourceBubble ? "xmark" : "plus")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(.black))
+                        .overlay {
+                            Circle().stroke(Color.white.opacity(0.9), lineWidth: 2)
+                        }
+                        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
                 }
-            } label: {
-                Image(systemName: "plus")
-                    .font(.caption.bold())
-                    .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .background(Circle().fill(.black))
-                    .overlay {
-                        Circle().stroke(Color.white.opacity(0.9), lineWidth: 2)
-                    }
-                    .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+                .buttonStyle(.plain)
+                .background(GesturePassthroughBackground())
+                .position(
+                    x: currentBubbleFrame.maxX - origin.x - 2,
+                    y: currentBubbleFrame.minY - origin.y + 2
+                )
+                .accessibilityLabel("Turn this message into work")
             }
-            .buttonStyle(.plain)
-            .background(GesturePassthroughBackground())
-            .offset(x: message.sender.isCurrentUser ? -18 : 18)
-            .accessibilityLabel("Turn this message into work")
         }
     }
 
     @ViewBuilder
     private var sourceBubbleFrameTracker: some View {
-        if isSourceBubble {
-            GeometryReader { geo in
-                Color.clear
-                    .preference(key: SourceFrameKey.self, value: geo.frame(in: .global))
-            }
+        GeometryReader { geo in
+            Color.clear
+                .preference(key: SourceFrameKey.self, value: geo.frame(in: .global))
         }
     }
 
@@ -177,13 +190,14 @@ struct MessageGestureModifier: ViewModifier {
 
     private func handleLongPress(geometry: GeometryProxy) {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        let frame = bubbleFrame(within: geometry.frame(in: .global))
+        let frame = reportedBubbleFrame ?? bubbleFrame(within: geometry.frame(in: .global))
         contextMenuState.present(
             message: message,
             bubbleFrame: frame,
             bubbleStyle: bubbleStyle,
             isExpanded: isExpanded,
-            segment: segment
+            segment: segment,
+            presentation: contextMenuState.isWorkMenuEnabled ? .work : .standard
         )
     }
 

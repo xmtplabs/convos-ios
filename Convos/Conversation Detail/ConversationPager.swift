@@ -5,11 +5,12 @@ import SwiftUIIntrospect
 enum ConversationPagerPage: Int, CaseIterable, Identifiable {
     case messages
     case things
+    case agent
 
     var id: Int { rawValue }
 }
 
-struct ConversationPager<MessagesPage: View, ThingsPage: View>: View {
+struct ConversationPager<MessagesPage: View, ThingsPage: View, AgentPage: View>: View {
     @Binding var selectedPage: ConversationPagerPage
     /// Whether the dots are mounted at all. Drives the `safeAreaInset`
     /// itself, so flipping this resizes the pager content — only set it
@@ -30,6 +31,7 @@ struct ConversationPager<MessagesPage: View, ThingsPage: View>: View {
     var scrollingDisabled: Bool = false
     @ViewBuilder let messagesPage: () -> MessagesPage
     @ViewBuilder let thingsPage: () -> ThingsPage
+    @ViewBuilder let agentPage: () -> AgentPage
 
     var body: some View {
         GeometryReader { proxy in
@@ -42,6 +44,10 @@ struct ConversationPager<MessagesPage: View, ThingsPage: View>: View {
                     thingsPage()
                         .frame(width: proxy.size.width, height: proxy.size.height)
                         .id(ConversationPagerPage.things)
+
+                    agentPage()
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .id(ConversationPagerPage.agent)
                 }
                 .scrollTargetLayout()
             }
@@ -113,6 +119,13 @@ private struct ConversationPagerDots: View {
                 bottomTrailing: 2.0,
                 topTrailing: 2.0
             ))
+        case .agent:
+            return UnevenRoundedRectangle(cornerRadii: .init(
+                topLeading: 8.0,
+                bottomLeading: 8.0,
+                bottomTrailing: 8.0,
+                topTrailing: 2.0
+            ))
         }
     }
 
@@ -120,6 +133,7 @@ private struct ConversationPagerDots: View {
         switch page {
         case .messages: return "Messages"
         case .things: return "Things"
+        case .agent: return "Agent"
         }
     }
 }

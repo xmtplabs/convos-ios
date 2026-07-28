@@ -60,12 +60,14 @@ struct MessageContainer<Content: View>: View {
             case .none:
                 content()
                     .foregroundColor(isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary)
+                    .reportMessageBubbleFrame()
             default:
                 content()
                     .background(isOutgoing ? Color.colorBubble : Color.colorBubbleIncoming)
                     .foregroundColor(isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary)
                     .compositingGroup()
                     .mask(mask)
+                    .reportMessageBubbleFrame()
             }
 
             if !isOutgoing {
@@ -76,7 +78,26 @@ struct MessageContainer<Content: View>: View {
     }
 }
 
+struct MessageBubbleFrameKey: PreferenceKey {
+    static let defaultValue: CGRect? = nil
+
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = nextValue() ?? value
+    }
+}
+
 extension View {
+    func reportMessageBubbleFrame() -> some View {
+        background {
+            GeometryReader { geometry in
+                Color.clear.preference(
+                    key: MessageBubbleFrameKey.self,
+                    value: geometry.frame(in: .global)
+                )
+            }
+        }
+    }
+
     /// Caps a bubble row at `Constant.maxBubbleRowWidth`, pinning it to the
     /// sender's edge when the container offers more width (regular-width
     /// layouts like iPad), then re-expands so the row still spans the list.

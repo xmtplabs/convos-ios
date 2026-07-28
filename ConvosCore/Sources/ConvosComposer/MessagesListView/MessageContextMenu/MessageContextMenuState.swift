@@ -22,19 +22,36 @@ public enum MessageBubbleSegment: Equatable {
 public enum MessageWorkAction: String, CaseIterable, Sendable {
     case research
     case doSomething
+    case connectService
     case remind
     case addToThings
-    case connectService
     case askAgentPrivately
 
-    public var title: String {
+    public func title(agentName: String) -> String {
         switch self {
         case .research: "Research this"
         case .doSomething: "Do something with this"
+        case .connectService: "Connect this to any service"
         case .remind: "Make a reminder"
         case .addToThings: "Add to Things"
-        case .connectService: "Connect this to any service"
-        case .askAgentPrivately: "Ask the group agent privately"
+        case .askAgentPrivately: "Ask \(agentName) privately"
+        }
+    }
+
+    public var subtitle: String {
+        switch self {
+        case .research:
+            "Search the web and connected apps using the context already here."
+        case .doSomething:
+            "Let an agent update a file, app, list, booking, or shared plan."
+        case .connectService:
+            "Bring this into any app, file, calendar, account, or agent the group uses."
+        case .remind:
+            "Turn the message into a reminder for the right people."
+        case .addToThings:
+            "Keep the useful part where everyone can find and improve it."
+        case .askAgentPrivately:
+            "Work it out quietly, then bring the useful result back."
         }
     }
 
@@ -48,6 +65,11 @@ public enum MessageWorkAction: String, CaseIterable, Sendable {
         case .askAgentPrivately: "sparkles"
         }
     }
+}
+
+public enum MessageContextMenuPresentation: Sendable {
+    case standard
+    case work
 }
 
 @Observable
@@ -67,10 +89,12 @@ public class MessageContextMenuState: @unchecked Sendable {
     /// `isExpanded`.
     public var isExpanded: Bool = false
     public var sourceID: UUID?
+    public var presentation: MessageContextMenuPresentation = .standard
     /// Set by the conversation host for group chats. Cells share this state
     /// instance through their UIKit-hosted SwiftUI environment, making it a
     /// lightweight bridge that does not fork the message model.
     public var isWorkMenuEnabled: Bool = false
+    public var workAgentName: String = "Group Agent"
     public var onWorkAction: ((MessageWorkAction, AnyMessage) -> Void)?
 
     public var currentSourceFrame: CGRect = .zero
@@ -86,13 +110,21 @@ public class MessageContextMenuState: @unchecked Sendable {
         return dx > 2 || dy > 2
     }
 
-    public func present(message: AnyMessage, bubbleFrame: CGRect, bubbleStyle: MessageBubbleType, isExpanded: Bool, segment: MessageBubbleSegment = .whole) {
+    public func present(
+        message: AnyMessage,
+        bubbleFrame: CGRect,
+        bubbleStyle: MessageBubbleType,
+        isExpanded: Bool,
+        segment: MessageBubbleSegment = .whole,
+        presentation: MessageContextMenuPresentation = .standard
+    ) {
         self.isOutgoing = message.sender.isCurrentUser
         self.bubbleFrame = bubbleFrame
         self.bubbleStyle = bubbleStyle
         self.isReplyParent = false
         self.presentedSegment = segment
         self.isExpanded = isExpanded
+        self.presentation = presentation
         self.presentedMessage = message
     }
 
@@ -104,6 +136,7 @@ public class MessageContextMenuState: @unchecked Sendable {
         self.isExpanded = false
         self.sourceID = sourceID
         self.presentedSegment = .whole
+        self.presentation = .standard
         self.presentedMessage = message
     }
 
@@ -113,6 +146,7 @@ public class MessageContextMenuState: @unchecked Sendable {
         isReplyParent = false
         isExpanded = false
         sourceID = nil
+        presentation = .standard
     }
 }
 

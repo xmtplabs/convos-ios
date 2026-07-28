@@ -4,6 +4,9 @@ import LinkPresentation
 import Photos
 import SwiftUI
 
+// The standard reaction menu and the contextual work menu intentionally share
+// one animated bubble-preview state machine.
+// swiftlint:disable type_body_length
 public struct MessageContextMenuOverlay: View {
     @Bindable var state: MessageContextMenuState
     var isReadOnly: Bool = false
@@ -133,9 +136,11 @@ public struct MessageContextMenuOverlay: View {
             // the text-bubble path where the tile holds its size and place.
             let isHTMLTile: Bool = photoAttachment?.isHTMLFile == true
             let usesPhotoLayout: Bool = isPhoto && !isHTMLTile && !state.isReplyParent
-            let menuEstimatedHeight: CGFloat = isPhoto && !state.isReplyParent
-                ? C.photoMenuEstimatedHeight
-                : C.textMenuEstimatedHeight
+            let menuEstimatedHeight: CGFloat = state.presentation == .work
+                ? C.workMenuEstimatedHeight
+                : (isPhoto && !state.isReplyParent
+                    ? C.photoMenuEstimatedHeight
+                    : C.textMenuEstimatedHeight)
             let endBubble = endBubbleRect(
                 source: localBubble,
                 screenSize: screenSize,
@@ -152,7 +157,7 @@ public struct MessageContextMenuOverlay: View {
             ZStack(alignment: .topLeading) {
                 backgroundDimming
 
-                if !isReadOnly {
+                if !isReadOnly, state.presentation == .standard {
                     reactionsBar(
                         messageId: message.messageId,
                         bubbleRect: activeBubble,
@@ -165,7 +170,8 @@ public struct MessageContextMenuOverlay: View {
 
                 actionMenu(
                     message: message,
-                    bubbleRect: activeBubble
+                    bubbleRect: activeBubble,
+                    screenSize: screenSize
                 )
                 .zIndex(2)
 
@@ -489,7 +495,16 @@ public struct MessageContextMenuOverlay: View {
 
     // MARK: - Action Menu
 
-    private func actionMenu(message: AnyMessage, bubbleRect: CGRect) -> some View {
+    @ViewBuilder
+    private func actionMenu(message: AnyMessage, bubbleRect: CGRect, screenSize: CGSize) -> some View {
+        if state.presentation == .work {
+            workActionMenu(message: message, bubbleRect: bubbleRect, screenSize: screenSize)
+        } else {
+            standardActionMenu(message: message, bubbleRect: bubbleRect)
+        }
+    }
+
+    private func standardActionMenu(message: AnyMessage, bubbleRect: CGRect) -> some View {
         let finalY = bubbleRect.maxY + C.sectionSpacing
         let anchorX = state.isOutgoing ? bubbleRect.maxX : bubbleRect.minX
 
@@ -568,6 +583,109 @@ public struct MessageContextMenuOverlay: View {
         .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.7), value: dragOffset)
     }
 
+    private func workActionMenu(
+        message: AnyMessage,
+        bubbleRect: CGRect,
+        screenSize: CGSize
+    ) -> some View {
+        let width = min(C.workMenuWidth, screenSize.width - C.workMenuHorizontalInset * 2)
+        let preferredX = state.isOutgoing ? bubbleRect.maxX - width : bubbleRect.minX
+        let menuX = min(
+            max(preferredX, C.workMenuHorizontalInset),
+            screenSize.width - width - C.workMenuHorizontalInset
+        )
+        let finalY = bubbleRect.maxY + C.sectionSpacing
+
+        return VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Turn this conversation into work")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.primary)
+
+                Text(
+                    "\(state.workAgentName) already knows where it came from "
+                        + "and can act beyond the chat."
+                )
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
+
+            Divider()
+
+            ForEach(Array(MessageWorkAction.allCases.enumerated()), id: \.element.rawValue) { index, action in
+                workActionRow(action, message: message)
+                if index < MessageWorkAction.allCases.count - 1 {
+                    Divider()
+                        .padding(.leading, 72)
+                }
+            }
+        }
+        .frame(width: width)
+        .background(Color(uiColor: .systemBackground))
+        .clipShape(.rect(cornerRadius: C.workMenuCornerRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: C.workMenuCornerRadius)
+                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 24, y: 12)
+        .scaleEffect(
+            appeared ? 1 : 0.96,
+            anchor: state.isOutgoing ? .topTrailing : .topLeading
+        )
+        .offset(
+            x: menuX,
+            y: (appeared ? finalY : bubbleRect.midY) + dragOffset * C.menuDragFollowRatio
+        )
+        .opacity(isDragDismissing ? 0 : (appeared ? 1 : 0))
+        .animation(.spring(response: 0.28, dampingFraction: 0.84), value: appeared)
+        .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.7), value: dragOffset)
+    }
+
+    private func workActionRow(_ action: MessageWorkAction, message: AnyMessage) -> some View {
+        Button {
+            let selectedMessage = message
+            dismissMenu()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                state.onWorkAction?(action, selectedMessage)
+            }
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: action.systemImage)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 40, height: 40)
+                    .background(Color.primary.opacity(0.055))
+                    .clipShape(.rect(cornerRadius: 12))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(action.title(agentName: state.workAgentName))
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+
+                    Text(action.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer(minLength: 4)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 11)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private func dismissMenu(afterStateChange: Bool = false) {
         showingEmojiPicker = false
         if state.sourceFrameMoved {
@@ -625,6 +743,10 @@ public struct MessageContextMenuOverlay: View {
         static let photoCornerRadius: CGFloat = DesignConstants.CornerRadius.photo
         static let textMenuEstimatedHeight: CGFloat = 80
         static let photoMenuEstimatedHeight: CGFloat = 160
+        static let workMenuEstimatedHeight: CGFloat = 510
+        static let workMenuWidth: CGFloat = 350
+        static let workMenuHorizontalInset: CGFloat = 14
+        static let workMenuCornerRadius: CGFloat = 22
         static let verticalBreathingRoom: CGFloat = 80
 
         static let dragDismissThreshold: CGFloat = 150
@@ -682,6 +804,7 @@ public struct MessageContextMenuOverlay: View {
         }
     }
 }
+// swiftlint:enable type_body_length
 
 // MARK: - Reactions Bar Subviews
 
