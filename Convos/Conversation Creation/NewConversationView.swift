@@ -29,7 +29,11 @@ struct NewConversationView: View {
     /// indicator out of the status bar (mirrors the Chats tab's pushed
     /// conversation, which sets this on its own `ConversationPresenter`).
     var insetsTopSafeArea: Bool = false
+    /// Optional draft used when a message on a group chat opens a private
+    /// side conversation with that group's agent.
+    var initialMessageText: String?
     @State private var hasShownScannerOnAppear: Bool = false
+    @State private var didApplyInitialMessage: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var navState: NewConversationNavigatorImpl = .init()
@@ -86,6 +90,14 @@ struct NewConversationView: View {
                             onInviteShared: viewModel.markInviteShared
                         ) {
                             EmptyView()
+                        }
+                        .onAppear {
+                            guard !didApplyInitialMessage,
+                                  let initialMessageText,
+                                  conversationViewModel.messageText.isEmpty else { return }
+                            didApplyInitialMessage = true
+                            conversationViewModel.messageText = initialMessageText
+                            coordinator.moveFocus(to: .message)
                         }
                     } else {
                         EmptyView()

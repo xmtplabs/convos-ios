@@ -77,6 +77,9 @@ struct MessageGestureModifier: ViewModifier {
             .offset(x: swipeOffset)
             .background(alignment: .leading) { swipeReplyIndicator }
             .overlay { gestureOverlay }
+            .overlay(alignment: message.sender.isCurrentUser ? .leading : .trailing) {
+                workMenu
+            }
             .accessibilityActions {
                 if !isReadOnly {
                     Button("React") {
@@ -87,6 +90,38 @@ struct MessageGestureModifier: ViewModifier {
                     }
                 }
             }
+    }
+
+    @ViewBuilder
+    private var workMenu: some View {
+        if contextMenuState.isWorkMenuEnabled,
+           !isReadOnly,
+           !message.content.isUpdate {
+            Menu {
+                ForEach(MessageWorkAction.allCases, id: \.rawValue) { action in
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        contextMenuState.onWorkAction?(action, message)
+                    } label: {
+                        Label(action.title, systemImage: action.systemImage)
+                    }
+                }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(.black))
+                    .overlay {
+                        Circle().stroke(Color.white.opacity(0.9), lineWidth: 2)
+                    }
+                    .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+            }
+            .buttonStyle(.plain)
+            .background(GesturePassthroughBackground())
+            .offset(x: message.sender.isCurrentUser ? -18 : 18)
+            .accessibilityLabel("Turn this message into work")
+        }
     }
 
     @ViewBuilder

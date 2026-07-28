@@ -210,6 +210,8 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         static let publishedURLKey: String = "publishedUrl"
         static let instanceIdKey: String = "instanceId"
         static let emailKey: String = "email"
+        static let phoneKey: String = "phone"
+        static let phoneNumberKey: String = "phone_number"
         static let variantKey: String = "variant"
     }
 }
@@ -264,6 +266,18 @@ extension Profile {
     public var agentEmail: String? {
         metadata?[Constant.emailKey]?.stringValue.flatMap { value in
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// The agent's inbound SMS number. Newer runtimes may publish either
+    /// `phone` or `phone_number`; accepting both lets the desktop expose the
+    /// real address without coupling the client to a rollout order.
+    public var agentPhone: String? {
+        let value = metadata?[Constant.phoneKey]?.stringValue
+            ?? metadata?[Constant.phoneNumberKey]?.stringValue
+        return value.flatMap { rawValue in
+            let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
     }

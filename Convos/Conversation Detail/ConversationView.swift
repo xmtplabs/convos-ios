@@ -78,6 +78,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
     @State private var navigator: ConversationCollector?
+    @State private var showingGroupOutputs: Bool = false
+    @State private var agentSideChatViewModel: NewConversationViewModel?
+    @State private var agentSideChatDraft: String?
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     private func ensureNavigator() {
@@ -528,31 +531,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .accessibilityIdentifier("scan-invite-button")
     }
 
-    private var debugAttachmentTapHandler: (() -> Void)? {
-        guard FeatureFlags.shared.isDebugInjectorEnabled else { return nil }
-        return { showingDebugInjector = true }
-    }
-
-    private var debugInjectorBinding: Binding<Bool> {
-        guard FeatureFlags.shared.isDebugInjectorEnabled else { return .constant(false) }
-        return $showingDebugInjector
-    }
-
-    private var thingsPage: some View {
-        AgentFilesLinksView(
-            conversationId: viewModel.conversation.id,
-            repository: viewModel.makeAgentFilesLinksRepository(),
-            members: viewModel.conversation.members,
-            usesInlineHeader: true,
-            profileSheetContent: profileSheetForMember,
-            focusBinding: $focusState
-        )
-    }
-
-    private func profileSheetForMember(_ member: ConversationMember) -> AnyView {
-        AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel))
-    }
-
     /// Approval sheet for the pending capability request, opened from the
     /// transcript's connect pill. Extracted to keep `body`'s type-check time
     /// in budget. The layout can clear while the sheet is up (another device
@@ -622,10 +600,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onAppear {
             ensureNavigator()
             navState.markScreenAppeared()
+            configureMessageWorkMenu()
             viewModel.onConversationAppeared()
         }
         .onDisappear {
             focusCoordinator.dismissThingsSearchIfNeeded()
+            contextMenuState.onWorkAction = nil
             viewModel.onConversationDisappeared()
             navigator?.closed(context: navState.closeContext())
         }
@@ -666,6 +646,38 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             newConversationSheet(viewModel)
         }
+        .sheet(
+            item: $agentSideChatViewModel,
+            onDismiss: {
+                agentSideChatDraft = nil
+            },
+            content: { sideChatViewModel in
+                NewConversationView(
+                    viewModel: sideChatViewModel,
+                    profileSettingsViewModel: profileSettingsViewModel,
+                    initialMessageText: agentSideChatDraft
+                )
+            }
+        )
+        .sheet(isPresented: $showingGroupOutputs) {
+            NavigationStack {
+                AgentFilesLinksView(
+                    conversationId: viewModel.conversation.id,
+                    repository: viewModel.makeAgentFilesLinksRepository(),
+                    members: viewModel.conversation.members,
+                    usesInlineHeader: false,
+                    profileSheetContent: profileSheetForMember
+                )
+                .navigationTitle("Files & links")
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            showingGroupOutputs = false
+                        }
+                    }
+                }
+            }
+        }
         .sheet(item: $viewModel.presentingContactForAgentShare) { contact in
             agentShareContactDetailSheet(for: contact)
         }
@@ -698,9 +710,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
             )
             PaywallView(viewModel: paywallViewModel)
         }
-        .selfSizingSheet(isPresented: $showingAgentsInfo) {
-            AgentsInfoView()
-                .padding(.top, 20)
+        .sheet(isPresented: $showingAgentsInfo) {
+            GroupAgentsView(
+                conversation: viewModel.conversation,
+                onAction: handleGroupAgentsAction
+            )
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in
             memberContactDetailSheet(for: member)
@@ -954,6 +968,244 @@ extension ConversationView {
 }
 
 private extension ConversationView {
+    var debugAttachmentTapHandler: (() -> Void)? {
+        guard FeatureFlags.shared.isDebugInjectorEnabled else { return nil }
+        return { showingDebugInjector = true }
+    }
+
+    var debugInjectorBinding: Binding<Bool> {
+        guard FeatureFlags.shared.isDebugInjectorEnabled else { return .constant(false) }
+        return $showingDebugInjector
+    }
+
+    func profileSheetForMember(_ member: ConversationMember) -> AnyView {
+        AnyView(
+            MemberContactDetailSheetContent(
+                viewModel: viewModel,
+                member: member,
+                profileSettingsViewModel: profileSettingsViewModel
+            )
+        )
+    }
+
+    var thingsPage: some View {
+        GroupDesktopView(
+            conversation: viewModel.conversation,
+            onAction: handleGroupDesktopAction
+        )
+    }
+
+    var isGroupConversation: Bool {
+        let humanCount = viewModel.conversation.members.filter { !$0.isAgent }.count
+        return humanCount >= 2 && viewModel.conversation.members.count >= 3
+    }
+
+    var groupAgent: ConversationMember? {
+        viewModel.conversation.members.first(where: \.isAgent)
+    }
+
+    var groupDisplayName: String {
+        let name = viewModel.conversation.name?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? "this group" : name
+    }
+
+    func configureMessageWorkMenu() {
+        contextMenuState.isWorkMenuEnabled = isGroupConversation
+        contextMenuState.onWorkAction = { [weak viewModel] action, message in
+            guard viewModel != nil else { return }
+            handleMessageWorkAction(action, message: message)
+        }
+    }
+
+    func messageContext(_ message: AnyMessage) -> String {
+        switch message.content {
+        case .text(let text), .emoji(let text):
+            return text
+        case .linkPreview(let preview):
+            return preview.url
+        case .attachment(let attachment):
+            return attachment.filename ?? "an attachment"
+        case .attachments(let attachments):
+            return attachments.compactMap(\.filename).joined(separator: ", ")
+        default:
+            return "the selected message"
+        }
+    }
+
+    func quotedContext(_ message: AnyMessage) -> String {
+        let context = messageContext(message)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let limited = String(context.prefix(500))
+        return limited.isEmpty ? "the selected message" : "“\(limited)”"
+    }
+
+    func handleMessageWorkAction(_ action: MessageWorkAction, message: AnyMessage) {
+        let sender = message.sender.profile.displayName
+        let context = quotedContext(message)
+
+        switch action {
+        case .research:
+            draftInGroupChat(
+                "Research this from \(sender): \(context)\n\n"
+                    + "Compare the best options and keep the useful result in Things."
+            )
+        case .doSomething:
+            draftInGroupChat(
+                "Do something useful with this from \(sender): \(context)\n\n"
+                    + "Use the group context, connected apps, and the right skills. Show what changed."
+            )
+        case .remind:
+            draftInGroupChat(
+                "Turn this message from \(sender) into a reminder for the right people: \(context)\n\n"
+                    + "Ask only for any missing timing."
+            )
+        case .addToThings:
+            draftInGroupChat(
+                "Add this message from \(sender) to Things and put it in the right place: \(context)"
+            )
+        case .connectService:
+            draftInGroupChat(
+                "Connect this group to the service needed for this message from \(sender): \(context)\n\n"
+                    + "Explain why the connection helps and ask for the minimum access needed."
+            )
+        case .askAgentPrivately:
+            openAgentSideChat(
+                draft: "From \(groupDisplayName), \(sender) shared: \(context)\n\n"
+                    + "Work this out quietly using the group context. "
+                    + "Make the result easy to bring back to everyone."
+            )
+        }
+    }
+
+    func handleGroupDesktopAction(_ action: GroupDesktopView.Action) {
+        switch action {
+        case .describeGroup:
+            draftInGroupChat("This group is about ")
+        case .addUsefulThing:
+            draftInGroupChat("Add this to the group and put it in the right place: ")
+        case .connectAnything, .openConnections:
+            draftInGroupChat("Connect this group to ")
+        case .askEveryone:
+            openAgentSideChat(draft: "Ask everyone in \(groupDisplayName) privately for ")
+        case .researchOptions:
+            openAgentSideChat(
+                draft: "Research the best options for the group. "
+                    + "Use what everyone has already shared, then show the comparison in Things."
+            )
+        case .addThoughts:
+            openAgentSideChat(
+                draft: "Add these thoughts to the group’s shared work and improve what is already there: "
+            )
+        case .leaveVoiceNote:
+            withAnimation(.easeInOut(duration: 0.25)) {
+                pagerSelectedPage = .messages
+            }
+            viewModel.onVoiceMemoTapped()
+        case .openOutputs:
+            showingGroupOutputs = true
+        case .openAgents:
+            if viewModel.conversation.hasAgent {
+                showingAgentsInfo = true
+            } else {
+                viewModel.presentAgentBuilder()
+            }
+        case .openSkills:
+            openAgentSideChat(
+                draft: "Show useful skills for this group and explain what each one could do."
+            )
+        case .openMembers:
+            viewModel.onConversationSettings(focusCoordinator: focusCoordinator)
+        case .openNotes:
+            openAgentSideChat(
+                draft: "Open the group notes. Help add, edit, or organize anything that belongs there."
+            )
+        case .openTodos:
+            openAgentSideChat(
+                draft: "Open the group todos. Show what is unfinished, who can help, "
+                    + "and what each item came from."
+            )
+        case .openReminders:
+            openAgentSideChat(
+                draft: "Open the group reminders. Show who set each one, who will be reminded, and when."
+            )
+        case .setUpInboundEmail:
+            openAgentSideChat(
+                draft: "Set up an email address for this group so anyone can forward or CC emails "
+                    + "to the desktop. Show the address here when it is ready."
+            )
+        case .setUpInboundText:
+            openAgentSideChat(
+                draft: "Set up a text number for this group so anyone can send links, screenshots, "
+                    + "reminders, or add it to another group chat. "
+                    + "Keep listening off until the group allows it."
+            )
+        }
+    }
+
+    func handleGroupAgentsAction(_ action: GroupAgentsView.Action) {
+        switch action {
+        case .openAgent(let member):
+            dismissGroupAgents {
+                viewModel.presentingProfileForMember = member
+            }
+        case .addCredits:
+            dismissGroupAgents {
+                viewModel.presentingPaywall = true
+            }
+        case .setGroupLimit:
+            dismissGroupAgents {
+                openAgentSideChat(
+                    draft: "Set a $10 total spending limit for \(groupDisplayName). "
+                        + "Everyone can use the shared agent until the limit is reached. "
+                        + "Ask before changing who can spend."
+                )
+            }
+        case .bringOwnAI(let provider):
+            dismissGroupAgents {
+                openAgentSideChat(
+                    draft: "Connect \(provider) as another way to help power \(groupDisplayName). "
+                        + "Give it a visible Convos identity and start in Listen only mode."
+                )
+            }
+        case .addConvosAgent:
+            dismissGroupAgents {
+                viewModel.presentAgentBuilder()
+            }
+        }
+    }
+
+    func dismissGroupAgents(then action: @escaping @MainActor @Sendable () -> Void) {
+        showingAgentsInfo = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: action)
+    }
+
+    func draftInGroupChat(_ draft: String) {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            pagerSelectedPage = .messages
+        }
+        viewModel.messageText = draft
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            focusCoordinator.moveFocus(to: .message)
+        }
+    }
+
+    func openAgentSideChat(draft: String) {
+        guard let groupAgent else {
+            viewModel.presentAgentBuilder()
+            return
+        }
+
+        agentSideChatDraft = draft
+        agentSideChatViewModel = NewConversationViewModel(
+            session: viewModel.session,
+            mode: .newConversationWithMembers(
+                initialMemberInboxIds: [groupAgent.profile.inboxId]
+            ),
+            coreActions: viewModel.coreActions
+        )
+    }
+
     /// What the composer needs to draw the bubble: the level, and the tap.
     /// `nil` in a conversation with no agent — a control for agents has no
     /// business in a room without one.

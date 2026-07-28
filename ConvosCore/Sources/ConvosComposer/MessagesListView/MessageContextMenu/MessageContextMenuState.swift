@@ -16,6 +16,40 @@ public enum MessageBubbleSegment: Equatable {
     case splitLink(LinkPreview, Edge)
 }
 
+/// The native actions exposed by the small `+` control on a message bubble.
+/// The composer package owns the menu presentation; the app host decides how
+/// each intent should route into group chat, Things, connections, or a side DM.
+public enum MessageWorkAction: String, CaseIterable, Sendable {
+    case research
+    case doSomething
+    case remind
+    case addToThings
+    case connectService
+    case askAgentPrivately
+
+    public var title: String {
+        switch self {
+        case .research: "Research this"
+        case .doSomething: "Do something with this"
+        case .remind: "Make a reminder"
+        case .addToThings: "Add to Things"
+        case .connectService: "Connect this to any service"
+        case .askAgentPrivately: "Ask the group agent privately"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .research: "magnifyingglass"
+        case .doSomething: "arrow.up.right"
+        case .remind: "clock"
+        case .addToThings: "square.grid.2x2"
+        case .connectService: "link.badge.plus"
+        case .askAgentPrivately: "sparkles"
+        }
+    }
+}
+
 @Observable
 public class MessageContextMenuState: @unchecked Sendable {
     public init() {}
@@ -33,6 +67,11 @@ public class MessageContextMenuState: @unchecked Sendable {
     /// `isExpanded`.
     public var isExpanded: Bool = false
     public var sourceID: UUID?
+    /// Set by the conversation host for group chats. Cells share this state
+    /// instance through their UIKit-hosted SwiftUI environment, making it a
+    /// lightweight bridge that does not fork the message model.
+    public var isWorkMenuEnabled: Bool = false
+    public var onWorkAction: ((MessageWorkAction, AnyMessage) -> Void)?
 
     public var currentSourceFrame: CGRect = .zero
 
