@@ -268,6 +268,57 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         0
     }
 
+    // MARK: - Abilities (V2)
+
+    func getAbilities() async throws -> AbilitiesAPI.CatalogResponse {
+        try AbilitiesAPI.CatalogResponse(
+            catalogVersion: 7,
+            abilities: MockAbilitiesService.standardCatalog()
+        )
+    }
+
+    func createAbilityEntitlement(abilityId: String, redirectUri: String?) async throws -> AbilitiesAPI.EntitlementInitiationResponse {
+        AbilitiesAPI.EntitlementInitiationResponse(
+            status: .pendingAuth,
+            redirectUrl: "https://mock.convos.org/oauth/\(abilityId)",
+            connectionRequestId: "mock-connection-request-\(abilityId)"
+        )
+    }
+
+    @discardableResult
+    func completeAbilityEntitlement(abilityId: String, connectionRequestId: String) async throws -> AbilitiesAPI.EntitlementCompleteResponse {
+        AbilitiesAPI.EntitlementCompleteResponse(status: .active)
+    }
+
+    func revokeAbilityEntitlement(abilityId: String) async throws {}
+
+    func getConversationAbilities(conversationId: String) async throws -> AbilitiesAPI.ConversationAbilitiesResponse {
+        AbilitiesAPI.ConversationAbilitiesResponse(abilities: [])
+    }
+
+    @discardableResult
+    func putConversationAbility(
+        conversationId: String,
+        abilityId: String,
+        agentInboxId: String,
+        bundleIds: [String],
+        extendedByInboxId: String?
+    ) async throws -> AbilitiesAPI.ConversationAbilityEntry {
+        AbilitiesAPI.ConversationAbilityEntry(
+            abilityId: abilityId,
+            conversationId: conversationId,
+            agentInboxId: agentInboxId,
+            bundleIds: bundleIds,
+            extendedByInboxId: extendedByInboxId,
+            extendedByMe: true,
+            status: .active,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+    }
+
+    func deleteConversationAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws {}
+
     func getCreditBalance() async throws -> CreditBalance {
         CreditBalance(
             balance: 0,

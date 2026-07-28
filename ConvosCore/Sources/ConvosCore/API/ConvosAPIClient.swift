@@ -228,6 +228,54 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func getCreditBalance() async throws -> CreditBalance
     func getSubscription() async throws -> UserSubscription?
     func verifySubscription(jwsRepresentation: String) async throws -> UserSubscription
+
+    // Abilities (V2)
+    /// Fetches the V2 ability catalog crossed with the caller's entitlement
+    /// state (`GET /v2/abilities`). Authenticated; device-only callers get
+    /// the catalog with every `entitlement` null. A response carrying
+    /// `entitlementsUnavailable` is decoded, not failed -- resolution
+    /// against last-known state is the service layer's job.
+    func getAbilities() async throws -> AbilitiesAPI.CatalogResponse
+
+    /// Creates or restarts the caller's entitlement for one ability
+    /// (`POST /v2/abilities/{abilityId}/entitlement`). Idempotent per
+    /// (account, ability). `redirectUri` is the per-environment OAuth
+    /// callback URL (as V1 initiate); nil omits the body field.
+    func createAbilityEntitlement(abilityId: String, redirectUri: String?) async throws -> AbilitiesAPI.EntitlementInitiationResponse
+
+    /// Post-callback ownership verification
+    /// (`POST /v2/abilities/{abilityId}/entitlement/complete`). Throws
+    /// `AbilitiesAPI.EndpointError.authIncomplete` while the owned
+    /// connection is not ACTIVE yet (retryable; entitlement untouched).
+    @discardableResult
+    func completeAbilityEntitlement(abilityId: String, connectionRequestId: String) async throws -> AbilitiesAPI.EntitlementCompleteResponse
+
+    /// Revokes the caller's entitlement
+    /// (`DELETE /v2/abilities/{abilityId}/entitlement`); conversation
+    /// extensions cascade backend-side.
+    func revokeAbilityEntitlement(abilityId: String) async throws
+
+    /// The conversation's (ability, agent) opt-ins across every member
+    /// (`GET /v2/conversations/{conversationId}/abilities`), newest first.
+    func getConversationAbilities(conversationId: String) async throws -> AbilitiesAPI.ConversationAbilitiesResponse
+
+    /// Extends (or updates) the caller's entitlement to one agent in one
+    /// conversation (`PUT /v2/conversations/{conversationId}/abilities/{abilityId}`).
+    /// Requires an active entitlement (`EndpointError.needsEntitlement`
+    /// otherwise); 503 while the entitlement tables converge surfaces as
+    /// `EndpointError.entitlementsUnavailable`.
+    @discardableResult
+    func putConversationAbility(
+        conversationId: String,
+        abilityId: String,
+        agentInboxId: String,
+        bundleIds: [String],
+        extendedByInboxId: String?
+    ) async throws -> AbilitiesAPI.ConversationAbilityEntry
+
+    /// Withdraws one agent's opt-in
+    /// (`DELETE /v2/conversations/{conversationId}/abilities/{abilityId}?agentInboxId=`).
+    func deleteConversationAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws
 }
 
 extension ConvosAPIClientProtocol {
@@ -281,6 +329,45 @@ extension ConvosAPIClientProtocol {
         contentType: String,
         to uploadURL: String
     ) async throws {
+        throw APIError.invalidRequest
+    }
+
+    /// Defaults so bespoke test doubles that don't exercise the abilities
+    /// surfaces don't have to stub these. The real `ConvosAPIClient` and
+    /// `MockAPIClient` override all of them.
+    func getAbilities() async throws -> AbilitiesAPI.CatalogResponse {
+        throw APIError.invalidRequest
+    }
+
+    func createAbilityEntitlement(abilityId: String, redirectUri: String?) async throws -> AbilitiesAPI.EntitlementInitiationResponse {
+        throw APIError.invalidRequest
+    }
+
+    @discardableResult
+    func completeAbilityEntitlement(abilityId: String, connectionRequestId: String) async throws -> AbilitiesAPI.EntitlementCompleteResponse {
+        throw APIError.invalidRequest
+    }
+
+    func revokeAbilityEntitlement(abilityId: String) async throws {
+        throw APIError.invalidRequest
+    }
+
+    func getConversationAbilities(conversationId: String) async throws -> AbilitiesAPI.ConversationAbilitiesResponse {
+        throw APIError.invalidRequest
+    }
+
+    @discardableResult
+    func putConversationAbility(
+        conversationId: String,
+        abilityId: String,
+        agentInboxId: String,
+        bundleIds: [String],
+        extendedByInboxId: String?
+    ) async throws -> AbilitiesAPI.ConversationAbilityEntry {
+        throw APIError.invalidRequest
+    }
+
+    func deleteConversationAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws {
         throw APIError.invalidRequest
     }
 }
@@ -550,7 +637,9 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Private Helpers
 
-    private func authenticatedRequest(
+    // Internal (not private): the abilities endpoint extension in
+    // ConvosAPIClient+Abilities.swift builds on the same request plumbing.
+    func authenticatedRequest(
         for path: String,
         method: String = "GET",
         queryParameters: [String: String]? = nil
@@ -651,7 +740,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
     }
 
-    private func performAuthenticatedRequest(
+    func performAuthenticatedRequest(
         _ request: URLRequest,
         retryCount: Int = 0
     ) async throws -> (Data, HTTPURLResponse) {
