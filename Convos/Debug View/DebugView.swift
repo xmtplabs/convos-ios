@@ -72,6 +72,12 @@ struct DebugViewSection: View {
     @ViewBuilder
     private var featuresSection: some View {
         Section("Features") {
+            NavigationLink {
+                DesignSystemCatalogView()
+            } label: {
+                Text("Design system catalog")
+            }
+
             Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
             Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
             Toggle("Listen (agent participation)", isOn: Bindable(FeatureFlags.shared).isListenParticipationEnabled)

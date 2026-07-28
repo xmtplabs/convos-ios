@@ -10,11 +10,14 @@ struct ContactsPickerRow: View {
 
     var body: some View {
         let isDisabled: Bool = row.isAlreadyInChat
-        let opacity: Double = isDisabled ? 0.45 : 1.0
+        let opacity: Double = isDisabled ? DesignConstants.Opacity.subdued : 1.0
         Button(action: onTap) {
             HStack(spacing: DesignConstants.Spacing.step3x) {
                 ContactAvatarView(contact: row.contact)
-                    .frame(width: 56.0, height: 56.0)
+                    .frame(
+                        width: DesignConstants.ImageSizes.listAvatar,
+                        height: DesignConstants.ImageSizes.listAvatar
+                    )
 
                 ContactsPickerRowText(contact: row.contact, subtitle: row.subtitle)
 
@@ -48,13 +51,11 @@ private struct ContactsPickerRowText: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
             Text(contact.resolvedDisplayName)
-                .font(.body)
-                .foregroundStyle(.colorTextPrimary)
+                .convosTextStyle(.body)
                 .lineLimit(1)
             if !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextSecondary)
+                    .convosTextStyle(.supporting)
                     .lineLimit(1)
             }
         }
@@ -78,14 +79,7 @@ private struct ContactsPickerRowAccessory: View {
     }
 
     private var inChatBadge: some View {
-        Text("in chat")
-            .font(.caption2)
-            .foregroundStyle(.colorTextSecondary)
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .padding(.vertical, 4.0)
-            .background(
-                Capsule().fill(.colorFillMinimal)
-            )
+        ConvosBadge(label: "in chat", tone: .subtle, size: .compact)
     }
 
     private var selectedIndicator: some View {
@@ -113,7 +107,7 @@ private struct ContactsPickerRowAccessory: View {
         displayName: "Convo Agent",
         agentVerification: .verified(.convos)
     )
-    return VStack(alignment: .leading, spacing: 12.0) {
+    return VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
         ContactsPickerRow(
             row: .init(id: alice.inboxId, contact: alice, isAlreadyInChat: false, subtitle: "Bike Trip 2026"),
             isSelected: false,

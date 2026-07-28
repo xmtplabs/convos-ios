@@ -41,12 +41,9 @@ struct ConnectionsListView: View {
         Section {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text("Connections")
-                    .font(.convosTitle)
-                    .tracking(Font.convosTitleTracking)
-                    .foregroundStyle(.colorTextPrimary)
+                    .convosTextStyle(.display)
                 Text("Share services with conversations")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextPrimary)
+                    .convosTextStyle(.supportingPrimary)
             }
             .padding(.horizontal, DesignConstants.Spacing.step2x)
             .listRowBackground(Color.clear)

@@ -9,23 +9,13 @@ struct FilteredEmptyStateView: View {
     let onShowAll: () -> Void
 
     var body: some View {
-        VStack(spacing: DesignConstants.Spacing.step3x) {
-            Text(message)
-                .font(.callout)
-                .foregroundStyle(.colorTextSecondary)
-
-            let showAllAction = { onShowAll() }
-            Button(action: showAllAction) {
-                Text("Show all")
-            }
-            .convosButtonStyle(.rounded(fullWidth: false))
-            .accessibilityLabel(accessibilityLabel)
-            .accessibilityIdentifier("show-all-button")
-        }
-        .frame(maxWidth: .infinity)
-        .padding(DesignConstants.Spacing.step6x)
-        .background(.colorFillMinimal)
-        .cornerRadius(DesignConstants.Spacing.step6x)
+        ConvosEmptyStateCard(
+            message: message,
+            actionTitle: "Show all",
+            actionAccessibilityLabel: accessibilityLabel,
+            actionAccessibilityIdentifier: "show-all-button",
+            action: onShowAll
+        )
     }
 }
 

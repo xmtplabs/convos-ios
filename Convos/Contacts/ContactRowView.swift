@@ -17,20 +17,21 @@ struct ContactRowView: View {
     var body: some View {
         // Dim blocked contacts to distinguish from normal contacts.
         let isBlocked: Bool = contact.isBlocked
-        let rowOpacity: Double = isBlocked ? 0.45 : 1.0
+        let rowOpacity: Double = isBlocked ? DesignConstants.Opacity.subdued : 1.0
         HStack(spacing: DesignConstants.Spacing.step3x) {
             ContactAvatarView(contact: contact)
-                .frame(width: 56.0, height: 56.0)
+                .frame(
+                    width: DesignConstants.ImageSizes.listAvatar,
+                    height: DesignConstants.ImageSizes.listAvatar
+                )
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                 Text(contact.resolvedDisplayName)
-                    .font(.body)
-                    .foregroundStyle(.colorTextPrimary)
+                    .convosTextStyle(.body)
                     .lineLimit(1)
                 if !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.colorTextSecondary)
+                        .convosTextStyle(.supporting)
                         .lineLimit(1)
                 }
             }
@@ -45,7 +46,7 @@ struct ContactRowView: View {
         .contentShape(Rectangle())
         .opacity(rowOpacity)
         .accessibilityIdentifier("contact-row-\(contact.inboxId)")
-        // VoiceOver doesn't surface the 0.45 opacity dim or the "blocked"
+        // VoiceOver does not surface the subdued opacity or the "blocked"
         // pill on its own; the hint ensures users with VoiceOver enabled
         // know the contact is blocked before activating the row.
         .accessibilityHint(isBlocked ? "This contact is blocked" : "")
@@ -54,14 +55,7 @@ struct ContactRowView: View {
     /// "blocked" pill -- same `.colorFillMinimal` capsule + caption2 style
     /// as the picker's "blocked" badge so both surfaces read identically.
     private var blockedBadge: some View {
-        Text("blocked")
-            .font(.caption2)
-            .foregroundStyle(.colorTextSecondary)
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .padding(.vertical, 4.0)
-            .background(
-                Capsule().fill(.colorFillMinimal)
-            )
+        ConvosBadge(label: "blocked", tone: .subtle, size: .compact)
     }
 }
 

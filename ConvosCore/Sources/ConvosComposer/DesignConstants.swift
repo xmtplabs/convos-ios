@@ -12,6 +12,7 @@ public enum DesignConstants {
         public static let extraSmallAvatar: CGFloat = 16.0
         public static let smallAvatar: CGFloat = 24.0
         public static let mediumAvatar: CGFloat = 40.0
+        public static let listAvatar: CGFloat = 56.0
         public static let largeAvatar: CGFloat = 80.0
     }
 
@@ -47,6 +48,28 @@ public enum DesignConstants {
         public static let small: CGFloat = 8.0
     }
 
+    public enum Layout {
+        public static let hairline: CGFloat = 1.0
+        public static let minimumTapTarget: CGFloat = 44.0
+        public static let iconTile: CGFloat = 40.0
+        public static let searchFieldHeight: CGFloat = 48.0
+        public static let sheetHorizontalInset: CGFloat = Spacing.step10x
+        public static let screenHorizontalInset: CGFloat = Spacing.step6x
+        public static let readableContentWidth: CGFloat = 680.0
+    }
+
+    public enum Opacity {
+        public static let pressed: Double = 0.6
+        public static let disabled: Double = 0.3
+        public static let subdued: Double = 0.45
+    }
+
+    public enum Motion {
+        public static let quick: Double = 0.15
+        public static let standard: Double = 0.25
+        public static let deliberate: Double = 0.4
+    }
+
     public enum Colors {
         public static let light: Color = .white
         /// Subtle neutral fill (Figma `color/fill/subtle`): #F5F5F5 in light,
@@ -72,6 +95,19 @@ public enum DesignConstants {
         public static let small: Font = .system(size: 12.0)
         public static let buttonText: Font = .system(size: 14.0)
         public static let caption3: Font = .system(size: 8.0)
+    }
+
+    public enum Typography {
+        public static let display: Font = .system(size: 40.0, weight: .bold)
+        public static let title: Font = .title2.weight(.bold)
+        public static let headline: Font = .headline
+        public static let body: Font = .body
+        public static let callout: Font = .callout
+        public static let supporting: Font = .subheadline
+        public static let detail: Font = .footnote
+        public static let button: Font = .subheadline
+        public static let label: Font = .footnote
+        public static let caption: Font = .caption
     }
 }
 #endif

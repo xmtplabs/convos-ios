@@ -129,9 +129,7 @@ struct AppSettingsView: View {
         Section {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text("Convos")
-                    .font(.convosTitle)
-                    .tracking(Font.convosTitleTracking)
-                    .foregroundStyle(.colorTextPrimary)
+                    .convosTextStyle(.display)
             }
             .padding(.horizontal, DesignConstants.Spacing.step2x)
             .listRowBackground(Color.clear)

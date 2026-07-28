@@ -31,11 +31,11 @@ struct ActionButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.body)
-            .padding()
-            .background(Color(.systemGray6))
-            .cornerRadius(10)
-            .opacity(configuration.isPressed ? 0.6 : 1.0)
+            .font(DesignConstants.Typography.body)
+            .padding(DesignConstants.Spacing.step4x)
+            .background(.colorFillMinimal)
+            .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
+            .opacity(configuration.isPressed ? DesignConstants.Opacity.pressed : 1.0)
     }
 }
 
@@ -48,15 +48,15 @@ struct RoundedButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(maxWidth: fullWidth ? .infinity : nil)
-            .font(.subheadline)
+            .font(DesignConstants.Typography.button)
             .lineLimit(1)
             .truncationMode(.middle)
             .padding(.vertical, DesignConstants.Spacing.step4x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .opacity(configuration.isPressed ? 0.6 : 1.0)
+            .opacity(configuration.isPressed ? DesignConstants.Opacity.pressed : 1.0)
             .background(backgroundColor)
             .clipShape(Capsule())
-            .foregroundColor(isEnabled ? .colorTextPrimaryInverted : .colorTextTertiary)
+            .foregroundStyle(isEnabled ? .colorTextPrimaryInverted : .colorTextTertiary)
     }
 }
 
@@ -68,15 +68,15 @@ struct RoundedDestructiveButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(maxWidth: fullWidth ? .infinity : nil)
-            .font(.subheadline)
+            .font(DesignConstants.Typography.button)
             .lineLimit(1)
             .truncationMode(.middle)
             .padding(.vertical, DesignConstants.Spacing.step4x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .opacity(configuration.isPressed ? 0.6 : 1.0)
+            .opacity(configuration.isPressed ? DesignConstants.Opacity.pressed : 1.0)
             .background(.colorCaution.opacity(0.08))
             .clipShape(Capsule())
-            .foregroundColor(isEnabled ? .colorCaution : .colorCaution.opacity(0.75))
+            .foregroundStyle(isEnabled ? .colorCaution : .colorCaution.opacity(0.75))
     }
 }
 
@@ -85,13 +85,17 @@ struct TextButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.subheadline)
+            .font(DesignConstants.Typography.button)
             .lineLimit(1)
             .truncationMode(.middle)
             .foregroundStyle(.colorTextSecondary)
             .padding(.vertical, DesignConstants.Spacing.step4x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .opacity(isEnabled ? configuration.isPressed ? 0.6 : 1.0 : 0.3)
+            .opacity(
+                isEnabled
+                    ? configuration.isPressed ? DesignConstants.Opacity.pressed : 1.0
+                    : DesignConstants.Opacity.disabled
+            )
     }
 }
 
@@ -103,7 +107,7 @@ struct OutlineButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(maxWidth: fullWidth ? .infinity : nil)
-            .font(.subheadline)
+            .font(DesignConstants.Typography.button)
             .lineLimit(1)
             .truncationMode(.middle)
             .padding(.vertical, DesignConstants.Spacing.step4x)
@@ -111,10 +115,10 @@ struct OutlineButtonStyle: ButtonStyle {
             .background(Color.clear)
             .overlay(
                 RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
-                    .stroke(.colorBorderSubtle2, lineWidth: 1.0)
+                    .stroke(.colorBorderSubtle2, lineWidth: DesignConstants.Layout.hairline)
             )
-            .foregroundColor(isEnabled ? .colorTextPrimary : .colorTextTertiary)
-            .opacity(configuration.isPressed ? 0.6 : 1.0)
+            .foregroundStyle(isEnabled ? .colorTextPrimary : .colorTextTertiary)
+            .opacity(configuration.isPressed ? DesignConstants.Opacity.pressed : 1.0)
     }
 }
 
@@ -126,7 +130,7 @@ struct OutlineCapsuleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(maxWidth: fullWidth ? .infinity : nil)
-            .font(.subheadline)
+            .font(DesignConstants.Typography.button)
             .lineLimit(1)
             .truncationMode(.middle)
             .padding(.vertical, DesignConstants.Spacing.step3x)
@@ -134,10 +138,10 @@ struct OutlineCapsuleButtonStyle: ButtonStyle {
             .background(Color.clear)
             .overlay(
                 Capsule()
-                    .stroke(.colorBorderSubtle2, lineWidth: 1.0)
+                    .stroke(.colorBorderSubtle2, lineWidth: DesignConstants.Layout.hairline)
             )
-            .foregroundColor(isEnabled ? .colorTextPrimary : .colorTextTertiary)
-            .opacity(configuration.isPressed ? 0.6 : 1.0)
+            .foregroundStyle(isEnabled ? .colorTextPrimary : .colorTextTertiary)
+            .opacity(configuration.isPressed ? DesignConstants.Opacity.pressed : 1.0)
     }
 }
 

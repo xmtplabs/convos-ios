@@ -7,8 +7,7 @@ struct ErrorView: View {
     var body: some View {
         VStack(alignment: .center, spacing: DesignConstants.Spacing.step4x) {
             Text(error.localizedDescription)
-                .font(.body)
-                .foregroundStyle(.colorTextSecondary)
+                .convosTextStyle(.bodySecondary)
                 .multilineTextAlignment(.center)
 
             if let onRetry {

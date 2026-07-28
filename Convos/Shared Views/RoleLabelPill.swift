@@ -10,12 +10,7 @@ struct RoleLabelPill: View {
     var accessibilityIdentifier: String?
 
     var body: some View {
-        Text(label)
-            .font(.footnote)
-            .foregroundStyle(.colorTextSecondary)
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .padding(.vertical, DesignConstants.Spacing.stepX)
-            .background(.colorTextSecondary.opacity(0.1), in: .capsule)
+        ConvosBadge(label: label)
             .accessibilityIdentifier(accessibilityIdentifier ?? "")
     }
 }

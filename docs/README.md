@@ -9,6 +9,8 @@ docs/
 ├── README.md           # This file
 ├── TEMPLATE_PRD.md     # Template for new feature PRDs
 ├── TEMPLATE_ADR.md     # Template for Architecture Decision Records
+├── design-system.md    # Design foundations, components, and adoption guidance
+├── design-system-audit.md # Baseline UI inventory and migration priorities
 ├── plans/              # Feature PRDs and implementation plans
 └── adr/                # Architecture Decision Records (ADRs)
 ```
@@ -86,6 +88,11 @@ Create an ADR when:
 | 008 | Asset Lifecycle and Renewal Strategy | `docs/adr/008-asset-lifecycle-and-renewal.md` |
 | 009 | Encrypted Conversation Images | `docs/adr/009-encrypted-conversation-images.md` |
 | 010 | Public Preview Image Toggle for Invite Links | `docs/adr/010-public-preview-image-toggle.md` |
+| 011 | Single-Inbox Identity Model | `docs/adr/011-single-inbox-identity-model.md` |
+| 012 | Connections Architecture (Device + Cloud) | `docs/adr/012-connections-architecture.md` |
+| 013 | Connections - Resolution and Picker | `docs/adr/013-connections-resolution.md` |
+| 014 | Idempotent Agent Join | `docs/adr/014-idempotent-agent-join.md` |
+| 015 | Design System Foundation | `docs/adr/015-design-system-foundation.md` |
 
 ### Using ADRs with Claude Code
 

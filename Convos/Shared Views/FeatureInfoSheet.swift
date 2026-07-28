@@ -52,16 +52,14 @@ struct FeatureInfoSheet: View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             if let tagline {
                 Text(tagline)
-                    .font(.caption)
-                    .foregroundStyle(.colorTextSecondary)
+                    .convosTextStyle(.caption)
             }
 
             TightLineHeightText(text: title, fontSize: 40, lineHeight: 40)
 
             if let subtitle {
                 Text(subtitle)
-                    .font(.body)
-                    .foregroundStyle(.colorTextPrimary)
+                    .convosTextStyle(.body)
             }
 
             ForEach(paragraphs) { paragraph in
@@ -99,7 +97,7 @@ struct FeatureInfoSheet: View {
             }
             .padding(.top, DesignConstants.Spacing.step4x)
         }
-        .padding([.leading, .trailing], DesignConstants.Spacing.step10x)
+        .padding([.leading, .trailing], DesignConstants.Layout.sheetHorizontalInset)
         .padding(.top, DesignConstants.Spacing.step8x)
         .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step10x : DesignConstants.Spacing.step6x)
         .sheetDragIndicator(showDragIndicator ? .visible : .hidden)

@@ -12,47 +12,29 @@ struct FeatureRowItem<AccessoryView: View>: View {
     var iconForegroundColor: Color = .white
     @ViewBuilder let accessoryView: () -> AccessoryView
 
-    private var hasIcon: Bool {
-        imageName != nil || symbolName != nil
-    }
-
-    var image: Image? {
-        if let imageName {
-            Image(imageName)
-        } else if let symbolName {
-            Image(systemName: symbolName)
-        } else {
-            nil
-        }
-    }
-
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            if let image {
-                Group {
-                    image
-                        .font(.headline)
-                        .padding(.horizontal, DesignConstants.Spacing.step2x)
-                        .padding(.vertical, DesignConstants.Spacing.step3x)
-                        .foregroundStyle(iconForegroundColor)
-                }
-                .frame(width: DesignConstants.Spacing.step10x, height: DesignConstants.Spacing.step10x)
-                .background(
-                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                        .fill(iconBackgroundColor)
-                        .aspectRatio(1.0, contentMode: .fit)
+            if let imageName {
+                ConvosIconTile(
+                    imageName: imageName,
+                    foregroundColor: iconForegroundColor,
+                    backgroundColor: iconBackgroundColor
+                )
+            } else if let symbolName {
+                ConvosIconTile(
+                    systemName: symbolName,
+                    foregroundColor: iconForegroundColor,
+                    backgroundColor: iconBackgroundColor
                 )
             }
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                 Text(title)
-                    .font(.body)
-                    .foregroundStyle(.colorTextPrimary)
+                    .convosTextStyle(.body)
 
                 if let subtitle {
                     Text(subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(.colorTextSecondary)
+                        .convosTextStyle(.detail)
                         .lineLimit(1)
                 }
             }
