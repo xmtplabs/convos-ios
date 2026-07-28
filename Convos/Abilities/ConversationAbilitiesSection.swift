@@ -154,7 +154,7 @@ struct ConversationAbilitiesSection: View {
     /// this sheet-content builder cannot replace it mid-presentation.
     private func needsEntitlementSheet(_ ability: AbilitiesAPI.Ability) -> some View {
         NavigationStack {
-            AbilitiesListScreen(service: viewModel.abilitiesService)
+            AbilitiesListScreen(service: viewModel.abilitiesService, authorizer: AbilitiesServices.oauthAuthorizer)
                 .navigationTitle("Connect \(ability.displayName.resolved())")
                 .navigationBarTitleDisplayMode(.inline)
         }

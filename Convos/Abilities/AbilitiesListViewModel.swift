@@ -27,9 +27,13 @@ final class AbilitiesListViewModel {
     private var isCompletingAuthorization: Bool = false
 
     private let service: any AbilitiesServiceProtocol
+    /// Browser-session authorizer for the live transport. Nil (mock mode)
+    /// keeps the stub authorization sheet as the approval step.
+    private let authorizer: (any AbilityAuthorizing)?
 
-    init(service: any AbilitiesServiceProtocol) {
+    init(service: any AbilitiesServiceProtocol, authorizer: (any AbilityAuthorizing)? = nil) {
         self.service = service
+        self.authorizer = authorizer
     }
 
     var entitlementsUnavailable: Bool {
@@ -87,9 +91,10 @@ final class AbilitiesListViewModel {
 
     /// Starts (or restarts, for expired/needs-reauth/revoked states) the
     /// entitlement. A `pendingAuth` initiation with a redirect URL opens
-    /// the authorization step; completion only ever runs from
-    /// `completeAuthorization`, after the user approved it, mirroring the
-    /// browser-callback boundary the live transport has.
+    /// the authorization step: the injected browser authorizer when one is
+    /// present (live transport), the stub sheet otherwise. Either way,
+    /// completion only ever runs after the user approved it, mirroring the
+    /// browser-callback boundary.
     func connect(_ ability: AbilitiesAPI.Ability) {
         guard !isBusy(ability) else { return }
         busyAbilityIds.insert(ability.id)
@@ -97,15 +102,55 @@ final class AbilitiesListViewModel {
         Task {
             do {
                 let initiation = try await service.beginEntitlement(abilityId: ability.id)
-                if initiation.status == .pendingAuth, let redirectUrl = initiation.redirectUrl {
-                    pendingAuthorization = AbilityAuthorizationContext(ability: ability, redirectUrl: redirectUrl)
-                }
                 catalog = try await service.fetchCatalog()
+                if initiation.status == .pendingAuth, let redirectUrl = initiation.redirectUrl {
+                    if let authorizer {
+                        await runBrowserAuthorization(for: ability, redirectUrl: redirectUrl, using: authorizer)
+                    } else {
+                        pendingAuthorization = AbilityAuthorizationContext(ability: ability, redirectUrl: redirectUrl)
+                    }
+                }
             } catch {
                 errorMessage = error.localizedDescription
             }
             busyAbilityIds.remove(ability.id)
         }
+    }
+
+    /// Live-transport authorization: `ASWebAuthenticationSession` replaces
+    /// the stub sheet, then the same complete/cancel lifecycle runs. On any
+    /// failure the entitlement stays `pendingAuth` server-side, so a
+    /// refresh leaves the row offering Continue and Disconnect; only
+    /// non-cancel failures surface a message (`auth_incomplete` included,
+    /// so the user knows to retry in a moment).
+    private func runBrowserAuthorization(
+        for ability: AbilitiesAPI.Ability,
+        redirectUrl: String,
+        using authorizer: any AbilityAuthorizing
+    ) async {
+        do {
+            try await authorizer.authorize(redirectUrl: redirectUrl)
+        } catch {
+            await refresh()
+            if !Self.isAuthorizationCancellation(error) {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+        do {
+            try await service.completeEntitlement(abilityId: ability.id)
+            catalog = try await service.fetchCatalog()
+        } catch {
+            await refresh()
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private static func isAuthorizationCancellation(_ error: Error) -> Bool {
+        if case OAuthError.cancelled = error {
+            return true
+        }
+        return false
     }
 
     /// The authorization step succeeded (in Track A, the stub sheet's

@@ -7,4 +7,10 @@ import ConvosCore
 /// in settings is immediately visible in conversation info).
 enum AbilitiesServices {
     static let shared: any AbilitiesServiceProtocol = MockAbilitiesService()
+
+    /// The browser-session authorizer paired with `shared`. Nil while the
+    /// mock service is active (the stub authorization sheet stands in);
+    /// the live service selection supplies the real
+    /// `AbilityOAuthAuthorizer`.
+    static var oauthAuthorizer: (any AbilityAuthorizing)? { nil }
 }

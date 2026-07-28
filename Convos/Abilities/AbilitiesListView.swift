@@ -13,8 +13,8 @@ import SwiftUI
 struct AbilitiesListScreen: View {
     @State private var viewModel: AbilitiesListViewModel
 
-    init(service: any AbilitiesServiceProtocol) {
-        _viewModel = State(initialValue: AbilitiesListViewModel(service: service))
+    init(service: any AbilitiesServiceProtocol, authorizer: (any AbilityAuthorizing)? = nil) {
+        _viewModel = State(initialValue: AbilitiesListViewModel(service: service, authorizer: authorizer))
     }
 
     var body: some View {
