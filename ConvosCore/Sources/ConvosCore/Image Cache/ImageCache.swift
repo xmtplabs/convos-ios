@@ -426,24 +426,41 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
 
     // MARK: - Network / decrypt fetch (URL-keyed)
 
-    private func fetchImageFromNetwork(url: URL, urlKey: String, identifier: String) async -> UIImage? {
-        let existingTask = loadingTasksLock.withLock { tasks in tasks[url] }
-        if let existingTask {
-            let image = await existingTask.value
-            if let image {
-                // The shared task only recorded the continuity hint for the first
-                // caller's identity; record it for this caller too so its own
-                // placeholder bridge survives the next render/relaunch.
-                rememberLastShown(image, for: identifier, persist: true)
-                cacheUpdateSubject.send(identifier)
+    /// Resolves the URL through its single in-flight loading task, creating
+    /// one running `operation` if none exists. Check-and-insert happens under
+    /// one lock acquisition so concurrent callers for the same URL always
+    /// converge on one task instead of racing to create duplicates. Callers
+    /// that joined an existing task re-record the continuity hint for their
+    /// own identity, since the task only recorded the creator's.
+    private func withSharedLoadingTask(
+        for url: URL,
+        identifier: String,
+        operation: @escaping @Sendable () async -> UIImage?
+    ) async -> UIImage? {
+        let (loadingTask, didCreateTask): (Task<UIImage?, Never>, Bool) = loadingTasksLock.withLock { tasks in
+            if let existingTask = tasks[url] {
+                return (existingTask, false)
             }
-            return image
+            let task = Task<UIImage?, Never> {
+                defer {
+                    _ = self.loadingTasksLock.withLock { tasks in tasks.removeValue(forKey: url) }
+                }
+                return await operation()
+            }
+            tasks[url] = task
+            return (task, true)
         }
 
-        let loadingTask = Task<UIImage?, Never> {
-            defer {
-                _ = loadingTasksLock.withLock { tasks in tasks.removeValue(forKey: url) }
-            }
+        let image = await loadingTask.value
+        if !didCreateTask, let image {
+            rememberLastShown(image, for: identifier, persist: true)
+            cacheUpdateSubject.send(identifier)
+        }
+        return image
+    }
+
+    private func fetchImageFromNetwork(url: URL, urlKey: String, identifier: String) async -> UIImage? {
+        await withSharedLoadingTask(for: url, identifier: identifier) {
             do {
                 let (tempFileURL, response) = try await URLSession.shared.download(from: url)
                 defer { try? FileManager.default.removeItem(at: tempFileURL) }
@@ -458,19 +475,16 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                     return nil
                 }
 
-                cacheImage(image, key: urlKey, cache: cache, logContext: "loadImage (from network)", imageFormat: .jpg)
-                rememberLastShown(image, for: identifier, persist: true)
-                Task { await saveImageToDisk(image, key: urlKey, imageFormat: .jpg) }
-                publishCacheUpdate(urlKey: urlKey, identifier: identifier)
+                self.cacheImage(image, key: urlKey, cache: self.cache, logContext: "loadImage (from network)", imageFormat: .jpg)
+                self.rememberLastShown(image, for: identifier, persist: true)
+                Task { await self.saveImageToDisk(image, key: urlKey, imageFormat: .jpg) }
+                self.publishCacheUpdate(urlKey: urlKey, identifier: identifier)
                 return image
             } catch {
                 Log.error("Failed to load image from URL: \(url) - \(error)")
                 return nil
             }
         }
-
-        loadingTasksLock.withLock { tasks in tasks[url] = loadingTask }
-        return await loadingTask.value
     }
 
     private func fetchEncryptedImageInline(
@@ -492,20 +506,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
         // concurrent downloads. The unstructured task also survives the
         // caller's cancellation (cell reuse), so a scrolled-past avatar
         // finishes downloading once instead of restarting on every render.
-        let existingTask = loadingTasksLock.withLock { tasks in tasks[url] }
-        if let existingTask {
-            let image = await existingTask.value
-            if let image {
-                rememberLastShown(image, for: identifier, persist: true)
-                cacheUpdateSubject.send(identifier)
-            }
-            return image
-        }
-
-        let loadingTask = Task<UIImage?, Never> {
-            defer {
-                _ = loadingTasksLock.withLock { tasks in tasks.removeValue(forKey: url) }
-            }
+        return await withSharedLoadingTask(for: url, identifier: identifier) {
             do {
                 let decryptedData = try await EncryptedImageLoader.loadAndDecrypt(
                     url: url,
@@ -521,10 +522,10 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                     Log.error("Failed to create UIImage from decrypted data: \(urlKey)")
                     return nil
                 }
-                cacheImage(image, key: urlKey, cache: cache, logContext: "inline encrypted fetch", imageFormat: .jpg)
-                rememberLastShown(image, for: identifier, persist: true)
-                Task { await saveDataToDisk(decryptedData, key: urlKey, imageFormat: .jpg, forceOverwrite: true) }
-                publishCacheUpdate(urlKey: urlKey, identifier: identifier)
+                self.cacheImage(image, key: urlKey, cache: self.cache, logContext: "inline encrypted fetch", imageFormat: .jpg)
+                self.rememberLastShown(image, for: identifier, persist: true)
+                Task { await self.saveDataToDisk(decryptedData, key: urlKey, imageFormat: .jpg, forceOverwrite: true) }
+                self.publishCacheUpdate(urlKey: urlKey, identifier: identifier)
                 return image
             } catch is EncryptedImageKnownBadURL {
                 // Already discovered and logged; every render of this avatar
@@ -536,9 +537,6 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                 return nil
             }
         }
-
-        loadingTasksLock.withLock { tasks in tasks[url] = loadingTask }
-        return await loadingTask.value
     }
 
     // MARK: - Identifier-based Methods (QR codes, generated images)
