@@ -4,13 +4,13 @@ import Foundation
 
 extension ConvosAPIClient {
     func getAbilities() async throws -> AbilitiesAPI.CatalogResponse {
-        let request = try authenticatedRequest(for: "v2/abilities")
+        let request = try abilitiesRequest(pathSegments: ["v2", "abilities"], method: "GET")
         return try await performAbilitiesRequest(request)
     }
 
     func createAbilityEntitlement(abilityId: String, redirectUri: String?) async throws -> AbilitiesAPI.EntitlementInitiationResponse {
-        var request = try authenticatedRequest(
-            for: "v2/abilities/\(encodedPathComponent(abilityId))/entitlement",
+        var request = try abilitiesRequest(
+            pathSegments: ["v2", "abilities", abilityId, "entitlement"],
             method: "POST"
         )
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -23,8 +23,8 @@ extension ConvosAPIClient {
 
     @discardableResult
     func completeAbilityEntitlement(abilityId: String, connectionRequestId: String) async throws -> AbilitiesAPI.EntitlementCompleteResponse {
-        var request = try authenticatedRequest(
-            for: "v2/abilities/\(encodedPathComponent(abilityId))/entitlement/complete",
+        var request = try abilitiesRequest(
+            pathSegments: ["v2", "abilities", abilityId, "entitlement", "complete"],
             method: "POST"
         )
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -36,16 +36,17 @@ extension ConvosAPIClient {
     }
 
     func revokeAbilityEntitlement(abilityId: String) async throws {
-        let request = try authenticatedRequest(
-            for: "v2/abilities/\(encodedPathComponent(abilityId))/entitlement",
+        let request = try abilitiesRequest(
+            pathSegments: ["v2", "abilities", abilityId, "entitlement"],
             method: "DELETE"
         )
         try await performAbilitiesVoidRequest(request)
     }
 
     func getConversationAbilities(conversationId: String) async throws -> AbilitiesAPI.ConversationAbilitiesResponse {
-        let request = try authenticatedRequest(
-            for: "v2/conversations/\(encodedPathComponent(conversationId))/abilities"
+        let request = try abilitiesRequest(
+            pathSegments: ["v2", "conversations", conversationId, "abilities"],
+            method: "GET"
         )
         return try await performAbilitiesRequest(request)
     }
@@ -58,8 +59,8 @@ extension ConvosAPIClient {
         bundleIds: [String],
         extendedByInboxId: String?
     ) async throws -> AbilitiesAPI.ConversationAbilityEntry {
-        var request = try authenticatedRequest(
-            for: "v2/conversations/\(encodedPathComponent(conversationId))/abilities/\(encodedPathComponent(abilityId))",
+        var request = try abilitiesRequest(
+            pathSegments: ["v2", "conversations", conversationId, "abilities", abilityId],
             method: "PUT"
         )
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -75,8 +76,8 @@ extension ConvosAPIClient {
     }
 
     func deleteConversationAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws {
-        let request = try authenticatedRequest(
-            for: "v2/conversations/\(encodedPathComponent(conversationId))/abilities/\(encodedPathComponent(abilityId))",
+        let request = try abilitiesRequest(
+            pathSegments: ["v2", "conversations", conversationId, "abilities", abilityId],
             method: "DELETE",
             queryParameters: ["agentInboxId": agentInboxId]
         )
@@ -84,11 +85,58 @@ extension ConvosAPIClient {
     }
 }
 
+// MARK: - URL construction (internal for tests)
+
+extension ConvosAPIClient {
+    /// Percent-encodes one path segment with the RFC 3986 unreserved set
+    /// only, so opaque ids containing `/`, `%`, `?`, or `#` stay a single
+    /// path component. `.urlPathAllowed` is not enough: it leaves `/`
+    /// intact, splitting the id into extra path segments.
+    static func strictPathComponentEncoded(_ raw: String) -> String {
+        raw.addingPercentEncoding(withAllowedCharacters: Constant.unreservedCharacters) ?? raw
+    }
+
+    /// Builds an abilities endpoint URL by setting the percent-encoded path
+    /// directly on URLComponents. `appendingPathComponent` cannot be used
+    /// with pre-encoded segments: it re-encodes `%` into `%25`, double
+    /// encoding the id.
+    static func abilitiesURL(baseURL: URL, pathSegments: [String], queryParameters: [String: String]?) throws -> URL {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            throw APIError.invalidURL
+        }
+        let encodedSegments: [String] = pathSegments.map { strictPathComponentEncoded($0) }
+        let basePath = components.percentEncodedPath.hasSuffix("/")
+            ? String(components.percentEncodedPath.dropLast())
+            : components.percentEncodedPath
+        components.percentEncodedPath = "\(basePath)/\(encodedSegments.joined(separator: "/"))"
+        if let queryParameters {
+            components.queryItems = queryParameters.map { URLQueryItem(name: $0.key, value: $0.value) }
+        }
+        guard let url = components.url else {
+            throw APIError.invalidURL
+        }
+        return url
+    }
+
+    private enum Constant {
+        static let unreservedCharacters: CharacterSet = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+        )
+    }
+}
+
 // MARK: - Shared plumbing
 
 private extension ConvosAPIClient {
-    func encodedPathComponent(_ raw: String) -> String {
-        raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? raw
+    func abilitiesRequest(
+        pathSegments: [String],
+        method: String,
+        queryParameters: [String: String]? = nil
+    ) throws -> URLRequest {
+        let url = try Self.abilitiesURL(baseURL: baseURL, pathSegments: pathSegments, queryParameters: queryParameters)
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        return attachingAuthHeader(to: request)
     }
 
     func performAbilitiesRequest<T: Decodable>(_ request: URLRequest) async throws -> T {

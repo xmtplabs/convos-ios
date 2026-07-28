@@ -43,6 +43,76 @@ struct AbilitiesEndpointsContractTests {
         #expect(response.status == .active)
     }
 
+    @Test("Initiation rejects omitted required-nullable auth fields")
+    func initiationRejectsOmittedAuthFields() {
+        #expect(throws: (any Error).self) {
+            _ = try decode(AbilitiesAPI.EntitlementInitiationResponse.self, """
+            { "status": "pending_auth", "connectionRequestId": "creq_123" }
+            """)
+        }
+        #expect(throws: (any Error).self) {
+            _ = try decode(AbilitiesAPI.EntitlementInitiationResponse.self, """
+            { "status": "active", "redirectUrl": null }
+            """)
+        }
+    }
+
+    @Test("Initiation rejects statuses outside the contract's two values")
+    func initiationRejectsOtherStatuses() {
+        for status in ["expired", "needs_reauth", "revoked", "something_new"] {
+            #expect(throws: (any Error).self) {
+                _ = try decode(AbilitiesAPI.EntitlementInitiationResponse.self, """
+                { "status": "\(status)", "redirectUrl": null, "connectionRequestId": null }
+                """)
+            }
+        }
+    }
+
+    @Test("Complete response rejects every non-active status (const)")
+    func completeRejectsNonActive() {
+        for status in ["pending_auth", "expired", "needs_reauth", "revoked", "done"] {
+            #expect(throws: (any Error).self) {
+                _ = try decode(AbilitiesAPI.EntitlementCompleteResponse.self, """
+                { "status": "\(status)" }
+                """)
+            }
+        }
+    }
+
+    @Test("Conversation entries reject an omitted required-nullable extender key")
+    func entryRejectsOmittedExtender() {
+        #expect(throws: (any Error).self) {
+            _ = try decode(AbilitiesAPI.ConversationAbilitiesResponse.self, """
+            {
+              "abilities": [
+                {
+                  "abilityId": "x",
+                  "conversationId": "c",
+                  "agentInboxId": "a",
+                  "bundleIds": [],
+                  "extendedByMe": true,
+                  "status": "active",
+                  "createdAt": "2026-07-26T09:00:00Z",
+                  "updatedAt": "2026-07-26T09:00:00Z"
+                }
+              ]
+            }
+            """)
+        }
+    }
+
+    @Test("Strict responses round-trip with explicit nulls preserved")
+    func strictRoundTrip() throws {
+        let initiation = AbilitiesAPI.EntitlementInitiationResponse(status: .active)
+        let data = try JSONEncoder().encode(initiation)
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object.keys.contains("redirectUrl"))
+        #expect(object.keys.contains("connectionRequestId"))
+        #expect(object["redirectUrl"] is NSNull)
+        let decoded = try AbilitiesAPI.wireResponseDecoder().decode(AbilitiesAPI.EntitlementInitiationResponse.self, from: data)
+        #expect(decoded == initiation)
+    }
+
     // MARK: - Conversation abilities
 
     @Test("Conversation entries decode, including null extender and fractional-second dates")
@@ -154,5 +224,40 @@ struct AbilitiesEndpointsContractTests {
         #expect(endpointError(#"{"code": "invalid_request"}"#) == nil)
         #expect(endpointError(#"{"code": "not_found"}"#) == nil)
         #expect(endpointError("plain text error") == nil)
+    }
+}
+
+@Suite("Abilities endpoint URL construction")
+struct AbilitiesURLConstructionTests {
+    @Test("Path components encode reserved characters with the unreserved-only set")
+    func strictComponentEncoding() {
+        #expect(ConvosAPIClient.strictPathComponentEncoded("plain-id_1.2~x") == "plain-id_1.2~x")
+        #expect(ConvosAPIClient.strictPathComponentEncoded("a/b") == "a%2Fb")
+        #expect(ConvosAPIClient.strictPathComponentEncoded("50%off") == "50%25off")
+        #expect(ConvosAPIClient.strictPathComponentEncoded("q?x=1") == "q%3Fx%3D1")
+        #expect(ConvosAPIClient.strictPathComponentEncoded("frag#ment") == "frag%23ment")
+        #expect(ConvosAPIClient.strictPathComponentEncoded("émoji✨") == "%C3%A9moji%E2%9C%A8")
+    }
+
+    @Test("Opaque ids stay one path segment, never double-encoded")
+    func urlBuildingSingleEncoding() throws {
+        let baseURL = try #require(URL(string: "https://api.example.com"))
+        let url = try ConvosAPIClient.abilitiesURL(
+            baseURL: baseURL,
+            pathSegments: ["v2", "conversations", "ab/c%d e?f#g", "abilities", "toolkit"],
+            queryParameters: nil
+        )
+        #expect(url.absoluteString == "https://api.example.com/v2/conversations/ab%2Fc%25d%20e%3Ff%23g/abilities/toolkit")
+    }
+
+    @Test("A base URL carrying a path keeps it, and query items attach")
+    func urlBuildingWithBasePathAndQuery() throws {
+        let baseURL = try #require(URL(string: "https://api.example.com/api/"))
+        let url = try ConvosAPIClient.abilitiesURL(
+            baseURL: baseURL,
+            pathSegments: ["v2", "abilities", "spotify", "entitlement"],
+            queryParameters: ["agentInboxId": "agent-1"]
+        )
+        #expect(url.absoluteString == "https://api.example.com/api/v2/abilities/spotify/entitlement?agentInboxId=agent-1")
     }
 }

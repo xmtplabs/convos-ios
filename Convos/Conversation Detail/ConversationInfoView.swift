@@ -570,7 +570,7 @@ struct ConversationInfoView: View {
         return ConversationAbilitiesViewModel(
             conversationId: viewModel.conversation.id,
             agents: agents,
-            service: AbilitiesServices.shared
+            selection: AbilitiesServices.selection
         )
     }
 

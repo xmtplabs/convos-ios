@@ -3,9 +3,9 @@ import Foundation
 import Testing
 
 /// Stateful metadata writer: keeps a persistent per-(conversation, inbox)
-/// map across updates so merge behavior (upsert over existing entries,
-/// key removal on empty payload) is observable, unlike the empty-map
-/// `MockProfileMetadataWriter`.
+/// map across updates so merge behavior (surgical upsert next to V1
+/// entries, key removal on empty payload) is observable, unlike the
+/// empty-map `MockProfileMetadataWriter`.
 private final class StatefulMetadataWriter: ProfileMetadataWriterProtocol, @unchecked Sendable {
     private(set) var store: [String: ProfileMetadata] = [:]
     var updateError: (any Error)?
@@ -22,6 +22,10 @@ private final class StatefulMetadataWriter: ProfileMetadataWriterProtocol, @unch
         var metadata = store[key] ?? [:]
         update(&metadata)
         store[key] = metadata
+    }
+
+    func seed(conversationId: String, inboxId: String, connectionsJson: String) {
+        store["\(conversationId)|\(inboxId)"] = [ConversationScopedMetadataKey.connections: .string(connectionsJson)]
     }
 
     func metadata(conversationId: String, inboxId: String) -> ProfileMetadata {
@@ -44,6 +48,19 @@ private final class RecordingShimWriter: AbilityV1AwarenessShimWriting, @uncheck
 
 @Suite("AbilityV1AwarenessShimWriter")
 struct AbilityV1AwarenessShimTests {
+    /// A realistic V1 writer entry for the same toolkit and agent the shim
+    /// targets, carrying real Composio ids plus fields a newer writer might
+    /// add -- everything the shim must preserve verbatim.
+    private let v1EntryJson = """
+    {"composioConnectionId":"comp-conn-1","composioEntityId":"comp-entity-1","futureField":{"nested":true},\
+    "grantedAt":"2026-07-01T00:00:00Z","grantedToInboxId":"agent-1","id":"grant_conn1_conv-1_agent-1",\
+    "provider":"composio","scope":"conversation","senderId":"my-inbox","service":"googlecalendar"}
+    """
+
+    private var v1PayloadJson: String {
+        #"{"customTopLevel":"keep","grants":[\#(v1EntryJson)],"version":1}"#
+    }
+
     private func makeShim(writer: StatefulMetadataWriter, inboxId: String = "my-inbox") -> AbilityV1AwarenessShimWriter {
         AbilityV1AwarenessShimWriter(
             profileMetadataWriter: writer,
@@ -51,10 +68,15 @@ struct AbilityV1AwarenessShimTests {
         )
     }
 
-    private func payload(from writer: StatefulMetadataWriter, conversationId: String, inboxId: String = "my-inbox") throws -> CloudConnectionsMetadataPayload? {
+    private func payloadObject(from writer: StatefulMetadataWriter, conversationId: String, inboxId: String = "my-inbox") throws -> [String: Any]? {
         let metadata = writer.metadata(conversationId: conversationId, inboxId: inboxId)
         guard let json = metadata[ConversationScopedMetadataKey.connections]?.stringValue else { return nil }
-        return try CloudConnectionsMetadataPayload.fromJsonString(json)
+        let data = try #require(json.data(using: .utf8))
+        return try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private func grants(in payload: [String: Any]?) -> [[String: Any]] {
+        (payload?["grants"] as? [[String: Any]]) ?? []
     }
 
     @Test("Extension writes a V1-shaped grant entry under the connections key")
@@ -69,19 +91,21 @@ struct AbilityV1AwarenessShimTests {
             bundleIds: ["calendar.events"]
         )
 
-        let payload = try #require(try payload(from: writer, conversationId: "conv-1"))
-        #expect(payload.grants.count == 1)
-        let entry = try #require(payload.grants.first)
-        #expect(entry.service == "googlecalendar")
-        #expect(entry.grantedToInboxId == "agent-1")
-        #expect(entry.senderId == "my-inbox")
-        #expect(entry.provider == "composio")
-        #expect(entry.scope == "conversation")
-        #expect(entry.composioEntityId.isEmpty)
-        #expect(entry.composioConnectionId.isEmpty)
+        let payload = try payloadObject(from: writer, conversationId: "conv-1")
+        let written = grants(in: payload)
+        #expect(written.count == 1)
+        let entry = try #require(written.first)
+        #expect(entry["id"] as? String == "grant_v2_googlecalendar_conv-1_agent-1")
+        #expect(entry["service"] as? String == "googlecalendar")
+        #expect(entry["grantedToInboxId"] as? String == "agent-1")
+        #expect(entry["senderId"] as? String == "my-inbox")
+        #expect(entry["provider"] as? String == "composio")
+        #expect(entry["scope"] as? String == "conversation")
+        #expect(entry["composioEntityId"] as? String == "")
+        #expect(entry["composioConnectionId"] as? String == "")
     }
 
-    @Test("Re-extending the same (service, agent) upserts instead of duplicating")
+    @Test("Re-extending the same (service, agent) upserts the shim entry instead of duplicating")
     func extensionUpserts() async throws {
         let writer = StatefulMetadataWriter()
         let shim = makeShim(writer: writer)
@@ -89,8 +113,8 @@ struct AbilityV1AwarenessShimTests {
         await shim.recordExtension(conversationId: "conv-1", abilityId: "googlecalendar", agentInboxId: "agent-1", bundleIds: ["calendar.events"])
         await shim.recordExtension(conversationId: "conv-1", abilityId: "googlecalendar", agentInboxId: "agent-1", bundleIds: ["calendar.events", "calendar.availability"])
 
-        let payload = try #require(try payload(from: writer, conversationId: "conv-1"))
-        #expect(payload.grants.count == 1)
+        let payload = try payloadObject(from: writer, conversationId: "conv-1")
+        #expect(grants(in: payload).count == 1)
     }
 
     @Test("Distinct agents and services keep separate entries")
@@ -102,11 +126,35 @@ struct AbilityV1AwarenessShimTests {
         await shim.recordExtension(conversationId: "conv-1", abilityId: "googlecalendar", agentInboxId: "agent-2", bundleIds: [])
         await shim.recordExtension(conversationId: "conv-1", abilityId: "spotify", agentInboxId: "agent-1", bundleIds: [])
 
-        let payload = try #require(try payload(from: writer, conversationId: "conv-1"))
-        #expect(payload.grants.count == 3)
+        let payload = try payloadObject(from: writer, conversationId: "conv-1")
+        #expect(grants(in: payload).count == 3)
     }
 
-    @Test("Withdrawal removes only the matching entry; the last removal clears the key")
+    @Test("A same-toolkit V1 grant survives shim upsert and withdrawal, unknown fields verbatim")
+    func v1GrantCoexistsUntouched() async throws {
+        let writer = StatefulMetadataWriter()
+        writer.seed(conversationId: "conv-1", inboxId: "my-inbox", connectionsJson: v1PayloadJson)
+        let shim = makeShim(writer: writer)
+
+        // Upsert next to the V1 entry for the same (service, agent).
+        await shim.recordExtension(conversationId: "conv-1", abilityId: "googlecalendar", agentInboxId: "agent-1", bundleIds: [])
+        var payload = try payloadObject(from: writer, conversationId: "conv-1")
+        #expect(grants(in: payload).count == 2)
+        #expect(payload?["customTopLevel"] as? String == "keep")
+
+        // Withdrawal removes only the shim-owned entry.
+        await shim.recordWithdrawal(conversationId: "conv-1", abilityId: "googlecalendar", agentInboxId: "agent-1")
+        payload = try payloadObject(from: writer, conversationId: "conv-1")
+        let remaining = grants(in: payload)
+        #expect(remaining.count == 1)
+        let v1Entry = try #require(remaining.first)
+        #expect(v1Entry["id"] as? String == "grant_conn1_conv-1_agent-1")
+        #expect(v1Entry["composioEntityId"] as? String == "comp-entity-1")
+        #expect((v1Entry["futureField"] as? [String: Any])?["nested"] as? Bool == true)
+        #expect(payload?["customTopLevel"] as? String == "keep")
+    }
+
+    @Test("Withdrawal removes only the matching entry; the last shim removal clears the key")
     func withdrawalRemoves() async throws {
         let writer = StatefulMetadataWriter()
         let shim = makeShim(writer: writer)
@@ -115,12 +163,50 @@ struct AbilityV1AwarenessShimTests {
         await shim.recordExtension(conversationId: "conv-1", abilityId: "spotify", agentInboxId: "agent-1", bundleIds: [])
 
         await shim.recordWithdrawal(conversationId: "conv-1", abilityId: "spotify", agentInboxId: "agent-1")
-        let remaining = try #require(try payload(from: writer, conversationId: "conv-1"))
-        #expect(remaining.grants.map(\.service) == ["googlecalendar"])
+        let remaining = grants(in: try payloadObject(from: writer, conversationId: "conv-1"))
+        #expect(remaining.map { $0["service"] as? String } == ["googlecalendar"])
 
         await shim.recordWithdrawal(conversationId: "conv-1", abilityId: "googlecalendar", agentInboxId: "agent-1")
         let metadata = writer.metadata(conversationId: "conv-1", inboxId: "my-inbox")
         #expect(metadata[ConversationScopedMetadataKey.connections] == nil)
+    }
+
+    @Test("Withdrawing an ability with no shim entry leaves a V1 payload byte-identical")
+    func withdrawalWithoutShimEntryIsNoOp() async throws {
+        let writer = StatefulMetadataWriter()
+        writer.seed(conversationId: "conv-1", inboxId: "my-inbox", connectionsJson: v1PayloadJson)
+        let shim = makeShim(writer: writer)
+
+        await shim.recordWithdrawal(conversationId: "conv-1", abilityId: "googlecalendar", agentInboxId: "agent-1")
+        let metadata = writer.metadata(conversationId: "conv-1", inboxId: "my-inbox")
+        #expect(metadata[ConversationScopedMetadataKey.connections]?.stringValue == v1PayloadJson)
+    }
+
+    @Test("An undecodable existing payload is left untouched and the shim write is skipped")
+    func malformedPayloadSkipped() async throws {
+        let writer = StatefulMetadataWriter()
+        writer.seed(conversationId: "conv-1", inboxId: "my-inbox", connectionsJson: "not json at all")
+        let shim = makeShim(writer: writer)
+
+        await shim.recordExtension(conversationId: "conv-1", abilityId: "googlecalendar", agentInboxId: "agent-1", bundleIds: [])
+        var metadata = writer.metadata(conversationId: "conv-1", inboxId: "my-inbox")
+        #expect(metadata[ConversationScopedMetadataKey.connections]?.stringValue == "not json at all")
+
+        await shim.recordWithdrawal(conversationId: "conv-1", abilityId: "googlecalendar", agentInboxId: "agent-1")
+        metadata = writer.metadata(conversationId: "conv-1", inboxId: "my-inbox")
+        #expect(metadata[ConversationScopedMetadataKey.connections]?.stringValue == "not json at all")
+    }
+
+    @Test("A grants key of an unexpected shape is also left untouched")
+    func unexpectedGrantsShapeSkipped() async throws {
+        let writer = StatefulMetadataWriter()
+        let oddPayload = #"{"grants":"not-an-array","version":1}"#
+        writer.seed(conversationId: "conv-1", inboxId: "my-inbox", connectionsJson: oddPayload)
+        let shim = makeShim(writer: writer)
+
+        await shim.recordExtension(conversationId: "conv-1", abilityId: "googlecalendar", agentInboxId: "agent-1", bundleIds: [])
+        let metadata = writer.metadata(conversationId: "conv-1", inboxId: "my-inbox")
+        #expect(metadata[ConversationScopedMetadataKey.connections]?.stringValue == oddPayload)
     }
 
     @Test("A publish failure is swallowed (best-effort)")
@@ -206,7 +292,7 @@ struct LiveAbilitiesServiceShimGatingTests {
             isShimEnabled: { true }
         )
         await #expect(throws: AbilitiesServiceError.needsEntitlement(abilityId: "googlecalendar")) {
-            try await service.extendAbility(conversationId: "conv-1", abilityId: "googlecalendar", agentInboxId: "agent-1", bundleIds: [])
+            try await service.extendAbility(conversationId: "conv-1", abilityId: "googlecalendar", agentInboxId: "agent-1", bundleIds: ["calendar.events"])
         }
         #expect(shim.extensions.isEmpty)
     }
@@ -215,7 +301,7 @@ struct LiveAbilitiesServiceShimGatingTests {
 /// Tiny lock-guarded flag so the `@Sendable` gate closure can observe
 /// test-driven flips without data races.
 private final class LockedFlag: @unchecked Sendable {
-    private let lock = NSLock()
+    private let lock: NSLock = NSLock()
     private var value: Bool
 
     init(initial: Bool) {

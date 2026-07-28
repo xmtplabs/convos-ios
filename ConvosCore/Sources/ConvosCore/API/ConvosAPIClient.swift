@@ -644,15 +644,25 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         method: String = "GET",
         queryParameters: [String: String]? = nil
     ) throws -> URLRequest {
-        var request = try request(for: path, method: method, queryParameters: queryParameters)
+        let request = try request(for: path, method: method, queryParameters: queryParameters)
+        return attachingAuthHeader(to: request)
+    }
 
-        // JWT selection precedence:
-        //   1. overrideJWTToken (APNS-injected, NSE flow)
-        //   2. SIWE-bound JWT in the address-scoped slot, when a signing
-        //      context is configured for this session
-        //   3. Legacy device-only JWT slot (only reachable when no
-        //      signing context is set yet — e.g. early boot before the
-        //      XMTP identity is loaded)
+    /// Attaches the auth header to a prebuilt request. Split from
+    /// `authenticatedRequest` so the abilities endpoints, which build their
+    /// URLs through URLComponents (strict per-segment percent-encoding that
+    /// `appendingPathComponent` would double-encode), reuse the same JWT
+    /// selection.
+    ///
+    /// JWT selection precedence:
+    ///   1. overrideJWTToken (APNS-injected, NSE flow)
+    ///   2. SIWE-bound JWT in the address-scoped slot, when a signing
+    ///      context is configured for this session
+    ///   3. Legacy device-only JWT slot (only reachable when no signing
+    ///      context is set yet -- e.g. early boot before the XMTP identity
+    ///      is loaded)
+    func attachingAuthHeader(to request: URLRequest) -> URLRequest {
+        var request = request
         if let overrideJWT = overrideJWTToken {
             Log.debug("Using override JWT token from notification payload")
             request.setValue(overrideJWT, forHTTPHeaderField: "X-Convos-AuthToken")
@@ -661,7 +671,6 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         } else {
             Log.debug("No JWT token found - request will trigger re-authentication")
         }
-
         return request
     }
 

@@ -1,33 +1,53 @@
 import ConvosCore
 import Foundation
 
-/// Process-wide accessor for the active `AbilitiesServiceProtocol` backing
+/// One coherent abilities configuration: the service and the OAuth
+/// authorizer that belongs with it, resolved together from a single read
+/// of the mock/live toggle. Consumers receive and latch the whole pair for
+/// their screen or view-model lifetime, so a mid-session toggle flip can
+/// never pair a retained live service with the mock approval sheet (or a
+/// retained mock service with a real browser session) -- the next
+/// presentation picks up the new pair atomically.
+struct AbilitiesSelection {
+    let service: any AbilitiesServiceProtocol
+    /// Nil in mock mode: the stub authorization sheet stands in, and a
+    /// mock connect never opens a real browser.
+    let authorizer: (any AbilityAuthorizing)?
+
+    init(service: any AbilitiesServiceProtocol, authorizer: (any AbilityAuthorizing)? = nil) {
+        self.service = service
+        self.authorizer = authorizer
+    }
+}
+
+/// Process-wide accessor for the active abilities configuration backing
 /// the flag-gated V2 abilities surfaces (the App Settings abilities list
-/// and the per-conversation abilities section). One instance app-wide so
-/// state changes carry across surfaces (connecting an ability in settings
-/// is immediately visible in conversation info).
+/// and the per-conversation abilities section). One service instance
+/// app-wide so state changes carry across surfaces (connecting an ability
+/// in settings is immediately visible in conversation info).
 ///
 /// `configure(...)` wires the live transport at app start; the Debug menu's
-/// mock/live sub-toggle (default live) picks which instance `shared`
+/// mock/live sub-toggle (default live) picks which pair `selection`
 /// serves. Previews and tests never call `configure`, so they fall back to
 /// the mock, mirroring `CreditsServices`.
 enum AbilitiesServices {
-    /// Set once during `ConvosApp.init` before any surface can read it;
+    /// Set once during `ConvosApp.init` before any surface can read them;
     /// the actor-based service handles its own concurrency.
     nonisolated(unsafe) private static var liveService: LiveAbilitiesService?
+    nonisolated(unsafe) private static var catalogCache: AbilitiesCatalogDiskCache?
     private static let mockService: MockAbilitiesService = MockAbilitiesService()
 
-    static var shared: any AbilitiesServiceProtocol {
-        guard let liveService else { return mockService }
-        return useLiveBackend ? liveService : mockService
-    }
-
-    /// The browser-session authorizer paired with `shared`. Nil while the
-    /// mock service is active -- the stub authorization sheet stands in --
-    /// so a mock connect never opens a real browser.
-    static var oauthAuthorizer: (any AbilityAuthorizing)? {
-        guard liveService != nil, useLiveBackend else { return nil }
-        return AbilityOAuthAuthorizer(callbackURLScheme: ConfigManager.shared.appUrlScheme)
+    /// The atomic (service, authorizer) pair for the current mode. Resolve
+    /// once per screen/view-model lifetime and pass the whole value down;
+    /// never read the halves at different times.
+    static var selection: AbilitiesSelection {
+        guard let liveService, useLiveBackend else {
+            return AbilitiesSelection(service: mockService)
+        }
+        return AbilitiesSelection(
+            service: liveService,
+            authorizer: AbilityOAuthAuthorizer(callbackURLScheme: ConfigManager.shared.appUrlScheme)
+        )
     }
 
     /// Wires the live service to the backend and the session's messaging
@@ -43,10 +63,12 @@ enum AbilitiesServices {
                 try await messaging.sessionStateManager.waitForInboxReadyResult().client.inboxId
             }
         )
+        let cache = AbilitiesCatalogDiskCache(environmentName: environment.name)
+        catalogCache = cache
         liveService = LiveAbilitiesService(
             apiClient: ConvosAPIClientFactory.client(environment: environment),
             callbackURLScheme: ConfigManager.shared.appUrlScheme,
-            cache: AbilitiesCatalogDiskCache(environmentName: environment.name),
+            cache: cache,
             myInboxIdProvider: {
                 try? await messaging.sessionStateManager.waitForInboxReadyResult().client.inboxId
             },
@@ -57,10 +79,20 @@ enum AbilitiesServices {
 
     /// Launch/foreground refresh hook: updates the live service's
     /// last-known catalog so screen-appear fetches merge against fresh
-    /// state. No-op in mock mode or before `configure`.
+    /// state. The service resolves its account scope (inbox readiness)
+    /// before touching the network or the cache, so a cold-launch call
+    /// simply waits for identity instead of writing an accountless
+    /// catalog. No-op in mock mode or before `configure`.
     static func refreshCatalogInBackground() async {
         guard useLiveBackend, let liveService else { return }
         await liveService.refreshCatalog()
+    }
+
+    /// Account-wipe hygiene: drops every account's persisted catalog. The
+    /// service's in-memory state is scope-keyed, so the next fetch under a
+    /// new identity starts clean by construction.
+    static func handleAccountDataWiped() {
+        catalogCache?.clearAll()
     }
 
     /// Debug sub-toggle under the Abilities V2 flag: live backend versus

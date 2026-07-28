@@ -3,11 +3,16 @@ import Foundation
 /// Failures specific to the live transport's client-side bookkeeping (not
 /// part of the backend's error vocabulary).
 public enum LiveAbilitiesServiceError: Error, Sendable, Equatable {
-    /// `completeEntitlement` ran without a connection-request id from a
+    /// `completeEntitlement` ran without a retained OAuth attempt from a
     /// prior `beginEntitlement` in this process (e.g. the app restarted
     /// mid-authorization). Begin is idempotent, so the recovery is to
     /// re-run connect, which mints a fresh redirect and request id.
     case missingConnectionRequest(abilityId: String)
+    /// An extension was requested with no bundle ids. The PUT contract
+    /// requires a non-empty selection, so this is rejected client-side
+    /// instead of round-tripping a predictable 400 (reachable for catalog
+    /// abilities that declare zero bundles).
+    case noBundlesSelected(abilityId: String)
 }
 
 extension LiveAbilitiesServiceError: LocalizedError {
@@ -15,22 +20,38 @@ extension LiveAbilitiesServiceError: LocalizedError {
         switch self {
         case .missingConnectionRequest:
             "Sign-in session expired. Try connecting again."
+        case .noBundlesSelected:
+            "This ability has no permissions to share yet."
         }
     }
 }
 
 /// `AbilitiesServiceProtocol` over the live V2 abilities endpoints.
 ///
-/// The backend is the only source of truth; this service adds exactly two
-/// pieces of client-side state:
+/// The backend is the only source of truth; this service adds two pieces of
+/// client-side state:
 /// - the last-known catalog (in memory plus `AbilitiesCatalogDiskCache`),
 ///   which `AbilitiesCatalog.resolving` merges under an
 ///   `entitlementsUnavailable` response so keep-last-known survives
-///   restarts, and
-/// - the per-ability Composio connection-request id from `beginEntitlement`,
-///   which `completeEntitlement` echoes back for post-callback ownership
-///   verification. It is process-local by design: not a bearer credential,
-///   and a restart mid-auth recovers by re-running begin (idempotent).
+///   restarts. Both sides are scoped by the caller's inbox id: the disk
+///   file is per (environment, inbox) and the in-memory copy resets when
+///   the scope changes, so one account's state never leaks into another's.
+///   With no resolvable scope (device-only caller, or no provider) the
+///   disk cache is bypassed entirely -- an accountless catalog is never
+///   persisted over an account-scoped one.
+/// - the per-ability OAuth attempt from `beginEntitlement` (connection
+///   request id + consent URL). While an attempt is retained, begin
+///   short-circuits to it instead of minting a new backend connection
+///   request, so "Continue connecting" resumes the same attempt;
+///   `completeEntitlement` echoes the retained id, keeps it on
+///   `auth_incomplete` (same-id retry), and drops it on any other
+///   completion failure so the next connect re-begins. It is
+///   process-local by design: not a bearer credential, and a restart
+///   mid-auth recovers by re-running begin.
+///
+/// Begins and completes are deduplicated per ability with in-flight task
+/// maps: actor reentrancy would otherwise let overlapping begins overwrite
+/// each other's attempt, or duplicate completes submit the same id twice.
 ///
 /// Mutations are not folded into the last-known catalog the way the mock
 /// does: whenever the backend serves `entitlementsUnavailable`, entitlement
@@ -42,8 +63,9 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     /// same shape as V1: `<scheme>://connections/callback`.
     private let redirectUri: String?
     private let cache: AbilitiesCatalogDiskCache?
-    /// The caller's own inbox id for the PUT's optional `extendedByInboxId`.
-    /// Nil (or a nil resolution) omits the field, which the wire allows.
+    /// The caller's own inbox id: the disk-cache scope, and the PUT's
+    /// optional `extendedByInboxId`. Nil (or a nil resolution) omits the
+    /// wire field and bypasses the disk cache.
     private let myInboxIdProvider: (@Sendable () async -> String?)?
     /// V1 awareness shim: best-effort ProfileUpdate side-writes mirroring
     /// extend/withdraw for V1-reader agents. Only consulted when
@@ -52,9 +74,21 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     private let shimWriter: (any AbilityV1AwarenessShimWriting)?
     private let isShimEnabled: @Sendable () -> Bool
 
+    /// One OAuth round in flight for an ability: the Composio connection
+    /// request id `completeEntitlement` must echo, plus the consent URL a
+    /// resumed begin re-serves.
+    private struct PendingAttempt {
+        let connectionRequestId: String
+        let redirectUrl: String?
+    }
+
     private var lastKnownCatalog: AbilitiesCatalog?
     private var hasLoadedCache: Bool = false
-    private var pendingConnectionRequestIds: [String: String] = [:]
+    /// The scope `lastKnownCatalog` belongs to; a change resets it.
+    private var catalogScope: String?
+    private var pendingAttempts: [String: PendingAttempt] = [:]
+    private var inFlightBegins: [String: Task<AbilityEntitlementInitiation, Error>] = [:]
+    private var inFlightCompletes: [String: Task<Void, Error>] = [:]
 
     public init(
         apiClient: any ConvosAPIClientProtocol,
@@ -75,7 +109,8 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     // MARK: - AbilitiesServiceProtocol
 
     public func fetchCatalog() async throws -> AbilitiesCatalog {
-        loadCacheIfNeeded()
+        let scope = await myInboxIdProvider?()
+        prepareLastKnownCatalog(for: scope)
         let response: AbilitiesAPI.CatalogResponse
         do {
             response = try await apiClient.getAbilities()
@@ -86,7 +121,9 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         // The merged result becomes the new last-known catalog even under
         // the flag, so back-to-back outages keep carrying state forward.
         lastKnownCatalog = catalog
-        cache?.save(catalog)
+        if let scope {
+            cache?.save(catalog, scope: scope)
+        }
         return catalog
     }
 
@@ -103,32 +140,70 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     }
 
     public func beginEntitlement(abilityId: String) async throws -> AbilityEntitlementInitiation {
-        do {
-            let response = try await apiClient.createAbilityEntitlement(abilityId: abilityId, redirectUri: redirectUri)
-            if let connectionRequestId = response.connectionRequestId {
-                pendingConnectionRequestIds[abilityId] = connectionRequestId
-            }
-            return AbilityEntitlementInitiation(status: response.status, redirectUrl: response.redirectUrl)
-        } catch {
-            throw mapServiceError(error, abilityId: abilityId)
+        // Resume before re-begin: a retained attempt means an OAuth round
+        // is already open for this ability, and re-serving its consent URL
+        // keeps "Continue connecting" on the same backend connection
+        // request instead of minting a new one.
+        if let attempt = pendingAttempts[abilityId] {
+            return AbilityEntitlementInitiation(status: .pendingAuth, redirectUrl: attempt.redirectUrl)
         }
+        if let inFlight = inFlightBegins[abilityId] {
+            return try await inFlight.value
+        }
+        let task = Task { () throws -> AbilityEntitlementInitiation in
+            do {
+                let response = try await apiClient.createAbilityEntitlement(abilityId: abilityId, redirectUri: redirectUri)
+                if let connectionRequestId = response.connectionRequestId {
+                    pendingAttempts[abilityId] = PendingAttempt(
+                        connectionRequestId: connectionRequestId,
+                        redirectUrl: response.redirectUrl
+                    )
+                }
+                return AbilityEntitlementInitiation(status: response.status, redirectUrl: response.redirectUrl)
+            } catch {
+                throw mapServiceError(error, abilityId: abilityId)
+            }
+        }
+        inFlightBegins[abilityId] = task
+        defer { inFlightBegins[abilityId] = nil }
+        return try await task.value
     }
 
     public func completeEntitlement(abilityId: String) async throws {
-        guard let connectionRequestId = pendingConnectionRequestIds[abilityId] else {
+        // Duplicate completes join the in-flight submission instead of
+        // re-posting the same connection-request id.
+        if let inFlight = inFlightCompletes[abilityId] {
+            return try await inFlight.value
+        }
+        guard let attempt = pendingAttempts[abilityId] else {
             throw LiveAbilitiesServiceError.missingConnectionRequest(abilityId: abilityId)
         }
-        do {
-            try await apiClient.completeAbilityEntitlement(
-                abilityId: abilityId,
-                connectionRequestId: connectionRequestId
-            )
-            // Only cleared on success: an `auth_incomplete` retry needs the
-            // same id, since ownership is verified against it server-side.
-            pendingConnectionRequestIds.removeValue(forKey: abilityId)
-        } catch {
-            throw mapServiceError(error, abilityId: abilityId)
+        let task = Task { () throws in
+            do {
+                try await apiClient.completeAbilityEntitlement(
+                    abilityId: abilityId,
+                    connectionRequestId: attempt.connectionRequestId
+                )
+                pendingAttempts.removeValue(forKey: abilityId)
+            } catch let error as AbilitiesAPI.EndpointError where error.isAuthIncomplete {
+                // Retained on purpose: auth_incomplete is retryable against
+                // the same connection request (ownership is verified by id
+                // server-side), so both an immediate retry and a later
+                // "Continue connecting" resume this attempt.
+                throw error
+            } catch {
+                // Any other completion failure invalidates the attempt
+                // (expired request, wrong toolkit, not owned, transport
+                // fault after which the request state is unknown): retrying
+                // the same id cannot be trusted to converge, so the next
+                // connect re-begins. Begin is idempotent server-side.
+                pendingAttempts.removeValue(forKey: abilityId)
+                throw mapServiceError(error, abilityId: abilityId)
+            }
         }
+        inFlightCompletes[abilityId] = task
+        defer { inFlightCompletes[abilityId] = nil }
+        return try await task.value
     }
 
     public func revokeEntitlement(abilityId: String) async throws {
@@ -137,7 +212,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         } catch {
             throw mapServiceError(error, abilityId: abilityId)
         }
-        pendingConnectionRequestIds.removeValue(forKey: abilityId)
+        pendingAttempts.removeValue(forKey: abilityId)
     }
 
     public func conversationAbilities(conversationId: String) async throws -> [ConversationAbility] {
@@ -163,6 +238,9 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     }
 
     public func extendAbility(conversationId: String, abilityId: String, agentInboxId: String, bundleIds: [String]) async throws {
+        guard !bundleIds.isEmpty else {
+            throw LiveAbilitiesServiceError.noBundlesSelected(abilityId: abilityId)
+        }
         let extendedByInboxId = await myInboxIdProvider?()
         do {
             try await apiClient.putConversationAbility(
@@ -212,10 +290,19 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
 
     // MARK: - Helpers
 
-    private func loadCacheIfNeeded() {
-        guard !hasLoadedCache else { return }
+    /// Loads (or reloads) the last-known catalog for the resolved scope.
+    /// A scope change -- account adopted mid-process, account switched --
+    /// drops the previous scope's in-memory state before anything can
+    /// merge against it.
+    private func prepareLastKnownCatalog(for scope: String?) {
+        guard !hasLoadedCache || scope != catalogScope else { return }
         hasLoadedCache = true
-        lastKnownCatalog = cache?.load()
+        catalogScope = scope
+        if let scope {
+            lastKnownCatalog = cache?.load(scope: scope)
+        } else {
+            lastKnownCatalog = nil
+        }
     }
 
     /// Maps wire failures onto the service-level error vocabulary the view
@@ -244,5 +331,14 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         default:
             error
         }
+    }
+}
+
+private extension AbilitiesAPI.EndpointError {
+    var isAuthIncomplete: Bool {
+        if case .authIncomplete = self {
+            return true
+        }
+        return false
     }
 }

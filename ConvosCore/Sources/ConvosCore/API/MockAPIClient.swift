@@ -287,7 +287,7 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
 
     @discardableResult
     func completeAbilityEntitlement(abilityId: String, connectionRequestId: String) async throws -> AbilitiesAPI.EntitlementCompleteResponse {
-        AbilitiesAPI.EntitlementCompleteResponse(status: .active)
+        AbilitiesAPI.EntitlementCompleteResponse()
     }
 
     func revokeAbilityEntitlement(abilityId: String) async throws {}

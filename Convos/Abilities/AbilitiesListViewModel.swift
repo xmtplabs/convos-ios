@@ -121,8 +121,10 @@ final class AbilitiesListViewModel {
     /// the stub sheet, then the same complete/cancel lifecycle runs. On any
     /// failure the entitlement stays `pendingAuth` server-side, so a
     /// refresh leaves the row offering Continue and Disconnect; only
-    /// non-cancel failures surface a message (`auth_incomplete` included,
-    /// so the user knows to retry in a moment).
+    /// non-cancel failures surface a message. Continue then resumes the
+    /// same attempt: the service re-serves the retained consent URL and
+    /// completion echoes the retained connection-request id -- it never
+    /// mints a new backend connection request.
     private func runBrowserAuthorization(
         for ability: AbilitiesAPI.Ability,
         redirectUrl: String,
@@ -138,12 +140,32 @@ final class AbilitiesListViewModel {
             return
         }
         do {
-            try await service.completeEntitlement(abilityId: ability.id)
+            try await completeRetryingAuthIncomplete(abilityId: ability.id)
             catalog = try await service.fetchCatalog()
         } catch {
             await refresh()
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Bounded same-attempt completion retry. `auth_incomplete` means the
+    /// provider callback landed but the connection is not ACTIVE yet
+    /// (still INITIALIZING); each retry re-submits the same retained
+    /// connection-request id, which the service keeps across
+    /// `auth_incomplete` failures. If it still isn't active after the
+    /// budget, the final error surfaces its retry copy and the pending row
+    /// offers Continue -- which resumes this same attempt.
+    private func completeRetryingAuthIncomplete(abilityId: String) async throws {
+        let retryDelays: [Duration] = [.seconds(1), .seconds(2)]
+        for delay in retryDelays {
+            do {
+                try await service.completeEntitlement(abilityId: abilityId)
+                return
+            } catch AbilitiesAPI.EndpointError.authIncomplete {
+                try await Task.sleep(for: delay)
+            }
+        }
+        try await service.completeEntitlement(abilityId: abilityId)
     }
 
     private static func isAuthorizationCancellation(_ error: Error) -> Bool {
