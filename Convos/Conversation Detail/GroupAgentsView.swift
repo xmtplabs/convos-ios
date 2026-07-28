@@ -3,9 +3,8 @@ import SwiftUI
 
 /// The group-scoped Agents directory.
 ///
-/// Consumer language stays focused on who can help and how the group keeps
-/// that help powered. Provider and harness details remain available deeper in
-/// each profile, but are not required to understand the shared model.
+/// Consumer language stays focused on who can help, who owns each agent, and
+/// whether that member has chosen to let the rest of the group use it.
 struct GroupAgentsView: View {
     enum Action {
         case openAgent(ConversationMember)
@@ -34,7 +33,8 @@ struct GroupAgentsView: View {
                 LazyVStack(alignment: .leading, spacing: 24) {
                     introduction
                     agentDirectory
-                    sharedPower
+                    memberOwnedPower
+                    taskInvitation
                     bringYourOwnAI
                 }
                 .padding(.horizontal, 20)
@@ -59,11 +59,11 @@ struct GroupAgentsView: View {
 
     private var introduction: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Who can help this group")
+            Text("Every member can bring their own agent")
                 .font(.largeTitle.bold())
                 .foregroundStyle(.colorTextPrimary)
 
-            Text("Agents join as visible members. Everyone can see who added them, what they can access, and whether they can listen or speak.")
+            Text("Members invite agents to become visible members in the group chat. Each person owns their agent and decides whether its power is private, approval-only, or available to everyone.")
                 .font(.body)
                 .foregroundStyle(.colorTextSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -90,8 +90,8 @@ struct GroupAgentsView: View {
                                 .foregroundStyle(.colorTextPrimary)
 
                             Text(index == 0
-                                 ? "Available to everyone · Shared group credits"
-                                 : "Added to this group · Listen only")
+                                 ? "Shane’s Convos agent · Group use allowed"
+                                 : "Shane’s agent · Private power")
                                 .font(.caption)
                                 .foregroundStyle(.colorTextSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -135,26 +135,29 @@ struct GroupAgentsView: View {
             }
     }
 
-    private var sharedPower: some View {
+    private var memberOwnedPower: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("SHARED POWER")
+            Text("MEMBER-OWNED POWER")
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(.colorTextTertiary)
 
-            Text("Everyone can use \(groupAgentName)")
+            Text("Your agent. Your power. Your choice.")
                 .font(.title2.bold())
                 .foregroundStyle(.colorTextPrimary)
 
-            Text("One shared balance powers the agent for the whole group. Anyone can add credits. Change who can use them or set a group limit anytime.")
+            Text("\(groupAgentName) belongs to Shane. He currently lets the group use it, but he can require approval or keep it private without removing it from the Convo.")
                 .font(.body)
                 .foregroundStyle(.colorTextSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(spacing: 0) {
-                powerSettingRow(title: "Who can use it", value: "Everyone", icon: "person.2.fill")
+                powerSettingRow(title: "Owner", value: "Shane", icon: "person.crop.circle")
                 Divider()
                     .padding(.leading, 44)
-                powerSettingRow(title: "Group spending limit", value: "No limit set", icon: "gauge.with.dots.needle.33percent")
+                powerSettingRow(title: "Group access", value: "Allowed", icon: "person.2.fill")
+                Divider()
+                    .padding(.leading, 44)
+                powerSettingRow(title: "Shane’s group limit", value: "$10", icon: "gauge.with.dots.needle.33percent")
             }
             .padding(.horizontal, 14)
             .background(
@@ -166,7 +169,7 @@ struct GroupAgentsView: View {
                 Button {
                     onAction(.addCredits)
                 } label: {
-                    Label("Add credits", systemImage: "plus")
+                    Label("Power my agent", systemImage: "plus")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                 }
@@ -176,7 +179,7 @@ struct GroupAgentsView: View {
                 Button {
                     onAction(.setGroupLimit)
                 } label: {
-                    Text("Set a $10 limit")
+                    Text("Who can use mine")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                 }
@@ -184,7 +187,7 @@ struct GroupAgentsView: View {
                 .tint(.colorTextPrimary)
             }
 
-            Text("If power runs out, paid work pauses and the group can decide who wants to help.")
+            Text("Every member can bring their own Convos agent or connect the AI service they already use. No one has to depend on someone else’s power.")
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -194,6 +197,40 @@ struct GroupAgentsView: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(.colorFillMinimal)
         )
+    }
+
+    private var taskInvitation: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("THE TASK BECOMES THE INVITATION")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.colorLava)
+
+            Text("Brent taps “Find 15 more places.”")
+                .font(.title3.bold())
+                .foregroundStyle(.colorTextPrimaryInverted)
+
+            Text("If Brent cannot use Shane’s agent, Convos asks Brent to add his own or request access. "
+                + "His contribution brings new power into the group—and Brent gets the credit for improving the work.")
+                .font(.body)
+                .foregroundStyle(.colorTextPrimaryInverted.opacity(0.72))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                onAction(.addConvosAgent)
+            } label: {
+                Label("Add my agent to do this task", systemImage: "plus")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(.colorBackgroundSurfaceless)
+                    .clipShape(.rect(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(18)
+        .background(.colorTextPrimary)
+        .clipShape(.rect(cornerRadius: 24))
     }
 
     private func powerSettingRow(title: String, value: String, icon: String) -> some View {
@@ -216,15 +253,15 @@ struct GroupAgentsView: View {
 
     private var bringYourOwnAI: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("BRING YOUR OWN AI")
+            Text("INVITE YOUR AGENT")
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(.colorTextTertiary)
 
-            Text("Already use an AI service? Bring its powers to the group.")
+            Text("Already use an AI service? Bring it into the Convo.")
                 .font(.title3.bold())
                 .foregroundStyle(.colorTextPrimary)
 
-            Text("Connect the AI you already pay for as another way to help. It gets a Convos identity, stays visible to everyone, and starts in Listen only mode.")
+            Text("It becomes your visible agent in this group. Its power is private by default. You decide separately whether it can listen, speak, remember, act, or help other members.")
                 .font(.body)
                 .foregroundStyle(.colorTextSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -246,7 +283,7 @@ struct GroupAgentsView: View {
             Button {
                 onAction(.addConvosAgent)
             } label: {
-                Label("Add another Convos agent", systemImage: "plus")
+                Label("Create my Convos agent", systemImage: "plus")
                     .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
             }

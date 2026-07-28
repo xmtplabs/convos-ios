@@ -18,7 +18,7 @@ struct AddToConversationMenu: View {
 
     private var agentSubtitle: String {
         if isAgentJoinPending { return "Joining…" }
-        return "Made for this group"
+        return "Bring your own power"
     }
 
     private var labelColor: Color {
@@ -38,7 +38,7 @@ struct AddToConversationMenu: View {
             .accessibilityIdentifier("context-menu-add-from-contacts")
 
             Button(action: onInviteAgent) {
-                Text("New agent")
+                Text("Invite your agent")
                 Text(agentSubtitle)
                 Image("addAgentIcon")
                     .renderingMode(.template)

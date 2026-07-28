@@ -4,7 +4,7 @@ import UIKit
 
 /// The living home for a group: inputs at the top, work in the middle,
 /// and durable group memory below.
-struct GroupDesktopView: View {
+struct GroupDesktopView: View { // swiftlint:disable:this type_body_length
     enum Action {
         case describeGroup
         case addUsefulThing
@@ -151,6 +151,11 @@ struct GroupDesktopView: View {
             Text("Start with one useful thing. Everyone can help make it better.")
                 .font(.body)
                 .foregroundStyle(.secondary)
+
+            Text("Every person can bring an agent of their own. People add the direction and get the credit; their agents handle the research, updates, and feedback behind the scenes.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             startCard(
                 number: "1",
@@ -382,7 +387,7 @@ struct GroupDesktopView: View {
 
                     HStack {
                         avatarStack
-                        Text("3 people made this better")
+                        Text("3 people made this better · their agents handled the work")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -452,10 +457,10 @@ struct GroupDesktopView: View {
             Text("Who did what")
                 .font(.title2.bold())
 
-            activityRow("Shane compared 17 cabins", detail: "The research and sources are saved.", actionTitle: "Open research", action: .openOutputs)
-            activityRow("Brent started the restaurant list", detail: "Last updated with Tahoe City favorites.", actionTitle: "Add yours", action: .addThoughts)
+            activityRow("Shane improved the cabin research", detail: "His agent compared 17 places and saved the sources.", actionTitle: "Open research", action: .openOutputs)
+            activityRow("Brent started the restaurant list", detail: "His agent keeps everyone’s Tahoe City favorites current.", actionTitle: "Add yours", action: .addThoughts)
             activityRow("Julie set a booking reminder", detail: "Everyone will be nudged Friday.", actionTitle: "See reminder", action: .openReminders)
-            activityRow("Shane added agent Kai", detail: "Kai added food and workout plans to Notes.", actionTitle: "Open notes", action: .openNotes)
+            activityRow("Shane invited his agent Kai", detail: "Shane used Kai to add food and workout plans to Notes.", actionTitle: "Open notes", action: .openNotes)
         }
     }
 
@@ -502,7 +507,7 @@ struct GroupDesktopView: View {
                 directoryTile("Notes", "Shared context", "note.text", .openNotes)
                 directoryTile("Todos", "What happens next", "checkmark.circle", .openTodos)
                 directoryTile("Reminders", "Who · what · when", "bell", .openReminders)
-                directoryTile("Agents", "\(agents.count) can help", "sparkles", .openAgents)
+                directoryTile("Agents", "Everyone can bring one", "sparkles", .openAgents)
                 directoryTile("Skills", "Give agents powers", "bolt", .openSkills)
                 directoryTile("Connections", "Apps from your life", "link", .openConnections)
                 directoryTile("Files", "Outputs + sources", "folder", .openOutputs)
@@ -633,7 +638,7 @@ struct GroupDesktopView: View {
             Text(
                 "Anything on this desktop—or in an app the group connected—can be improved in the agent side chat. "
                     + "Add what you know, request an edit, or ask for more research. "
-                    + "The update comes back to everyone. And we can see who’s doing what."
+                    + "The update comes back to everyone. People get the credit, and agents manage the feedback and chaos."
             )
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -641,6 +646,7 @@ struct GroupDesktopView: View {
             Divider().padding(.vertical, 4)
 
             Text("Convos is made in the open. You are in control. The desktop is your space. "
+                + "Every member can bring an agent and decide whether its power stays private or helps the group. "
                 + "Your secure chat has forward secrecy. If you don’t want an agent to listen, tap pause. Connect anything.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

@@ -1163,16 +1163,17 @@ private extension ConversationView {
         case .setGroupLimit:
             dismissGroupAgents {
                 openAgentSideChat(
-                    draft: "Set a $10 total spending limit for \(groupDisplayName). "
-                        + "Everyone can use the shared agent until the limit is reached. "
-                        + "Ask before changing who can spend."
+                    draft: "Set a $10 limit on what my agent can contribute to \(groupDisplayName). "
+                        + "Let everyone use it until my limit is reached, but ask me before changing "
+                        + "its group access or using more of my power."
                 )
             }
         case .bringOwnAI(let provider):
             dismissGroupAgents {
                 openAgentSideChat(
-                    draft: "Connect \(provider) as another way to help power \(groupDisplayName). "
-                        + "Give it a visible Convos identity and start in Listen only mode."
+                    draft: "Invite \(provider) as my agent in \(groupDisplayName). "
+                        + "Give it a visible Convos identity and keep its power private by default. "
+                        + "Let me choose listening, speaking, memory, actions, and group access separately."
                 )
             }
         case .addConvosAgent:

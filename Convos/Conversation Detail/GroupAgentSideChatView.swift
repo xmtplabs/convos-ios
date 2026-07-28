@@ -30,7 +30,7 @@ struct GroupAgentSideChatView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(agentName)
                     .font(.headline)
-                Text("Private side chat · working for \(groupName)")
+                Text("Your agent · private side chat · working for \(groupName)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -61,7 +61,7 @@ struct GroupAgentSideChatView: View {
                     userBubble(prompt)
                     agentBubble(
                         "Working on it quietly. The useful result, sources, and changes will come back to Things "
-                            + "so everyone can keep improving it."
+                            + "so everyone can keep improving it. You get the credit for moving the group forward."
                     )
                 }
             }
