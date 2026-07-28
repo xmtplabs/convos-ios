@@ -15,6 +15,13 @@ public final class AgentParticipationStore {
     /// never blank; replaced by the conversation's real level once read.
     public private(set) var level: AgentParticipationLevel = .default
 
+    /// False until the first read resolves. Surfaces that `level` is still the
+    /// placeholder default rather than this conversation's real setting, so a
+    /// control can hold its place without claiming a level it doesn't know yet.
+    /// Set once the read finishes either way: a failed read leaves the default,
+    /// and the default is the honest thing to show.
+    public private(set) var hasLoaded: Bool = false
+
     /// Set when a write failed and was rolled back, so the host can surface it.
     /// Cleared by `dismissError()` — the host owns the alert, not this store.
     public private(set) var errorMessage: String?
@@ -49,6 +56,7 @@ public final class AgentParticipationStore {
     /// a read the member never asked for is noise.
     public func load() async {
         let generationAtStart = writeGeneration
+        defer { hasLoaded = true }
         do {
             let response = try await client().getAgentParticipation(
                 conversationId: conversationId,
