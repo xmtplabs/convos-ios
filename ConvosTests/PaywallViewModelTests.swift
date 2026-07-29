@@ -129,6 +129,10 @@ private final class SlowAvailableProductsService: SubscriptionServiceProtocol, @
         Just<UserSubscription?>(nil).eraseToAnyPublisher()
     }
     var currentSubscription: UserSubscription? { nil }
+    var syncStatePublisher: AnyPublisher<SubscriptionSyncState, Never> {
+        Just(.idle).eraseToAnyPublisher()
+    }
+    var currentSyncState: SubscriptionSyncState { .idle }
 
     func availableProducts() async throws -> [PaywallProduct] {
         countQueue.sync { _availableProductsCallCount += 1 }
@@ -154,6 +158,10 @@ private final class StubSubscriptionService: SubscriptionServiceProtocol, @unche
         Just<UserSubscription?>(nil).eraseToAnyPublisher()
     }
     var currentSubscription: UserSubscription? { nil }
+    var syncStatePublisher: AnyPublisher<SubscriptionSyncState, Never> {
+        Just(.idle).eraseToAnyPublisher()
+    }
+    var currentSyncState: SubscriptionSyncState { .idle }
 
     func availableProducts() async throws -> [PaywallProduct] { [] }
 

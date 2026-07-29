@@ -11,6 +11,7 @@ struct SubscriptionSettingsView: View {
     // `.onReceive` still drives updates on subsequent fetches.
     @State private var balance: CreditBalance? = CreditsServices.shared.currentBalance
     @State private var subscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
+    @State private var syncState: SubscriptionSyncState = SubscriptionServices.shared.currentSyncState
     @State private var presentingPaywall: Bool = false
     @State private var presentingManageSubscriptions: Bool = false
     @State private var navState: SubscriptionSettingsNavigatorImpl = .init()
@@ -46,6 +47,9 @@ struct SubscriptionSettingsView: View {
         }
         .onReceive(SubscriptionServices.shared.subscriptionPublisher) { newSubscription in
             subscription = newSubscription
+        }
+        .onReceive(SubscriptionServices.shared.syncStatePublisher) { newSyncState in
+            syncState = newSyncState
         }
         .task {
             // Refresh on appear (TTL-debounced) so the screen reflects
@@ -144,6 +148,14 @@ struct SubscriptionSettingsView: View {
     private var statusSubtitle: String {
         guard let subscription else {
             return "Subscribe to power your agents"
+        }
+        switch syncState {
+        case .syncing:
+            return "Activating your subscription..."
+        case .needsAttention:
+            return "Subscription needs attention. Contact support."
+        case .idle, .confirmed:
+            break
         }
         let periodText: String = subscription.period == .monthly ? "Monthly" : "Annual"
         let dateString: String = Self.dateFormatter.string(from: subscription.currentPeriodEnd)
