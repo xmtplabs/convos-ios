@@ -29,7 +29,17 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     /// in this process. See `refreshFromEntitlements()` for why per-launch
     /// forwarding (not persisted) is the right granularity.
     private var forwardedTransactionIds: Set<UInt64> = []
+    /// Transaction ids whose verify failed permanently (account mismatch,
+    /// bad request); never re-sent for the rest of the process. Per-process
+    /// only: the app has no sign-out or account-switch flow (identities are
+    /// per-install), so there is no hook that could clear this set for a
+    /// different account. If such a flow is ever added, clear this set and
+    /// `forwardedTransactionIds` there.
     private var permanentlyFailedTransactionIds: Set<UInt64> = []
+    /// Counts verify failures across transactions and refresh ticks within
+    /// this process. "Consecutive" means uninterrupted by any successful
+    /// verify: only a success resets it; offline failures neither count
+    /// nor reset.
     private var consecutiveVerifyFailures: Int = 0
     private var hasLocalEntitlement: Bool = false
 
