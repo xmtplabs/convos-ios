@@ -125,7 +125,17 @@ actor EncryptedImagePrefetcher: EncryptedImagePrefetcherProtocol {
                 ImageCacheContainer.shared.cacheAfterUpload(decryptedData, for: hydratedProfile.imageCacheIdentifier, url: urlString)
                 Log.info("Prefetched encrypted profile image for: \(profile.inboxId)")
                 return
+            } catch is EncryptedImageKnownBadURL {
+                // Already discovered and logged on a previous fetch; the sync
+                // pass re-selects the profile every time because a failed
+                // image never lands in the cache, so keep this quiet.
+                Log.debug("Skipping prefetch for known-bad profile image: \(profile.inboxId)")
+                return
             } catch {
+                if EncryptedImageLoader.isPermanentFailure(error) {
+                    Log.error("Not retrying profile image for \(profile.inboxId); failure is permanent: \(error)")
+                    return
+                }
                 lastError = error
                 if attempt < Self.maxRetryAttempts - 1 {
                     try? await Task.sleep(nanoseconds: Self.retryDelaySeconds * 1_000_000_000)

@@ -74,6 +74,122 @@ struct EncryptedImageLoaderDecryptTests {
     }
 }
 
+/// Coverage for the deterministic-failure negative cache: a URL whose fetch
+/// can never succeed (oversized payload, failed decryption) is remembered for
+/// the process lifetime and refused without network work, while transient
+/// network errors stay retriable. Every test uses a unique URL because the
+/// negative cache is process-wide state.
+struct EncryptedImageLoaderNegativeCacheTests {
+    private func makeUniqueParams(groupKey: Data = Data(count: 32)) throws -> EncryptedImageParams {
+        let url = try #require(URL(string: "https://example.com/\(UUID().uuidString).bin"))
+        return EncryptedImageParams(url: url, salt: Data(count: 32), nonce: Data(count: 12), groupKey: groupKey)
+    }
+
+    @Test func oversizedProbeRejectsBeforeDownloading() async throws {
+        let counter = TransportCounter()
+        let params = try makeUniqueParams()
+        let transport: EncryptedImageLoader.DownloadTransport = { _ in
+            await counter.enter()
+            await counter.exit()
+            throw URLError(.cancelled)
+        }
+        let probe: EncryptedImageLoader.SizeProbe = { _ in Int64(20 * 1024 * 1024 + 1) }
+
+        await #expect(throws: URLError(.dataLengthExceedsMaximum)) {
+            try await EncryptedImageLoader.loadAndDecrypt(
+                params: params, priority: .background, transport: transport, sizeProbe: probe
+            )
+        }
+        #expect(await counter.completed == 0)
+
+        // The oversize verdict is deterministic: the next fetch is refused
+        // without probing or downloading anything.
+        await #expect(throws: EncryptedImageKnownBadURL.self) {
+            try await EncryptedImageLoader.loadAndDecrypt(
+                params: params, priority: .background, transport: transport, sizeProbe: probe
+            )
+        }
+        #expect(await counter.completed == 0)
+    }
+
+    @Test func unknownProbeLengthStillDownloadsAndDecrypts() async throws {
+        let original = Data("probe-unknown plaintext".utf8)
+        let groupKey = try ImageEncryption.generateGroupKey()
+        let payload = try ImageEncryption.encrypt(imageData: original, groupKey: groupKey)
+        let url = try #require(URL(string: "https://example.com/\(UUID().uuidString).bin"))
+        let params = EncryptedImageParams(url: url, salt: payload.salt, nonce: payload.nonce, groupKey: groupKey)
+        let ciphertext = payload.ciphertext
+        let transport: EncryptedImageLoader.DownloadTransport = { _ in
+            (try makeTempFile(ciphertext), try makeHTTPResponse(statusCode: 200))
+        }
+
+        let plaintext = try await EncryptedImageLoader.loadAndDecrypt(
+            params: params, priority: .background, transport: transport, sizeProbe: { _ in -1 }
+        )
+        #expect(plaintext == original)
+    }
+
+    @Test func decryptionFailureMarksURLBad() async throws {
+        let counter = TransportCounter()
+        let groupKey = try ImageEncryption.generateGroupKey()
+        let payload = try ImageEncryption.encrypt(imageData: Data("secret".utf8), groupKey: groupKey)
+        // Correct salt and nonce, wrong group key: AES-GCM authentication fails.
+        let params = try makeUniqueParams()
+        let ciphertext = payload.ciphertext
+        let transport: EncryptedImageLoader.DownloadTransport = { _ in
+            await counter.enter()
+            await counter.exit()
+            return (try makeTempFile(ciphertext), try makeHTTPResponse(statusCode: 200))
+        }
+
+        do {
+            _ = try await EncryptedImageLoader.loadAndDecrypt(
+                params: params, priority: .background, transport: transport
+            )
+            Issue.record("Expected decryption to fail")
+        } catch {
+            #expect(EncryptedImageLoader.isPermanentFailure(error))
+        }
+        #expect(await counter.completed == 1)
+
+        await #expect(throws: EncryptedImageKnownBadURL.self) {
+            try await EncryptedImageLoader.loadAndDecrypt(
+                params: params, priority: .background, transport: transport
+            )
+        }
+        #expect(await counter.completed == 1)
+    }
+
+    @Test func transientNetworkFailureStaysRetriable() async throws {
+        let counter = TransportCounter()
+        let params = try makeUniqueParams()
+        let transport: EncryptedImageLoader.DownloadTransport = { _ in
+            await counter.enter()
+            await counter.exit()
+            throw URLError(.timedOut)
+        }
+
+        for _ in 0..<2 {
+            await #expect(throws: URLError(.timedOut)) {
+                try await EncryptedImageLoader.loadAndDecrypt(
+                    params: params, priority: .background, transport: transport
+                )
+            }
+        }
+        // Both attempts reached the transport: no negative-cache entry.
+        #expect(await counter.completed == 2)
+    }
+
+    @Test func classifiesPermanentVersusTransientErrors() {
+        #expect(EncryptedImageLoader.isPermanentFailure(EncryptedImageKnownBadURL()))
+        #expect(EncryptedImageLoader.isPermanentFailure(ImageEncryptionError.decryptionFailed))
+        #expect(EncryptedImageLoader.isPermanentFailure(URLError(.dataLengthExceedsMaximum)))
+        #expect(!EncryptedImageLoader.isPermanentFailure(URLError(.timedOut)))
+        #expect(!EncryptedImageLoader.isPermanentFailure(URLError(.cancelled)))
+        #expect(!EncryptedImageLoader.isPermanentFailure(URLError(.badServerResponse)))
+    }
+}
+
 /// Tracks how many transports are in flight at once.
 private actor TransportCounter {
     private(set) var current: Int = 0
