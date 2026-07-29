@@ -137,7 +137,16 @@ struct SubscriptionSettingsView: View {
     }
 
     private var statusTitle: String {
-        guard let subscription else { return "Free plan" }
+        guard let subscription else {
+            switch syncState {
+            case .syncing:
+                return "Activating subscription"
+            case .needsAttention:
+                return "Subscription needs attention"
+            case .idle, .confirmed:
+                return "Free plan"
+            }
+        }
         let name: String = SubscriptionCopy.displayName(for: subscription.tier)
         if subscription.isInTrial {
             return "\(name) trial"
@@ -147,15 +156,17 @@ struct SubscriptionSettingsView: View {
 
     private var statusSubtitle: String {
         guard let subscription else {
-            return "Subscribe to power your agents"
+            switch syncState {
+            case .syncing:
+                return "Your purchase is being confirmed. This can take a moment."
+            case .needsAttention:
+                return "Your purchase could not be linked to this account. Contact support."
+            case .idle, .confirmed:
+                return "Subscribe to power your agents"
+            }
         }
-        switch syncState {
-        case .syncing:
-            return "Activating your subscription..."
-        case .needsAttention:
+        if syncState == .needsAttention {
             return "Subscription needs attention. Contact support."
-        case .idle, .confirmed:
-            break
         }
         let periodText: String = subscription.period == .monthly ? "Monthly" : "Annual"
         let dateString: String = Self.dateFormatter.string(from: subscription.currentPeriodEnd)
