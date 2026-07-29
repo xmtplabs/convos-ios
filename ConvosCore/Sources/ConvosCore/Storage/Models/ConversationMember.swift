@@ -119,6 +119,20 @@ public extension Array where Element == ConversationMember {
         map { $0.profile }.formattedNamesString(memberNameOverride: memberNameOverride)
     }
 
+    /// Agent members whose backend owner-computed power signal says depleted.
+    ///
+    /// The map is keyed by agent inboxId and comes from
+    /// `GET /v2/conversations/:id/participation` (`agents[].agentPowerDepleted`),
+    /// which the backend computes from the agent OWNER's wallet — never the
+    /// viewer's. A member missing from the map is UNKNOWN (old backend, or an
+    /// agent that predates the backend's bookkeeping) and is never returned:
+    /// unknown must render as nothing, not as depleted (CON-807).
+    func agentsWithDepletedPower(
+        _ agentPowerDepletedByInboxId: [String: Bool]
+    ) -> [ConversationMember] {
+        filter { $0.isAgent && agentPowerDepletedByInboxId[$0.profile.inboxId] == true }
+    }
+
     func sortedByRole() -> [ConversationMember] {
         sorted { member1, member2 in
             if member1.isCurrentUser { return true }

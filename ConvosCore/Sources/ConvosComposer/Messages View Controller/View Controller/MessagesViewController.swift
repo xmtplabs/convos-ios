@@ -422,16 +422,19 @@ public final class MessagesViewController: UIViewController {
 
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
-    /// Drives the in-stream out-of-credits cell. Set from
-    /// `MessagesViewRepresentable` off `ConversationViewModel.creditsDepleted`
-    /// (which mirrors `CreditsServices.shared.currentBalance?.isDepleted`).
-    /// When this flips while a state is already applied, we replay the
-    /// last processed state so the cell appears / disappears without
-    /// needing the messages publisher to emit again.
-    var creditsDepleted: Bool = false {
+    /// Drives the in-stream "lost power" cell. Set from
+    /// `MessagesViewRepresentable` off
+    /// `ConversationViewModel.agentPowerDepletedByInboxId` — the backend's
+    /// OWNER-computed per-agent power signal, keyed by agent inboxId. The
+    /// viewer's own wallet is never an input; an agent missing from the map
+    /// is unknown and renders nothing (CON-807). When this changes while a
+    /// state is already applied, we replay the last processed state so the
+    /// cell appears / disappears without needing the messages publisher to
+    /// emit again.
+    var agentPowerDepletedByInboxId: [String: Bool] = [:] {
         didSet {
-            dataSource.creditsDepleted = creditsDepleted
-            guard oldValue != creditsDepleted, isViewLoaded, let state else { return }
+            dataSource.agentPowerDepletedByInboxId = agentPowerDepletedByInboxId
+            guard oldValue != agentPowerDepletedByInboxId, isViewLoaded, let state else { return }
             self.state = state
         }
     }
@@ -989,22 +992,26 @@ extension MessagesViewController {
             }
         }
 
-        // Only surface the per-agent "lost power" cell for agents the viewer
-        // OWNS. `creditsDepleted` reflects the LOCAL viewer's wallet, which is
-        // only the right signal for the viewer's own agents - for someone
-        // else's funded agent it would mislabel a working agent as depleted.
-        // Gating on `isCurrentUserCreator` keeps the wallet check correct;
-        // non-owners see nothing until a backend per-agent power signal exists.
-        let isCurrentUserCreator: Bool = conversation.creator.isCurrentUser
-        if creditsDepleted, isCurrentUserCreator, let agentMember = conversation.members.first(where: { $0.isAgent }) {
+        // The per-agent "lost power" cell derives ONLY from the backend's
+        // owner-computed `agentPowerDepleted` signal, matched by inboxId.
+        // `true` is the same fact for every member, so the cell shows to
+        // everyone; an agent missing from the map is UNKNOWN (old backend,
+        // or an agent the backend has no bookkeeping for) and shows nothing.
+        // The viewer's own wallet is never consulted here — a zero-balance
+        // viewer looking at a funded agent sees a working agent (CON-807).
+        // Only the upgrade CTA stays gated: the backend doesn't expose agent
+        // ownership, so conversation creatorship is the closest proxy for
+        // "the viewer is who tops this agent up".
+        let showsUpgradeCTA: Bool = conversation.creator.isCurrentUser
+        for agentMember in conversation.members.agentsWithDepletedPower(agentPowerDepletedByInboxId) {
             let agentInboxId = agentMember.profile.inboxId
             if let lastAgentIndex = cells.lastIndex(where: {
                 if case .messages(let group) = $0 { return group.sender.profile.inboxId == agentInboxId }
                 return false
             }) {
-                cells.insert(.agentOutOfCredits(agentMember, isCurrentUserCreator: isCurrentUserCreator), at: lastAgentIndex + 1)
+                cells.insert(.agentOutOfCredits(agentMember, showsUpgradeCTA: showsUpgradeCTA), at: lastAgentIndex + 1)
             } else {
-                cells.append(.agentOutOfCredits(agentMember, isCurrentUserCreator: isCurrentUserCreator))
+                cells.append(.agentOutOfCredits(agentMember, showsUpgradeCTA: showsUpgradeCTA))
             }
         }
 

@@ -40,7 +40,10 @@ struct CellConfig {
     let onToggleMessageExpanded: (String) -> Void
     let contextMenuState: MessageContextMenuState
     let onAgentOutOfCredits: () -> Void
-    let creditsDepleted: Bool
+    /// Backend owner-computed per-agent power map (inboxId -> depleted).
+    /// Absent key = unknown = no indicator; the viewer's wallet is never
+    /// an input (CON-807).
+    let agentPowerDepletedByInboxId: [String: Bool]
     let onRetryAgentJoin: () -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onTapUpdateMember: (ConversationMember) -> Void

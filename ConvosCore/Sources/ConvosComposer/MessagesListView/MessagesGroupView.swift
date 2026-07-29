@@ -41,10 +41,12 @@ struct MessagesGroupView: View {
     /// `AttachmentPreviewSheet` zoom transition. nil outside the main
     /// messages list path.
     var htmlAttachmentTransitionNamespace: Namespace.ID?
-    /// Mirrors `ConversationViewModel.creditsDepleted`. Drives the inline
-    /// `bolt.fill` glyph next to an agent sender's display name when
-    /// the global credit balance is depleted.
-    var creditsDepleted: Bool = false
+    /// Mirrors `ConversationViewModel.agentPowerDepletedByInboxId` — the
+    /// backend's owner-computed per-agent power map. Drives the inline
+    /// `bolt.fill` glyph next to an agent sender's display name when THAT
+    /// agent's owner cannot fund a turn. Absent key = unknown = no glyph;
+    /// the viewer's own wallet is never an input (CON-807).
+    var agentPowerDepletedByInboxId: [String: Bool] = [:]
     /// Resolves an inbox id to the local contact-name override so the sender
     /// label matches the contact card and conversation title (contact name ->
     /// per-conversation profile name -> "Somebody"). Without this the label
@@ -122,7 +124,7 @@ struct MessagesGroupView: View {
         return Button(action: tapAction) {
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 Text(senderDisplayName)
-                if displayGroup.sender.isAgent && creditsDepleted {
+                if displayGroup.sender.isAgent && agentPowerDepletedByInboxId[displayGroup.sender.profile.inboxId] == true {
                     Image(systemName: "bolt.fill")
                         .foregroundStyle(.colorLava)
                 }
