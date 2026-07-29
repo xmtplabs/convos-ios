@@ -10,6 +10,9 @@ private actor ScriptedParticipationService: AgentParticipationServing {
 
     private var serverMode: String = "speak"
     private var failingModes: Set<String> = []
+    /// Every call that reached the service, in the order it arrived - the record
+    /// that shows whether writes were serialized or raced.
+    private(set) var startedModes: [String] = []
     private(set) var writtenModes: [String] = []
     private var pendingWrites: [String: CheckedContinuation<Void, Never>] = [:]
     private var pendingReads: [CheckedContinuation<Void, Never>] = []
@@ -64,6 +67,7 @@ private actor ScriptedParticipationService: AgentParticipationServing {
     }
 
     func writeMode(_ mode: String, conversationId: String, variantId: String?) async throws {
+        startedModes.append(mode)
         if holdsWrites {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 pendingWrites[mode] = continuation
@@ -122,8 +126,10 @@ final class AgentParticipationStoreStressTests: XCTestCase {
         XCTAssertEqual(store.level, .paused)
     }
 
-    /// Two taps in quick succession: the level the member last chose is the one
-    /// that stands, and the server ends on it too.
+    /// Two taps in quick succession: they reach the server one at a time and in
+    /// the order they were tapped, so the level the member last chose is the one
+    /// the server ends on - not whichever call the network happened to deliver
+    /// last.
     func testRapidSwitchingSettlesOnTheLastTap() async {
         let service = ScriptedParticipationService()
         await service.holdWrites(true)
@@ -132,16 +138,72 @@ final class AgentParticipationStoreStressTests: XCTestCase {
         let first = Task { await store.set(.paused) }
         await service.waitForPendingWrite("paused")
         let second = Task { await store.set(.mentionsOnly) }
-        await service.waitForPendingWrite("mention")
+        await Task.yield()
+
+        let startedWhileFirstHeld = await service.startedModes
+        XCTAssertEqual(startedWhileFirstHeld, ["paused"], "the second write must wait its turn")
 
         await service.releaseWrite("paused")
+        await service.waitForPendingWrite("mention")
         await service.releaseWrite("mention")
         await first.value
         await second.value
 
         XCTAssertEqual(store.level, .mentionsOnly)
         let written = await service.writtenModes
-        XCTAssertEqual(written.last, "mention", "the server must end on the last tap")
+        XCTAssertEqual(written, ["paused", "mention"], "the server must see the taps in order")
+    }
+
+    /// A tap that is already superseded by the time its turn comes never goes
+    /// out: sending it would walk the agents through a level the member left
+    /// while they waited.
+    func testSupersededTapIsNeverSent() async {
+        let service = ScriptedParticipationService()
+        await service.holdWrites(true)
+        let store = makeStore(service: service)
+
+        let first = Task { await store.set(.paused) }
+        await service.waitForPendingWrite("paused")
+        let skipped = Task { await store.set(.mentionsOnly) }
+        let last = Task { await store.set(.speakFreely) }
+        await Task.yield()
+
+        await service.releaseWrite("paused")
+        await service.waitForPendingWrite("speak")
+        await service.releaseWrite("speak")
+        await first.value
+        await skipped.value
+        await last.value
+
+        XCTAssertEqual(store.level, .speakFreely)
+        let written = await service.writtenModes
+        XCTAssertEqual(written, ["paused", "speak"], "the middle tap was already stale")
+    }
+
+    /// A failed write returns the control to the level the server actually
+    /// acknowledged. Rolling back to whatever `level` held at tap time can land
+    /// on an optimistic value from an earlier write that never itself landed -
+    /// a level the conversation was never in.
+    func testRollbackReturnsToTheConfirmedLevel() async {
+        let service = ScriptedParticipationService()
+        await service.setServerMode("speak")
+        let store = makeStore(service: service)
+        await store.load()
+
+        await service.holdWrites(true)
+        await service.failWrites(of: ["paused", "mention"])
+        let firstFailure = Task { await store.set(.paused) }
+        await service.waitForPendingWrite("paused")
+        let secondFailure = Task { await store.set(.mentionsOnly) }
+        await Task.yield()
+
+        await service.releaseWrite("paused")
+        await service.waitForPendingWrite("mention")
+        await service.releaseWrite("mention")
+        await firstFailure.value
+        await secondFailure.value
+
+        XCTAssertEqual(store.level, .speakFreely, "rollback must not land on the unconfirmed Pause")
     }
 
     /// A failed write rolls back only if it is still the newest one. When a newer
@@ -156,12 +218,13 @@ final class AgentParticipationStoreStressTests: XCTestCase {
         let failing = Task { await store.set(.paused) }
         await service.waitForPendingWrite("paused")
         let newer = Task { await store.set(.mentionsOnly) }
-        await service.waitForPendingWrite("mention")
+        await Task.yield()
 
-        await service.releaseWrite("mention")
-        await newer.value
         await service.releaseWrite("paused")
         await failing.value
+        await service.waitForPendingWrite("mention")
+        await service.releaseWrite("mention")
+        await newer.value
 
         XCTAssertEqual(store.level, .mentionsOnly, "the older failure must not pull the level back")
     }

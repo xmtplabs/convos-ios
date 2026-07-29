@@ -80,6 +80,19 @@ public final class AgentParticipationStore {
     /// member's tap even though no generation changed while it was in flight.
     private var writesInFlight: Int = 0
 
+    /// The newest level the server has acknowledged. `level` runs ahead of it
+    /// the moment someone taps, and a failed write returns to this rather than
+    /// to whatever `level` held before the tap - that earlier value may itself
+    /// be an optimistic one that never landed, and rolling back to it would put
+    /// the control on a level the conversation was never in.
+    private var confirmedLevel: AgentParticipationLevel = .default
+
+    /// The tail of the write queue. Each write waits for the one before it, so
+    /// the order the member tapped in is the order the server sees. Without
+    /// this the calls race and the last tap is whichever the network delivers
+    /// last, which is how the level ends up quietly reverting on the next read.
+    private var writeChain: Task<Void, Never>?
+
     private let service: any AgentParticipationServing
 
     public init(
@@ -121,6 +134,7 @@ public final class AgentParticipationStore {
             }
             if let loaded = AgentParticipationLevel(wireMode: mode) {
                 level = loaded
+                confirmedLevel = loaded
             }
         } catch {
             Log.error("participation read failed: \(error)")
@@ -134,27 +148,43 @@ public final class AgentParticipationStore {
     /// write never lands the agents are still on the old level — leaving the
     /// check on the new one would tell the member the opposite of the error.
     public func set(_ newLevel: AgentParticipationLevel) async {
-        let previous = level
-        guard newLevel != previous else { return }
+        guard newLevel != level else { return }
         level = newLevel
         writeGeneration += 1
         let generation = writeGeneration
         writesInFlight += 1
-        defer { writesInFlight -= 1 }
+        let precedingWrite = writeChain
+        let write = Task { @MainActor [weak self] in
+            await precedingWrite?.value
+            await self?.sendLevel(newLevel, generation: generation)
+        }
+        writeChain = write
+        await write.value
+        writesInFlight -= 1
+    }
+
+    /// One write, once it holds its turn in the queue.
+    private func sendLevel(_ newLevel: AgentParticipationLevel, generation: Int) async {
+        // Taps that piled up behind this one already moved the control past this
+        // level. Sending it would walk the agents through a level the member
+        // left while waiting, and the newest tap is still queued to say where
+        // they actually want them.
+        guard writeGeneration == generation else { return }
         do {
             try await service.writeMode(
                 newLevel.wireMode,
                 conversationId: conversationId,
                 variantId: variantId
             )
+            confirmedLevel = newLevel
             Log.info("participation set mode=\(newLevel.wireMode)")
         } catch {
             Log.error("participation update failed: \(error)")
-            // A newer tap has already moved the control since this write went
-            // out. Rolling back now would drag the member to a level they left,
-            // and the newer write reports its own outcome.
+            // A newer tap arrived while this write was out. Rolling back now
+            // would drag the member to a level they left, and that newer write
+            // reports its own outcome.
             guard writeGeneration == generation else { return }
-            level = previous
+            level = confirmedLevel
             errorMessage = "Couldn't update participation. The agents are still on their previous setting."
         }
     }
