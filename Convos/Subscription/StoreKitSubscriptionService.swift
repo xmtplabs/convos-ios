@@ -168,7 +168,11 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     private func listenForTransactionUpdates() async {
         for await result in Transaction.updates {
             guard let transaction = try? verifiedTransaction(result) else { continue }
-            hasLocalEntitlement = true
+            // A revoked or expired transaction is not a live entitlement;
+            // treating it as one would leave a refunded subscription stuck
+            // in the activating state instead of returning to free once the
+            // backend reports no subscription.
+            hasLocalEntitlement = Self.isLiveEntitlement(transaction)
             await sendToBackendVerify(jwsRepresentation: result.jwsRepresentation, transactionId: transaction.id)
             await reconcileWithBackend()
             // Apple-side transition (renew, refund, tier change) → tier or
@@ -177,6 +181,12 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             await CreditsServices.shared.refresh(force: true)
             await transaction.finish()
         }
+    }
+
+    private static func isLiveEntitlement(_ transaction: Transaction) -> Bool {
+        guard transaction.revocationDate == nil else { return false }
+        guard let expiration = transaction.expirationDate else { return true }
+        return expiration > Date()
     }
 
     /// Best-effort relay of a verified StoreKit transaction to the backend so it
