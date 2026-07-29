@@ -45,7 +45,7 @@ struct AgentDmPageView: View {
     var body: some View {
         Group {
             if let dmViewModel {
-                dmMessagesView(dmViewModel)
+                dmMessagesViewWithSheets(dmViewModel)
             } else {
                 emptyStateWithComposer
             }
@@ -297,6 +297,68 @@ struct AgentDmPageView: View {
             onSendVoiceMemo: { dmVm.sendVoiceMemo() },
             extraBottomInset: extraBottomInset,
             bottomBarContent: { EmptyView() }
+        )
+    }
+
+    /// Attaches the DM view model's message-interaction sheets to the opaque
+    /// result of `dmMessagesView`. Kept off the giant `MessagesView(...)`
+    /// expression so the type-checker never re-solves that chain with four
+    /// extra modifiers (the parent `ConversationView` binds these sheets to
+    /// its own `viewModel`, so the DM page needs its own bound to `dmVm`).
+    private func dmMessagesViewWithSheets(_ dmVm: ConversationViewModel) -> some View {
+        @Bindable var dmVm = dmVm
+        return dmMessagesView(dmVm)
+            .selfSizingSheet(item: $dmVm.presentingReactionsForMessage) { message in
+                reactionsDrawer(for: message, dmVm: dmVm)
+            }
+            .selfSizingSheet(item: $dmVm.presentingReadByForGroup) { group in
+                readByDrawer(for: group, dmVm: dmVm)
+            }
+            .sheet(item: $dmVm.presentingThinkingDetail) { descriptor in
+                thinkingDetail(for: descriptor, dmVm: dmVm)
+            }
+            .sheet(item: $dmVm.presentingMessageDetail) { message in
+                messageDetail(for: message, dmVm: dmVm)
+            }
+    }
+
+    @ViewBuilder
+    private func reactionsDrawer(for message: AnyMessage, dmVm: ConversationViewModel) -> some View {
+        ReactionsDrawerView(message: message) { reaction in
+            dmVm.removeReaction(reaction, from: message)
+        }
+    }
+
+    @ViewBuilder
+    private func readByDrawer(for group: MessagesGroup, dmVm: ConversationViewModel) -> some View {
+        ReadByDrawerView(
+            members: group.readByMembers,
+            memberContactOverride: contactOverride(for: dmVm)
+        )
+    }
+
+    @ViewBuilder
+    private func thinkingDetail(for descriptor: ThinkingSessionDescriptor, dmVm: ConversationViewModel) -> some View {
+        ThinkingDetailView(
+            descriptor: descriptor,
+            conversation: dmVm.conversation,
+            viewModel: dmVm,
+            profileSheetForMember: { _ in AnyView(EmptyView()) }
+        )
+    }
+
+    @ViewBuilder
+    private func messageDetail(for message: AnyMessage, dmVm: ConversationViewModel) -> some View {
+        MessageDetailView(
+            message: message,
+            onCopy: { text in
+                UIPasteboard.general.string = text
+            },
+            onReply: { repliedMessage in
+                dmVm.presentingMessageDetail = nil
+                dmVm.onReply(repliedMessage)
+                focusCoordinator.moveFocus(to: .message)
+            }
         )
     }
 }
