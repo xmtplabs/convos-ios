@@ -2,6 +2,40 @@
 import ConvosCore
 import Foundation
 
+/// The two calls the participation control makes. Narrow on purpose: the store
+/// needs one read and one write, and a seam this small is what lets a test drive
+/// them slowly, out of order, or into failure.
+public protocol AgentParticipationServing: Sendable {
+    func readMode(conversationId: String, variantId: String?) async throws -> String
+    func writeMode(_ mode: String, conversationId: String, variantId: String?) async throws
+}
+
+/// The real service, talking to the participation endpoints.
+public struct APIAgentParticipationService: AgentParticipationServing {
+    public init() {}
+
+    public func readMode(conversationId: String, variantId: String?) async throws -> String {
+        try await client().getAgentParticipation(
+            conversationId: conversationId,
+            variantId: variantId
+        ).mode
+    }
+
+    public func writeMode(_ mode: String, conversationId: String, variantId: String?) async throws {
+        _ = try await client().setAgentParticipation(
+            conversationId: conversationId,
+            mode: mode,
+            variantId: variantId
+        )
+    }
+
+    private func client() -> any ConvosAPIClientProtocol {
+        ConvosAPIClientFactory.client(
+            environment: ConfigManager.shared.currentEnvironment
+        )
+    }
+}
+
 /// Owns one conversation's participation level for the views that show it.
 ///
 /// Two surfaces render this — the bubble in the composer and the row in an
@@ -37,11 +71,25 @@ public final class AgentParticipationStore {
     /// Bumped on every local `set()`. `load()` captures it before its network
     /// read and bails if it changed meanwhile, so a tap that lands mid-read is
     /// never clobbered by the older server value the read was already fetching.
+    /// A failed write reads it too, and rolls back only while it is still the
+    /// newest one - a newer tap already owns the level by then.
     private var writeGeneration: Int = 0
 
-    public init(conversationId: String, variantId: String? = nil) {
+    /// Writes that have been issued and not yet answered. A read that overlaps
+    /// one is reading from before it lands, so its value is already behind the
+    /// member's tap even though no generation changed while it was in flight.
+    private var writesInFlight: Int = 0
+
+    private let service: any AgentParticipationServing
+
+    public init(
+        conversationId: String,
+        variantId: String? = nil,
+        service: any AgentParticipationServing = APIAgentParticipationService()
+    ) {
         self.conversationId = conversationId
         self.variantId = variantId
+        self.service = service
     }
 
     public func dismissError() {
@@ -56,16 +104,22 @@ public final class AgentParticipationStore {
     /// a read the member never asked for is noise.
     public func load() async {
         let generationAtStart = writeGeneration
+        let overlappedAWrite = writesInFlight > 0
         defer { hasLoaded = true }
         do {
-            let response = try await client().getAgentParticipation(
+            let mode = try await service.readMode(
                 conversationId: conversationId,
                 variantId: variantId
             )
-            // A set() that landed while this read was in flight is newer than the
-            // value the server just returned; don't overwrite it with stale data.
-            guard writeGeneration == generationAtStart else { return }
-            if let loaded = AgentParticipationLevel(wireMode: response.mode) {
+            // Anything the member did around this read is newer than the value
+            // the server just returned: a set() that landed while it was in
+            // flight, or one still unanswered at either end of it. Keep theirs.
+            guard writeGeneration == generationAtStart,
+                  !overlappedAWrite,
+                  writesInFlight == 0 else {
+                return
+            }
+            if let loaded = AgentParticipationLevel(wireMode: mode) {
                 level = loaded
             }
         } catch {
@@ -84,24 +138,25 @@ public final class AgentParticipationStore {
         guard newLevel != previous else { return }
         level = newLevel
         writeGeneration += 1
+        let generation = writeGeneration
+        writesInFlight += 1
+        defer { writesInFlight -= 1 }
         do {
-            _ = try await client().setAgentParticipation(
+            try await service.writeMode(
+                newLevel.wireMode,
                 conversationId: conversationId,
-                mode: newLevel.wireMode,
                 variantId: variantId
             )
             Log.info("participation set mode=\(newLevel.wireMode)")
         } catch {
             Log.error("participation update failed: \(error)")
+            // A newer tap has already moved the control since this write went
+            // out. Rolling back now would drag the member to a level they left,
+            // and the newer write reports its own outcome.
+            guard writeGeneration == generation else { return }
             level = previous
             errorMessage = "Couldn't update participation. The agents are still on their previous setting."
         }
-    }
-
-    private func client() -> any ConvosAPIClientProtocol {
-        ConvosAPIClientFactory.client(
-            environment: ConfigManager.shared.currentEnvironment
-        )
     }
 }
 #endif
