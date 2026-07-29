@@ -136,16 +136,16 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
 
     @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
-    /// Drives the composer's visual swap between the attachment-icon row
-    /// (`false`) and the single `+` button beside the large text input
-    /// (`true`). Decoupled from actual keyboard focus: it starts `true` so a
-    /// freshly opened chat shows the `+` / large-input treatment without
-    /// raising the keyboard, and `handleFocusChanged` keeps it in sync with
-    /// real focus thereafter.
-    @State private var isMessageInputFocused: Bool = true
     @State private var isImagePickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
     @State private var isFilePickerPresented: Bool = false
+    /// The attachments menu the `+` opens. A popover, so it presents in its own
+    /// window: it dismisses on an outside tap and is never clipped by the
+    /// composer's bounds - neither of which a bar living in `safeAreaBar` can do
+    /// for an overlay of its own.
+    @State private var showingAttachmentsMenu: Bool = false
+    /// The row the member picked, held until the menu finishes closing.
+    @State private var pendingAttachmentAction: ComposerAttachmentAction?
     @State private var showFileTooLargeAlert: Bool = false
     @State private var showFileTruncatedAlert: Bool = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
@@ -219,7 +219,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         _focusState = focusState
         self.focusCoordinator = focusCoordinator
         self.pinsExpandedInput = pinsExpandedInput
-        self._isMessageInputFocused = State(initialValue: pinsExpandedInput)
         self.messagesTextFieldEnabled = messagesTextFieldEnabled
         self.onSendMessage = onSendMessage
         self.onClearInvite = onClearInvite
@@ -267,9 +266,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 // `currentFocus`, so re-run the expand/collapse logic here too or
                 // the bar would stay collapsed.
                 handleFocusChanged(to: focusCoordinator.currentFocus)
-            }
-            .onChange(of: messageText) { _, _ in
-                handleMessageTextChanged()
             }
             .onChange(of: isVoiceMemoActive) { wasActive, isActive in
                 guard wasActive, !isActive else { return }
@@ -340,17 +336,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         guard !isImagePickerPresented else { return }
         withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
             isExpanded = newValue == .displayName
-            isMessageInputFocused = pinsExpandedInput
-                || newValue == .message
-                || newValue == .voiceMemoRecording
-                || newValue == .sideConvoName
-        }
-    }
-
-    private func handleMessageTextChanged() {
-        guard !isMessageInputFocused, focusCoordinator.currentFocus != .displayName else { return }
-        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-            isMessageInputFocused = true
         }
     }
 
@@ -571,57 +556,100 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         }
     }
 
+    /// What the composer can't offer right now. The menu greys these rows rather
+    /// than dropping them, so the list doesn't change length as attachments come
+    /// and go and a member can see why an option is unavailable.
+    private var disabledAttachmentActions: Set<ComposerAttachmentAction> {
+        let hasSideConvo: Bool = pendingInviteURL != nil
+        let hasMedia: Bool = !pendingMediaAttachments.isEmpty
+        let isMediaCapacityFull: Bool = pendingMediaAttachments.count >= maxPendingMediaAttachments
+        var disabled: Set<ComposerAttachmentAction> = []
+        if isMediaCapacityFull || hasSideConvo {
+            disabled.formUnion([.photos, .camera, .files])
+        }
+        if hasMedia || hasSideConvo {
+            disabled.insert(.voiceNote)
+        }
+        return disabled
+    }
+
+    /// The `+`, plus the bookkeeping that runs the picked action only once the
+    /// menu has actually closed.
+    @ViewBuilder
+    private var attachmentsControl: some View {
+        attachmentsButton
+            .onChange(of: showingAttachmentsMenu) { _, isPresented in
+                handleAttachmentsMenuPresentationChanged(to: isPresented)
+            }
+    }
+
+    /// Opens the attachments menu. It sits inside the input field as a leading
+    /// accessory, so it is drawn bare: the field's own capsule is the surface it
+    /// belongs to, and a glass circle in there would read as a chip stuck on the
+    /// field. The icon row it used to swap places with lives in the menu now.
+    @ViewBuilder
+    private var attachmentsButton: some View {
+        let isInert: Bool = pinsExpandedInput
+        let buttonOpacity: Double = messagesTextFieldEnabled && !isInert ? 1.0 : 0.4
+        Button {
+            showingAttachmentsMenu = true
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 18.0, weight: .medium))
+                .foregroundStyle(Color.colorTextPrimary)
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show attachments")
+        .accessibilityIdentifier("attachments-button")
+        .disabled(isInert)
+        .opacity(buttonOpacity)
+        // No explicit arrowEdge: the composer sits at the bottom of the screen,
+        // so let the system place the card and point the arrow wherever the
+        // space actually is.
+        .popover(isPresented: $showingAttachmentsMenu) {
+            attachmentsMenuPopover
+        }
+    }
+
+    /// The menu's content. Bare, because the popover's own chrome is already the
+    /// surface - a card in here would be a card inside a card.
+    @ViewBuilder
+    private var attachmentsMenuPopover: some View {
+        ComposerAttachmentsMenu(
+            disabledActions: disabledAttachmentActions,
+            showsBackground: false,
+            onSelect: handleAttachmentSelected
+        )
+        .padding(.vertical, DesignConstants.Spacing.step3x)
+        .padding(.horizontal, DesignConstants.Spacing.step2x)
+        .presentationCompactAdaptation(.popover)
+    }
+
+    /// Records the pick and closes the menu. The action itself waits for the
+    /// dismissal: a picker raised while the popover is still going down is a
+    /// second presentation on top of the first, and the system drops it.
+    private func handleAttachmentSelected(_ action: ComposerAttachmentAction) {
+        pendingAttachmentAction = action
+        showingAttachmentsMenu = false
+    }
+
+    private func handleAttachmentsMenuPresentationChanged(to isPresented: Bool) {
+        guard !isPresented, let action = pendingAttachmentAction else { return }
+        pendingAttachmentAction = nil
+        switch action {
+        case .photos: isPhotoPickerPresented = true
+        case .camera: isCameraPresented = true
+        case .files: isFilePickerPresented = true
+        case .voiceNote: startVoiceMemoRecording()
+        }
+    }
+
     @ViewBuilder
     private var normalInputView: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
             participationBubble
-
-            if isMessageInputFocused {
-                Button {
-                    withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-                        isMessageInputFocused = false
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18.0, weight: .medium))
-                        .foregroundStyle(Color.colorTextPrimary)
-                        .frame(width: 32, height: 32)
-                        .contentShape(.circle)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Show attachments")
-                .accessibilityIdentifier("collapse-input-button")
-                .disabled(pinsExpandedInput)
-                .opacity(messagesTextFieldEnabled && !pinsExpandedInput ? 1.0 : 0.4)
-                .frame(width: DesignConstants.Spacing.step12x, height: DesignConstants.Spacing.step12x)
-                .clipShape(.circle)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .glassEffectID("media", in: namespace)
-                .glassEffectTransition(.matchedGeometry)
-            } else {
-                let hasSideConvo: Bool = pendingInviteURL != nil
-                let hasMedia: Bool = !pendingMediaAttachments.isEmpty
-                let isMediaCapacityFull: Bool = pendingMediaAttachments.count >= maxPendingMediaAttachments
-                let mediaButtonsDisabled: Bool = isMediaCapacityFull || hasSideConvo
-                let voiceMemoDisabled: Bool = hasMedia || hasSideConvo
-                MessagesMediaButtonsView(
-                    isPhotoPickerPresented: $isPhotoPickerPresented,
-                    isCameraPresented: $isCameraPresented,
-                    onVoiceMemoTap: startVoiceMemoRecording,
-                    onFilePickerTap: {
-                        isFilePickerPresented = true
-                    },
-                    isMediaCapacityFull: mediaButtonsDisabled,
-                    isVoiceMemoDisabled: voiceMemoDisabled,
-                    onDebugAttachmentTap: onDebugAttachmentTap
-                )
-                .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
-                .frame(height: DesignConstants.Spacing.step12x)
-                .clipShape(.capsule)
-                .glassEffect(.regular.interactive(), in: .capsule)
-                .glassEffectID("media", in: namespace)
-                .glassEffectTransition(.matchedGeometry)
-            }
 
             MessagesInputView(
                 displayName: $displayName,
@@ -646,7 +674,8 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 onClearLinkPreview: onClearLinkPreview,
                 onClearMediaAttachment: onClearMediaAttachment,
                 fileAttachmentPreview: fileAttachmentPreview,
-                agentShareChip: agentShareChip
+                agentShareChip: agentShareChip,
+                attachmentsButton: { attachmentsControl }
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
@@ -654,14 +683,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
             .glassEffectID("input", in: namespace)
             .glassEffectTransition(.matchedGeometry)
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    guard !isMessageInputFocused else { return }
-                    withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-                        isMessageInputFocused = true
-                    }
-                }
-            )
         }
         .disabled(!messagesTextFieldEnabled)
     }
