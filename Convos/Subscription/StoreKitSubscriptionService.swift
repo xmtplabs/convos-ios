@@ -42,6 +42,13 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     /// nor reset.
     private var consecutiveVerifyFailures: Int = 0
     private var hasLocalEntitlement: Bool = false
+    /// Incremented by every verify-success publish. `reconcileWithBackend()`
+    /// snapshots it before issuing its GET and discards the response when a
+    /// verify published fresher backend truth while the GET was in flight
+    /// (actor reentrancy allows that interleaving), so a stale snapshot,
+    /// nil or not, cannot overwrite a just-confirmed subscription in the
+    /// subject or the persisted cache.
+    private var verifyPublishGeneration: UInt64 = 0
 
     public init(apiClient: any ConvosAPIClientProtocol) {
         self.apiClient = apiClient
@@ -182,7 +189,10 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             // treating it as one would leave a refunded subscription stuck
             // in the activating state instead of returning to free once the
             // backend reports no subscription.
-            hasLocalEntitlement = Self.isLiveEntitlement(transaction)
+            hasLocalEntitlement = Self.isLiveEntitlement(
+                revocationDate: transaction.revocationDate,
+                expirationDate: transaction.expirationDate
+            )
             await sendToBackendVerify(jwsRepresentation: result.jwsRepresentation, transactionId: transaction.id)
             await reconcileWithBackend()
             // Apple-side transition (renew, refund, tier change) → tier or
@@ -193,10 +203,14 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         }
     }
 
-    private static func isLiveEntitlement(_ transaction: Transaction) -> Bool {
-        guard transaction.revocationDate == nil else { return false }
-        guard let expiration = transaction.expirationDate else { return true }
-        return expiration > Date()
+    /// `internal` rather than `private` so unit tests can exercise the
+    /// revoked/expired/live classification directly; `Transaction` itself
+    /// is not constructible in tests, which is why this takes the two
+    /// dates instead of the transaction.
+    static func isLiveEntitlement(revocationDate: Date?, expirationDate: Date?, now: Date = Date()) -> Bool {
+        guard revocationDate == nil else { return false }
+        guard let expirationDate else { return true }
+        return expirationDate > now
     }
 
     /// Best-effort relay of a verified StoreKit transaction to the backend so it
@@ -228,6 +242,7 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         do {
             let backendSubscription = try await apiClient.verifySubscription(jwsRepresentation: jwsRepresentation)
             publish(backendSubscription)
+            verifyPublishGeneration += 1
             consecutiveVerifyFailures = 0
             syncStateSubject.send(.confirmed)
             return .success
@@ -335,8 +350,16 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     }
 
     private func reconcileWithBackend() async {
+        let generationAtRequest: UInt64 = verifyPublishGeneration
         do {
-            guard let backendSubscription = try await apiClient.getSubscription() else {
+            let fetchedSubscription: UserSubscription? = try await apiClient.getSubscription()
+            guard verifyPublishGeneration == generationAtRequest else {
+                // A verify published fresher backend truth while this GET
+                // was in flight; the GET snapshot predates the POST and is
+                // stale whether it carries a subscription or nil. Drop it.
+                return
+            }
+            guard let backendSubscription = fetchedSubscription else {
                 publish(nil)
                 if hasLocalEntitlement {
                     if syncStateSubject.value != .needsAttention {
