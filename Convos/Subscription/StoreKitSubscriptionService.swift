@@ -198,8 +198,11 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         guard !permanentlyFailedTransactionIds.contains(transactionId) else {
             return .permanent
         }
-        if syncStateSubject.value != .confirmed,
-           syncStateSubject.value != .needsAttention {
+        // A send attempt means this transaction is not yet backend-confirmed,
+        // even if an earlier transaction was: drop any stale .confirmed so the
+        // state reflects the entitlement actually being verified. A standing
+        // .needsAttention is preserved until a verify succeeds.
+        if syncStateSubject.value != .needsAttention {
             syncStateSubject.send(.syncing)
         }
         do {
@@ -227,9 +230,10 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
-                if syncStateSubject.value != .confirmed {
-                    syncStateSubject.send(.syncing)
-                }
+                // Offline failures neither count toward the attention
+                // threshold nor move the state: the pre-send transition
+                // already set .syncing, and a standing .needsAttention
+                // must not be masked by connectivity loss.
                 Log.error("Backend verify failed for transaction \(transactionId): \(error)")
                 return .retryable
             default:
@@ -239,8 +243,6 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         consecutiveVerifyFailures += 1
         if consecutiveVerifyFailures >= 3 {
             syncStateSubject.send(.needsAttention)
-        } else if syncStateSubject.value != .confirmed {
-            syncStateSubject.send(.syncing)
         }
         Log.error("Backend verify failed for transaction \(transactionId): \(error)")
         return .retryable
