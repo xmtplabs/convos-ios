@@ -434,7 +434,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
                             .bottom,
                             proxy.size.height - composerRect.minY + DesignConstants.Spacing.step3x
                         )
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        // Grows out of the bubble's own corner rather than
+                        // sliding up from the edge, so the card reads as opened
+                        // by the control that was tapped.
+                        .transition(.scale(scale: 0.92, anchor: .bottomLeading).combined(with: .opacity))
                     }
                 }
             }
