@@ -15,10 +15,11 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
 
     private let apiClient: any ConvosAPIClientProtocol
     /// `CurrentValueSubject` is internally synchronized but not declared
-    /// `Sendable`. `nonisolated(unsafe)` lets the actor expose the
-    /// publisher + current value synchronously without bridging through
+    /// `Sendable`. `nonisolated(unsafe)` lets the actor expose publishers
+    /// and current values synchronously without bridging through
     /// `@preconcurrency import Combine`.
     nonisolated(unsafe) private let subscriptionSubject: CurrentValueSubject<UserSubscription?, Never>
+    nonisolated(unsafe) private let syncStateSubject: CurrentValueSubject<SubscriptionSyncState, Never>
     /// Set once during init, cancelled in deinit. `nonisolated(unsafe)`
     /// keeps deinit able to reach it under Swift 6 actor-deinit isolation
     /// rules; no concurrent mutation happens past init.
@@ -28,6 +29,18 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     /// in this process. See `refreshFromEntitlements()` for why per-launch
     /// forwarding (not persisted) is the right granularity.
     private var forwardedTransactionIds: Set<UInt64> = []
+    /// Transaction ids whose verify failed permanently (account mismatch,
+    /// bad request); never re-sent for the rest of the process. Per-process
+    /// only: the app has no sign-out or account-switch flow (identities are
+    /// per-install), so there is no hook that could clear this set for a
+    /// different account. If such a flow is ever added, clear this set and
+    /// `forwardedTransactionIds` there.
+    private var permanentlyFailedTransactionIds: Set<UInt64> = []
+    /// Counts verify failures across transactions and refresh ticks within
+    /// this process. "Consecutive" means uninterrupted by any successful
+    /// verify: only a success resets it; offline failures neither count
+    /// nor reset.
+    private var consecutiveVerifyFailures: Int = 0
 
     public init(apiClient: any ConvosAPIClientProtocol) {
         self.apiClient = apiClient
@@ -41,6 +54,7 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         // Plus at every cold start. The cache is corrected by every
         // subsequent publish (refresh / purchase / Apple update).
         self.subscriptionSubject = CurrentValueSubject(Self.loadCachedSubscription())
+        self.syncStateSubject = CurrentValueSubject(.idle)
         let listenerTask = Task.detached { [weak self] in
             guard let self else { return }
             await self.refreshFromEntitlements()
@@ -69,6 +83,14 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
 
     nonisolated public var currentSubscription: UserSubscription? {
         subscriptionSubject.value
+    }
+
+    nonisolated public var syncStatePublisher: AnyPublisher<SubscriptionSyncState, Never> {
+        syncStateSubject.eraseToAnyPublisher()
+    }
+
+    nonisolated public var currentSyncState: SubscriptionSyncState {
+        syncStateSubject.value
     }
 
     public func availableProducts() async throws -> [PaywallProduct] {
@@ -197,20 +219,66 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     /// payload itself, authenticates the caller via JWT, and refuses cross-
     /// account binding attempts — so the iOS side only needs to pass the JWS.
     ///
-    /// Returns `true` on success so callers that track forwarded transactions
+    /// Returns the outcome so callers that track forwarded transactions
     /// (`refreshFromEntitlements`) can retry on the next refresh after a
     /// transient failure instead of waiting for an app relaunch. Failures
     /// are logged but never propagate — `Transaction.currentEntitlements`
     /// is still authoritative for local UI state.
     @discardableResult
-    private func sendToBackendVerify(jwsRepresentation: String, transactionId: UInt64) async -> Bool {
+    private func sendToBackendVerify(
+        jwsRepresentation: String,
+        transactionId: UInt64
+    ) async -> VerifyResult {
+        guard !permanentlyFailedTransactionIds.contains(transactionId) else {
+            return .permanent
+        }
+        // A send attempt means this transaction is not yet backend-confirmed,
+        // even if an earlier transaction was: drop any stale .confirmed so the
+        // state reflects the entitlement actually being verified. A standing
+        // .needsAttention is preserved until a verify succeeds.
+        if syncStateSubject.value != .needsAttention {
+            syncStateSubject.send(.syncing)
+        }
         do {
             _ = try await apiClient.verifySubscription(jwsRepresentation: jwsRepresentation)
-            return true
+            consecutiveVerifyFailures = 0
+            syncStateSubject.send(.confirmed)
+            return .success
+        } catch let error as APIError {
+            switch error {
+            case .subscriptionAccountMismatch, .badRequest:
+                permanentlyFailedTransactionIds.insert(transactionId)
+                syncStateSubject.send(.needsAttention)
+                Log.error("Subscription verify permanently failed for transaction \(transactionId): \(error)")
+                return .permanent
+            default:
+                return handleRetryableVerifyFailure(error, transactionId: transactionId)
+            }
         } catch {
-            Log.error("Backend verify failed for transaction \(transactionId): \(error)")
-            return false
+            return handleRetryableVerifyFailure(error, transactionId: transactionId)
         }
+    }
+
+    private func handleRetryableVerifyFailure(_ error: any Error, transactionId: UInt64) -> VerifyResult {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                // Offline failures neither count toward the attention
+                // threshold nor move the state: the pre-send transition
+                // already set .syncing, and a standing .needsAttention
+                // must not be masked by connectivity loss.
+                Log.error("Backend verify failed for transaction \(transactionId): \(error)")
+                return .retryable
+            default:
+                break
+            }
+        }
+        consecutiveVerifyFailures += 1
+        if consecutiveVerifyFailures >= 3 {
+            syncStateSubject.send(.needsAttention)
+        }
+        Log.error("Backend verify failed for transaction \(transactionId): \(error)")
+        return .retryable
     }
 
     public func refresh(force: Bool) async {
@@ -225,8 +293,10 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     private func refreshFromEntitlements() async {
         var latest: UserSubscription?
         var forwardedAnyEntitlement: Bool = false
+        var sawAnyEntitlement: Bool = false
         for await result in Transaction.currentEntitlements {
             guard let transaction = try? verifiedTransaction(result) else { continue }
+            sawAnyEntitlement = true
             // Forward each entitlement to the backend at most once per
             // process. Covers entitlements iOS reads locally that the
             // backend doesn't know about yet:
@@ -241,8 +311,9 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             // The verify endpoint is idempotent on `originalTransactionId`,
             // so the server already deduplicates; the in-memory set just
             // avoids hammering it every refresh (TTL is 15s).
-            if !forwardedTransactionIds.contains(transaction.id) {
-                let succeeded = await sendToBackendVerify(
+            if !forwardedTransactionIds.contains(transaction.id),
+               !permanentlyFailedTransactionIds.contains(transaction.id) {
+                let verifyResult = await sendToBackendVerify(
                     jwsRepresentation: result.jwsRepresentation,
                     transactionId: transaction.id
                 )
@@ -250,7 +321,7 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
                 // (network blip, transient 5xx, backend deploy in flight)
                 // retries on the next refresh tick rather than waiting for
                 // an app relaunch.
-                if succeeded {
+                if verifyResult == .success {
                     forwardedTransactionIds.insert(transaction.id)
                     forwardedAnyEntitlement = true
                 }
@@ -259,6 +330,13 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             latest = sub
         }
         publish(latest)
+        if !sawAnyEntitlement {
+            syncStateSubject.send(.idle)
+        } else if !forwardedAnyEntitlement,
+                  currentSyncState != .confirmed,
+                  currentSyncState != .needsAttention {
+            syncStateSubject.send(.syncing)
+        }
         // If the backend just learned about an entitlement it didn't
         // previously have, its `GET /credits` answer changes (tier-based
         // grant kicks in). Force-refresh credits so the local depleted
@@ -403,6 +481,12 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     private struct StoreKitSubscriptionSnapshot {
         let status: ConvosCore.SubscriptionStatus
         let willRenew: Bool
+    }
+
+    private enum VerifyResult: Equatable {
+        case success
+        case retryable
+        case permanent
     }
 
     private enum Constant {
