@@ -985,7 +985,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// every member, so the "lost power" surfaces show to everyone. A missing
     /// key is UNKNOWN (old backend, or an agent the backend has no bookkeeping
     /// for) and renders nothing. The viewer's own wallet is never an input
-    /// here (CON-807).
+    /// here — a zero-balance viewer must see other people's funded agents as
+    /// working.
     var agentPowerDepletedByInboxId: [String: Bool] = [:]
 
     @ObservationIgnored
@@ -994,6 +995,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// churn that doesn't touch agents doesn't re-fetch.
     @ObservationIgnored
     private var lastAgentPowerAgentInboxIds: Set<String> = []
+    /// Bumped at the start of every power refresh. A response only lands if no
+    /// newer refresh started while it was in flight — `refreshAgentPowerStatus`
+    /// is also called directly (member card `.task`), so two reads can overlap
+    /// and resolve out of order; without this the older response could
+    /// overwrite the fresher one.
+    @ObservationIgnored
+    private var agentPowerFetchGeneration: Int = 0
 
     var agentJoinForceErrorCode: Int?
 
@@ -1576,6 +1584,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             }
             return
         }
+        agentPowerFetchGeneration += 1
+        let generation = agentPowerFetchGeneration
         do {
             let client = ConvosAPIClientFactory.client(
                 environment: ConfigManager.shared.currentEnvironment
@@ -1584,6 +1594,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 conversationId: conversation.id,
                 variantId: FeatureFlags.shared.selectedAgentVariant?.slug
             )
+            // A newer refresh started while this one was in flight; its
+            // response is the fresher truth, so this one must not land.
+            guard generation == agentPowerFetchGeneration else { return }
             guard let map = response.agentPowerDepletedByInboxId else { return }
             if agentPowerDepletedByInboxId != map {
                 agentPowerDepletedByInboxId = map

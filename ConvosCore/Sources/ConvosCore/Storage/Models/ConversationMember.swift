@@ -126,7 +126,7 @@ public extension Array where Element == ConversationMember {
     /// which the backend computes from the agent OWNER's wallet — never the
     /// viewer's. A member missing from the map is UNKNOWN (old backend, or an
     /// agent that predates the backend's bookkeeping) and is never returned:
-    /// unknown must render as nothing, not as depleted (CON-807).
+    /// unknown must render as nothing, not as depleted.
     func agentsWithDepletedPower(
         _ agentPowerDepletedByInboxId: [String: Bool]
     ) -> [ConversationMember] {

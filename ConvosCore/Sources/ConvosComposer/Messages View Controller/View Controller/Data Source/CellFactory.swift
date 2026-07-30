@@ -42,7 +42,7 @@ struct CellConfig {
     let onAgentOutOfCredits: () -> Void
     /// Backend owner-computed per-agent power map (inboxId -> depleted).
     /// Absent key = unknown = no indicator; the viewer's wallet is never
-    /// an input (CON-807).
+    /// an input.
     let agentPowerDepletedByInboxId: [String: Bool]
     let onRetryAgentJoin: () -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void

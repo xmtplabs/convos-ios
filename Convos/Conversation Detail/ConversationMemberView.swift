@@ -27,7 +27,7 @@ struct ConversationMemberView: View {
         .task {
             // Re-read the backend's owner-computed per-agent power signal when
             // the contact sheet appears, so the "No power" section reflects
-            // current backend state (never the viewer's wallet — CON-807).
+            // current backend state (never the viewer's wallet).
             await viewModel.refreshAgentPowerStatus()
         }
         .sheet(isPresented: $presentingPaywall) {
@@ -69,7 +69,8 @@ struct ConversationMemberView: View {
         // agent (matched by inboxId) — the same fact for every member, so it
         // shows to everyone. A missing entry is unknown (old backend, or an
         // agent the backend has no bookkeeping for) and shows nothing. The
-        // viewer's own wallet is never consulted (CON-807).
+        // viewer's own wallet is never consulted — a zero-balance viewer must
+        // see a funded owner's agent as working.
         guard member.isAgent else { return false }
         return viewModel.agentPowerDepletedByInboxId[member.profile.inboxId] == true
     }

@@ -45,7 +45,7 @@ struct MessagesGroupView: View {
     /// backend's owner-computed per-agent power map. Drives the inline
     /// `bolt.fill` glyph next to an agent sender's display name when THAT
     /// agent's owner cannot fund a turn. Absent key = unknown = no glyph;
-    /// the viewer's own wallet is never an input (CON-807).
+    /// the viewer's own wallet is never an input.
     var agentPowerDepletedByInboxId: [String: Bool] = [:]
     /// Resolves an inbox id to the local contact-name override so the sender
     /// label matches the contact card and conversation title (contact name ->

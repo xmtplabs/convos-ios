@@ -427,7 +427,7 @@ public final class MessagesViewController: UIViewController {
     /// `ConversationViewModel.agentPowerDepletedByInboxId` — the backend's
     /// OWNER-computed per-agent power signal, keyed by agent inboxId. The
     /// viewer's own wallet is never an input; an agent missing from the map
-    /// is unknown and renders nothing (CON-807). When this changes while a
+    /// is unknown and renders nothing. When this changes while a
     /// state is already applied, we replay the last processed state so the
     /// cell appears / disappears without needing the messages publisher to
     /// emit again.
@@ -435,6 +435,17 @@ public final class MessagesViewController: UIViewController {
         didSet {
             dataSource.agentPowerDepletedByInboxId = agentPowerDepletedByInboxId
             guard oldValue != agentPowerDepletedByInboxId, isViewLoaded, let state else { return }
+            // The sender-label bolt lives inside `.messages` cells whose items
+            // don't change when the map flips, so the state replay below
+            // carries no DifferenceKit changeset for them — an already-visible
+            // group would keep rendering the stale bolt until cell reuse.
+            // Reconfigure the groups sent by the agents whose signal changed
+            // before replaying (the replay only inserts/removes the standalone
+            // lost-power cells).
+            let changedInboxIds: Set<String> = Set(oldValue.keys)
+                .union(agentPowerDepletedByInboxId.keys)
+                .filter { oldValue[$0] != agentPowerDepletedByInboxId[$0] }
+            reconfigureCells(forSenderInboxIds: changedInboxIds)
             self.state = state
         }
     }
@@ -928,6 +939,34 @@ public final class MessagesViewController: UIViewController {
     }
 }
 
+// MARK: - Agent power reconfigure
+
+extension MessagesViewController {
+    /// Reconfigures the visible message cells sent by any of the given inbox
+    /// ids. Used when the owner-computed power map flips for a sender: the
+    /// `.messages` items themselves are unchanged, so — exactly like the
+    /// long-body expansion set — the change carries no DifferenceKit
+    /// changeset of its own and visible cells must be reconfigured by hand.
+    private func reconfigureCells(forSenderInboxIds inboxIds: Set<String>) {
+        guard !inboxIds.isEmpty else { return }
+        var indexPaths: [IndexPath] = []
+        for (sectionIndex, section) in dataSource.sections.enumerated() {
+            for (itemIndex, cell) in section.cells.enumerated() {
+                guard case .messages(let group) = cell else { continue }
+                if inboxIds.contains(group.sender.profile.inboxId) {
+                    indexPaths.append(IndexPath(item: itemIndex, section: sectionIndex))
+                }
+            }
+        }
+        guard !indexPaths.isEmpty else { return }
+        collectionView.reconfigureItems(at: indexPaths)
+        // Pair with the layout call, matching `reconfigureCells(forMessageIds:)`
+        // — the custom layout only re-measures cells stashed by its own
+        // `reconfigureItems`.
+        messagesLayout.reconfigureItems(at: indexPaths)
+    }
+}
+
 // MARK: - MessagesControllerDelegate
 
 extension MessagesViewController {
@@ -998,7 +1037,7 @@ extension MessagesViewController {
         // everyone; an agent missing from the map is UNKNOWN (old backend,
         // or an agent the backend has no bookkeeping for) and shows nothing.
         // The viewer's own wallet is never consulted here — a zero-balance
-        // viewer looking at a funded agent sees a working agent (CON-807).
+        // viewer looking at a funded agent sees a working agent.
         // Only the upgrade CTA stays gated: the backend doesn't expose agent
         // ownership, so conversation creatorship is the closest proxy for
         // "the viewer is who tops this agent up".

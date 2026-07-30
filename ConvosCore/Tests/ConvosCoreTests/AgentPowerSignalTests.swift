@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// Coverage for the owner-computed per-agent power signal (CON-807).
+/// Coverage for the owner-computed per-agent power signal.
 ///
 /// The backend computes `agentPowerDepleted` from the agent OWNER's wallet and
 /// serves it per agent on `GET /v2/conversations/:id/participation`
@@ -67,9 +67,10 @@ struct AgentPowerSignalTests {
 
     // MARK: - Display decision
 
-    /// The CON-807 regression: a viewer at 0 credits looks at someone else's
-    /// FUNDED agent. The viewer's own wallet says depleted, but the wallet is
-    /// not an input — the owner-computed signal says false, so no indicator.
+    /// The core regression this feature retires: a viewer at 0 credits looks
+    /// at someone else's FUNDED agent. The viewer's own wallet says depleted,
+    /// but the wallet is not an input — the owner-computed signal says false,
+    /// so no indicator.
     @Test("Zero-balance viewer sees a funded owner's agent as working")
     func zeroBalanceViewerSeesFundedAgentAsWorking() {
         let viewerBalance = CreditBalance(
