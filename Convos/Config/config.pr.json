@@ -3,7 +3,6 @@
   "backendUrl": "https://api.dev.convos.xyz/api",
   "xmtpNetwork": "dev",
   "bundleId": "org.convos.ios-preview.pr",
-  "pinnedAgentVariantSlug": "pr-2989",
   "appGroupIdentifier": "group.org.convos.ios-preview.pr",
   "relyingPartyIdentifier": "dev.convos.org",
   "associatedDomains": [
