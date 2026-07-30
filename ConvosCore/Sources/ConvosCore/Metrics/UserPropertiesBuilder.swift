@@ -5,23 +5,51 @@ import Foundation
 public final class UserPropertiesBuilder: @unchecked Sendable {
     private let contactsRepository: any ContactsRepositoryProtocol
     private let conversationsRepository: any ConversationsRepositoryProtocol
+    private let throttleInterval: TimeInterval
+    private let throttleQueue: DispatchQueue
 
     public init(
         contactsRepository: any ContactsRepositoryProtocol,
-        conversationsRepository: any ConversationsRepositoryProtocol
+        conversationsRepository: any ConversationsRepositoryProtocol,
+        throttleInterval: TimeInterval = 30,
+        throttleQueue: DispatchQueue = .main
     ) {
         self.contactsRepository = contactsRepository
         self.conversationsRepository = conversationsRepository
+        self.throttleInterval = throttleInterval
+        self.throttleQueue = throttleQueue
     }
 
+    /// The upstream repositories re-emit on every database write, which
+    /// during sync means several emissions per second. Throttling before the
+    /// map keeps the property computation to at most one per interval (the
+    /// first value passes through immediately), and deduplication drops
+    /// captures whose analytics-visible content did not change, so the
+    /// analytics SDK is not hit with a network capture per database write.
     public func publisher() -> AnyPublisher<UserProperties, Never> {
         contactsRepository.contactsPublisher
             .combineLatest(conversationsRepository.conversationsPublisher)
+            .throttle(for: .seconds(throttleInterval), scheduler: throttleQueue, latest: true)
             .map { contacts, conversations in
                 Self.makeProperties(contacts: contacts, conversations: conversations)
             }
-            .receive(on: DispatchQueue.main)
+            .removeDuplicates(by: Self.isEffectivelyEqual)
             .eraseToAnyPublisher()
+    }
+
+    /// Equality for deduplication purposes. `maxActiveConvoAge` is derived
+    /// from the wall clock at computation time, so it differs on every
+    /// recompute and comparing it would defeat deduplication entirely; it
+    /// still reaches the analytics backend whenever any other property
+    /// changes (and on the first emission of every launch).
+    static func isEffectivelyEqual(_ lhs: UserProperties, _ rhs: UserProperties) -> Bool {
+        lhs.hasMessagedAssistant == rhs.hasMessagedAssistant &&
+            lhs.lastAssistantMessageTimestamp == rhs.lastAssistantMessageTimestamp &&
+            lhs.contactCount == rhs.contactCount &&
+            lhs.conversationCount == rhs.conversationCount &&
+            lhs.assistantConversationCount == rhs.assistantConversationCount &&
+            lhs.conversationCount24Hours == rhs.conversationCount24Hours &&
+            lhs.conversationCount7Days == rhs.conversationCount7Days
     }
 
     private static func makeProperties(
