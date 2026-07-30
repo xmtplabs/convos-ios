@@ -492,7 +492,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
             scrollingDisabled: contextMenuState.isPresented,
             messagesPage: { messagesView },
             agentDmPage: { agentInboxId in
-                AgentDmPageView(viewModel: viewModel, agentInboxId: agentInboxId, extraBottomInset: pagerDotsInset, isReadOnly: effectiveReadOnly)
+                let isActive: Bool = pagerSelectedPage == .agentDm(agentInboxId: agentInboxId)
+                AgentDmPageView(
+                    viewModel: viewModel,
+                    agentInboxId: agentInboxId,
+                    extraBottomInset: pagerDotsInset,
+                    isReadOnly: effectiveReadOnly,
+                    isActivePage: isActive,
+                    keyboardVisible: isKeyboardVisible
+                )
             },
             thingsPage: { thingsPage }
         )
@@ -503,8 +511,21 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isKeyboardVisible = false
         }
         .onChange(of: pagerSelectedPage) { _, newPage in
+            let keyboardWasUp: Bool = isKeyboardVisible
             if newPage != .things {
                 focusCoordinator.dismissThingsSearchIfNeeded()
+            }
+            if newPage == .messages {
+                // Returning to the group: transfer the keyboard back onto the
+                // group composer when the user paged in mid-edit.
+                if keyboardWasUp {
+                    focusCoordinator.moveFocus(to: .message)
+                }
+            } else {
+                // Leaving the group for a peer page: release the group composer.
+                // The DM page re-grabs focus onto its own composer (transferring
+                // the keyboard); the Things page has no composer, so it drops.
+                focusCoordinator.dismissMessageComposerIfNeeded()
             }
         }
         .onChange(of: viewModel.messageText) { _, _ in

@@ -22,6 +22,16 @@ struct AgentDmPageView: View {
     /// Mirrors ConversationView's effectiveReadOnly: a removed or stale
     /// device must not be able to create agent DMs or send into them.
     let isReadOnly: Bool
+    /// True when this DM page is the pager's selected page. Every page stays
+    /// mounted in the paging HStack, so each page owns its composer focus and
+    /// releases it when it is no longer the active page - otherwise the DM
+    /// composer would keep the keyboard up after the user pages back to the
+    /// group chat, and vice versa.
+    let isActivePage: Bool
+    /// Whether a composer keyboard was up when this page became active. Used to
+    /// transfer the keyboard onto the DM composer when the user pages in mid-edit,
+    /// while a keyboard-down glance at the DM leaves the keyboard down.
+    let keyboardVisible: Bool
 
     @State private var dmViewModel: ConversationViewModel?
     @State private var contextMenuState: MessageContextMenuState = .init()
@@ -52,6 +62,22 @@ struct AgentDmPageView: View {
         }
         .onAppear(perform: bindExistingDm)
         .task(id: agentInboxId) { await rebindWhenDmAppears() }
+        .onChange(of: isActivePage) { _, active in
+            handleActivePageChange(active)
+        }
+    }
+
+    /// Transfers composer focus onto this DM page when it becomes active while a
+    /// keyboard was already up (the user paged in mid-edit), and clears focus when
+    /// the page is paged away so the DM keyboard doesn't linger over the group
+    /// chat. A keyboard-down arrival honors the platform default (nil on iPhone),
+    /// so glancing at the DM doesn't raise the keyboard unprompted.
+    private func handleActivePageChange(_ active: Bool) {
+        guard active else {
+            focusState = nil
+            return
+        }
+        focusState = keyboardVisible ? .message : focusCoordinator.defaultFocus
     }
 
     /// The eager reconciler (or another device) can create the DM while this
