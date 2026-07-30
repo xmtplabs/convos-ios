@@ -329,7 +329,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onFileSelected: viewModel.addFileAttachment(url:filename:mimeType:fileSize:),
             onAboutAgents: { showingAgentsInfo = true },
             onAgentOutOfCredits: { viewModel.presentingPaywall = true },
-            creditsDepleted: viewModel.creditsDepleted,
+            agentPowerDepletedByInboxId: viewModel.agentPowerDepletedByInboxId,
             onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
             onTapCapabilityConnect: { prompt in
                 // Read-only viewers see the pill but can't answer the request
