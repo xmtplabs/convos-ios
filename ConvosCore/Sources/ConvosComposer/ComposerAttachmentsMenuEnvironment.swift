@@ -15,6 +15,9 @@ import SwiftUI
 @Observable
 public final class ComposerAttachmentsMenuCoordinator {
     public private(set) var isPresented: Bool = false
+    /// The rows to draw, as the composer offered them - which is where the
+    /// debug injector's row appears or doesn't.
+    public private(set) var actions: [ComposerAttachmentAction] = ComposerAttachmentAction.standard
     /// What the composer couldn't offer at the moment the menu opened. The rows
     /// grey rather than vanish, so the list keeps its length.
     public private(set) var disabledActions: Set<ComposerAttachmentAction> = []
@@ -23,9 +26,11 @@ public final class ComposerAttachmentsMenuCoordinator {
     public init() {}
 
     func present(
+        actions: [ComposerAttachmentAction],
         disabledActions: Set<ComposerAttachmentAction>,
         onSelect: @escaping (ComposerAttachmentAction) -> Void
     ) {
+        self.actions = actions
         self.disabledActions = disabledActions
         self.onSelect = onSelect
         withAnimation(.snappy(duration: 0.2)) {

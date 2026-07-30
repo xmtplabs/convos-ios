@@ -962,6 +962,7 @@ private extension ConversationView {
                 attachmentsMenu.dismiss()
             } card: {
                 ComposerAttachmentsMenu(
+                    actions: attachmentsMenu.actions,
                     disabledActions: attachmentsMenu.disabledActions,
                     showsBackground: true,
                     onSelect: attachmentsMenu.select

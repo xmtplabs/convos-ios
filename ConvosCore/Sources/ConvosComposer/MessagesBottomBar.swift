@@ -552,6 +552,14 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         }
     }
 
+    /// The rows the menu draws. The debug injector joins them only where the
+    /// host handed one over, which it does behind `isDebugInjectorEnabled` -
+    /// hard-locked off in production, so no member ever sees the row.
+    private var offeredAttachmentActions: [ComposerAttachmentAction] {
+        guard onDebugAttachmentTap != nil else { return ComposerAttachmentAction.standard }
+        return ComposerAttachmentAction.standard + [.debugInjector]
+    }
+
     /// What the composer can't offer right now. The menu greys these rows rather
     /// than dropping them, so the list doesn't change length as attachments come
     /// and go and a member can see why an option is unavailable.
@@ -579,6 +587,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         let buttonOpacity: Double = messagesTextFieldEnabled && !isInert ? 1.0 : 0.4
         Button {
             attachmentsMenu?.present(
+                actions: offeredAttachmentActions,
                 disabledActions: disabledAttachmentActions,
                 onSelect: handleAttachmentSelected
             )
@@ -604,6 +613,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         case .camera: isCameraPresented = true
         case .files: isFilePickerPresented = true
         case .voiceNote: startVoiceMemoRecording()
+        case .debugInjector: onDebugAttachmentTap?()
         }
     }
 
