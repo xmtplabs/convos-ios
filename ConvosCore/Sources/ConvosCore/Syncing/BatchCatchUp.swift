@@ -6,7 +6,16 @@ struct BatchCatchUpResult: Sendable {
     let conversationsProcessed: Int
     let messagesProcessed: Int
     let durationSeconds: Double
+    /// Conversations whose prepare phase timed out or failed and were
+    /// dropped from this batch. Their catch-up cursors did not advance,
+    /// so the next catch-up retries them.
+    let conversationsSkipped: Int
 }
+
+/// Thrown inside `BatchCatchUp.prepareAll` when a single conversation's
+/// prepare exceeds its time budget; always converted to a skip, never
+/// surfaced to callers.
+struct BatchCatchUpPrepareTimeout: Error {}
 
 /// Drains the backlog of conversation/message activity that arrived while
 /// the app was backgrounded or killed, *before* streams resume — so the
@@ -65,15 +74,27 @@ struct BatchCatchUp {
     private let conversationWriter: ConversationWriter
     private let messageWriter: IncomingMessageWriter
     private let databaseWriter: any DatabaseWriter
+    private let perConversationPrepareTimeout: TimeInterval
 
+    /// `perConversationPrepareTimeout` bounds each conversation's prepare
+    /// phase (XMTP group sync + backlog fetch + message prepare). Field
+    /// logs show a single hung group sync stalling a whole batch for
+    /// 35-150s while processing nothing; the budget converts that hang
+    /// into a skip whose cursor is retried on the next catch-up. 30s is
+    /// deliberately generous: prepare runs in parallel across
+    /// conversations, so the budget caps batch wall-clock at roughly one
+    /// budget rather than serializing, and a genuinely slow-but-working
+    /// initial sync on a large group stays under it.
     init(
         conversationWriter: ConversationWriter,
         messageWriter: IncomingMessageWriter,
-        databaseWriter: any DatabaseWriter
+        databaseWriter: any DatabaseWriter,
+        perConversationPrepareTimeout: TimeInterval = 30
     ) {
         self.conversationWriter = conversationWriter
         self.messageWriter = messageWriter
         self.databaseWriter = databaseWriter
+        self.perConversationPrepareTimeout = perConversationPrepareTimeout
     }
 
     /// Run the batch catch-up against the given client. `since` is the
@@ -111,11 +132,13 @@ struct BatchCatchUp {
         guard !groups.isEmpty else {
             let elapsed = CFAbsoluteTimeGetCurrent() - started
             Log.info("[PERF] catchup.batch.messages: \(Int(elapsed * 1000))ms convs=0 messages=0")
-            return BatchCatchUpResult(conversationsProcessed: 0, messagesProcessed: 0, durationSeconds: elapsed)
+            return BatchCatchUpResult(conversationsProcessed: 0, messagesProcessed: 0, durationSeconds: elapsed, conversationsSkipped: 0)
         }
 
         // Phase 1: parallel prepare (network-bound, transaction-free).
-        let prepared = try await prepareAll(
+        // Time-boxed per conversation; timed-out or failed conversations
+        // are skipped and retried by the next catch-up.
+        let (prepared, skippedCount) = await prepareAll(
             groups: groups,
             inboxId: inboxId,
             fetchFromBeginning: fetchFromBeginning
@@ -227,11 +250,12 @@ struct BatchCatchUp {
 
         let elapsed = CFAbsoluteTimeGetCurrent() - started
         let totalRegular = prepared.reduce(0) { $0 + $1.regularMessages.count }
-        Log.info("[PERF] catchup.batch.messages: \(Int(elapsed * 1000))ms convs=\(prepared.count) messages=\(totalRegular) supplementals=\(supplementalCount)")
+        Log.info("[PERF] catchup.batch.messages: \(Int(elapsed * 1000))ms convs=\(prepared.count) messages=\(totalRegular) supplementals=\(supplementalCount) skipped=\(skippedCount)")
         return BatchCatchUpResult(
             conversationsProcessed: prepared.count,
             messagesProcessed: totalRegular,
-            durationSeconds: elapsed
+            durationSeconds: elapsed,
+            conversationsSkipped: skippedCount
         )
     }
 
@@ -322,60 +346,152 @@ struct BatchCatchUp {
         )
     }
 
+    /// One conversation's failure or timeout never aborts the batch: the
+    /// entry is dropped (`skipped`), its cursor stays put, and the next
+    /// catch-up retries it. Before this isolation, a single throwing
+    /// prepare cancelled every sibling task and failed the whole batch.
     private func prepareAll(
         groups: [XMTPiOS.Group],
         inboxId: String,
         fetchFromBeginning: Bool
-    ) async throws -> [PreparedEntry] {
-        try await withThrowingTaskGroup(of: PreparedEntry.self) { [conversationWriter, messageWriter, databaseWriter] taskGroup in
+    ) async -> (entries: [PreparedEntry], skipped: Int) {
+        let timeout = perConversationPrepareTimeout
+        return await withTaskGroup(of: PreparedEntry?.self) { [conversationWriter, messageWriter, databaseWriter] taskGroup in
             for group in groups {
                 taskGroup.addTask {
-                    let preparedConv = try await conversationWriter.prepare(
-                        conversation: group,
-                        inboxId: inboxId
-                    )
-
-                    let perConvCursorNs: Int64
-                    if fetchFromBeginning {
-                        perConvCursorNs = 0
-                    } else {
-                        perConvCursorNs = try await Self.readCatchUpCursorNs(
-                            for: group.id,
-                            in: databaseWriter
-                        )
-                    }
-                    let allMessages = try await group.messages(afterNs: perConvCursorNs)
-
-                    var regularMessages: [IncomingMessageWriter.PreparedIncomingMessage] = []
-                    var supplementalMessages: [XMTPiOS.DecodedMessage] = []
-                    regularMessages.reserveCapacity(allMessages.count)
-                    for message in allMessages {
-                        switch Self.classify(message) {
-                        case .regular:
-                            let prepared = try await messageWriter.prepare(message: message)
-                            regularMessages.append(prepared)
-                        case .supplemental:
-                            supplementalMessages.append(message)
-                        case .skip:
-                            continue
+                    do {
+                        return try await Self.withTimeout(seconds: timeout) {
+                            try await Self.prepareEntry(
+                                group: group,
+                                inboxId: inboxId,
+                                fetchFromBeginning: fetchFromBeginning,
+                                conversationWriter: conversationWriter,
+                                messageWriter: messageWriter,
+                                databaseWriter: databaseWriter
+                            )
                         }
+                    } catch is BatchCatchUpPrepareTimeout {
+                        Log.warning("[PERF] catchup.conversation.skipped: \(group.id) prepare exceeded \(Int(timeout))s; cursor not advanced, retrying next catch-up")
+                        return nil
+                    } catch is CancellationError {
+                        return nil
+                    } catch {
+                        // A conversation that fails for a non-transient reason
+                        // retries on every catch-up. That is bounded (one
+                        // prepare per batch) and the skipped counter surfaces
+                        // it; a retry-attempt cap is deliberate future work.
+                        Log.error("catchup.conversation.skipped: \(group.id) prepare failed: \(error.localizedDescription); cursor not advanced, retrying next catch-up")
+                        return nil
                     }
-
-                    return PreparedEntry(
-                        group: group,
-                        conversation: preparedConv,
-                        regularMessages: regularMessages,
-                        supplementalMessages: supplementalMessages,
-                        maxFetchedNs: allMessages.map(\.sentAtNs).max()
-                    )
                 }
             }
 
             var results: [PreparedEntry] = []
-            for try await entry in taskGroup {
-                results.append(entry)
+            var skipped = 0
+            for await entry in taskGroup {
+                if let entry {
+                    results.append(entry)
+                } else {
+                    skipped += 1
+                }
             }
-            return results
+            return (results, skipped)
+        }
+    }
+
+    private static func prepareEntry(
+        group: XMTPiOS.Group,
+        inboxId: String,
+        fetchFromBeginning: Bool,
+        conversationWriter: ConversationWriter,
+        messageWriter: IncomingMessageWriter,
+        databaseWriter: any DatabaseWriter
+    ) async throws -> PreparedEntry {
+        let preparedConv = try await conversationWriter.prepare(
+            conversation: group,
+            inboxId: inboxId
+        )
+
+        let perConvCursorNs: Int64
+        if fetchFromBeginning {
+            perConvCursorNs = 0
+        } else {
+            perConvCursorNs = try await Self.readCatchUpCursorNs(
+                for: group.id,
+                in: databaseWriter
+            )
+        }
+        let allMessages = try await group.messages(afterNs: perConvCursorNs)
+
+        var regularMessages: [IncomingMessageWriter.PreparedIncomingMessage] = []
+        var supplementalMessages: [XMTPiOS.DecodedMessage] = []
+        regularMessages.reserveCapacity(allMessages.count)
+        for message in allMessages {
+            switch Self.classify(message) {
+            case .regular:
+                let prepared = try await messageWriter.prepare(message: message)
+                regularMessages.append(prepared)
+            case .supplemental:
+                supplementalMessages.append(message)
+            case .skip:
+                continue
+            }
+        }
+
+        return PreparedEntry(
+            group: group,
+            conversation: preparedConv,
+            regularMessages: regularMessages,
+            supplementalMessages: supplementalMessages,
+            maxFetchedNs: allMessages.map(\.sentAtNs).max()
+        )
+    }
+
+    /// Races `operation` against a deadline without blocking on a hung
+    /// operation. Deliberately built on unstructured tasks and a
+    /// resume-once continuation: a task-group implementation cannot work
+    /// here because the group scope awaits all children after
+    /// `cancelAll()`, and cancellation is only cooperative - a hung
+    /// libxmtp sync that never checks it would hold the "timeout"
+    /// hostage, which is the exact failure this helper exists to bound.
+    ///
+    /// The losing operation is cancelled cooperatively and otherwise left
+    /// running detached until it completes; that is harmless because
+    /// prepare is transaction-free and every downstream persist is
+    /// idempotent.
+    static func withTimeout<T: Sendable>(
+        seconds: TimeInterval,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        let race = BatchCatchUpTimeoutRace<T>()
+        let operationTask = Task {
+            let result: Result<T, any Error>
+            do {
+                result = .success(try await operation())
+            } catch {
+                result = .failure(error)
+            }
+            await race.finish(result)
+        }
+        let deadlineTask = Task {
+            do {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            } catch {
+                // Deadline cancelled: the operation already won.
+                return
+            }
+            operationTask.cancel()
+            await race.finish(.failure(BatchCatchUpPrepareTimeout()))
+        }
+        defer { deadlineTask.cancel() }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                Task { await race.register(continuation) }
+            }
+        } onCancel: {
+            operationTask.cancel()
+            deadlineTask.cancel()
+            Task { await race.finish(.failure(CancellationError())) }
         }
     }
 
@@ -427,6 +543,32 @@ struct BatchCatchUp {
                 WHERE conversationId = ?
             """, arguments: [conversationId])
             return value ?? 0
+        }
+    }
+}
+
+/// Resume-once state for `BatchCatchUp.withTimeout`'s two-sided race.
+/// Buffers a result that arrives before the continuation registers, and
+/// drops any result that arrives after the race already resolved (e.g.
+/// a timed-out operation eventually completing).
+private actor BatchCatchUpTimeoutRace<T: Sendable> {
+    private var continuation: CheckedContinuation<T, any Error>?
+    private var result: Result<T, any Error>?
+
+    func register(_ continuation: CheckedContinuation<T, any Error>) {
+        if let result {
+            continuation.resume(with: result)
+        } else {
+            self.continuation = continuation
+        }
+    }
+
+    func finish(_ newResult: Result<T, any Error>) {
+        if let continuation {
+            self.continuation = nil
+            continuation.resume(with: newResult)
+        } else if result == nil {
+            result = newResult
         }
     }
 }

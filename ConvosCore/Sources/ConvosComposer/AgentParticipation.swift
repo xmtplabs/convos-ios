@@ -68,14 +68,14 @@ public enum AgentParticipationLevel: String, CaseIterable, Identifiable, Sendabl
     }
 }
 
-/// The floating "Agent participation" menu: a frosted card of levels with a
+/// The floating "Agent participation" menu: a glass card of levels with a
 /// leading check on the current one. Presentation-agnostic — drop it in a
 /// popover, a sheet, or an overlay from the composer or the agent's profile.
 public struct AgentParticipationMenu: View {
     let selection: AgentParticipationLevel
-    /// Draws the frosted card + shadow around the rows. Set `false` when the
-    /// host already provides a surface (e.g. inside a sheet) so the panel isn't
-    /// a redundant card-in-a-card.
+    /// Draws the glass card around the rows. Set `false` when the host already
+    /// provides a surface (e.g. inside a sheet) so the panel isn't a redundant
+    /// card-in-a-card, and so glass never sits on glass.
     let showsBackground: Bool
     let onSelect: (AgentParticipationLevel) -> Void
 
@@ -90,35 +90,33 @@ public struct AgentParticipationMenu: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step6x) {
+        // The card holds only enough horizontal padding for the pressed row fill
+        // to bleed past the text; the row carries the rest, so the highlight
+        // spans the card the way a menu item's does. The two insets sum to the
+        // same gutter the text sat on before.
+        let sideInset: CGFloat = showsBackground ? ComposerMenuMetrics.cardSideInset : 0
+        let topInset: CGFloat = showsBackground ? DesignConstants.Spacing.step6x : 0
+        let bottomInset: CGFloat = showsBackground ? DesignConstants.Spacing.step4x : 0
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             Text("Agent participation")
                 .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
+                .padding(.horizontal, ComposerMenuMetrics.rowSideInset)
 
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step6x) {
+            VStack(alignment: .leading, spacing: ComposerMenuMetrics.rowSpacing) {
                 ForEach(AgentParticipationLevel.allCases) { level in
                     row(for: level)
                 }
             }
         }
-        .padding(showsBackground ? DesignConstants.Spacing.step6x : 0)
-        .background {
-            if showsBackground {
-                RoundedRectangle(
-                    cornerRadius: DesignConstants.CornerRadius.mediumLargest,
-                    style: .continuous
-                )
-                .fill(.regularMaterial)
-            }
-        }
-        // Tight, single-direction lift — reads as a floating menu, not a halo.
-        // Only when it's a standalone card; a sheet provides its own elevation.
-        .shadow(
-            color: showsBackground ? .black.opacity(0.12) : .clear,
-            radius: showsBackground ? 18 : 0,
-            x: 0,
-            y: showsBackground ? 6 : 0
-        )
+        .padding(.horizontal, sideInset)
+        .padding(.top, topInset)
+        .padding(.bottom, bottomInset)
+        // Real glass, not a frosted fill: it refracts the transcript behind it,
+        // which is what separates the card from the conversation without a
+        // shadow bloomed under it. Non-interactive - the card is a surface, the
+        // rows are the controls.
+        .modifier(ComposerMenuCardSurface(isEnabled: showsBackground))
     }
 
     private func row(for level: AgentParticipationLevel) -> some View {
@@ -130,9 +128,9 @@ public struct AgentParticipationMenu: View {
                 // control the member taps and the level they picked are visibly
                 // the same thing.
                 Image(systemName: level.iconSystemName)
-                    .font(.system(size: 18, weight: .regular))
+                    .font(ComposerMenuMetrics.iconFont)
                     .foregroundStyle(.colorTextPrimary)
-                    .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
+                    .frame(width: ComposerMenuMetrics.iconGutter, alignment: .center)
 
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                     Text(level.title)
@@ -155,7 +153,7 @@ public struct AgentParticipationMenu: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ComposerMenuRowButtonStyle())
         .accessibilityLabel(level.title)
         .accessibilityHint(level.caption)
         .accessibilityAddTraits(level == selection ? .isSelected : [])
@@ -165,8 +163,8 @@ public struct AgentParticipationMenu: View {
 // MARK: - Previews
 
 /// Interactive: tap a level and the check moves. Backed by a mock chat gradient
-/// so the frosted material has something real to refract (glass over a flat
-/// fill reads as a plain blurred box).
+/// so the glass has something real to refract (glass over a flat fill reads as a
+/// plain blurred box).
 #Preview("Participation menu (interactive)") {
     struct Harness: View {
         @State private var selection: AgentParticipationLevel = .speakFreely
