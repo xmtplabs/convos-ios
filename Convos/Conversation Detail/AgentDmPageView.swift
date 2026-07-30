@@ -149,7 +149,8 @@ struct AgentDmPageView: View {
             onSendMessage: handleDraftSend,
             onClearInvite: {},
             fileAttachmentPreview: { _ in EmptyView() },
-            agentShareChip: { EmptyView() }
+            agentShareChip: { EmptyView() },
+            attachmentsButton: { EmptyView() }
         )
         .fixedSize(horizontal: false, vertical: true)
         .clipShape(.rect(cornerRadius: 26.0))
