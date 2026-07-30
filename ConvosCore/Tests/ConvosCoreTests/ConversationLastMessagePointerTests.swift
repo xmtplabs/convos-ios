@@ -63,6 +63,31 @@ struct ConversationLastMessagePointerTests {
         try makeConversation(id: id, createdAt: createdAt).insert(db)
     }
 
+    /// Seeds a conversation using only the columns that exist in the schema at
+    /// call time. The pre-migration backfill test seeds rows before the final
+    /// migrations run, so `makeConversation`'s full record carries columns that
+    /// later migrations add (e.g. `isAgentDm`). Inserting the whole record would
+    /// fail with "table conversation has no column named ...", so we intersect
+    /// the record's encoded values with the live column set and insert only the
+    /// columns that are actually present.
+    private static func seedPreMigrationConversation(db: Database, id: String, createdAt: Date = Date()) throws {
+        try seedInbox(db: db)
+        let liveColumns = Set(try db.columns(in: "conversation").map(\.name))
+        let encoded = try makeConversation(id: id, createdAt: createdAt).databaseDictionary
+        var columns: [String] = []
+        var values: [DatabaseValue] = []
+        for (column, value) in encoded where liveColumns.contains(column) {
+            columns.append(column)
+            values.append(value)
+        }
+        let columnList = columns.joined(separator: ", ")
+        let placeholders = Array(repeating: "?", count: columns.count).joined(separator: ", ")
+        try db.execute(
+            sql: "INSERT INTO conversation (\(columnList)) VALUES (\(placeholders))",
+            arguments: StatementArguments(values)
+        )
+    }
+
     @discardableResult
     private static func seedMessage(
         db: Database,
@@ -307,8 +332,8 @@ struct ConversationLastMessagePointerTests {
         )
 
         try database.write { db in
-            try Self.seedConversation(db: db, id: "convo-1")
-            try Self.seedConversation(db: db, id: "convo-empty")
+            try Self.seedPreMigrationConversation(db: db, id: "convo-1")
+            try Self.seedPreMigrationConversation(db: db, id: "convo-empty")
             try Self.seedMessage(db: db, conversationId: "convo-1", id: "m1", dateNs: 100)
             try Self.seedMessage(db: db, conversationId: "convo-1", id: "m-update", dateNs: 300, contentType: .update, text: nil)
             try Self.seedMessage(
