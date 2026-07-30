@@ -14,6 +14,10 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
     /// service can survive a refresh after a mock purchase without reverting
     /// to the preset's subscription.
     private var currentSubscriptionSnapshot: UserSubscription?
+    /// Non-nil overrides the subscription-derived sync state so previews and
+    /// tests can render the syncing / needs-attention surfaces, which the
+    /// derived mapping (nil -> idle, non-nil -> confirmed) can never reach.
+    private var forcedSyncState: SubscriptionSyncState?
     private let mockProducts: [PaywallProduct]
 
     public init(initialPreset: CreditsStatePreset = .plusAmple) {
@@ -68,7 +72,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
             currentSubscriptionSnapshot = updated
         }
         subscriptionSubject.send(updated)
-        syncStateSubject.send(Self.syncState(for: updated))
+        syncStateSubject.send(resolvedSyncState(for: updated))
     }
 
     public func restorePurchases() async throws {
@@ -78,7 +82,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
     public func refresh(force: Bool) async {
         let snapshot = queue.sync { currentSubscriptionSnapshot }
         subscriptionSubject.send(snapshot)
-        syncStateSubject.send(Self.syncState(for: snapshot))
+        syncStateSubject.send(resolvedSyncState(for: snapshot))
     }
 
     public func setPreset(_ preset: CreditsStatePreset) {
@@ -88,7 +92,22 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
             currentSubscriptionSnapshot = presetSubscription
         }
         subscriptionSubject.send(presetSubscription)
-        syncStateSubject.send(Self.syncState(for: presetSubscription))
+        syncStateSubject.send(resolvedSyncState(for: presetSubscription))
+    }
+
+    /// Force a sync state for previews/tests; pass nil to return to the
+    /// subscription-derived state.
+    public func setSyncState(_ state: SubscriptionSyncState?) {
+        let snapshot: UserSubscription? = queue.sync {
+            forcedSyncState = state
+            return currentSubscriptionSnapshot
+        }
+        syncStateSubject.send(state ?? Self.syncState(for: snapshot))
+    }
+
+    private func resolvedSyncState(for subscription: UserSubscription?) -> SubscriptionSyncState {
+        let forced: SubscriptionSyncState? = queue.sync { forcedSyncState }
+        return forced ?? Self.syncState(for: subscription)
     }
 
     private static func syncState(for subscription: UserSubscription?) -> SubscriptionSyncState {
