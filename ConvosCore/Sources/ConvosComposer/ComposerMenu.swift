@@ -1,10 +1,9 @@
 #if canImport(UIKit)
 import SwiftUI
 
-/// The shared look of the composer's floating menus - the participation card and
-/// the attachments card. They open from controls sitting next to each other in
-/// the same row, so they have to read as one kind of object appearing twice
-/// rather than two menus that happen to be neighbours.
+/// The look of the composer's floating participation card. The attachments `+`
+/// beside it presents a system menu instead, so this is the only card left
+/// wearing these metrics.
 enum ComposerMenuMetrics {
     /// The leading icon gutter. Fixed, so every row's title sits on one axis
     /// whatever the glyph's own width.

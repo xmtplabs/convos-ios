@@ -66,10 +66,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// the conversation; the composer only draws the control.
     @State private var participation: AgentParticipationStore?
     @State private var showingParticipationMenu: Bool = false
-    /// The attachments card the composer's `+` opens. Drawn here for the same
-    /// reason the participation card is: the composer can't float a card of its
-    /// own out past the bar it lives in.
-    @State private var attachmentsMenu: ComposerAttachmentsMenuCoordinator = .init()
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     /// Tracks keyboard visibility so the pager dots hide and the pager-dots
     /// inset collapses while the keyboard is up.
@@ -403,12 +399,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
         // Only where there is an agent to govern, and only while the Listen
         // flag is on. Absent, the composer draws no bubble at all.
         .environment(\.agentParticipation, participationContext)
-        .environment(\.composerAttachmentsMenu, attachmentsMenu)
         .task(id: participationTaskKey) { await prepareParticipation() }
-        // Both composer cards float just ABOVE the composer, placed against the
-        // composer's real bounds — so they never reflow the message list, never
-        // scroll with it, and never cover the input. A full-screen scrim behind
-        // each dismisses on an outside tap without eating the card's taps.
+        // The participation card floats just ABOVE the composer, placed against
+        // the composer's real bounds — so it never reflows the message list,
+        // never scrolls with it, and never covers the input. A full-screen scrim
+        // behind it dismisses on an outside tap without eating the card's taps.
         .overlayPreferenceValue(ComposerBoundsKey.self) { anchor in
             GeometryReader { proxy in
                 if let anchor {
@@ -932,10 +927,8 @@ extension ConversationView {
 }
 
 private extension ConversationView {
-    /// The cards the composer's controls open: participation from the bubble,
-    /// attachments from the `+`. Never both: whichever is open puts its scrim
-    /// over the composer, so the next tap closes it rather than reaching the
-    /// other control.
+    /// The card the participation bubble opens. The attachments `+` next to it
+    /// presents a system menu instead, which needs no hosting here.
     @ViewBuilder
     func composerCards(bottomInset: CGFloat) -> some View {
         if showingParticipationMenu, let participation {
@@ -954,22 +947,6 @@ private extension ConversationView {
                     Task { await participation.set(level) }
                 }
                 .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-
-        if attachmentsMenu.isPresented {
-            composerCard(bottomInset: bottomInset) {
-                attachmentsMenu.dismiss()
-            } card: {
-                ComposerAttachmentsMenu(
-                    actions: attachmentsMenu.actions,
-                    disabledActions: attachmentsMenu.disabledActions,
-                    showsBackground: true,
-                    onSelect: attachmentsMenu.select
-                )
-                // Hugs its rows: the list is four short names, and a card
-                // stretched to the composer's width would be mostly empty.
-                .fixedSize()
             }
         }
     }

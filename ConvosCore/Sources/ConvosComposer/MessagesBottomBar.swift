@@ -150,9 +150,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     // Injected by the host on conversations that hold an agent; nil elsewhere,
     // and the bubble simply isn't drawn.
     @Environment(\.agentParticipation) private var agentParticipation: AgentParticipationContext?
-    // The host draws the attachments card, floated above the composer from its
-    // root overlay; nil in hosts that draw none, and the `+` stays inert.
-    @Environment(\.composerAttachmentsMenu) private var attachmentsMenu: ComposerAttachmentsMenuCoordinator?
 
     public init(
         profile: Profile,
@@ -577,20 +574,18 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         return disabled
     }
 
-    /// Opens the attachments menu. It sits inside the input field as a leading
-    /// accessory, so it is drawn bare: the field's own capsule is the surface it
-    /// belongs to, and a glass circle in there would read as a chip stuck on the
-    /// field. The icon row it used to swap places with lives in the menu now.
+    /// The `+` that opens the attachments menu. A system menu rather than a
+    /// hand-rolled card: it presents in its own window, so the bar's bounds
+    /// can't clip it, and the spring, haptic, dimming, and drag-to-select all
+    /// come with it. It sits inside the input field as a leading accessory, so
+    /// it is drawn bare: the field's own capsule is the surface it belongs to.
     @ViewBuilder
     private var attachmentsControl: some View {
-        let isInert: Bool = pinsExpandedInput || attachmentsMenu == nil
-        let buttonOpacity: Double = messagesTextFieldEnabled && !isInert ? 1.0 : 0.4
-        Button {
-            attachmentsMenu?.present(
-                actions: offeredAttachmentActions,
-                disabledActions: disabledAttachmentActions,
-                onSelect: handleAttachmentSelected
-            )
+        let buttonOpacity: Double = messagesTextFieldEnabled && !pinsExpandedInput ? 1.0 : 0.4
+        Menu {
+            ForEach(offeredAttachmentActions) { action in
+                attachmentMenuRow(for: action)
+            }
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 18.0, weight: .medium))
@@ -598,15 +593,28 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 .frame(width: 32, height: 32)
                 .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .menuOrder(.fixed)
         .accessibilityLabel("Show attachments")
         .accessibilityIdentifier("attachments-button")
-        .disabled(isInert)
+        .disabled(pinsExpandedInput)
         .opacity(buttonOpacity)
     }
 
-    /// Runs the picked row. The card is an overlay rather than a presentation, so
-    /// there is nothing for a picker to collide with and it can go up right away.
+    /// One row of the menu. Rows the composer can't offer right now are greyed
+    /// rather than dropped, so the list doesn't change length as attachments
+    /// come and go.
+    private func attachmentMenuRow(for action: ComposerAttachmentAction) -> some View {
+        let select = { handleAttachmentSelected(action) }
+        return Button(action: select) {
+            Text(action.title)
+            Image(systemName: action.iconSystemName)
+        }
+        .disabled(disabledAttachmentActions.contains(action))
+        .accessibilityIdentifier("attachment-\(action.rawValue)-button")
+    }
+
+    /// Runs the picked row. The menu has already dismissed by the time the
+    /// action fires, so a picker can present right away.
     private func handleAttachmentSelected(_ action: ComposerAttachmentAction) {
         switch action {
         case .photos: isPhotoPickerPresented = true
