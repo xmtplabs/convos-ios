@@ -139,13 +139,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     @State private var isImagePickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
     @State private var isFilePickerPresented: Bool = false
-    /// The attachments menu the `+` opens. A popover, so it presents in its own
-    /// window: it dismisses on an outside tap and is never clipped by the
-    /// composer's bounds - neither of which a bar living in `safeAreaBar` can do
-    /// for an overlay of its own.
-    @State private var showingAttachmentsMenu: Bool = false
-    /// The row the member picked, held until the menu finishes closing.
-    @State private var pendingAttachmentAction: ComposerAttachmentAction?
     @State private var showFileTooLargeAlert: Bool = false
     @State private var showFileTruncatedAlert: Bool = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
@@ -157,6 +150,9 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     // Injected by the host on conversations that hold an agent; nil elsewhere,
     // and the bubble simply isn't drawn.
     @Environment(\.agentParticipation) private var agentParticipation: AgentParticipationContext?
+    // The host draws the attachments card, floated above the composer from its
+    // root overlay; nil in hosts that draw none, and the `+` stays inert.
+    @Environment(\.composerAttachmentsMenu) private var attachmentsMenu: ComposerAttachmentsMenuCoordinator?
 
     public init(
         profile: Profile,
@@ -556,6 +552,14 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         }
     }
 
+    /// The rows the menu draws. The debug injector joins them only where the
+    /// host handed one over, which it does behind `isDebugInjectorEnabled` -
+    /// hard-locked off in production, so no member ever sees the row.
+    private var offeredAttachmentActions: [ComposerAttachmentAction] {
+        guard onDebugAttachmentTap != nil else { return ComposerAttachmentAction.standard }
+        return ComposerAttachmentAction.standard + [.debugInjector]
+    }
+
     /// What the composer can't offer right now. The menu greys these rows rather
     /// than dropping them, so the list doesn't change length as attachments come
     /// and go and a member can see why an option is unavailable.
@@ -573,26 +577,20 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         return disabled
     }
 
-    /// The `+`, plus the bookkeeping that runs the picked action only once the
-    /// menu has actually closed.
-    @ViewBuilder
-    private var attachmentsControl: some View {
-        attachmentsButton
-            .onChange(of: showingAttachmentsMenu) { _, isPresented in
-                handleAttachmentsMenuPresentationChanged(to: isPresented)
-            }
-    }
-
     /// Opens the attachments menu. It sits inside the input field as a leading
     /// accessory, so it is drawn bare: the field's own capsule is the surface it
     /// belongs to, and a glass circle in there would read as a chip stuck on the
     /// field. The icon row it used to swap places with lives in the menu now.
     @ViewBuilder
-    private var attachmentsButton: some View {
-        let isInert: Bool = pinsExpandedInput
+    private var attachmentsControl: some View {
+        let isInert: Bool = pinsExpandedInput || attachmentsMenu == nil
         let buttonOpacity: Double = messagesTextFieldEnabled && !isInert ? 1.0 : 0.4
         Button {
-            showingAttachmentsMenu = true
+            attachmentsMenu?.present(
+                actions: offeredAttachmentActions,
+                disabledActions: disabledAttachmentActions,
+                onSelect: handleAttachmentSelected
+            )
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 18.0, weight: .medium))
@@ -605,44 +603,17 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         .accessibilityIdentifier("attachments-button")
         .disabled(isInert)
         .opacity(buttonOpacity)
-        // No explicit arrowEdge: the composer sits at the bottom of the screen,
-        // so let the system place the card and point the arrow wherever the
-        // space actually is.
-        .popover(isPresented: $showingAttachmentsMenu) {
-            attachmentsMenuPopover
-        }
     }
 
-    /// The menu's content. Bare, because the popover's own chrome is already the
-    /// surface - a card in here would be a card inside a card.
-    @ViewBuilder
-    private var attachmentsMenuPopover: some View {
-        ComposerAttachmentsMenu(
-            disabledActions: disabledAttachmentActions,
-            showsBackground: false,
-            onSelect: handleAttachmentSelected
-        )
-        .padding(.vertical, DesignConstants.Spacing.step3x)
-        .padding(.horizontal, DesignConstants.Spacing.step2x)
-        .presentationCompactAdaptation(.popover)
-    }
-
-    /// Records the pick and closes the menu. The action itself waits for the
-    /// dismissal: a picker raised while the popover is still going down is a
-    /// second presentation on top of the first, and the system drops it.
+    /// Runs the picked row. The card is an overlay rather than a presentation, so
+    /// there is nothing for a picker to collide with and it can go up right away.
     private func handleAttachmentSelected(_ action: ComposerAttachmentAction) {
-        pendingAttachmentAction = action
-        showingAttachmentsMenu = false
-    }
-
-    private func handleAttachmentsMenuPresentationChanged(to isPresented: Bool) {
-        guard !isPresented, let action = pendingAttachmentAction else { return }
-        pendingAttachmentAction = nil
         switch action {
         case .photos: isPhotoPickerPresented = true
         case .camera: isCameraPresented = true
         case .files: isFilePickerPresented = true
         case .voiceNote: startVoiceMemoRecording()
+        case .debugInjector: onDebugAttachmentTap?()
         }
     }
 

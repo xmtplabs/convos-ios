@@ -7,6 +7,15 @@ public enum ComposerAttachmentAction: String, CaseIterable, Identifiable, Sendab
     case camera
     case files
     case voiceNote
+    /// Injects a canned attachment for testing. Only ever offered behind
+    /// `FeatureFlags.isDebugInjectorEnabled`, which is hard-locked off in
+    /// production - so it is absent from `standard` and a host has to ask for
+    /// it by name.
+    case debugInjector
+
+    /// What the menu offers a member. Everything real, and nothing a build
+    /// without the debug flag should ever see.
+    public static let standard: [ComposerAttachmentAction] = [.photos, .camera, .files, .voiceNote]
 
     public var id: String { rawValue }
 
@@ -16,6 +25,7 @@ public enum ComposerAttachmentAction: String, CaseIterable, Identifiable, Sendab
         case .camera: "Camera"
         case .files: "Files"
         case .voiceNote: "Voice note"
+        case .debugInjector: "Test attachment"
         }
     }
 
@@ -28,6 +38,7 @@ public enum ComposerAttachmentAction: String, CaseIterable, Identifiable, Sendab
         case .camera: "camera"
         case .files: "document"
         case .voiceNote: "waveform"
+        case .debugInjector: "testtube.2"
         }
     }
 }
@@ -37,6 +48,9 @@ public enum ComposerAttachmentAction: String, CaseIterable, Identifiable, Sendab
 /// wears the participation card's surface and rows, since the two open from
 /// adjacent controls and are the same kind of object.
 public struct ComposerAttachmentsMenu: View {
+    /// The rows to draw, in order. Defaults to the real attachments; a host
+    /// running with the debug injector on appends `.debugInjector`.
+    let actions: [ComposerAttachmentAction]
     let disabledActions: Set<ComposerAttachmentAction>
     /// Draws the glass card around the rows. Set `false` when the host already
     /// provides a surface.
@@ -44,10 +58,12 @@ public struct ComposerAttachmentsMenu: View {
     let onSelect: (ComposerAttachmentAction) -> Void
 
     public init(
+        actions: [ComposerAttachmentAction] = ComposerAttachmentAction.standard,
         disabledActions: Set<ComposerAttachmentAction> = [],
         showsBackground: Bool = true,
         onSelect: @escaping (ComposerAttachmentAction) -> Void
     ) {
+        self.actions = actions
         self.disabledActions = disabledActions
         self.showsBackground = showsBackground
         self.onSelect = onSelect
@@ -57,7 +73,7 @@ public struct ComposerAttachmentsMenu: View {
         let sideInset: CGFloat = showsBackground ? ComposerMenuMetrics.cardSideInset : 0
         let verticalInset: CGFloat = showsBackground ? DesignConstants.Spacing.step4x : 0
         VStack(alignment: .leading, spacing: ComposerMenuMetrics.rowSpacing) {
-            ForEach(ComposerAttachmentAction.allCases) { action in
+            ForEach(actions) { action in
                 row(for: action)
             }
         }
