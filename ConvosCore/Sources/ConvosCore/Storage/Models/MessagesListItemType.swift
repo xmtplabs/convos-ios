@@ -48,7 +48,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case messages(MessagesGroup)
     case invite(Invite)
     case conversationInfo(Conversation)
-    case agentOutOfCredits(ConversationMember, isCurrentUserCreator: Bool)
+    case agentOutOfCredits(ConversationMember, showsUpgradeCTA: Bool)
     case agentJoinStatus(AgentJoinStatus, requesterName: String?, date: Date)
     case agentPresentInfo(agent: ConversationMember, inviterName: String?)
     case connectionEvent(id: String, summary: ConnectionEventSummary, origin: AnyMessage.Origin)

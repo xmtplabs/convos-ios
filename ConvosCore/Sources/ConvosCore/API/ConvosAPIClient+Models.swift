@@ -305,6 +305,10 @@ public enum ConvosAPI {
         public let inboxId: String?
         public let conversationId: String?
         public let joinFailureReason: String?
+        /// Owner-computed "cannot fund a turn" signal for the polled instance.
+        /// Absent on old backends and for instances that predate the backend's
+        /// bookkeeping — absent means UNKNOWN, never depleted.
+        public let agentPowerDepleted: Bool?
 
         public init(
             success: Bool,
@@ -313,7 +317,8 @@ public enum ConvosAPI {
             joined: Bool,
             inboxId: String? = nil,
             conversationId: String? = nil,
-            joinFailureReason: String? = nil
+            joinFailureReason: String? = nil,
+            agentPowerDepleted: Bool? = nil
         ) {
             self.success = success
             self.instanceId = instanceId
@@ -322,6 +327,7 @@ public enum ConvosAPI {
             self.inboxId = inboxId
             self.conversationId = conversationId
             self.joinFailureReason = joinFailureReason
+            self.agentPowerDepleted = agentPowerDepleted
         }
 
         /// Typed view of the wire `joinStatus`. Switch over this (not the
@@ -347,16 +353,56 @@ public enum ConvosAPI {
         }
     }
 
+    /// One agent's owner-computed power entry on the participation payload.
+    /// `agentPowerDepleted` is computed by the backend from the agent OWNER's
+    /// wallet (never the viewer's), so it is identical for every caller.
+    public struct ParticipationAgent: Codable {
+        public let inboxId: String
+        /// `true` ⇔ the agent's payer cannot fund a turn right now. Optional:
+        /// the backend omits it when it cannot compute the owner's balance.
+        public let agentPowerDepleted: Bool?
+
+        public init(inboxId: String, agentPowerDepleted: Bool? = nil) {
+            self.inboxId = inboxId
+            self.agentPowerDepleted = agentPowerDepleted
+        }
+    }
+
     public struct AgentParticipationResponse: Codable {
         public let success: Bool
         public let conversationId: String
         /// The level now in force — echoed on a write, read on a fetch.
         public let mode: String
+        /// Owner-computed power entries for the conversation's known agents.
+        /// Absent on old backends and on enrichment failure — absent means
+        /// UNKNOWN, never depleted. Bind entries by `inboxId` against the
+        /// actual member list; agents that predate the backend's bookkeeping
+        /// have no entry.
+        public let agents: [ParticipationAgent]?
 
-        public init(success: Bool, conversationId: String, mode: String) {
+        public init(
+            success: Bool,
+            conversationId: String,
+            mode: String,
+            agents: [ParticipationAgent]? = nil
+        ) {
             self.success = success
             self.conversationId = conversationId
             self.mode = mode
+            self.agents = agents
+        }
+
+        /// Per-agent power map keyed by inboxId. `nil` when the backend sent
+        /// no `agents` array at all (old backend / enrichment failure) —
+        /// callers must treat that as UNKNOWN and keep their last state
+        /// rather than clearing to "everyone healthy". Entries whose
+        /// `agentPowerDepleted` is absent are dropped (unknown per-agent).
+        public var agentPowerDepletedByInboxId: [String: Bool]? {
+            guard let agents else { return nil }
+            return agents.reduce(into: [:]) { map, agent in
+                guard let depleted = agent.agentPowerDepleted else { return }
+                map[agent.inboxId] = depleted
+            }
         }
     }
 

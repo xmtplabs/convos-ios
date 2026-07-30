@@ -3,14 +3,15 @@ import Foundation
 import GRDB
 import Testing
 
-/// Coverage for the grouped-MAX form of `lastMessageWithSourceCTE` and
-/// `latestAgentJoinRequestCTE` - the conversation-list previews that used
-/// to be computed with a per-row correlated subquery. These pin the
-/// observable semantics the rewrite must preserve: newest eligible message
-/// wins, excluded content types never surface as previews, reply/reaction
+/// Coverage for `lastMessageWithSourceCTE` and `latestAgentJoinRequestCTE`,
+/// now resolved through the denormalized `conversation.lastMessageId` /
+/// `lastAgentJoinRequestId` pointers. These pin the observable semantics
+/// every implementation must preserve: newest eligible message wins,
+/// excluded content types never surface as previews, reply/reaction
 /// previews carry the source message text, conversations without eligible
 /// messages fall back to `createdAt` ordering, and the newest agent join
-/// request drives `agentJoinStatus`.
+/// request drives `agentJoinStatus`. Trigger-level behavior is covered in
+/// `ConversationLastMessagePointerTests`.
 @Suite("Conversation Last Message CTE Tests", .serialized)
 struct ConversationLastMessageCTETests {
     private static let currentInboxId: String = "inbox-current"

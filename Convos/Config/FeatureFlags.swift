@@ -5,6 +5,16 @@ import Foundation
 final class FeatureFlags {
     static let shared: FeatureFlags = FeatureFlags()
 
+    // Reaching a flag in a production build takes two changes, not one, and
+    // missing either looks identical from the device: the control just is not
+    // there.
+    // 1. The flag itself has to read UserDefaults in production rather than
+    //    returning false behind an `isProduction` guard, as most below do.
+    // 2. `ProdDebugMenuView` has to carry a row for it. That menu is a curated,
+    //    hardcoded list, not a render of every flag here, so a flag unlocked in
+    //    step 1 is still unreachable until it is listed there. The full
+    //    `DebugView` features section is non-production only.
+
     /// Off by default — gates the testtube debug-injector button in the composer
     /// media bar. Toggle from App Settings → Debug. Hard-locked off in production
     /// builds so the flag can never be `true` for end users, even if a UserDefaults
@@ -42,15 +52,15 @@ final class FeatureFlags {
 
     /// Off by default -- gates the per-conversation agent participation control
     /// ("Listen"): Speak freely / Mentions only / Paused. Toggle from
-    /// App Settings -> Debug. Hard-locked off in production while the feature is
-    /// still in development.
+    /// App Settings -> Debug in non-production builds, or from the curated prod
+    /// debug menu in production. Deliberately not prod-locked like the flags
+    /// above: the control is opt-in per install and exists to dogfood Listen in
+    /// TestFlight. Default-off keeps it out of every other build.
     var isListenParticipationEnabled: Bool {
         get {
-            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
             return UserDefaults.standard.bool(forKey: Constant.listenParticipationEnabledKey)
         }
         set {
-            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
             UserDefaults.standard.set(newValue, forKey: Constant.listenParticipationEnabledKey)
         }
     }

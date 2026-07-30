@@ -168,6 +168,14 @@ struct SubscriptionSettingsView: View {
         if syncState == .needsAttention {
             return "Subscription needs attention. Contact support."
         }
+        switch syncState {
+        case .syncing:
+            return "Activating your subscription..."
+        case .needsAttention:
+            return "Subscription needs attention. Contact support."
+        case .idle, .confirmed:
+            break
+        }
         let periodText: String = subscription.period == .monthly ? "Monthly" : "Annual"
         let dateString: String = Self.dateFormatter.string(from: subscription.currentPeriodEnd)
         let renewalText: String
