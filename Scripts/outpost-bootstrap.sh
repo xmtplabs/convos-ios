@@ -10,8 +10,10 @@
 set -euo pipefail
 
 # The pinned toolchain. Authority: .github/workflows/warm-xcode-cache.yml
-# (xcode-path) — keep in sync when the CI pin moves.
-PINNED_XCODE="/Applications/Xcode_26.3.app"
+# (xcode-path) — keep in sync when the CI pin moves. DEVELOPER_DIR uses the
+# canonical Contents/Developer form (xcselect-aware tools accept the bundle
+# root too, but not every consumer of the variable goes through xcselect).
+PINNED_XCODE="/Applications/Xcode_26.3.app/Contents/Developer"
 
 # fb-idb's client crashes under Python >= 3.14 (asyncio.get_event_loop was
 # removed), so it gets its own Python 3.13 venv.
@@ -76,7 +78,11 @@ fi
 convos --version
 
 step "convos CLI dev config"
-if ! convos identity list >/dev/null 2>&1; then
+# Reinit when the CLI is unusable OR configured for a non-dev network — a
+# working prod/local config would otherwise pass the usability check and
+# leave QA talking to the wrong environment.
+if ! convos identity list >/dev/null 2>&1 ||
+	! grep -q '^CONVOS_ENV=dev$' "${HOME}/.convos/.env" 2>/dev/null; then
 	convos init --env dev --force
 	convos identity list >/dev/null || fail "convos CLI is not usable after init"
 fi
