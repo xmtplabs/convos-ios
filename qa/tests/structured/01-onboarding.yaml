@@ -88,9 +88,9 @@ steps:
     name: "Create a new conversation"
     actions:
       - tap: { id: "compose-button" }
-      - wait_for_element: { id: "invite-qr-code", timeout: 15 }
+      - wait_for_element: { id: "invite-qr-code-view", timeout: 15 }
     verify:
-      - element_exists: { id: "invite-qr-code" }
+      - element_exists: { id: "invite-qr-code-view" }
       - element_exists: { id: "message-text-field" }
     criteria: compose_opens_conversation
 
