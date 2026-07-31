@@ -76,10 +76,10 @@ fi
 convos --version
 
 step "convos CLI dev config"
-if [[ ! -f "${HOME}/.convos/.env" ]]; then
-	convos init --env dev
+if ! convos identity list >/dev/null 2>&1; then
+	convos init --env dev --force
+	convos identity list >/dev/null || fail "convos CLI is not usable after init"
 fi
-convos identity list >/dev/null || fail "convos CLI is not usable after init"
 
 echo
 echo "Bootstrap complete. Load the environment into your shell with:"
