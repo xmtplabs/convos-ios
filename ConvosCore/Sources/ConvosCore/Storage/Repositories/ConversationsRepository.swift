@@ -160,7 +160,33 @@ fileprivate extension Database {
             .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
             .detailedConversationQuery()
             .fetchAll(self)
-        return try dbConversationDetails.composeConversations(from: self)
+        let conversations = try dbConversationDetails.composeConversations(from: self)
+        // Fold each group's separate agent DM into its row so the list can
+        // render a combined preview and a DM-aware unread indicator. Only
+        // groups with a verified-agent member resolve a DM; the extra
+        // `composeOneToOne` read runs inside this same `db` transaction so
+        // GRDB's ValueObservation tracks the DM and keeps the list reactive.
+        return try conversations.map { (conversation: Conversation) -> Conversation in
+            guard let agentMember = conversation.members.first(where: { $0.isVerifiedAgent }) else {
+                return conversation
+            }
+            guard let dm = try composeOneToOne(
+                with: agentMember.profile.inboxId,
+                excluding: nil,
+                consent: consent,
+                onlyAgentDms: true
+            ) else {
+                return conversation
+            }
+            var row = conversation
+            row.agentDm = Conversation.AgentDmSummary(
+                inboxId: agentMember.profile.inboxId,
+                displayName: agentMember.displayName,
+                lastMessage: dm.lastMessage,
+                isUnread: dm.isUnread
+            )
+            return row
+        }
     }
 
     func composeAgentTemplateConversations(templateId: String, consent: [Consent]) throws -> AgentTemplateConversations {

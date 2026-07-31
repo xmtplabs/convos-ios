@@ -61,6 +61,33 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// marker: a private 2-member conversation with an agent. Drives DM
     /// presentation and hides group affordances (add member, invite QR).
     public var isAgentDm: Bool = false
+    /// Summary of the separate agent-DM conversation (self + this group's
+    /// verified agent) that folds into this group's row. Populated by the
+    /// conversations list composer for group rows that have a verified
+    /// agent member; nil for rows without a verified agent or when no DM
+    /// exists yet. Lets the list render a combined last-message preview and
+    /// a DM-aware unread indicator without surfacing the DM as its own row.
+    public var agentDm: AgentDmSummary?
+}
+
+// MARK: - AgentDmSummary
+
+public extension Conversation {
+    /// Lightweight snapshot of a group's folded-in agent DM, carried on the
+    /// group's conversations-list row. See `Conversation.agentDm`.
+    struct AgentDmSummary: Codable, Equatable, Hashable, Sendable {
+        public let inboxId: String
+        public let displayName: String
+        public let lastMessage: MessagePreview?
+        public let isUnread: Bool
+
+        public init(inboxId: String, displayName: String, lastMessage: MessagePreview?, isUnread: Bool) {
+            self.inboxId = inboxId
+            self.displayName = displayName
+            self.lastMessage = lastMessage
+            self.isUnread = isUnread
+        }
+    }
 }
 
 public extension Conversation {
@@ -127,7 +154,8 @@ public extension Conversation {
             agentJoinStatus: agentJoinStatus,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            agentDm: agentDm
         )
     }
 
@@ -170,7 +198,8 @@ public extension Conversation {
             agentJoinStatus: agentJoinStatus,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            agentDm: agentDm
         )
     }
 

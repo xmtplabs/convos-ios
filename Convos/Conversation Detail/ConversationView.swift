@@ -30,6 +30,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Builder to keep the bar clean during the draft phase, then bring
     /// the item in once the user commits via Make.
     var topBarTrailingHidden: Bool = false
+    /// When set (and that agent has a DM page), the pager opens on the agent's
+    /// DM page instead of the group. Used when a conversations-list row is
+    /// tapped whose most-recent unread is in the DM.
+    var initialAgentDmInboxId: String?
     /// Controls the messages list's leading empty-state view (QR invite +
     /// identity, or the `ConversationInfoPreview`). Defaults to `.standard`
     /// in normal chat. The Agent Builder passes `.hidden` so the
@@ -71,6 +75,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// own out past the bar it lives in.
     @State private var attachmentsMenu: ComposerAttachmentsMenuCoordinator = .init()
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
+    /// Guards the one-time seed of `pagerSelectedPage` from `initialAgentDmInboxId`.
+    @State private var didSeedInitialPage: Bool = false
     /// Tracks keyboard visibility so the pager dots hide and the pager-dots
     /// inset collapses while the keyboard is up.
     @State private var isKeyboardVisible: Bool = false
@@ -306,6 +312,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var isAgentDmPageActive: Bool {
         if case .agentDm = pagerSelectedPage { return true }
         return false
+    }
+
+    /// Opens the pager on the requested agent-DM page once, when the view was
+    /// pushed from a conversations-list row whose most-recent unread is a DM.
+    /// No-op unless that agent actually has a DM page in this conversation.
+    private func seedInitialPageIfNeeded() {
+        guard !didSeedInitialPage else { return }
+        didSeedInitialPage = true
+        guard let inboxId = initialAgentDmInboxId,
+              agentDmPageInboxIds.contains(inboxId) else {
+            return
+        }
+        pagerSelectedPage = .agentDm(agentInboxId: inboxId)
     }
 
     @ToolbarContentBuilder
@@ -550,6 +569,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ensureNavigator()
             navState.markScreenAppeared()
             viewModel.onConversationAppeared()
+            seedInitialPageIfNeeded()
         }
         .onDisappear {
             focusCoordinator.dismissThingsSearchIfNeeded()

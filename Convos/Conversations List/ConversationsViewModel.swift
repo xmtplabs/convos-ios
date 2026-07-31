@@ -44,8 +44,31 @@ final class ConversationsViewModel {
 
     private(set) var selectedConversationViewModel: ConversationViewModel?
 
+    /// The agent inbox id whose DM page the pushed conversation should open on,
+    /// set when a row is selected whose most-recent unread is in the DM. Read by
+    /// the destination builder; nil means open on the group page.
+    private(set) var selectedInitialAgentDmInboxId: String?
+
     @ObservationIgnored
     private var updateSelectionTask: Task<Void, Never>?
+
+    /// Selects a conversation from the list, routing the pushed view to the
+    /// agent-DM page when the most-recent unread message lives in the DM (and to
+    /// the group otherwise).
+    func select(_ conversation: Conversation) {
+        selectedInitialAgentDmInboxId = agentDmInboxIdForMostRecentUnread(in: conversation)
+        selectedConversationId = conversation.id
+    }
+
+    /// Returns the agent inbox id to open the DM page for, when the DM holds the
+    /// most-recent unread message; nil to open the group page.
+    private func agentDmInboxIdForMostRecentUnread(in conversation: Conversation) -> String? {
+        guard let agentDm = conversation.agentDm, agentDm.isUnread else { return nil }
+        guard conversation.isUnread else { return agentDm.inboxId }
+        let dmDate: Date = agentDm.lastMessage?.createdAt ?? .distantPast
+        let groupDate: Date = conversation.lastMessage?.createdAt ?? .distantPast
+        return dmDate >= groupDate ? agentDm.inboxId : nil
+    }
 
     private func updateSelectionState() {
         let conversation = selectedConversation
