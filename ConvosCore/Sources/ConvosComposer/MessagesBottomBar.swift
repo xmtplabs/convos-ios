@@ -513,10 +513,12 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             let label: String = isLoading
                 ? "Agent participation, loading"
                 : "Agent participation: \(participation.level.title)"
-            Button(action: participation.onTap) {
-                participationGlyph(for: participation)
-            }
-            .buttonStyle(.plain)
+            ParticipationMenuControl(
+                level: participation.level,
+                isLoading: isLoading,
+                onSelect: participation.onSelect
+            )
+            .equatable()
             .disabled(isLoading)
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .frame(width: bubbleSize, height: bubbleSize)
@@ -527,25 +529,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .accessibilityLabel(label)
             .accessibilityHint("Change how much the agents speak here")
             .accessibilityIdentifier("agent-participation-button")
-        }
-    }
-
-    /// The icon, or the resting dot that stands in for it. The level starts at a
-    /// product default the conversation may not actually be in, so showing an
-    /// icon before the read lands would state something that can change a moment
-    /// later — the dot says "not known yet" instead.
-    @ViewBuilder
-    private func participationGlyph(for participation: AgentParticipationContext) -> some View {
-        if participation.isLoading {
-            ParticipationLoadingDot()
-                .frame(width: 32, height: 32)
-        } else {
-            Image(systemName: participation.level.iconSystemName)
-                .font(.system(size: 16.0, weight: .medium))
-                .foregroundStyle(Color.colorTextPrimary)
-                .frame(width: 32, height: 32)
-                .contentShape(.circle)
-                .transition(.opacity)
         }
     }
 
@@ -721,6 +704,71 @@ private struct AttachmentsMenuControl: View, Equatable {
         }
         .disabled(disabledActions.contains(action))
         .accessibilityIdentifier("attachment-\(action.rawValue)-button")
+    }
+}
+
+/// The participation bubble's menu: the levels as a system menu, with a check
+/// on the one the conversation is in. `Equatable` for the same reason as
+/// `AttachmentsMenuControl` - the bar's re-renders must not push a rebuilt
+/// menu into one that is already presented.
+private struct ParticipationMenuControl: View, Equatable {
+    let level: AgentParticipationLevel
+    let isLoading: Bool
+    let onSelect: (AgentParticipationLevel) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.level == rhs.level && lhs.isLoading == rhs.isLoading
+    }
+
+    var body: some View {
+        Menu {
+            Section("Agent participation") {
+                ForEach(AgentParticipationLevel.allCases) { option in
+                    row(for: option)
+                }
+            }
+        } label: {
+            glyph
+        }
+        .menuOrder(.fixed)
+    }
+
+    /// One level as a menu row. A toggle rather than a button so the system
+    /// draws the leading check on the current level while the trailing slot
+    /// keeps the level's own icon.
+    private func row(for option: AgentParticipationLevel) -> some View {
+        let isOn = Binding<Bool>(
+            get: { option == level },
+            set: { selected in
+                guard selected else { return }
+                onSelect(option)
+            }
+        )
+        return Toggle(isOn: isOn) {
+            Text(option.title)
+            Text(option.caption)
+            Image(systemName: option.iconSystemName)
+        }
+        .accessibilityIdentifier("participation-\(option.rawValue)-row")
+    }
+
+    /// The icon, or the resting dot that stands in for it. The level starts at a
+    /// product default the conversation may not actually be in, so showing an
+    /// icon before the read lands would state something that can change a moment
+    /// later — the dot says "not known yet" instead.
+    @ViewBuilder
+    private var glyph: some View {
+        if isLoading {
+            ParticipationLoadingDot()
+                .frame(width: 32, height: 32)
+        } else {
+            Image(systemName: level.iconSystemName)
+                .font(.system(size: 16.0, weight: .medium))
+                .foregroundStyle(Color.colorTextPrimary)
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+                .transition(.opacity)
+        }
     }
 }
 #endif

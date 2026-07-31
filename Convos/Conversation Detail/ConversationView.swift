@@ -4,16 +4,6 @@ import ConvosCoreiOS
 import ConvosMetrics
 import SwiftUI
 
-/// Publishes the composer's bounds up to the root so the floating participation
-/// card can be placed exactly above it — never reflowing the message list,
-/// never scrolling with it, never covering the input.
-private struct ComposerBoundsKey: PreferenceKey {
-    static let defaultValue: Anchor<CGRect>? = nil
-    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
-        value = nextValue() ?? value
-    }
-}
-
 struct ConversationView<MessagesBottomBar: View>: View {
     @Bindable var viewModel: ConversationViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
@@ -65,7 +55,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// It lives here rather than in the composer because the level belongs to
     /// the conversation; the composer only draws the control.
     @State private var participation: AgentParticipationStore?
-    @State private var showingParticipationMenu: Bool = false
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     /// Tracks keyboard visibility so the pager dots hide and the pager-dots
     /// inset collapses while the keyboard is up.
@@ -388,30 +377,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
-                // Publish the bottom bar's bounds so the card can float exactly
-                // above it from the root overlay — never tied to scroll.
-                .anchorPreference(
-                    key: ComposerBoundsKey.self,
-                    value: .bounds
-                ) { $0 }
             }
         )
         // Only where there is an agent to govern, and only while the Listen
         // flag is on. Absent, the composer draws no bubble at all.
         .environment(\.agentParticipation, participationContext)
         .task(id: participationTaskKey) { await prepareParticipation() }
-        // The participation card floats just ABOVE the composer, placed against
-        // the composer's real bounds — so it never reflows the message list,
-        // never scrolls with it, and never covers the input. A full-screen scrim
-        // behind it dismisses on an outside tap without eating the card's taps.
-        .overlayPreferenceValue(ComposerBoundsKey.self) { anchor in
-            GeometryReader { proxy in
-                if let anchor {
-                    let bottomInset: CGFloat = proxy.size.height - proxy[anchor].minY + DesignConstants.Spacing.step3x
-                    composerCards(bottomInset: bottomInset)
-                }
-            }
-        }
         .alert(
             "Participation not updated",
             isPresented: Binding(
@@ -927,67 +898,17 @@ extension ConversationView {
 }
 
 private extension ConversationView {
-    /// The card the participation bubble opens. The attachments `+` next to it
-    /// presents a system menu instead, which needs no hosting here.
-    @ViewBuilder
-    func composerCards(bottomInset: CGFloat) -> some View {
-        if showingParticipationMenu, let participation {
-            composerCard(bottomInset: bottomInset) {
-                withAnimation(.snappy(duration: 0.2)) {
-                    showingParticipationMenu = false
-                }
-            } card: {
-                AgentParticipationMenu(
-                    selection: participation.level,
-                    showsBackground: true
-                ) { level in
-                    withAnimation(.snappy(duration: 0.2)) {
-                        showingParticipationMenu = false
-                    }
-                    Task { await participation.set(level) }
-                }
-                .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// The shared placement for a card opened from the composer: floated above
-    /// the bar, leading-aligned with it, over a scrim that takes the outside tap.
-    @ViewBuilder
-    func composerCard<Card: View>(
-        bottomInset: CGFloat,
-        onDismiss: @escaping () -> Void,
-        @ViewBuilder card: () -> Card
-    ) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            Color.black.opacity(0.001)
-                .ignoresSafeArea()
-                .contentShape(.rect)
-                .onTapGesture(perform: onDismiss)
-
-            card()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-                .padding(.bottom, bottomInset)
-                // Grows out of the control's own corner rather than sliding up
-                // from the edge, so the card reads as opened by the control that
-                // was tapped.
-                .transition(.scale(scale: 0.92, anchor: .bottomLeading).combined(with: .opacity))
-        }
-    }
-
-    /// What the composer needs to draw the bubble: the level, and the tap.
+    /// What the composer needs to draw the bubble: the level, and the change.
     /// `nil` in a conversation with no agent — a control for agents has no
-    /// business in a room without one.
+    /// business in a room without one. The bubble presents the levels as a
+    /// system menu itself, so no card hosting lives here.
     var participationContext: AgentParticipationContext? {
         guard let participation else { return nil }
         return AgentParticipationContext(
             level: participation.level,
             isLoading: !participation.hasLoaded
-        ) {
-            withAnimation(.snappy(duration: 0.2)) {
-                showingParticipationMenu.toggle()
-            }
+        ) { level in
+            Task { await participation.set(level) }
         }
     }
 
