@@ -125,7 +125,17 @@ struct AgentDmPageView: View {
             .findAgentDm(with: agentInboxId) else {
             return
         }
-        dmViewModel = makeDmViewModel(for: existing)
+        let dmVm = makeDmViewModel(for: existing)
+        // The reconciler or another device can bind the DM while the user is
+        // still typing in the pre-creation composer. Carry the entered text
+        // into the full view model rather than dropping it, the same way
+        // `handleDraftSend` moves it over. Only when there is text to carry and
+        // the new view model has none, so an existing draft is never clobbered.
+        if !draftText.isEmpty, dmVm.messageText.isEmpty {
+            dmVm.messageText = draftText
+            draftText = ""
+        }
+        dmViewModel = dmVm
     }
 
     private func makeDmViewModel(for conversation: Conversation) -> ConversationViewModel {
@@ -270,8 +280,14 @@ struct AgentDmPageView: View {
             messagePlaceholder: "Chat with \(agentName)",
             pendingMediaAttachments: dmVm.pendingMediaAttachments,
             composerLinkPreview: dmVm.pastedLinkPreview,
+            pendingInviteURL: dmVm.pendingInvite?.fullURL,
             pendingInviteConvoName: $dmVm.pendingInviteConvoName,
             pendingInviteImage: $dmVm.pendingInviteImage,
+            pendingAgentShareName: dmVm.pendingAgentShare?.resolved?.displayName,
+            pendingAgentShareEmoji: dmVm.pendingAgentShare?.resolved?.emoji,
+            pendingAgentShareSummary: dmVm.pendingAgentShare?.resolved?.descriptionText,
+            isShowingAgentShareChip: dmVm.pendingAgentShare != nil,
+            onClearAgentShare: dmVm.clearPendingAgentShare,
             sendButtonEnabled: dmVm.sendButtonEnabled,
             profileImage: $dmVm.myProfileViewModel.profileImage,
             onboardingCoordinator: dmVm.onboardingCoordinator,
@@ -369,6 +385,24 @@ struct AgentDmPageView: View {
             .sheet(item: $dmVm.presentingMessageDetail) { message in
                 messageDetail(for: message, dmVm: dmVm)
             }
+            .sheet(isPresented: $dmVm.presentingPaywall) {
+                paywall(for: dmVm)
+            }
+    }
+
+    /// The low-balance paywall reached from the transcript's out-of-credits
+    /// affordance. Bound to the DM view model because `onAgentOutOfCredits`
+    /// sets `dmVm.presentingPaywall`; the parent `ConversationView` binds its
+    /// own paywall to the origin view model. Mirrors ConversationView's paywall
+    /// sheet.
+    @ViewBuilder
+    private func paywall(for dmVm: ConversationViewModel) -> some View {
+        let paywallViewModel = PaywallViewModel(
+            subscriptionService: SubscriptionServices.shared,
+            paywallSource: .lowBalanceBanner,
+            coreActions: dmVm.coreActions
+        )
+        PaywallView(viewModel: paywallViewModel)
     }
 
     // MARK: - Attachments card
