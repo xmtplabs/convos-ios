@@ -178,9 +178,16 @@ struct ConvosApp: App {
                 let messagingService = metricsSession.messagingService()
                 let inboxReady = try await messagingService.sessionStateManager.waitForInboxReadyResult()
                 coreMetrics.identify(privateKey: Data(inboxReady.client.inboxId.utf8))
+                // The backend accountId (not the XMTP inbox id) lets product
+                // analytics cross-link to backend records. Backend SIWE auth
+                // caches it in the keychain before the session reaches inbox
+                // ready, so this network-free keychain read has it by now.
+                let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
+                let accountId = await DeviceIdentitySnapshot.current(identityStore: identityStore).accountId
                 let builder = UserPropertiesBuilder(
                     contactsRepository: messagingService.contactsRepository(),
-                    conversationsRepository: metricsSession.conversationsRepository(for: .all)
+                    conversationsRepository: metricsSession.conversationsRepository(for: .all),
+                    accountId: accountId
                 )
                 metricsDelegate.userPropertiesCancellable = builder.publisher()
                     .sink { properties in
