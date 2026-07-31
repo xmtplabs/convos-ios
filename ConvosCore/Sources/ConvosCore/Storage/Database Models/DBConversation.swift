@@ -51,6 +51,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let isUnused: Column = Column(CodingKeys.isUnused)
         static let hasHadVerifiedAgent: Column = Column(CodingKeys.hasHadVerifiedAgent)
         static let isAgentDm: Column = Column(CodingKeys.isAgentDm)
+        static let addedById: Column = Column(CodingKeys.addedById)
     }
 
     let id: String
@@ -76,6 +77,17 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let isUnused: Bool
     let hasHadVerifiedAgent: Bool
     let isAgentDm: Bool
+    /// The inbox that added the local user to this conversation (the XMTP
+    /// welcome sender), which is *not* necessarily `creatorId` — anyone with
+    /// add permission can pull a member into a group somebody else created.
+    /// `nil` for self-created conversations, for rows written before the
+    /// column existed, and whenever libxmtp can't report an adder.
+    ///
+    /// Persisted so the passes that run long after the welcome —
+    /// `ConversationConsentReconciler` and the block-driven demote in
+    /// `ContactsWriter` — can key on the same identity `StreamProcessor` used
+    /// when it decided whether to consent on the user's behalf.
+    let addedById: String?
 
     init(
         id: String,
@@ -100,7 +112,8 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         imageLastRenewed: Date?,
         isUnused: Bool,
         hasHadVerifiedAgent: Bool,
-        isAgentDm: Bool = false
+        isAgentDm: Bool = false,
+        addedById: String? = nil
     ) {
         self.id = id
         self.clientConversationId = clientConversationId
@@ -125,6 +138,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.isUnused = isUnused
         self.hasHadVerifiedAgent = hasHadVerifiedAgent
         self.isAgentDm = isAgentDm
+        self.addedById = addedById
     }
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
@@ -309,7 +323,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -337,7 +352,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -365,7 +381,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -393,7 +410,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -421,7 +439,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -451,7 +470,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -479,7 +499,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -507,7 +528,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -535,7 +557,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -563,7 +586,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -591,7 +615,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -619,7 +644,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -647,7 +673,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -675,7 +702,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -703,7 +731,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -731,7 +760,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -787,7 +817,8 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 
@@ -815,7 +846,37 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            addedById: addedById
+        )
+    }
+
+    func with(addedById: String?) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            addedById: addedById
         )
     }
 

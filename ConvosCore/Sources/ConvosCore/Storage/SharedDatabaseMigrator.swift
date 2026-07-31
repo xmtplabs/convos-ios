@@ -1246,6 +1246,27 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("createAgentTemplateContactTable") { db in
             try SharedDatabaseMigrator.createAgentTemplateContactSchema(db)
         }
+
+        // `creatorId` is the group's original creator, which is *not*
+        // necessarily whoever invited the local user: anyone with add
+        // permission can pull a new member into a group somebody else
+        // created. Consent for an inbound welcome (`StreamProcessor`), the
+        // consent reconciler, and the block-driven demote all keyed on
+        // `creatorId` alone, so a contact adding you to a stranger's group
+        // left the conversation at `.unknown` — persisted, but invisible in
+        // the `.allowed`-scoped feed, and eventually reclaimed by the
+        // stale-stranger GC.
+        //
+        // `addedById` records the XMTP welcome sender
+        // (`Group.addedByInboxId()`). NULL for self-created conversations
+        // and for every row written before this migration; those backfill
+        // naturally, since `ConversationWriter` rebuilds the row from XMTP
+        // on the conversation's next inbound welcome or message.
+        migrator.registerMigration("addConversationAddedById") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "addedById", .text)
+            }
+        }
     }
 
     /// Tighten capabilityResolution + connectionEnablement + connectionGrant so a grant

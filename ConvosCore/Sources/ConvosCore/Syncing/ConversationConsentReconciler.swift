@@ -3,13 +3,16 @@ import GRDB
 import os
 import XMTPiOS
 
-/// Keeps each conversation's consent in sync with its creator's contact
-/// state, which is the source of truth for feed visibility:
+/// Keeps each conversation's consent in sync with the contact state of the
+/// people responsible for it, which is the source of truth for feed
+/// visibility. "Responsible" means either the inbox that added the local
+/// user (`addedById`) or the group's creator (`creatorId`) - they differ
+/// whenever a contact adds us to a group somebody else created:
 ///
-/// - creator is a non-blocked contact -> consent `.allowed` (visible)
-/// - creator is a blocked contact     -> consent `.denied`  (hidden)
+/// - either is a non-blocked contact -> consent `.allowed` (visible)
+/// - either is a blocked contact     -> consent `.denied`  (hidden)
 ///
-/// Conversations whose creator is not a contact are left untouched: an
+/// Conversations where neither inbox is a contact are left untouched: an
 /// unsolicited stranger stays `.unknown` (hidden) and a conversation the
 /// local user joined stays `.allowed` (flipped at arrival by
 /// `StreamProcessor`). The reconciler covers two contact-state visibility
@@ -126,28 +129,61 @@ final class ConversationConsentReconciler: @unchecked Sendable {
         }
     }
 
-    /// Conversations whose stored consent disagrees with their creator's
-    /// contact-block state. The `JOIN contact` self-limits to
-    /// contact-created conversations; strangers and self-joined
-    /// stranger conversations have no matching contact row and are
-    /// ignored. Once a target is flipped its consent matches and it
-    /// drops out of this result, so the observation converges.
+    /// Conversations whose stored consent disagrees with the contact-block
+    /// state of the people responsible for them. A conversation has up to
+    /// two such inboxes and both count: `addedById` (who added the local
+    /// user) and `creatorId` (who made the group). They differ whenever a
+    /// contact adds us to a group somebody else created — matching on the
+    /// creator alone never promoted those, so a conversation a contact
+    /// invited us to stayed `.unknown` and out of the feed.
+    ///
+    /// Conversations with no contact row on either inbox are ignored:
+    /// strangers and self-joined stranger conversations. Once a target is
+    /// flipped its consent matches and it drops out of this result, so the
+    /// observation converges.
+    ///
+    /// Blocking dominates: if *either* inbox is a blocked contact the
+    /// target is `.denied`, so a contact can't be used as a conduit for
+    /// someone the user blocked. Otherwise a contact on either inbox makes
+    /// the target `.allowed`.
     ///
     /// Promotion fires only for `.unknown` (a stranger that just became a
     /// contact), never for `.denied` - a `.denied` conversation from a
     /// non-blocked contact is one the user deleted, and must stay hidden.
+    ///
+    /// Written with EXISTS sub-queries rather than a `JOIN contact`: with
+    /// two candidate inboxes a join would emit one row per matching
+    /// contact, and a conversation whose adder and creator disagree on
+    /// block state would yield two conflicting targets for the same id.
     static func fetchMismatchedTargets(db: Database) throws -> [Target] {
         let allowed: String = Consent.allowed.rawValue
         let denied: String = Consent.denied.rawValue
         let unknown: String = Consent.unknown.rawValue
+        // `IN (creatorId, addedById)` handles a NULL `addedById` naturally:
+        // NULL matches no contact row.
+        let anyRelatedContact = """
+            EXISTS (
+                SELECT 1 FROM contact
+                WHERE contact.inboxId IN (conversation.creatorId, conversation.addedById)
+            )
+            """
+        let anyRelatedContactBlocked = """
+            EXISTS (
+                SELECT 1 FROM contact
+                WHERE contact.inboxId IN (conversation.creatorId, conversation.addedById)
+                  AND contact.blockedAt IS NOT NULL
+            )
+            """
         let rows = try Row.fetchAll(db, sql: """
             SELECT conversation.id AS id,
-                   CASE WHEN contact.blockedAt IS NULL THEN ? ELSE ? END AS target
+                   CASE WHEN \(anyRelatedContactBlocked) THEN ? ELSE ? END AS target
             FROM conversation
-            JOIN contact ON contact.inboxId = conversation.creatorId
-            WHERE (contact.blockedAt IS NULL AND conversation.consent = ?)
-               OR (contact.blockedAt IS NOT NULL AND conversation.consent <> ?)
-            """, arguments: [allowed, denied, unknown, denied])
+            WHERE \(anyRelatedContact)
+              AND (
+                    (NOT \(anyRelatedContactBlocked) AND conversation.consent = ?)
+                 OR (\(anyRelatedContactBlocked) AND conversation.consent <> ?)
+              )
+            """, arguments: [denied, allowed, unknown, denied])
         return rows.compactMap { row -> Target? in
             guard let id: String = row["id"],
                   let rawConsent: String = row["target"],

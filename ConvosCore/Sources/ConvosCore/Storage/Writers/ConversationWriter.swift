@@ -912,7 +912,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
             hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
-            isAgentDm: metadata.isAgentDm
+            isAgentDm: metadata.isAgentDm,
+            // Best-effort: libxmtp throws rather than returning empty when a
+            // group has no adder (one we created ourselves), and a read
+            // failure must not sink the whole conversation write. The save
+            // path preserves any previously stored value when this is nil.
+            addedById: (try? conversation.addedByInboxId()).flatMap { $0.isEmpty ? nil : $0 }
         )
     }
 
@@ -984,6 +989,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         if let existingConversation {
             let mergedHasAgent: Bool = existingConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
             conversationToSave = conversationToSave.with(hasHadVerifiedAgent: mergedHasAgent)
+            // `addedById` is write-once: it records who invited us, which
+            // never changes. Callers with no XMTP handle (the invite
+            // placeholder path) pass nil, and a transient libxmtp read
+            // failure also yields nil — neither may erase a stored adder,
+            // since the reconciler and the block demote depend on it.
+            if conversationToSave.addedById == nil, let existingAddedById = existingConversation.addedById {
+                conversationToSave = conversationToSave.with(addedById: existingAddedById)
+            }
         }
 
         let existingConversationByTag = try existingConversationMatchingInviteTag(
@@ -1051,6 +1064,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 memberCount: memberCount,
                 otherMemberIsVerifiedAgent: try Self.conversationHasVerifiedAgentMember(db, conversationId: localConversation.id)
             )
+            // Same write-once rule as the by-id branch above: the row being
+            // replaced may hold the adder this read couldn't produce.
+            if conversationToSave.addedById == nil, let localAddedById = localConversation.addedById {
+                conversationToSave = conversationToSave.with(addedById: localAddedById)
+            }
             try conversationToSave.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
             actualClientConversationId = preferredClientConversationId

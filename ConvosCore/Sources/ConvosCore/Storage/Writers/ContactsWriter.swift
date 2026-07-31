@@ -162,7 +162,7 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
             if existing.blockedAt == nil {
                 try existing.with(blockedAt: Date()).save(db)
             }
-            return try Self.demoteVisibleConversations(db: db, creatorId: inboxId)
+            return try Self.demoteVisibleConversations(db: db, inboxId: inboxId)
         }
         // Feed is already hidden (window 0). Flip XMTP consent best-effort for
         // cross-device + re-sync durability; the local DB is authoritative so
@@ -192,14 +192,20 @@ final class ContactsWriter: ContactsWriterProtocol, @unchecked Sendable {
         }
     }
 
-    /// Demotes every still-visible conversation created by `creatorId` to
-    /// `.denied` and returns their ids. Mirrors the
-    /// `ConversationConsentReconciler` join (`conversation.creatorId =
-    /// contact.inboxId`), so shared groups the local user created stay
-    /// visible. Conversations already `.denied` are left untouched.
-    private static func demoteVisibleConversations(db: Database, creatorId: String) throws -> [String] {
+    /// Demotes every still-visible conversation `inboxId` is responsible for
+    /// to `.denied` and returns their ids. "Responsible" matches the
+    /// `ConversationConsentReconciler` predicate: conversations `inboxId`
+    /// created *or* added us to. Both are needed because either can be why
+    /// the conversation is visible at all, so demoting by creator alone
+    /// would leave groups the blocked inbox pulled us into sitting in the
+    /// feed. Shared groups the local user created stay visible, and
+    /// conversations already `.denied` are left untouched.
+    private static func demoteVisibleConversations(db: Database, inboxId: String) throws -> [String] {
         let conversationIds: [String] = try DBConversation
-            .filter(DBConversation.Columns.creatorId == creatorId)
+            .filter(
+                DBConversation.Columns.creatorId == inboxId ||
+                DBConversation.Columns.addedById == inboxId
+            )
             .filter(DBConversation.Columns.consent != Consent.denied)
             .fetchAll(db)
             .map(\.id)
