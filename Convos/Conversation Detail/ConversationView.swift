@@ -300,6 +300,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
     }
 
+    /// True while the agent-DM page is the pager's selected page. The DM is a
+    /// fixed 2-member conversation, so the invite/add-member affordance is hidden
+    /// there.
+    private var isAgentDmPageActive: Bool {
+        if case .agentDm = pagerSelectedPage { return true }
+        return false
+    }
+
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
         // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
@@ -308,7 +316,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ToolbarItem(placement: .topBarTrailing) {
                 if viewModel.isLocked {
                     lockedInfoButton
-                } else {
+                } else if !isAgentDmPageActive {
                     switch messagesTopBarTrailingItem {
                     case .share:
                         // A full conversation can't mint new invite links, so the
@@ -526,6 +534,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 // The DM page re-grabs focus onto its own composer (transferring
                 // the keyboard); the Things page has no composer, so it drops.
                 focusCoordinator.dismissMessageComposerIfNeeded()
+                // A right-swipe can both start a reply and page away; cancel the
+                // in-flight reply swipe so the page change doesn't fire a reply.
+                contextMenuState.cancelInFlightSwipe()
             }
         }
         .onChange(of: viewModel.messageText) { _, _ in
