@@ -324,7 +324,7 @@ struct AgentDmPageView: View {
             onFileSelected: dmVm.addFileAttachment(url:filename:mimeType:fileSize:),
             onAboutAgents: {},
             onAgentOutOfCredits: { dmVm.presentingPaywall = true },
-            creditsDepleted: dmVm.creditsDepleted,
+            agentPowerDepletedByInboxId: dmVm.agentPowerDepletedByInboxId,
             onTapUpdateMember: { _ in },
             onRetryMessage: dmVm.retryMessage(_:),
             onDeleteMessage: dmVm.deleteMessage(_:),
