@@ -9,6 +9,9 @@ import XMTPiOS
 struct ConvosApp: App {
     @UIApplicationDelegateAdaptor(ConvosAppDelegate.self) private var appDelegate: ConvosAppDelegate
     @Environment(\.scenePhase) private var scenePhase: ScenePhase
+    /// Seeded in `init` rather than here: the gate reads the resolved
+    /// environment, which only exists after `ConfigManager.configure`.
+    @State private var isPresentingArtifactPreview: Bool = false
 
     private let convos: ConvosClient
     let metricsDelegate: PostHogCollector
@@ -192,6 +195,8 @@ struct ConvosApp: App {
         }
 
         Self.configureTabBarItemColors()
+
+        _isPresentingArtifactPreview = State(initialValue: ArtifactPreviewGate.isAutoPresentRequested)
     }
 
     /// Tints the unselected tab items tertiary. The selected color is
@@ -233,7 +238,16 @@ struct ConvosApp: App {
                     break
                 }
             }
+            .fullScreenCover(isPresented: $isPresentingArtifactPreview) {
+                artifactPreviewCover
+            }
         }
+    }
+
+    @ViewBuilder
+    private var artifactPreviewCover: some View {
+        let dismiss = { isPresentingArtifactPreview = false }
+        ArtifactPreviewView(onClose: dismiss)
     }
 
     private func handleScenePhaseActive() {

@@ -173,6 +173,7 @@ public final class HTMLContentPrewarmer {
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
         webView.navigationDelegate = coordinator
+        webView.enableInspectionOutsideProduction()
         window.addSubview(webView)
         let readAccessURL = fileURL.deletingLastPathComponent()
         webView.loadFileURL(fileURL, allowingReadAccessTo: readAccessURL)

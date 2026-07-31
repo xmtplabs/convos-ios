@@ -1,0 +1,148 @@
+#!/bin/bash
+set -eou pipefail
+
+# Usage: dev/artifact-preview <file.html> [--sim <udid>] [--scheme <name>] [--once]
+#
+# Copies an HTML artifact into the running app's container and re-copies it
+# every time the file changes, so editing the artifact on this Mac
+# re-renders it in the app. The app watches the drop directory and
+# repaints on its own; nothing needs to be rebuilt or relaunched.
+#
+# The app side lives behind ArtifactPreviewGate (non-production only) and
+# is reachable from Debug > Artifacts > Artifact Live Preview, or opened
+# automatically at launch with CONVOS_ARTIFACT_PREVIEW=1. simctl forwards
+# any SIMCTL_CHILD_-prefixed variable into the app process:
+#
+#   SIMCTL_CHILD_CONVOS_ARTIFACT_PREVIEW=1 \
+#     xcrun simctl launch --terminate-running-process <udid> <bundle-id>
+#
+# --once skips watching and copies a single time.
+
+SOURCE_FILE=""
+SIM_UDID=""
+SCHEME="Convos (Dev)"
+WATCH=true
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --sim)
+            SIM_UDID="$2"
+            shift 2
+            ;;
+        --scheme)
+            SCHEME="$2"
+            shift 2
+            ;;
+        --once)
+            WATCH=false
+            shift
+            ;;
+        --help|-h)
+            sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            SOURCE_FILE="$1"
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$SOURCE_FILE" ]]; then
+    echo "error: no HTML file given" >&2
+    echo "usage: dev/artifact-preview <file.html> [--sim <udid>] [--scheme <name>] [--once]" >&2
+    exit 1
+fi
+
+if [[ ! -f "$SOURCE_FILE" ]]; then
+    echo "error: $SOURCE_FILE does not exist" >&2
+    exit 1
+fi
+
+case "$SCHEME" in
+    "Convos (Dev)")   BUNDLE_ID="org.convos.ios-preview" ;;
+    "Convos (Local)") BUNDLE_ID="org.convos.ios-local" ;;
+    "Convos (Prod)")
+        echo "error: the artifact preview harness is disabled in production builds" >&2
+        exit 1
+        ;;
+    *)
+        echo "error: unknown scheme '$SCHEME' (expected 'Convos (Dev)' or 'Convos (Local)')" >&2
+        exit 1
+        ;;
+esac
+
+repo_root="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+
+# Simulator resolution mirrors /run: the worktree's pinned id, then the
+# convos-task name, then whatever is booted.
+if [[ -z "$SIM_UDID" ]]; then
+    if [[ -f "$repo_root/.claude/.simulator_id" ]]; then
+        SIM_UDID="$(cat "$repo_root/.claude/.simulator_id")"
+    elif [[ -f "$repo_root/.convos-task" ]]; then
+        sim_name="$(grep '^SIMULATOR_NAME=' "$repo_root/.convos-task" | cut -d= -f2)"
+        SIM_UDID="$(xcrun simctl list devices -j | python3 -c \
+            "import json,sys; d=json.load(sys.stdin); print(next((x['udid'] for rt in d['devices'].values() for x in rt if x['name']=='$sim_name'), ''))")"
+    fi
+fi
+
+if [[ -z "$SIM_UDID" ]]; then
+    SIM_UDID="$(xcrun simctl list devices booted -j | python3 -c \
+        "import json,sys; d=json.load(sys.stdin); print(next((x['udid'] for rt in d['devices'].values() for x in rt), ''))")"
+fi
+
+if [[ -z "$SIM_UDID" ]]; then
+    echo "error: no simulator found (pass --sim <udid>, or boot one)" >&2
+    exit 1
+fi
+
+if ! container="$(xcrun simctl get_app_container "$SIM_UDID" "$BUNDLE_ID" data 2>/dev/null)"; then
+    echo "error: $BUNDLE_ID is not installed on $SIM_UDID - build and run it first" >&2
+    exit 1
+fi
+
+DROP_DIR="$container/Documents/ArtifactPreview"
+mkdir -p "$DROP_DIR"
+
+# One artifact at a time: the app picks the most recently modified .html in
+# the directory, so leftovers from a previous run would be ambiguous.
+find "$DROP_DIR" -maxdepth 1 -name '*.html' ! -name "$(basename "$SOURCE_FILE")" -delete
+
+DEST="$DROP_DIR/$(basename "$SOURCE_FILE")"
+
+# Write to a temp name and rename so the app never reads a half-written
+# file. The app watches the directory (not the file) precisely so this
+# atomic replace still wakes it.
+deliver() {
+    local tmp="$DROP_DIR/.incoming.tmp"
+    cp "$SOURCE_FILE" "$tmp"
+    mv -f "$tmp" "$DEST"
+    echo "$(date '+%H:%M:%S')  delivered $(basename "$SOURCE_FILE") ($(wc -c < "$DEST" | tr -d ' ') bytes)"
+}
+
+deliver
+echo "drop dir: $DROP_DIR"
+
+if [[ "$WATCH" == false ]]; then
+    exit 0
+fi
+
+echo "watching $SOURCE_FILE - edit and save to re-render, ctrl-c to stop"
+
+if command -v fswatch >/dev/null 2>&1; then
+    fswatch -o "$SOURCE_FILE" | while read -r _; do
+        deliver
+    done
+else
+    # No fswatch: poll the mtime. Cheap enough at 1 Hz and keeps the script
+    # dependency-free on a fresh machine.
+    last_mtime="$(stat -f %m "$SOURCE_FILE")"
+    while true; do
+        sleep 1
+        current_mtime="$(stat -f %m "$SOURCE_FILE")"
+        if [[ "$current_mtime" != "$last_mtime" ]]; then
+            last_mtime="$current_mtime"
+            deliver
+        fi
+    done
+fi

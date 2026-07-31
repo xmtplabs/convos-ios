@@ -247,6 +247,7 @@ struct AttachmentHTMLContent: UIViewRepresentable {
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
         webView.navigationDelegate = context.coordinator
+        webView.enableInspectionOutsideProduction()
         return webView
     }
 
@@ -471,6 +472,7 @@ private struct MarkdownWebView: UIViewRepresentable {
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
         webView.navigationDelegate = context.coordinator
+        webView.enableInspectionOutsideProduction()
         return webView
     }
 

@@ -56,6 +56,7 @@ struct DebugViewSection: View {
             subscriptionSection
             pushNotificationsSection
             debugSection
+            artifactPreviewSection
             authProbeSection
             sentryTestingSection
             pendingInvitesSection
@@ -260,6 +261,23 @@ struct DebugViewSection: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(token.isEmpty)
+            }
+        }
+    }
+
+    /// Gated here as well as by the caller: this section is only ever
+    /// reached from the non-prod debug menu today, but the harness reads a
+    /// directory any process can write to, so it states its own condition.
+    @ViewBuilder
+    private var artifactPreviewSection: some View {
+        if ArtifactPreviewGate.isAvailable(for: environment) {
+            Section("Artifacts") {
+                NavigationLink {
+                    ArtifactPreviewView()
+                } label: {
+                    Text("Artifact Live Preview")
+                        .foregroundStyle(.colorTextPrimary)
+                }
             }
         }
     }
