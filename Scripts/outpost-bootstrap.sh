@@ -20,8 +20,11 @@ PINNED_XCODE="/Applications/Xcode_26.3.app/Contents/Developer"
 IDB_VENV="${HOME}/.convos-qa/idbvenv"
 
 emit_env() {
-	echo "export DEVELOPER_DIR=\"${PINNED_XCODE}\""
-	echo "export PATH=\"${IDB_VENV}/bin:\${PATH}\""
+	# %q-escape interpolated paths so the emitted lines stay eval-safe even if
+	# HOME contains shell metacharacters; $PATH stays double-quoted so it
+	# expands in the consuming shell, not here.
+	printf 'export DEVELOPER_DIR=%q\n' "${PINNED_XCODE}"
+	printf 'export PATH=%q:"$PATH"\n' "${IDB_VENV}/bin"
 }
 
 if [[ "${1:-}" == "--env" ]]; then
