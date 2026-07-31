@@ -1,1 +1,1 @@
-/Users/jarod/Code/convos-ios/.claude/skills/convos-cli/SKILL.md
+../../../.claude/skills/convos-cli/SKILL.md
