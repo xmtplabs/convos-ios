@@ -422,16 +422,30 @@ public final class MessagesViewController: UIViewController {
 
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
-    /// Drives the in-stream out-of-credits cell. Set from
-    /// `MessagesViewRepresentable` off `ConversationViewModel.creditsDepleted`
-    /// (which mirrors `CreditsServices.shared.currentBalance?.isDepleted`).
-    /// When this flips while a state is already applied, we replay the
-    /// last processed state so the cell appears / disappears without
-    /// needing the messages publisher to emit again.
-    var creditsDepleted: Bool = false {
+    /// Drives the in-stream "lost power" cell. Set from
+    /// `MessagesViewRepresentable` off
+    /// `ConversationViewModel.agentPowerDepletedByInboxId` — the backend's
+    /// OWNER-computed per-agent power signal, keyed by agent inboxId. The
+    /// viewer's own wallet is never an input; an agent missing from the map
+    /// is unknown and renders nothing. When this changes while a
+    /// state is already applied, we replay the last processed state so the
+    /// cell appears / disappears without needing the messages publisher to
+    /// emit again.
+    var agentPowerDepletedByInboxId: [String: Bool] = [:] {
         didSet {
-            dataSource.creditsDepleted = creditsDepleted
-            guard oldValue != creditsDepleted, isViewLoaded, let state else { return }
+            dataSource.agentPowerDepletedByInboxId = agentPowerDepletedByInboxId
+            guard oldValue != agentPowerDepletedByInboxId, isViewLoaded, let state else { return }
+            // The sender-label bolt lives inside `.messages` cells whose items
+            // don't change when the map flips, so the state replay below
+            // carries no DifferenceKit changeset for them — an already-visible
+            // group would keep rendering the stale bolt until cell reuse.
+            // Reconfigure the groups sent by the agents whose signal changed
+            // before replaying (the replay only inserts/removes the standalone
+            // lost-power cells).
+            let changedInboxIds: Set<String> = Set(oldValue.keys)
+                .union(agentPowerDepletedByInboxId.keys)
+                .filter { oldValue[$0] != agentPowerDepletedByInboxId[$0] }
+            reconfigureCells(forSenderInboxIds: changedInboxIds)
             self.state = state
         }
     }
@@ -925,6 +939,34 @@ public final class MessagesViewController: UIViewController {
     }
 }
 
+// MARK: - Agent power reconfigure
+
+extension MessagesViewController {
+    /// Reconfigures the visible message cells sent by any of the given inbox
+    /// ids. Used when the owner-computed power map flips for a sender: the
+    /// `.messages` items themselves are unchanged, so — exactly like the
+    /// long-body expansion set — the change carries no DifferenceKit
+    /// changeset of its own and visible cells must be reconfigured by hand.
+    private func reconfigureCells(forSenderInboxIds inboxIds: Set<String>) {
+        guard !inboxIds.isEmpty else { return }
+        var indexPaths: [IndexPath] = []
+        for (sectionIndex, section) in dataSource.sections.enumerated() {
+            for (itemIndex, cell) in section.cells.enumerated() {
+                guard case .messages(let group) = cell else { continue }
+                if inboxIds.contains(group.sender.profile.inboxId) {
+                    indexPaths.append(IndexPath(item: itemIndex, section: sectionIndex))
+                }
+            }
+        }
+        guard !indexPaths.isEmpty else { return }
+        collectionView.reconfigureItems(at: indexPaths)
+        // Pair with the layout call, matching `reconfigureCells(forMessageIds:)`
+        // — the custom layout only re-measures cells stashed by its own
+        // `reconfigureItems`.
+        messagesLayout.reconfigureItems(at: indexPaths)
+    }
+}
+
 // MARK: - MessagesControllerDelegate
 
 extension MessagesViewController {
@@ -989,22 +1031,26 @@ extension MessagesViewController {
             }
         }
 
-        // Only surface the per-agent "lost power" cell for agents the viewer
-        // OWNS. `creditsDepleted` reflects the LOCAL viewer's wallet, which is
-        // only the right signal for the viewer's own agents - for someone
-        // else's funded agent it would mislabel a working agent as depleted.
-        // Gating on `isCurrentUserCreator` keeps the wallet check correct;
-        // non-owners see nothing until a backend per-agent power signal exists.
-        let isCurrentUserCreator: Bool = conversation.creator.isCurrentUser
-        if creditsDepleted, isCurrentUserCreator, let agentMember = conversation.members.first(where: { $0.isAgent }) {
+        // The per-agent "lost power" cell derives ONLY from the backend's
+        // owner-computed `agentPowerDepleted` signal, matched by inboxId.
+        // `true` is the same fact for every member, so the cell shows to
+        // everyone; an agent missing from the map is UNKNOWN (old backend,
+        // or an agent the backend has no bookkeeping for) and shows nothing.
+        // The viewer's own wallet is never consulted here — a zero-balance
+        // viewer looking at a funded agent sees a working agent.
+        // Only the upgrade CTA stays gated: the backend doesn't expose agent
+        // ownership, so conversation creatorship is the closest proxy for
+        // "the viewer is who tops this agent up".
+        let showsUpgradeCTA: Bool = conversation.creator.isCurrentUser
+        for agentMember in conversation.members.agentsWithDepletedPower(agentPowerDepletedByInboxId) {
             let agentInboxId = agentMember.profile.inboxId
             if let lastAgentIndex = cells.lastIndex(where: {
                 if case .messages(let group) = $0 { return group.sender.profile.inboxId == agentInboxId }
                 return false
             }) {
-                cells.insert(.agentOutOfCredits(agentMember, isCurrentUserCreator: isCurrentUserCreator), at: lastAgentIndex + 1)
+                cells.insert(.agentOutOfCredits(agentMember, showsUpgradeCTA: showsUpgradeCTA), at: lastAgentIndex + 1)
             } else {
-                cells.append(.agentOutOfCredits(agentMember, isCurrentUserCreator: isCurrentUserCreator))
+                cells.append(.agentOutOfCredits(agentMember, showsUpgradeCTA: showsUpgradeCTA))
             }
         }
 

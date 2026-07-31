@@ -19,10 +19,31 @@ final class PaywallViewModel {
     var alertMessage: String?
     private(set) var products: [PaywallProduct] = []
     private(set) var currentSubscription: UserSubscription?
+    private(set) var syncState: SubscriptionSyncState
     private(set) var isLoadingProducts: Bool = false
     @ObservationIgnored private var loadProductsTask: Task<Void, Never>?
 
     var isSubscribed: Bool { currentSubscription != nil }
+
+    /// Copy for the paywall's sync-status line, nil when nothing needs
+    /// surfacing. Kept as a pure mapping so tests can pin state -> copy.
+    var syncNotice: String? {
+        switch syncState {
+        case .needsAttention:
+            return SubscriptionCopy.syncNeedsAttentionNotice
+        case .syncing:
+            return SubscriptionCopy.syncActivatingNotice
+        case .idle, .confirmed:
+            return nil
+        }
+    }
+
+    /// A StoreKit entitlement awaiting backend confirmation must not be
+    /// pitched the subscribe CTA; the paywall shows an activating notice
+    /// in its place until the state resolves.
+    var showsActivatingInsteadOfCTA: Bool {
+        syncState == .syncing && !isSubscribed
+    }
 
     var isChangingPeriod: Bool {
         guard let current = currentSubscription,
@@ -60,6 +81,7 @@ final class PaywallViewModel {
         self.coreActions = coreActions
         let initial: UserSubscription? = subscriptionService.currentSubscription
         self.currentSubscription = initial
+        self.syncState = subscriptionService.currentSyncState
         if initial != nil {
             self.selectedPlan = .plus
         }
@@ -68,6 +90,14 @@ final class PaywallViewModel {
             .sink { [weak self] sub in
                 Task { @MainActor [weak self] in
                     self?.currentSubscription = sub
+                }
+            }
+            .store(in: &cancellables)
+        subscriptionService.syncStatePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                Task { @MainActor [weak self] in
+                    self?.syncState = state
                 }
             }
             .store(in: &cancellables)

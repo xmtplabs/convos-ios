@@ -662,13 +662,15 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.forbidden
         case 404:
             throw APIError.notFound
+        case 409:
+            let json: [String: Any]? = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let code: String? = json?["code"] as? String
+            guard code == "subscription_account_mismatch" else {
+                throw APIError.serverError(parseErrorMessage(from: data))
+            }
+            throw APIError.subscriptionAccountMismatch(parseErrorMessage(from: data))
         default:
-            // 409 (subscription_account_mismatch) falls through deliberately.
-            // The backend still returns it (PR #215 strict-ownership invariant),
-            // but iOS treats it as a generic retryable server fault instead
-            // of a typed dead-end — purchase + restore flows already surface
-            // .serverError with a "try again" affordance, and refresh logic
-            // (foreground + view-appear) will reconcile any transient state.
+            // Unhandled statuses remain generic server errors.
             throw APIError.serverError(parseErrorMessage(from: data))
         }
     }
@@ -1377,6 +1379,7 @@ public enum APIError: Error {
     case invalidResponse
     case invalidRequest
     case serverError(String?)
+    case subscriptionAccountMismatch(String?)
     case rateLimitExceeded
     case noAgentsAvailable
     case agentPoolTimeout
@@ -1407,6 +1410,8 @@ extension APIError: DisplayError {
             return "Invalid request"
         case .serverError:
             return "Server error"
+        case .subscriptionAccountMismatch:
+            return "Subscription needs attention"
         case .rateLimitExceeded:
             return "Too many requests"
         case .noAgentsAvailable:
@@ -1442,6 +1447,8 @@ extension APIError: DisplayError {
             return "The request could not be created."
         case .serverError(let message):
             return message ?? "The server encountered an error."
+        case .subscriptionAccountMismatch(let message):
+            return message ?? "This subscription belongs to a different account. Contact support."
         case .rateLimitExceeded:
             return "Too many requests. Please try again later."
         case .noAgentsAvailable:

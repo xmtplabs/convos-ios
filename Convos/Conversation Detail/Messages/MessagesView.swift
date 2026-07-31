@@ -82,7 +82,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onFileSelected: (URL, String, String, Int) -> Void
     let onAboutAgents: () -> Void
     let onAgentOutOfCredits: () -> Void
-    let creditsDepleted: Bool
+    let agentPowerDepletedByInboxId: [String: Bool]
     let onTapUpdateMember: (ConversationMember) -> Void
     var onTapCapabilityConnect: (CapabilityConnectPrompt) -> Void = { _ in }
     let onRetryMessage: (AnyMessage) -> Void
@@ -196,7 +196,7 @@ struct MessagesView<BottomBarContent: View>: View {
             contextMenuState: contextMenuState,
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
             onAgentOutOfCredits: onAgentOutOfCredits,
-            creditsDepleted: creditsDepleted,
+            agentPowerDepletedByInboxId: agentPowerDepletedByInboxId,
             onTapUpdateMember: onTapUpdateMember,
             onTapCapabilityConnect: onTapCapabilityConnect,
             onRetryMessage: onRetryMessage,
