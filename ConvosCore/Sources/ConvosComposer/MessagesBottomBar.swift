@@ -595,34 +595,14 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     /// hand-rolled card: it presents in its own window, so the bar's bounds
     /// can't clip it, and the spring, haptic, dimming, and drag-to-select all
     /// come with it.
-    @ViewBuilder
     private var attachmentsControl: some View {
-        Menu {
-            ForEach(offeredAttachmentActions) { action in
-                attachmentMenuRow(for: action)
-            }
-        } label: {
-            Color.clear
-                .frame(width: 32, height: 32)
-                .contentShape(.circle)
-        }
-        .menuOrder(.fixed)
-        .accessibilityLabel("Show attachments")
-        .accessibilityIdentifier("attachments-button")
-        .disabled(pinsExpandedInput)
-    }
-
-    /// One row of the menu. Rows the composer can't offer right now are greyed
-    /// rather than dropped, so the list doesn't change length as attachments
-    /// come and go.
-    private func attachmentMenuRow(for action: ComposerAttachmentAction) -> some View {
-        let select = { handleAttachmentSelected(action) }
-        return Button(action: select) {
-            Text(action.title)
-            Image(systemName: action.iconSystemName)
-        }
-        .disabled(disabledAttachmentActions.contains(action))
-        .accessibilityIdentifier("attachment-\(action.rawValue)-button")
+        AttachmentsMenuControl(
+            offeredActions: offeredAttachmentActions,
+            disabledActions: disabledAttachmentActions,
+            isDisabled: pinsExpandedInput,
+            onSelect: handleAttachmentSelected
+        )
+        .equatable()
     }
 
     /// Runs the picked row. The menu has already dismissed by the time the
@@ -691,6 +671,56 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 40.0))
             .glassEffectID("profileEditor", in: namespace)
             .glassEffectTransition(.matchedGeometry)
+    }
+}
+
+/// The attachments menu, isolated behind `Equatable` so the bar's re-renders
+/// can't touch it while it is presented. SwiftUI pushes a rebuilt menu into a
+/// visible menu on every re-evaluation of this subtree, and UIKit throws
+/// (`UIFocusSystem` inconsistency) if such a push lands right as hardware-
+/// keyboard focus settles on a menu row - which is exactly what happens when
+/// opening the menu makes the keyboard dismiss and the bar re-lay out. With
+/// `.equatable()`, the subtree only re-evaluates when the menu's actual
+/// content changes.
+private struct AttachmentsMenuControl: View, Equatable {
+    let offeredActions: [ComposerAttachmentAction]
+    let disabledActions: Set<ComposerAttachmentAction>
+    let isDisabled: Bool
+    let onSelect: (ComposerAttachmentAction) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.offeredActions == rhs.offeredActions &&
+            lhs.disabledActions == rhs.disabledActions &&
+            lhs.isDisabled == rhs.isDisabled
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(offeredActions) { action in
+                row(for: action)
+            }
+        } label: {
+            Color.clear
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+        }
+        .menuOrder(.fixed)
+        .accessibilityLabel("Show attachments")
+        .accessibilityIdentifier("attachments-button")
+        .disabled(isDisabled)
+    }
+
+    /// One row of the menu. Rows the composer can't offer right now are greyed
+    /// rather than dropped, so the list doesn't change length as attachments
+    /// come and go.
+    private func row(for action: ComposerAttachmentAction) -> some View {
+        let select = { onSelect(action) }
+        return Button(action: select) {
+            Text(action.title)
+            Image(systemName: action.iconSystemName)
+        }
+        .disabled(disabledActions.contains(action))
+        .accessibilityIdentifier("attachment-\(action.rawValue)-button")
     }
 }
 #endif
