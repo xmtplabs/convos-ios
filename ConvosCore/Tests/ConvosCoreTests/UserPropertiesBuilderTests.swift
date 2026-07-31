@@ -117,6 +117,7 @@ struct UserPropertiesBuilderTests {
         let builder = UserPropertiesBuilder(
             contactsRepository: contactsRepository,
             conversationsRepository: conversationsRepository,
+            accountId: "account-123",
             throttleInterval: 0.05,
             throttleQueue: DispatchQueue(label: "test.userprops")
         )
@@ -128,6 +129,7 @@ struct UserPropertiesBuilderTests {
         #expect(received)
         #expect(collector.values.first?.contactCount == 3)
         #expect(collector.values.first?.conversationCount == 2)
+        #expect(collector.values.first?.accountId == "account-123")
     }
 
     @Test("A burst of upstream changes collapses to a handful of emissions")
@@ -137,6 +139,7 @@ struct UserPropertiesBuilderTests {
         let builder = UserPropertiesBuilder(
             contactsRepository: contactsRepository,
             conversationsRepository: conversationsRepository,
+            accountId: nil,
             throttleInterval: 0.2,
             throttleQueue: DispatchQueue(label: "test.userprops")
         )
@@ -171,6 +174,7 @@ struct UserPropertiesBuilderTests {
         let builder = UserPropertiesBuilder(
             contactsRepository: contactsRepository,
             conversationsRepository: conversationsRepository,
+            accountId: nil,
             throttleInterval: 0.05,
             throttleQueue: DispatchQueue(label: "test.userprops")
         )

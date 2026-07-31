@@ -5,17 +5,20 @@ import Foundation
 public final class UserPropertiesBuilder: @unchecked Sendable {
     private let contactsRepository: any ContactsRepositoryProtocol
     private let conversationsRepository: any ConversationsRepositoryProtocol
+    private let accountId: String?
     private let throttleInterval: TimeInterval
     private let throttleQueue: DispatchQueue
 
     public init(
         contactsRepository: any ContactsRepositoryProtocol,
         conversationsRepository: any ConversationsRepositoryProtocol,
+        accountId: String?,
         throttleInterval: TimeInterval = 30,
         throttleQueue: DispatchQueue = .main
     ) {
         self.contactsRepository = contactsRepository
         self.conversationsRepository = conversationsRepository
+        self.accountId = accountId
         self.throttleInterval = throttleInterval
         self.throttleQueue = throttleQueue
     }
@@ -30,8 +33,8 @@ public final class UserPropertiesBuilder: @unchecked Sendable {
         contactsRepository.contactsPublisher
             .combineLatest(conversationsRepository.conversationsPublisher)
             .throttle(for: .seconds(throttleInterval), scheduler: throttleQueue, latest: true)
-            .map { contacts, conversations in
-                Self.makeProperties(contacts: contacts, conversations: conversations)
+            .map { [accountId] contacts, conversations in
+                Self.makeProperties(contacts: contacts, conversations: conversations, accountId: accountId)
             }
             .removeDuplicates(by: Self.isEffectivelyEqual)
             .eraseToAnyPublisher()
@@ -54,7 +57,8 @@ public final class UserPropertiesBuilder: @unchecked Sendable {
 
     private static func makeProperties(
         contacts: [Contact],
-        conversations: [Conversation]
+        conversations: [Conversation],
+        accountId: String?
     ) -> UserProperties {
         let now: Date = Date()
         let cutoff24h: Date = now.addingTimeInterval(-24 * 60 * 60)
@@ -86,7 +90,8 @@ public final class UserPropertiesBuilder: @unchecked Sendable {
             assistantConversationCount: agentConversations.count,
             conversationCount24Hours: conversationCount24Hours,
             conversationCount7Days: conversationCount7Days,
-            maxActiveConvoAge: maxActiveConvoAge
+            maxActiveConvoAge: maxActiveConvoAge,
+            accountId: accountId
         )
     }
 }
