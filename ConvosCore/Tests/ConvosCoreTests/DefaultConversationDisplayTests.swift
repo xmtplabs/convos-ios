@@ -540,11 +540,49 @@ struct DefaultConversationDisplayTests {
             )
         ]
         let conversation = Conversation.mock(name: nil, members: members)
-        if case .clustered(let profiles) = conversation.avatarType {
-            #expect(profiles.contains { $0.profileEmoji == "🦊" })
+        if case .clustered(let members) = conversation.avatarType {
+            #expect(members.contains { $0.profile.profileEmoji == "🦊" })
         } else {
             #expect(Bool(false), "Expected clustered avatar type when a member has an emoji avatar")
         }
+    }
+
+    @Test("avatarType carries each member's verification into the cluster")
+    func avatarTypeClusterPreservesAgentVerification() {
+        // The clustered group avatar must thread each member's verification
+        // through so a verified agent's emoji sub-avatar renders with its
+        // agent background color instead of the plain unverified fill.
+        let members = [
+            ConversationMember.mock(isCurrentUser: true, name: "You"),
+            ConversationMember(
+                profile: Profile(
+                    inboxId: "agent1",
+                    conversationId: "test-conv",
+                    name: "Convos Agent",
+                    avatar: nil,
+                    isAgent: true,
+                    metadata: ["emoji": .string("🤖")]
+                ),
+                role: .member,
+                isCurrentUser: false,
+                isAgent: true,
+                agentVerification: .verified(.convos)
+            ),
+            ConversationMember(
+                profile: Profile(inboxId: "human1", conversationId: "test-conv", name: "Bob", avatar: nil, metadata: ["emoji": .string("🦊")]),
+                role: .member,
+                isCurrentUser: false
+            )
+        ]
+        let conversation = Conversation.mock(name: nil, members: members)
+        guard case .clustered(let clusterMembers) = conversation.avatarType else {
+            #expect(Bool(false), "Expected clustered avatar type for a group with member avatars")
+            return
+        }
+        let agent = clusterMembers.first { $0.profile.inboxId == "agent1" }
+        #expect(agent?.agentVerification == .verified(.convos))
+        let human = clusterMembers.first { $0.profile.inboxId == "human1" }
+        #expect(human?.agentVerification == .unverified)
     }
 
     @Test("avatarType clusters a group with member avatars even when a conversation emoji is seeded")
@@ -602,8 +640,8 @@ struct DefaultConversationDisplayTests {
             wasCreatedFromAgentBuilder: false
         )
 
-        if case .clustered(let profiles) = conversation.avatarType {
-            #expect(profiles.count == 2)
+        if case .clustered(let members) = conversation.avatarType {
+            #expect(members.count == 2)
         } else {
             #expect(Bool(false), "Expected clustered avatar type - a seeded conversation emoji must not suppress the member cluster")
         }
