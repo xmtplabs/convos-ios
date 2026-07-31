@@ -123,8 +123,8 @@ public struct ConversationAvatarView: View {
             } else {
                 MonogramView(name: profile.displayName, agentVerification: verification, size: size)
             }
-        case .clustered(let profiles):
-            ClusteredAvatarView(profiles: profiles, size: size)
+        case .clustered(let members):
+            ClusteredAvatarView(members: members, size: size)
         case .emoji(let emoji):
             EmojiAvatarView(emoji: emoji, size: size)
         case .monogram(let name):
