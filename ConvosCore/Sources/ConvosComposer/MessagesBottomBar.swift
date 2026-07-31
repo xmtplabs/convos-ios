@@ -574,22 +574,35 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         return disabled
     }
 
-    /// The `+` that opens the attachments menu. A system menu rather than a
+    /// The `+` as it appears inside the input field: just the glyph, inert. The
+    /// tappable control is `attachmentsControl`, overlaid in the same spot -
+    /// the glyph and the control are split because each needs a different side
+    /// of the field's glass. The glyph must live under it, on the capsule's own
+    /// surface, or it renders washed out; the menu's button must live outside
+    /// it, or the system opens the menu by morphing the whole capsule rather
+    /// than growing a card from the `+` alone.
+    private var attachmentsGlyph: some View {
+        let glyphOpacity: Double = pinsExpandedInput ? 0.4 : 1.0
+        return Image(systemName: "plus")
+            .font(.system(size: 18.0, weight: .medium))
+            .foregroundStyle(Color.colorTextPrimary)
+            .frame(width: 32, height: 32)
+            .opacity(glyphOpacity)
+    }
+
+    /// The control that opens the attachments menu: an invisible hit target
+    /// floating right over `attachmentsGlyph`. A system menu rather than a
     /// hand-rolled card: it presents in its own window, so the bar's bounds
     /// can't clip it, and the spring, haptic, dimming, and drag-to-select all
-    /// come with it. It sits inside the input field as a leading accessory, so
-    /// it is drawn bare: the field's own capsule is the surface it belongs to.
+    /// come with it.
     @ViewBuilder
     private var attachmentsControl: some View {
-        let buttonOpacity: Double = messagesTextFieldEnabled && !pinsExpandedInput ? 1.0 : 0.4
         Menu {
             ForEach(offeredAttachmentActions) { action in
                 attachmentMenuRow(for: action)
             }
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 18.0, weight: .medium))
-                .foregroundStyle(Color.colorTextPrimary)
+            Color.clear
                 .frame(width: 32, height: 32)
                 .contentShape(.circle)
         }
@@ -597,7 +610,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         .accessibilityLabel("Show attachments")
         .accessibilityIdentifier("attachments-button")
         .disabled(pinsExpandedInput)
-        .opacity(buttonOpacity)
     }
 
     /// One row of the menu. Rows the composer can't offer right now are greyed
@@ -654,7 +666,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 onClearMediaAttachment: onClearMediaAttachment,
                 fileAttachmentPreview: fileAttachmentPreview,
                 agentShareChip: agentShareChip,
-                attachmentsButton: { attachmentsControl }
+                attachmentsButton: { attachmentsGlyph }
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
@@ -662,6 +674,10 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
             .glassEffectID("input", in: namespace)
             .glassEffectTransition(.matchedGeometry)
+            .overlay(alignment: .bottomLeading) {
+                attachmentsControl
+                    .padding(DesignConstants.Spacing.step2x)
+            }
         }
         .disabled(!messagesTextFieldEnabled)
     }
