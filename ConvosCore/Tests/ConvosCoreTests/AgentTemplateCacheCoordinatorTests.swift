@@ -91,4 +91,114 @@ struct AgentTemplateCacheCoordinatorTests {
 
         coordinator.stop()
     }
+
+    /// Stub API client that always fails template fetches with a fixed error.
+    private final class FailingTemplateAPIClient: TestStubAPIClient, @unchecked Sendable {
+        private let calls: OSAllocatedUnfairLock<[String]> = .init(initialState: [])
+        private let error: any Error
+        var count: Int { calls.withLock { $0.count } }
+
+        init(throwing error: any Error) {
+            self.error = error
+        }
+
+        override func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
+            calls.withLock { $0.append(idOrUrlSlug) }
+            throw error
+        }
+    }
+
+    @Test("a 404ed template is never refetched, even as contact writes re-fire the observation")
+    func notFoundIsPermanent() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let apiClient = FailingTemplateAPIClient(throwing: APIError.notFound)
+        let cacheWriter = AgentTemplateCacheWriter(databaseWriter: dbManager.dbWriter)
+        let coordinator = AgentTemplateCacheCoordinator(
+            databaseReader: dbManager.dbReader,
+            apiClient: apiClient,
+            cacheWriter: cacheWriter,
+            retryCooldown: 0
+        )
+
+        try await dbManager.dbWriter.write { db in
+            try self.insertAgentContact(db, inboxId: "agent-a", templateId: "tmpl-deleted")
+        }
+
+        coordinator.start()
+
+        let fetchedOnce = await waitUntil(.seconds(20)) { apiClient.count >= 1 }
+        #expect(fetchedOnce, "the first observation should attempt the fetch")
+
+        // A contact write re-fires the observation with the same uncached id;
+        // the 404 memory must keep it from refetching. Cooldown is zero, so
+        // only the deleted-template set can be responsible for the skip.
+        try await dbManager.dbWriter.write { db in
+            try self.insertAgentContact(db, inboxId: "agent-b", templateId: "tmpl-deleted")
+        }
+        try await Task.sleep(for: .seconds(2))
+
+        #expect(apiClient.count == 1, "a deleted template must not be refetched")
+        coordinator.stop()
+    }
+
+    @Test("a transiently failing template is skipped while its cooldown is running")
+    func transientFailureCoolsDown() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let apiClient = FailingTemplateAPIClient(throwing: APIError.serverError(nil))
+        let cacheWriter = AgentTemplateCacheWriter(databaseWriter: dbManager.dbWriter)
+        let coordinator = AgentTemplateCacheCoordinator(
+            databaseReader: dbManager.dbReader,
+            apiClient: apiClient,
+            cacheWriter: cacheWriter,
+            retryCooldown: 3600
+        )
+
+        try await dbManager.dbWriter.write { db in
+            try self.insertAgentContact(db, inboxId: "agent-a", templateId: "tmpl-flaky")
+        }
+
+        coordinator.start()
+
+        let fetchedOnce = await waitUntil(.seconds(20)) { apiClient.count >= 1 }
+        #expect(fetchedOnce, "the first observation should attempt the fetch")
+
+        try await dbManager.dbWriter.write { db in
+            try self.insertAgentContact(db, inboxId: "agent-b", templateId: "tmpl-flaky")
+        }
+        try await Task.sleep(for: .seconds(2))
+
+        #expect(apiClient.count == 1, "a transient failure must not be retried within its cooldown")
+        coordinator.stop()
+    }
+
+    @Test("a transiently failing template is retried once its cooldown has elapsed")
+    func transientFailureRetriesAfterCooldown() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let apiClient = FailingTemplateAPIClient(throwing: APIError.serverError(nil))
+        let cacheWriter = AgentTemplateCacheWriter(databaseWriter: dbManager.dbWriter)
+        let coordinator = AgentTemplateCacheCoordinator(
+            databaseReader: dbManager.dbReader,
+            apiClient: apiClient,
+            cacheWriter: cacheWriter,
+            retryCooldown: 0
+        )
+
+        try await dbManager.dbWriter.write { db in
+            try self.insertAgentContact(db, inboxId: "agent-a", templateId: "tmpl-flaky")
+        }
+
+        coordinator.start()
+
+        let fetchedOnce = await waitUntil(.seconds(20)) { apiClient.count >= 1 }
+        #expect(fetchedOnce, "the first observation should attempt the fetch")
+
+        // With a zero cooldown the next observation fire may retry the id.
+        try await dbManager.dbWriter.write { db in
+            try self.insertAgentContact(db, inboxId: "agent-b", templateId: "tmpl-flaky")
+        }
+
+        let retried = await waitUntil(.seconds(20)) { apiClient.count >= 2 }
+        #expect(retried, "an elapsed cooldown must allow the retry")
+        coordinator.stop()
+    }
 }
