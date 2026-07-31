@@ -73,7 +73,7 @@ You have direct access to simulator tools for interacting with the Convos iOS ap
 
 - **Double-tap** (e.g., to react to a message with ❤️): Run two `idb` taps in parallel. First find the element's center coordinates, then:
   ```bash
-  IDB=/Users/jarod/Library/Python/3.9/bin/idb
+  IDB=$(command -v idb)
   UDID=<simulator-udid>
   $IDB ui tap <x> <y> --udid $UDID & $IDB ui tap <x> <y> --udid $UDID & wait
   ```
