@@ -913,10 +913,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isUnused: false,
             hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
             isAgentDm: metadata.isAgentDm,
-            // Best-effort: libxmtp throws rather than returning empty when a
-            // group has no adder (one we created ourselves), and a read
-            // failure must not sink the whole conversation write. The save
-            // path preserves any previously stored value when this is nil.
+            // nil covers both "no adder" (a group we created - libxmtp stores
+            // an empty string) and "the read failed", because neither is
+            // something to persist: we only ever record an adder we actually
+            // resolved. A read failure must not sink the whole conversation
+            // write, and the save path preserves any previously stored value
+            // when this is nil, so a transient failure can't erase one either.
+            // The trust decision keeps the two apart - see
+            // `StreamProcessor.resolveAdder`.
             addedById: (try? conversation.addedByInboxId()).flatMap { $0.isEmpty ? nil : $0 }
         )
     }

@@ -789,11 +789,70 @@ actor StreamProcessor: StreamProcessorProtocol {
         _ conversation: XMTPiOS.Group,
         creatorInboxId: String
     ) async throws -> Bool {
-        // libxmtp throws rather than returning empty when there is no adder
-        // (a group we created). Degrading to nil falls back to creator-only,
-        // which is the pre-`addedByInboxId` behavior.
-        let addedByInboxId: String? = (try? conversation.addedByInboxId()).flatMap { $0.isEmpty ? nil : $0 }
-        let inboxIds: [String] = [addedByInboxId, creatorInboxId].compactMap { $0 }
+        try await Self.contactsVouch(
+            adder: Self.resolveAdder(conversation),
+            creatorInboxId: creatorInboxId,
+            databaseReader: databaseReader
+        )
+    }
+
+    /// Outcome of looking up who added the local user to a group. `.none` and
+    /// `.unresolved` are deliberately distinct: "nobody added us" is a fact we
+    /// can act on, while "the lookup failed" means we know nothing. Collapsing
+    /// them lets a failed read pass as a self-created group, which would let a
+    /// blocked inviter's welcome through on the creator's contact status alone.
+    enum AdderResolution: Equatable {
+        /// The adder is known.
+        case known(String)
+        /// There is genuinely no adder - a group the local user created.
+        case none
+        /// The lookup itself failed. We don't know who invited us.
+        case unresolved
+    }
+
+    /// Who added the local user to `conversation`.
+    ///
+    /// `addedByInboxId()` is a local libxmtp read of a NOT NULL column
+    /// (`added_by_inbox_id`), so an empty string is the genuine "no adder"
+    /// signal and it throws only when the lookup fails (a storage error, or
+    /// the group row is missing). Never rethrows - a failed read must not
+    /// sink the welcome - but the failure is reported as `.unresolved` so
+    /// trust decisions can fail closed.
+    static func resolveAdder(_ conversation: XMTPiOS.Group) -> AdderResolution {
+        do {
+            let addedByInboxId = try conversation.addedByInboxId()
+            return addedByInboxId.isEmpty ? .none : .known(addedByInboxId)
+        } catch {
+            Log.warning(
+                "addedByInboxId failed for \(conversation.id); treating adder as unresolved: \(error.localizedDescription)"
+            )
+            return .unresolved
+        }
+    }
+
+    /// The trust decision itself, split out from the XMTP read so it can be
+    /// exercised without a live client.
+    ///
+    /// An `.unresolved` adder never vouches: we can't rule out that a blocked
+    /// inbox invited us, so we decline to consent on the user's behalf rather
+    /// than fall back to the creator's contact status. The conversation is
+    /// still persisted, just left at `.unknown` (hidden), and the next store
+    /// re-reads the adder - `ConversationWriter` runs on every welcome and
+    /// message - so a transient failure resolves itself.
+    static func contactsVouch(
+        adder: AdderResolution,
+        creatorInboxId: String,
+        databaseReader: any DatabaseReader
+    ) async throws -> Bool {
+        let inboxIds: [String]
+        switch adder {
+        case .unresolved:
+            return false
+        case .none:
+            inboxIds = [creatorInboxId]
+        case let .known(addedByInboxId):
+            inboxIds = [addedByInboxId, creatorInboxId]
+        }
 
         return try await databaseReader.read { db in
             let contacts = try DBContact
