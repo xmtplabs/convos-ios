@@ -913,15 +913,20 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isUnused: false,
             hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
             isAgentDm: metadata.isAgentDm,
-            // nil covers both "no adder" (a group we created - libxmtp stores
-            // an empty string) and "the read failed", because neither is
-            // something to persist: we only ever record an adder we actually
-            // resolved. A read failure must not sink the whole conversation
-            // write, and the save path preserves any previously stored value
-            // when this is nil, so a transient failure can't erase one either.
-            // The trust decision keeps the two apart - see
-            // `StreamProcessor.resolveAdder`.
-            addedById: (try? conversation.addedByInboxId()).flatMap { $0.isEmpty ? nil : $0 }
+            // Shares one definition of the empty-vs-throw semantics with the
+            // consent gate (`StreamProcessor.contactsVouch`), and logs rather
+            // than silently flattening a failed read.
+            //
+            // nil here covers both "no adder" and "the read failed", because
+            // neither is something to record - we only persist an adder we
+            // actually resolved. A read failure must not sink the whole
+            // conversation write, and the save path preserves any previously
+            // stored value when this is nil, so a failure can't erase one. On a
+            // brand-new row there is nothing to preserve, so a failure leaves
+            // `addedById` nil until the next store re-reads it (every welcome
+            // and catch-up runs through here) - during that window the consent
+            // reconciler and the block demote see no inviter for this row.
+            addedById: conversation.resolvedAdder().knownInboxId
         )
     }
 

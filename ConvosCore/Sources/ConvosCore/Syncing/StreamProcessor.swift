@@ -790,44 +790,10 @@ actor StreamProcessor: StreamProcessorProtocol {
         creatorInboxId: String
     ) async throws -> Bool {
         try await Self.contactsVouch(
-            adder: Self.resolveAdder(conversation),
+            adder: conversation.resolvedAdder(),
             creatorInboxId: creatorInboxId,
             databaseReader: databaseReader
         )
-    }
-
-    /// Outcome of looking up who added the local user to a group. `.none` and
-    /// `.unresolved` are deliberately distinct: "nobody added us" is a fact we
-    /// can act on, while "the lookup failed" means we know nothing. Collapsing
-    /// them lets a failed read pass as a self-created group, which would let a
-    /// blocked inviter's welcome through on the creator's contact status alone.
-    enum AdderResolution: Equatable {
-        /// The adder is known.
-        case known(String)
-        /// There is genuinely no adder - a group the local user created.
-        case none
-        /// The lookup itself failed. We don't know who invited us.
-        case unresolved
-    }
-
-    /// Who added the local user to `conversation`.
-    ///
-    /// `addedByInboxId()` is a local libxmtp read of a NOT NULL column
-    /// (`added_by_inbox_id`), so an empty string is the genuine "no adder"
-    /// signal and it throws only when the lookup fails (a storage error, or
-    /// the group row is missing). Never rethrows - a failed read must not
-    /// sink the welcome - but the failure is reported as `.unresolved` so
-    /// trust decisions can fail closed.
-    static func resolveAdder(_ conversation: XMTPiOS.Group) -> AdderResolution {
-        do {
-            let addedByInboxId = try conversation.addedByInboxId()
-            return addedByInboxId.isEmpty ? .none : .known(addedByInboxId)
-        } catch {
-            Log.warning(
-                "addedByInboxId failed for \(conversation.id); treating adder as unresolved: \(error.localizedDescription)"
-            )
-            return .unresolved
-        }
     }
 
     /// The trust decision itself, split out from the XMTP read so it can be
