@@ -210,10 +210,14 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addProfilePublishJobProfileUpdatedAt", migrate: Self.addProfilePublishJobProfileUpdatedAt)
         migrator.registerMigration("addConversationLastMessagePointers", migrate: Self.addConversationLastMessagePointers)
 
-        // Must stay last: this migration was appended after the two above landed
-        // on dev, so existing installs applied those first. Registering it ahead
-        // of them re-triggers the erase described above.
+        // Appended after the two above landed on dev, so existing installs
+        // applied those first. Registering it ahead of them re-triggers the
+        // erase described above.
         Self.registerAgentDmMigrations(on: &migrator)
+
+        // Must stay last: shipped after the agent-DM migration, so installs on
+        // dev already applied that one.
+        migrator.registerMigration("addConversationAddedById", migrate: Self.addConversationAddedById)
 
         return migrator
     }
@@ -394,6 +398,28 @@ extension SharedDatabaseMigrator {
                 ORDER BY dateNs DESC LIMIT 1
             )
             """)
+    }
+
+    /// Records the XMTP welcome sender (`Group.addedByInboxId()`) on the
+    /// conversation row.
+    ///
+    /// `creatorId` is the group's original creator, which is *not* necessarily
+    /// whoever invited the local user: anyone with add permission can pull a
+    /// new member into a group somebody else created. Consent for an inbound
+    /// welcome (`StreamProcessor`), the consent reconciler, and the
+    /// block-driven demote all keyed on `creatorId` alone, so a contact adding
+    /// you to a stranger's group left the conversation at `.unknown` -
+    /// persisted, but invisible in the `.allowed`-scoped feed, and eventually
+    /// reclaimed by the stale-stranger GC.
+    ///
+    /// NULL for self-created conversations and for every row written before
+    /// this migration; those backfill naturally, since `ConversationWriter`
+    /// rebuilds the row from XMTP on the conversation's next inbound welcome
+    /// or message.
+    static func addConversationAddedById(_ db: Database) throws {
+        try db.alter(table: "conversation") { t in
+            t.add(column: "addedById", .text)
+        }
     }
 
     private static let conversationPointerExcludedContentTypes: String = """
@@ -1245,27 +1271,6 @@ extension SharedDatabaseMigrator {
     private static func registerAgentTemplateContactMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("createAgentTemplateContactTable") { db in
             try SharedDatabaseMigrator.createAgentTemplateContactSchema(db)
-        }
-
-        // `creatorId` is the group's original creator, which is *not*
-        // necessarily whoever invited the local user: anyone with add
-        // permission can pull a new member into a group somebody else
-        // created. Consent for an inbound welcome (`StreamProcessor`), the
-        // consent reconciler, and the block-driven demote all keyed on
-        // `creatorId` alone, so a contact adding you to a stranger's group
-        // left the conversation at `.unknown` — persisted, but invisible in
-        // the `.allowed`-scoped feed, and eventually reclaimed by the
-        // stale-stranger GC.
-        //
-        // `addedById` records the XMTP welcome sender
-        // (`Group.addedByInboxId()`). NULL for self-created conversations
-        // and for every row written before this migration; those backfill
-        // naturally, since `ConversationWriter` rebuilds the row from XMTP
-        // on the conversation's next inbound welcome or message.
-        migrator.registerMigration("addConversationAddedById") { db in
-            try db.alter(table: "conversation") { t in
-                t.add(column: "addedById", .text)
-            }
         }
     }
 
