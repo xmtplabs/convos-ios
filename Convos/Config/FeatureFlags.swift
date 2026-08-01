@@ -50,19 +50,30 @@ final class FeatureFlags {
         }
     }
 
-    /// Off by default -- gates the per-conversation agent participation control
-    /// ("Listen"): Speak freely / Mentions only / Paused. Toggle from
-    /// App Settings -> Debug in non-production builds, or from the curated prod
-    /// debug menu in production. Deliberately not prod-locked like the flags
-    /// above: the control is opt-in per install and exists to dogfood Listen in
-    /// TestFlight. Default-off keeps it out of every other build.
+    /// Gates the per-conversation agent participation control ("Listen"):
+    /// Speak freely / Mentions only / Paused. Toggle from App Settings -> Debug
+    /// in non-production builds, or from the curated prod debug menu in
+    /// production. Deliberately not prod-locked like the flags above: the
+    /// control is reachable everywhere so Listen can be dogfooded in TestFlight.
+    ///
+    /// The default follows the build: on for the internal Dev/local builds that
+    /// ship to TestFlight, off for production, so end users still have to opt in
+    /// from the prod debug menu. An explicit toggle in either direction is
+    /// remembered and wins over the default.
     var isListenParticipationEnabled: Bool {
         get {
-            return UserDefaults.standard.bool(forKey: Constant.listenParticipationEnabledKey)
+            guard let stored = UserDefaults.standard.object(forKey: Constant.listenParticipationEnabledKey) as? Bool else {
+                return Self.listenParticipationDefault
+            }
+            return stored
         }
         set {
             UserDefaults.standard.set(newValue, forKey: Constant.listenParticipationEnabledKey)
         }
+    }
+
+    private static var listenParticipationDefault: Bool {
+        !ConfigManager.shared.currentEnvironment.isProduction
     }
 
     /// Off by default -- opts libxmtp streams onto the shared bidi wire by
