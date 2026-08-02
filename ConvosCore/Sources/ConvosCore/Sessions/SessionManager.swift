@@ -69,7 +69,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let notificationChangeReporter: any NotificationChangeReporterType
     private let platformProviders: PlatformProviders
     private let apiClient: any ConvosAPIClientProtocol
-    private let unusedConversationCache: any UnusedConversationCacheProtocol
+    let unusedConversationCache: any UnusedConversationCacheProtocol
+    let defaultAgentCoordinator: DefaultConversationAgentCoordinator = DefaultConversationAgentCoordinator()
     private let agentTemplateRepositoryInstance: any AgentTemplateRepositoryProtocol
 
     /// Single-inbox means a single cached `MessagingService`. The lock
@@ -142,6 +143,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         observe()
         wireAgentTemplateRepository()
+        wireDefaultAgentProvisioner()
 
         guard mode == .fullApp else {
             // Clip bootstrap: skip everything below. The clip writes the
@@ -466,6 +468,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         let conversationId = await unusedConversationCache.consumeUnusedConversationId(
             databaseWriter: databaseWriter
         )
+        if let conversationId {
+            // Claim-time backstop: cache-time provisioning is best-effort, so
+            // re-ensure the default agent on the way out. Fire-and-forget; the
+            // ready signal sent at commit awaits the shared provision task.
+            Task { [weak self] in
+                await self?.ensureDefaultAgentInConversation(id: conversationId)
+            }
+        }
         await unusedConversationCache.prepareUnusedConversation(
             service: service,
             databaseWriter: databaseWriter,
@@ -480,6 +490,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             id: conversationId,
             databaseWriter: databaseWriter
         )
+        // The user has entered the conversation - cue the pre-added default
+        // agent to send its greeting. Fire-and-forget so committing never
+        // blocks on the network.
+        Task { [weak self] in
+            await self?.sendConversationReadySignalIfNeeded(conversationId: conversationId)
+        }
     }
 
     public func releaseClaimedConversation(id conversationId: String) async {

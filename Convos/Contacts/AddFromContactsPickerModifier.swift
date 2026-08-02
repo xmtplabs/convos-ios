@@ -30,15 +30,13 @@ extension View {
         viewModel: ConversationViewModel,
         isPresented: Binding<Bool>,
         onInviteShared: (() -> Void)? = nil,
-        onPresentShareOverlay: (() -> Void)? = nil,
-        onPresentAgentBuilder: (() -> Void)? = nil
+        onPresentShareOverlay: (() -> Void)? = nil
     ) -> some View {
         modifier(AddFromContactsPickerModifier(
             viewModel: viewModel,
             isPresented: isPresented,
             onInviteShared: onInviteShared,
-            onPresentShareOverlay: onPresentShareOverlay,
-            onPresentAgentBuilder: onPresentAgentBuilder
+            onPresentShareOverlay: onPresentShareOverlay
         ))
     }
 }
@@ -60,14 +58,6 @@ private struct AddFromContactsPickerModifier: ViewModifier {
     /// invisible. The initial segment is set on
     /// `viewModel.shareViewInitialSegment` before this fires.
     let onPresentShareOverlay: (() -> Void)?
-    /// Presents the agent builder for the surface hosting this picker.
-    /// Nil (the chat surface) calls `viewModel.presentAgentBuilder()`, which
-    /// drives the chat view's builder sheet. Surfaces that are themselves
-    /// presented sheets (`ConversationInfoView`, `ConversationMembersListView`)
-    /// pass a closure that drives their own local builder sheet instead --
-    /// the chat view's sheet would present beneath the still-visible sheet.
-    /// Mirrors `onPresentShareOverlay`.
-    let onPresentAgentBuilder: (() -> Void)?
 
     @State private var errorMessage: String?
     @State private var presentingError: Bool = false
@@ -100,7 +90,6 @@ private struct AddFromContactsPickerModifier: ViewModifier {
             title: "Invite",
             onShowInviteCode: handleShowInviteCode,
             onSendInvite: handleSendInvite,
-            onMakeAgent: handleMakeAgent,
             onScanInvite: handleScanInvite,
             onConfirm: handleConfirm
         )
@@ -168,15 +157,6 @@ private struct AddFromContactsPickerModifier: ViewModifier {
         guard !viewModel.conversation.isFull else { return }
         guard !viewModel.invite.isEmpty else { return }
         presentingShareSheet = true
-    }
-
-    private func handleMakeAgent() {
-        isPresented = false
-        if let onPresentAgentBuilder {
-            onPresentAgentBuilder()
-        } else {
-            viewModel.presentAgentBuilder()
-        }
     }
 
     private func handleConfirm(_ inboxIds: Set<String>, _ agentTemplateIds: [String]) {

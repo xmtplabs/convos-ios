@@ -15,7 +15,6 @@ extension MainTabView {
         let contactsPushedItemId: String?
         let presentingAppSettings: Bool
         let selectedConversationId: String?
-        let agentBuilderPresenting: Bool
         let newConversationPresenting: Bool
 
         let onActiveTabChanged: (ConvosTab, ConvosTab) -> Void
@@ -24,7 +23,6 @@ extension MainTabView {
         let onContactsPushChanged: (String?, String?) -> Void
         let onAppSettingsPresented: (Bool) -> Void
         let onSelectedConversationChanged: (String?, String?) -> Void
-        let onAgentBuilderPresented: (Bool, Bool) -> Void
         let onNewConversationPresented: (Bool, Bool) -> Void
 
         func body(content: Content) -> some View {
@@ -35,7 +33,6 @@ extension MainTabView {
                 .onChange(of: contactsPushedItemId) { o, n in onContactsPushChanged(o, n) }
                 .onChange(of: presentingAppSettings) { _, n in onAppSettingsPresented(n) }
                 .onChange(of: selectedConversationId) { o, n in onSelectedConversationChanged(o, n) }
-                .onChange(of: agentBuilderPresenting) { o, n in onAgentBuilderPresented(n, o) }
                 .onChange(of: newConversationPresenting) { o, n in onNewConversationPresented(n, o) }
         }
     }

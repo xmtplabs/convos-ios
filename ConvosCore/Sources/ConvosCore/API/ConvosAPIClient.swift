@@ -1239,7 +1239,11 @@ extension ConvosAPIClient {
         // Prod backstop: strip a leaked dev variant slug from the join options
         // before the body is encoded.
         let safeOptions = joinRequest.options.map {
-            ConvosAPI.AgentJoinOptions(onboarding: $0.onboarding, variantId: prodSafeVariantId($0.variantId))
+            ConvosAPI.AgentJoinOptions(
+                onboarding: $0.onboarding,
+                variantId: prodSafeVariantId($0.variantId),
+                skipGreeting: $0.skipGreeting
+            )
         }
         request.httpBody = try JSONEncoder().encode(
             ConvosAPI.AgentJoinRequest(

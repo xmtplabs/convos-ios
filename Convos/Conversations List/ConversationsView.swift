@@ -80,11 +80,11 @@ struct ConversationsView: View {
     }
 
     /// Empty chats state: the new-user CTA (animated mock conversations,
-    /// headline, "Make an agent", "Explore agents in Contacts"). The Make
-    /// button opens the same agent-builder sheet the builder bar opens.
+    /// headline, "New convo", "Explore agents in Contacts"). The button opens
+    /// the same compose flow the toolbar's Compose button opens.
     var emptyConversationsView: some View {
         ConversationsEmptyStateView(
-            onMakeAgent: { viewModel.onStartAgent() },
+            onStartConvo: { viewModel.onStartConvo() },
             onExploreAgents: onExploreAgents
         )
     }

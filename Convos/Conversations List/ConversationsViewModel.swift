@@ -156,23 +156,6 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
-    var agentBuilderViewModel: AgentBuilderViewModel? {
-        didSet {
-            // Mirrors `newConversationViewModel.didSet`'s cleanup: when
-            // an Agent Builder VM is dropped without committing (e.g.
-            // the host view sets this to nil on tab swap), discard the
-            // outgoing one so its draft XMTP group is torn down. Skip
-            // when the user committed — that conversation has shipped
-            // and should stay on the server.
-            if let outgoing = oldValue,
-               oldValue !== agentBuilderViewModel,
-               !outgoing.hasCommitted,
-               !outgoing.didDiscard {
-                outgoing.discard()
-            }
-            updateListVisibility()
-        }
-    }
     /// Drives the Compose flow sheet (`ComposeFlowView`): the contacts picker
     /// is the root, and every conversation is minted on intent inside the flow
     /// (Continue / Send-invite / Show-code) -- nothing is claimed just by
@@ -400,7 +383,6 @@ final class ConversationsViewModel {
         let isFocusedOnList = isVisible
             && selectedConversationViewModel == nil
             && newConversationViewModel == nil
-            && agentBuilderViewModel == nil
         session.setIsOnConversationsList(isFocusedOnList)
     }
 
@@ -455,23 +437,10 @@ final class ConversationsViewModel {
 
     /// Compose opens the contacts picker first (optional selection); the flow
     /// mints a conversation only on intent (`ComposeFlowView`), so opening and
-    /// cancelling the picker claims nothing. With no contacts to pick from,
-    /// the picker would be pointless -- so we skip it and open the
-    /// new-conversation view directly, like the pre-picker flow.
+    /// cancelling the picker claims nothing. Shown even with no contacts: the
+    /// picker's invite actions and the "New convo / Invite friends later"
+    /// bottom button are the entry points a contactless user needs.
     func onStartConvo() {
-        // Count the contacts the picker would actually show (excludes agents,
-        // blocked, and unnamed) -- the raw contact count includes those, so
-        // it can't decide whether the picker is worth showing.
-        let contacts = (try? session.messagingServiceSync().contactsRepository().fetchAll()) ?? []
-        let pickable = ContactsPickerViewModel.pickableContacts(contacts)
-        guard !pickable.isEmpty else {
-            newConversationViewModel = NewConversationViewModel(
-                session: session,
-                mode: .newConversation,
-                coreActions: coreActions
-            )
-            return
-        }
         presentingComposeFlow = true
     }
 
@@ -509,10 +478,6 @@ final class ConversationsViewModel {
             self?.navigateToScannedConversation(conversationId)
         }
         newConversationViewModel = viewModel
-    }
-
-    func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {
-        agentBuilderViewModel = AgentBuilderViewModel(session: session, entryMode: entryMode, coreActions: coreActions)
     }
 
     private func join(from inviteCode: String) {

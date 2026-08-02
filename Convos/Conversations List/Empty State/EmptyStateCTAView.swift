@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Shared scaffold for the new-user empty states on the Chats and Things
 /// tabs: an animated mock area on top, a headline, a subtitle, the
-/// "Make an agent" CTA, and an "Explore agents in Contacts" link.
+/// "New convo" CTA, and an "Explore agents in Contacts" link.
 ///
 /// Both tabs render this exact structure with fixed-size slots (the mock
 /// area has a fixed height and the headline reserves two lines), so
@@ -11,7 +11,7 @@ import SwiftUI
 struct EmptyStateCTAView<MockContent: View>: View {
     let headline: String
     let subtitle: String
-    let onMakeAgent: () -> Void
+    let onStartConvo: () -> Void
     var onExploreAgents: (() -> Void)?
     @ViewBuilder var mockContent: () -> MockContent
 
@@ -26,7 +26,7 @@ struct EmptyStateCTAView<MockContent: View>: View {
                 .padding(.top, DesignConstants.Spacing.step4x)
             subtitleText
                 .padding(.top, DesignConstants.Spacing.step2x)
-            makeAgentButton
+            startConvoButton
                 .padding(.top, DesignConstants.Spacing.step5x)
             exploreAgentsButton
             Spacer(minLength: 0)
@@ -61,20 +61,17 @@ struct EmptyStateCTAView<MockContent: View>: View {
             .foregroundStyle(.colorTextSecondary)
     }
 
-    private var makeAgentButton: some View {
-        Button(action: onMakeAgent) {
+    private var startConvoButton: some View {
+        Button(action: onStartConvo) {
             HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image("addAgentIcon")
-                    .renderingMode(.template)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: Constant.agentIconSize, height: Constant.agentIconSize)
-                Text("Make an agent")
+                Image(systemName: "plus")
+                    .font(.callout.weight(.medium))
+                Text("New convo")
                     .font(.callout)
             }
         }
         .convosButtonStyle(.rounded(fullWidth: false, backgroundColor: .colorLava))
-        .accessibilityIdentifier("empty-state-make-agent-button")
+        .accessibilityIdentifier("empty-state-new-convo-button")
     }
 
     @ViewBuilder
@@ -114,14 +111,14 @@ struct EmptyStateCTAView<MockContent: View>: View {
 /// rendered as a larger pinned-conversation item, each animating in an
 /// unread message.
 struct ConversationsEmptyStateView: View {
-    let onMakeAgent: () -> Void
+    let onStartConvo: () -> Void
     var onExploreAgents: (() -> Void)?
 
     var body: some View {
         EmptyStateCTAView(
             headline: "Make little agents for everyday life",
             subtitle: "To use with friends and family",
-            onMakeAgent: onMakeAgent,
+            onStartConvo: onStartConvo,
             onExploreAgents: onExploreAgents
         ) {
             EmptyStateMockConversationCarousel(mocks: EmptyStateMocksProvider.shared.conversations)
@@ -135,14 +132,14 @@ struct ConversationsEmptyStateView: View {
 /// Things-tab empty state: the mock slot cycles through mock thing cells
 /// whose previews are rendered from real example HTML files.
 struct ThingsEmptyStateView: View {
-    let onMakeAgent: () -> Void
+    let onStartConvo: () -> Void
     var onExploreAgents: (() -> Void)?
 
     var body: some View {
         EmptyStateCTAView(
             headline: "Agents make things for the chat",
             subtitle: "Plans, lists, notes, apps and more",
-            onMakeAgent: onMakeAgent,
+            onStartConvo: onStartConvo,
             onExploreAgents: onExploreAgents
         ) {
             EmptyStateMockThingCarousel(mocks: EmptyStateMocksProvider.shared.things)
@@ -154,9 +151,9 @@ struct ThingsEmptyStateView: View {
 }
 
 #Preview("Conversations") {
-    ConversationsEmptyStateView(onMakeAgent: {}, onExploreAgents: {})
+    ConversationsEmptyStateView(onStartConvo: {}, onExploreAgents: {})
 }
 
 #Preview("Things") {
-    ThingsEmptyStateView(onMakeAgent: {}, onExploreAgents: {})
+    ThingsEmptyStateView(onStartConvo: {}, onExploreAgents: {})
 }

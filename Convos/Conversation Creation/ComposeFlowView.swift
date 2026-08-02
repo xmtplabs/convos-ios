@@ -21,10 +21,10 @@ import UIKit
 //     native share sheet with its invite URL; the share outcome decides the
 //     conversation's fate (committed visible on completion, discarded on
 //     cancel). Same lifecycle the Contacts tab's top-three uses.
-//   - "Make an agent" tears down this flow and hands off to the shared
-//     `ConversationsViewModel.onStartAgent()` entry point.
-//   - Continue mints a `.newConversationWithMembers` conversation seeded with
-//     the picked contacts / agent templates and pushes it onto this stack.
+//   - The bottom CTA mints a `.newConversationWithMembers` conversation seeded
+//     with the picked contacts / agent templates (or none: the empty-selection
+//     "New convo / Invite friends later" button skips inviting entirely) and
+//     pushes it onto this stack.
 //
 // Mirrors the entry-point-map convention used by `ContactsPickerView` /
 // `ContactCardMode` (see CLAUDE.md "View Modes for Multi-Entry-Point Surfaces").
@@ -34,8 +34,9 @@ import UIKit
 /// this entirely and opens the new-conversation view directly).
 ///
 /// Step 1 is the contacts picker in `.compose` mode -- selecting contacts is
-/// optional. The bottom "Continue" button appears only once a contact is
-/// picked; an empty picker is left via the top-three invite actions or Cancel.
+/// optional. The bottom CTA is always present: with contacts picked it reads
+/// "Continue", with none it reads "New convo / Invite friends later" and
+/// skips the invite step entirely.
 ///
 /// Step 2 pushes a freshly minted conversation carrying the picked members
 /// onto this stack once Continue is tapped. The pushed view shows a close (X)
@@ -79,7 +80,6 @@ struct ComposeFlowView: View {
                 sendInviteShowsProgress: isPreparingInviteShare,
                 onShowInviteCode: handleShowInviteCode,
                 onSendInvite: handleSendInvite,
-                onMakeAgent: handleMakeAgent,
                 onConfirm: handleProceed
             )
             .navigationDestination(item: $pushedConversation) { conversationViewModel in
@@ -200,23 +200,15 @@ struct ComposeFlowView: View {
         Task { await sharedViewModel.commitConversationVisibility() }
     }
 
-    /// Make-an-agent lives behind its own sheet on `MainTabView`, which can't
-    /// present from under this sheet -- tear the compose flow down first, then
-    /// hand off to the shared entry point.
-    private func handleMakeAgent() {
-        conversationsViewModel.presentingComposeFlow = false
-        conversationsViewModel.onStartAgent()
-    }
-
-    /// Continue mints a fresh conversation seeded with the picked humans and
-    /// agent templates (`.newConversationWithMembers`, the same mode the
+    /// The bottom CTA mints a fresh conversation seeded with the picked humans
+    /// and agent templates (`.newConversationWithMembers`, the same mode the
     /// contacts-list picker confirm uses) and pushes it immediately -- the
     /// members / agents land in the open conversation a moment later, with the
     /// picked identities painted optimistically by the seeded-members
-    /// machinery. The empty-selection guard is protective only: the compose
-    /// picker shows Continue only once a contact is picked.
+    /// machinery. An empty selection is valid: the "New convo / Invite friends
+    /// later" button skips the invite step and lands straight in the
+    /// conversation, where the default agent greets.
     private func handleProceed(_ memberInboxIds: Set<String>, _ agentTemplateIds: [String]) {
-        guard !memberInboxIds.isEmpty || !agentTemplateIds.isEmpty else { return }
         discardUnenteredInviteConversation()
         pushedConversation = NewConversationViewModel(
             session: conversationsViewModel.session,

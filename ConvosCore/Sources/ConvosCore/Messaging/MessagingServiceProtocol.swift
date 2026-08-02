@@ -110,6 +110,11 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable, PostPairBroadcast
     func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws
     func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws
 
+    /// Sends the invisible `conversation_ready` signal into a conversation so
+    /// its pre-added default agent knows the user has entered and it can send
+    /// its greeting. Best-effort: failures are logged, never thrown.
+    func sendConversationReadySignal(for conversationId: String) async
+
     /// Injection point used by the in-app debug attachment tool to dispatch a synthesized
     /// `ConnectionPayload` (e.g. a fake HealthKit background update) to a conversation.
     /// Mirrors what `HealthBackgroundObserverRoutine` would send when a real observer

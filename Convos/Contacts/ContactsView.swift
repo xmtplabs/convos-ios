@@ -49,11 +49,6 @@ struct ContactsView: View {
     /// id once it appears. Used by the "See suggested agents" button in the
     /// empty Things state; consumed (set back to nil) after the scroll lands.
     private let scrollTarget: Binding<String?>?
-    /// Launches the agent builder for the "Make an agent" top-three action.
-    /// Make-agent presents from the shell (`MainTabView`), which can't be
-    /// presented from under this tab's stack, so the shell injects a closure
-    /// that calls `ConversationsViewModel.onStartAgent()`. Nil hides the row.
-    private let onMakeAgent: (() -> Void)?
     /// A code scanned inside a presented new-convo sheet resolved to a joined
     /// conversation. That conversation lives under the Chats tab, which this
     /// tab can't reach on its own, so the shell injects a closure that
@@ -77,7 +72,6 @@ struct ContactsView: View {
         showsComposeButton: Bool = true,
         suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil,
         scrollTarget: Binding<String?>? = nil,
-        onMakeAgent: (() -> Void)? = nil,
         onScanJoinedConversation: ((String) -> Void)? = nil,
         hasPushedContactDetail: Bool = false
     ) {
@@ -92,7 +86,6 @@ struct ContactsView: View {
         self.profileSettingsViewModel = profileSettingsViewModel
         self.showsComposeButton = showsComposeButton
         self.scrollTarget = scrollTarget
-        self.onMakeAgent = onMakeAgent
         self.onScanJoinedConversation = onScanJoinedConversation
         self.hasPushedContactDetail = hasPushedContactDetail
     }
@@ -297,8 +290,7 @@ struct ContactsView: View {
     /// Bundles the available top-three closures. "Show an invite code" and
     /// "Send an invite" are always available with a live session -- nothing is
     /// claimed until they're tapped, so the rows are stable from first render
-    /// (no hydration-driven flicker); "Make an agent" only when the shell
-    /// injected a launcher.
+    /// (no hydration-driven flicker).
     private var inviteActions: ContactsPickerActions? {
         var showInviteCode: (() -> Void)?
         var sendInvite: (() -> Void)?
@@ -306,11 +298,10 @@ struct ContactsView: View {
             showInviteCode = handleShowInviteCode
             sendInvite = handleSendInvite
         }
-        guard showInviteCode != nil || sendInvite != nil || onMakeAgent != nil else { return nil }
+        guard showInviteCode != nil || sendInvite != nil else { return nil }
         return ContactsPickerActions(
             onShowInviteCode: showInviteCode,
             onSendInvite: sendInvite,
-            onMakeAgent: onMakeAgent,
             sendInviteShowsProgress: isPreparingInviteShare
         )
     }

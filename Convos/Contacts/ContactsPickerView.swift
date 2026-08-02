@@ -66,7 +66,6 @@ struct ContactsPickerView: View {
     /// need the claimed conversation + invite it owns.
     let onShowInviteCode: (() -> Void)?
     let onSendInvite: (() -> Void)?
-    let onMakeAgent: (() -> Void)?
     /// Shows a trailing spinner on the "Send an invite" row while the caller
     /// prepares the invite (the row stays visible and tappable; readiness is
     /// the caller's concern, handled at tap time).
@@ -92,7 +91,6 @@ struct ContactsPickerView: View {
         sendInviteShowsProgress: Bool = false,
         onShowInviteCode: (() -> Void)? = nil,
         onSendInvite: (() -> Void)? = nil,
-        onMakeAgent: (() -> Void)? = nil,
         onScanInvite: (() -> Void)? = nil,
         onConfirm: @escaping (_ memberInboxIds: Set<String>, _ agentTemplateIds: [String]) -> Void
     ) {
@@ -109,7 +107,6 @@ struct ContactsPickerView: View {
         self.sendInviteShowsProgress = sendInviteShowsProgress
         self.onShowInviteCode = onShowInviteCode
         self.onSendInvite = onSendInvite
-        self.onMakeAgent = onMakeAgent
         self.onScanInvite = onScanInvite
         self.onConfirm = onConfirm
     }
@@ -185,6 +182,7 @@ struct ContactsPickerView: View {
                     }
                     ContactsPickerConfirmButton(
                         title: viewModel.confirmButtonTitle,
+                        subtitle: viewModel.confirmButtonSubtitle,
                         isEnabled: viewModel.canConfirm,
                         onTap: handleConfirm
                     )
@@ -203,13 +201,12 @@ struct ContactsPickerView: View {
     /// Nil when none were supplied, which hides the whole "Invite new contacts"
     /// section.
     private var pickerActions: ContactsPickerActions? {
-        guard onShowInviteCode != nil || onSendInvite != nil || onMakeAgent != nil else {
+        guard onShowInviteCode != nil || onSendInvite != nil else {
             return nil
         }
         return ContactsPickerActions(
             onShowInviteCode: onShowInviteCode,
             onSendInvite: onSendInvite,
-            onMakeAgent: onMakeAgent,
             sendInviteShowsProgress: sendInviteShowsProgress
         )
     }
@@ -512,7 +509,6 @@ private struct ContactsPickerList: View {
 struct ContactsPickerActions {
     let onShowInviteCode: (() -> Void)?
     let onSendInvite: (() -> Void)?
-    let onMakeAgent: (() -> Void)?
     /// Shows a trailing spinner on the "Send an invite" row while the caller
     /// prepares the invite (the Contacts tab mints its claimed conversation on
     /// demand, so the signed invite can lag the tap by a beat).
@@ -548,14 +544,6 @@ struct ContactsPickerActionsSection: View {
                     action: onSendInvite
                 )
             }
-            if let onMakeAgent = actions.onMakeAgent {
-                ContactsPickerActionRow(
-                    icon: .asset("addAgentIcon"),
-                    title: "Make an agent",
-                    accessibilityIdentifier: "picker-action-make-agent",
-                    action: onMakeAgent
-                )
-            }
         }
     }
 
@@ -574,21 +562,32 @@ struct ContactsPickerActionsSection: View {
 
 private struct ContactsPickerConfirmButton: View {
     let title: String
+    let subtitle: String?
     let isEnabled: Bool
     let onTap: () -> Void
 
     var body: some View {
         let backgroundOpacity: Double = isEnabled ? 1.0 : 0.4
+        let verticalPadding: CGFloat = subtitle == nil
+            ? DesignConstants.Spacing.step6x
+            : DesignConstants.Spacing.step3x
         Button(action: onTap) {
-            Text(title)
-                .font(.body)
-                .foregroundStyle(.colorTextPrimaryInverted)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, DesignConstants.Spacing.step6x)
-                .background(
-                    RoundedRectangle(cornerRadius: 32.0)
-                        .fill(.colorTextPrimary.opacity(backgroundOpacity))
-                )
+            VStack(spacing: DesignConstants.Spacing.stepX / 2) {
+                Text(title)
+                    .font(.body)
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextPrimaryInverted.opacity(0.6))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, verticalPadding)
+            .background(
+                RoundedRectangle(cornerRadius: 32.0)
+                    .fill(.colorTextPrimary.opacity(backgroundOpacity))
+            )
         }
         .disabled(!isEnabled)
         .accessibilityIdentifier("contacts-picker-confirm")
@@ -613,7 +612,6 @@ private struct ContactsPickerConfirmButton: View {
         contactsRepository: MockContactsRepository(),
         onShowInviteCode: {},
         onSendInvite: {},
-        onMakeAgent: {},
         onConfirm: { _, _ in }
     )
 }

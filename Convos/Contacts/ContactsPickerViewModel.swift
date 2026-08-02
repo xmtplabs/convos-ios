@@ -199,17 +199,28 @@ final class ContactsPickerViewModel {
         return "\(selectionCount) selected"
     }
 
+    /// Compose with nothing selected reads "New convo" (with the
+    /// "Invite friends later" subtitle) and skips straight into the
+    /// conversation; once contacts are picked it reads "Continue".
     var confirmButtonTitle: String {
+        if mode.isCompose, selectedInboxIds.isEmpty {
+            return "New convo"
+        }
         return "Continue"
     }
 
-    /// The compose picker hides its bottom CTA until something is selected --
-    /// there is no "Skip" affordance; an empty compose picker is left via the
-    /// top-three invite actions or Cancel. Other modes always show the button
-    /// (disabled until a contact is picked).
+    var confirmButtonSubtitle: String? {
+        if mode.isCompose, selectedInboxIds.isEmpty {
+            return "Invite friends later"
+        }
+        return nil
+    }
+
+    /// Every mode shows the bottom CTA. Compose shows it even with nothing
+    /// selected: the empty-selection button is the "New convo / Invite
+    /// friends later" skip affordance.
     var showsConfirmButton: Bool {
-        guard case .compose = mode else { return true }
-        return !selectedInboxIds.isEmpty
+        true
     }
 
     // MARK: - Mutations

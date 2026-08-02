@@ -179,10 +179,10 @@ struct ThingsTabView: View {
     /// New-user CTA shown while no conversation has produced things yet.
     /// Mirrors the chats-tab empty state's structure exactly (shared
     /// [[EmptyStateCTAView]] scaffold) so switching tabs never shifts the
-    /// "Make an agent" button or the surrounding components.
+    /// "New convo" button or the surrounding components.
     private var emptyState: some View {
         ThingsEmptyStateView(
-            onMakeAgent: { conversationsViewModel.onStartAgent() },
+            onStartConvo: { conversationsViewModel.onStartConvo() },
             onExploreAgents: onSeeSuggestedAgents
         )
     }

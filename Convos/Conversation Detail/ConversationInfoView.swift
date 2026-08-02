@@ -446,11 +446,7 @@ struct ConversationInfoView: View {
                 // overlay (viewModel.presentingShareView) would open beneath
                 // it, so route the picker's Show-invite-code / Scan rows to
                 // the local in-sheet overlay instead.
-                onPresentShareOverlay: { presentingShareView = true },
-                // Same stacking rule for "Make an agent": the chat view's
-                // builder sheet (viewModel.presentingAgentBuilder) would
-                // present beneath this sheet, so drive the local one.
-                onPresentAgentBuilder: presentAgentBuilderLocally
+                onPresentShareOverlay: { presentingShareView = true }
             )
             .onAppear {
                 ensureNavigator()

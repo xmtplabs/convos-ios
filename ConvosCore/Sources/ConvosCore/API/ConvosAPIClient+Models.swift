@@ -268,13 +268,28 @@ public enum ConvosAPI {
         /// joins stay byte-identical. The backend strips it before forwarding to
         /// the worker.
         public let variantId: String?
+        /// Asks the assistant runtime to hold its greeting after attaching.
+        /// The default-convo flow joins the agent into a hidden warm-cache
+        /// conversation long before the user enters it; the greeting is cued
+        /// later by the `conversation_ready` content type. Omitted from the
+        /// encoded body when `nil` so existing joins stay byte-identical.
+        public let skipGreeting: Bool?
 
-        public init(onboarding: String?, variantId: String? = nil) {
+        public init(onboarding: String?, variantId: String? = nil, skipGreeting: Bool? = nil) {
             self.onboarding = onboarding
             self.variantId = variantId
+            self.skipGreeting = skipGreeting
         }
 
         public static let agentBuilder: AgentJoinOptions = AgentJoinOptions(onboarding: "agent-builder")
+
+        /// Join options for the bare default agent pre-added to every new
+        /// conversation: no template, greeting deferred until the client sends
+        /// `conversation_ready`.
+        public static let defaultConversationAgent: AgentJoinOptions = AgentJoinOptions(
+            onboarding: "default-convo",
+            skipGreeting: true
+        )
     }
 
     public struct AgentJoinResponse: Codable {
