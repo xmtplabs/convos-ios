@@ -89,17 +89,35 @@ welcome/greeting. The signal:
 
 ## Server-side contract (convos-assistants / convos-backend)
 
-The client relies on two behaviors that need to exist in the assistant
-runtime:
+Most of what this flow needs already exists in the assistant runtime:
 
-1. `options.skipGreeting: true` on `POST /v2/agents/join` suppresses the
-   attach-time greeting (the backend's join schema already models this).
-2. On receiving a `convos.org/conversation_ready:1.0` message in a
-   conversation, the agent sends its greeting (once), and treats the
-   subsequent chat as persona-building dialogue (`onboarding:
-   "default-convo"`).
+- Bare joins are supported: the worker's `template` is optional and a
+  synthesized default template (`status: "default"`) is minted before init.
+  Provisioning is not credits-gated.
+- `options.skipGreeting` is plumbed end to end (backend join options ->
+  worker `JoinOptionsSchema` -> runtime `/convos/init`); the greeting is
+  runtime-sent (`static-greeting.eta.md`), never herald-sent.
+- `options.onboarding` is a strict two-value enum: "agent-builder" |
+  "first-impression". The client sends "agent-builder" on the bare join,
+  which arms the self-build kickoff on the user's first message (and the
+  agent-first prototype pair - convos-ios#1200 / convos-assistants#2855,
+  variant slug `pr-2855` - auto-arms it for every bare join, with richer
+  self-build greeting/kickoff templates).
 
-Until (2) ships, default agents join silently and never greet.
+What does not exist yet: any handling of `conversation_ready`. Herald drops
+all non-`xmtp.org` content types before the worker or runtime see them
+(`isDisplayableMessage` in `@xmtp/convos-cli`), so a greeting-cue handler
+needs four coordinated edits: a codec + type guard in `@xmtp/convos-cli`, a
+branch in `herald-lite/src/agent-streamer/router.ts`, an event variant in
+`herald-lite/src/webhooks/index.ts`, and a handler in the Hermes runtime's
+herald webhook dispatch. The assistant worker itself needs no change (it
+forwards webhook bodies verbatim).
+
+Until that lands, the interim behavior with `skipGreeting: true` +
+`onboarding: "agent-builder"` is: the agent joins silently and speaks for
+the first time in response to the user's first message (the ready signal is
+still sent, and becomes the greet-on-entry trigger once the runtime handles
+it).
 
 ## Environment gating
 

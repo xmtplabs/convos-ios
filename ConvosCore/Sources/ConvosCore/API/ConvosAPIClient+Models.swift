@@ -284,12 +284,20 @@ public enum ConvosAPI {
         public static let agentBuilder: AgentJoinOptions = AgentJoinOptions(onboarding: "agent-builder")
 
         /// Join options for the bare default agent pre-added to every new
-        /// conversation: no template, greeting deferred until the client sends
-        /// `conversation_ready`.
-        public static let defaultConversationAgent: AgentJoinOptions = AgentJoinOptions(
-            onboarding: "default-convo",
-            skipGreeting: true
-        )
+        /// conversation. The assistant worker's onboarding schema is a strict
+        /// two-value enum ("agent-builder" | "first-impression"); a bare join
+        /// with "agent-builder" arms the self-build kickoff on the user's
+        /// first message, and skipGreeting holds the static welcome since the
+        /// agent joins the conversation while it is still hidden in the warm
+        /// cache. `variantId` (dev only) routes the join to an ephemeral
+        /// variant runtime, e.g. the agent-first prototype worker.
+        public static func defaultConversationAgent(variantId: String? = nil) -> AgentJoinOptions {
+            AgentJoinOptions(
+                onboarding: "agent-builder",
+                variantId: variantId,
+                skipGreeting: true
+            )
+        }
     }
 
     public struct AgentJoinResponse: Codable {

@@ -39,6 +39,13 @@ actor DefaultConversationAgentCoordinator {
 // MARK: - Default agent in every conversation
 
 extension SessionManager {
+    /// Dev-only hook the app layer installs to route default-agent joins to a
+    /// selected agent-variant runtime (FeatureFlags' variant picker). Read at
+    /// join time so a mid-session selection change applies to the next
+    /// provision. Nil (default, and always in production via the API client's
+    /// prod-safe strip) keeps joins on the default runtime.
+    public nonisolated(unsafe) static var defaultAgentVariantIdProvider: (@Sendable () async -> String?)?
+
     /// Every conversation gets a bare default agent (no template) pre-added
     /// while it still sits hidden in the warm cache. Disabled for unit tests,
     /// which run against a local stack with no assistant runtime.
@@ -100,7 +107,7 @@ extension SessionManager {
             _ = try await addAgentToConversation(
                 conversationId: conversationId,
                 templateId: nil,
-                options: .defaultConversationAgent,
+                options: .defaultConversationAgent(variantId: await Self.defaultAgentVariantIdProvider?()),
                 forceErrorCode: nil,
                 idempotencyKey: nil
             )
