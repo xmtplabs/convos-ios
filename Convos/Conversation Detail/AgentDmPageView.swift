@@ -100,6 +100,27 @@ struct AgentDmPageView: View {
             return
         }
         focusState = keyboardVisible ? .message : focusCoordinator.defaultFocus
+        markDmAsRead()
+    }
+
+    /// Clears the agent-DM lane's unread flag when the user views this page.
+    /// The lane is its own conversation, so opening the parent conversation
+    /// (which only marks the group read) never cleared it — leaving the DM
+    /// perpetually "unread" and routing every open back to it. Marking it read
+    /// on view keeps the unread state accurate, so a conversation with no unread
+    /// messages opens to the group.
+    private func markDmAsRead() {
+        guard let dmVm = dmViewModel else { return }
+        let conversationId: String = dmVm.conversation.id
+        Task {
+            do {
+                try await dmVm.messagingService
+                    .conversationLocalStateWriter()
+                    .setUnread(false, for: conversationId)
+            } catch {
+                Log.warning("Failed marking agent DM as read: \(error.localizedDescription)")
+            }
+        }
     }
 
     /// The eager reconciler (or another device) can create the DM while this
@@ -136,6 +157,12 @@ struct AgentDmPageView: View {
             draftText = ""
         }
         dmViewModel = dmVm
+        // If the DM binds while its page is already active (the reconciler
+        // created it while the user waited here), mark it read now — the
+        // on-activate hook fired before the view model existed.
+        if isActivePage {
+            markDmAsRead()
+        }
     }
 
     private func makeDmViewModel(for conversation: Conversation) -> ConversationViewModel {
