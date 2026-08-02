@@ -51,6 +51,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var showingAgentsInfo: Bool = false
+    /// Agent participation for this conversation, behind the Listen debug flag.
+    /// It lives here rather than in the composer because the level belongs to
+    /// the conversation; the composer only draws the control.
+    @State private var participation: AgentParticipationStore?
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
     /// Tracks keyboard visibility so the pager dots hide and the pager-dots
     /// inset collapses while the keyboard is up.
@@ -310,7 +314,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onFileSelected: viewModel.addFileAttachment(url:filename:mimeType:fileSize:),
             onAboutAgents: { showingAgentsInfo = true },
             onAgentOutOfCredits: { viewModel.presentingPaywall = true },
-            creditsDepleted: viewModel.creditsDepleted,
+            agentPowerDepletedByInboxId: viewModel.agentPowerDepletedByInboxId,
             onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
             onTapCapabilityConnect: { prompt in
                 // Read-only viewers see the pill but can't answer the request
@@ -375,6 +379,21 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
         )
+        // Only where there is an agent to govern, and only while the Listen
+        // flag is on. Absent, the composer draws no bubble at all.
+        .environment(\.agentParticipation, participationContext)
+        .task(id: participationTaskKey) { await prepareParticipation() }
+        .alert(
+            "Participation not updated",
+            isPresented: Binding(
+                get: { participation?.errorMessage != nil },
+                set: { if !$0 { participation?.dismissError() } }
+            )
+        ) {
+            Button("OK", role: .cancel) { participation?.dismissError() }
+        } message: {
+            Text(participation?.errorMessage ?? "Please try again.")
+        }
     }
 
     @ToolbarContentBuilder
@@ -875,5 +894,47 @@ extension ConversationView {
             onNewConvoInviteChanged: handleNewConvoInviteChanged(from:to:),
             onAddFromContactsChanged: handleAddFromContactsChanged(from:to:)
         )
+    }
+}
+
+private extension ConversationView {
+    /// What the composer needs to draw the bubble: the level, and the change.
+    /// `nil` in a conversation with no agent — a control for agents has no
+    /// business in a room without one. The bubble presents the levels as a
+    /// system menu itself, so no card hosting lives here.
+    var participationContext: AgentParticipationContext? {
+        guard let participation else { return nil }
+        return AgentParticipationContext(
+            level: participation.level,
+            isLoading: !participation.hasLoaded
+        ) { level in
+            Task { await participation.set(level) }
+        }
+    }
+
+    /// Keys the participation `.task` on the conversation AND on whether it has
+    /// an agent, so an agent that joins an already-open conversation re-runs
+    /// `prepareParticipation` and surfaces the control — keying on the
+    /// conversation id alone would miss that transition.
+    var participationTaskKey: String {
+        let hasAgent = viewModel.conversation.members.contains(where: \.isAgent)
+        return "\(viewModel.conversation.id)-\(hasAgent)"
+    }
+
+    /// Builds the store for this conversation and reads its current level.
+    /// Skipped where the control would be meaningless, so a conversation
+    /// without agents never spends a request on it.
+    func prepareParticipation() async {
+        guard FeatureFlags.shared.isListenParticipationEnabled,
+              viewModel.conversation.members.contains(where: \.isAgent) else {
+            participation = nil
+            return
+        }
+        let store = AgentParticipationStore(
+            conversationId: viewModel.conversation.id,
+            variantId: FeatureFlags.shared.selectedAgentVariant?.slug
+        )
+        participation = store
+        await store.load()
     }
 }

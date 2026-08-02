@@ -257,11 +257,11 @@ steps:
   - id: no_transcript_under_outgoing_voice_memo
     name: "No transcript appears under an outgoing voice memo"
     actions:
-      - find_elements: { id: "media-buttons" }
+      - tap: { id: "attachments-button" }
         note: >
-          Expand the media buttons bar if collapsed (tap the expand control),
-          then locate the voice memo button.
-      - tap: { id: "voice-memo-button" }
+          The "+" inside the input field opens the attachments menu, a popover
+          listing Photos / Camera / Files / Voice note.
+      - tap: { id: "attachment-voiceNote-button" }
         note: Start recording (grant the microphone permission dialog if shown).
       - on_system_dialog: "allow"
       - wait_for_element: { id: "voice-memo-stop-button", timeout: 10 }

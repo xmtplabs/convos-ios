@@ -34,6 +34,52 @@ private struct FilePickerModifier: ViewModifier {
     }
 }
 
+/// Tracks whether the keyboard is on screen. The composer's stored focus is not
+/// a reliable stand-in: the coordinator stops syncing while a focus transition
+/// is open, and an interactive dismissal leaves `@FocusState` set with the
+/// keyboard already gone (see `FocusCoordinator.refocusNonce`), so each signal
+/// lies in one direction. The keyboard itself is the honest one.
+private struct KeyboardVisibilityModifier: ViewModifier {
+    @Binding var isKeyboardVisible: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+                setVisible(true, matching: notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+                setVisible(false, matching: notification)
+            }
+    }
+
+    /// Carries the keyboard's own duration into the change, so whatever moves
+    /// with it travels at the keyboard's pace instead of a spring of its own.
+    private func setVisible(_ visible: Bool, matching notification: Notification) {
+        let key: String = UIResponder.keyboardAnimationDurationUserInfoKey
+        let duration: Double = notification.userInfo?[key] as? Double ?? 0.25
+        withAnimation(.easeOut(duration: duration)) {
+            isKeyboardVisible = visible
+        }
+    }
+}
+
+/// A single dot breathing in place, holding the participation bubble while the
+/// conversation's level is read. It rests at a visible opacity, so if the
+/// animation never runs the bubble still reads as occupied rather than empty.
+private struct ParticipationLoadingDot: View {
+    @State private var isBright: Bool = false
+
+    var body: some View {
+        let opacity: Double = isBright ? 0.55 : 0.2
+        Circle()
+            .fill(Color.colorTextSecondary)
+            .frame(width: 6.0, height: 6.0)
+            .opacity(opacity)
+            .animation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true), value: isBright)
+            .onAppear { isBright = true }
+    }
+}
+
 public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePreview: View, AgentChip: View>: View {
     let profile: Profile
     @Binding var displayName: String
@@ -90,13 +136,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
 
     @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
-    /// Drives the composer's visual swap between the attachment-icon row
-    /// (`false`) and the single `+` button beside the large text input
-    /// (`true`). Decoupled from actual keyboard focus: it starts `true` so a
-    /// freshly opened chat shows the `+` / large-input treatment without
-    /// raising the keyboard, and `handleFocusChanged` keeps it in sync with
-    /// real focus thereafter.
-    @State private var isMessageInputFocused: Bool = true
     @State private var isImagePickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
     @State private var isFilePickerPresented: Bool = false
@@ -106,7 +145,11 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     @State private var previousFocus: MessagesViewInputFocus?
     @State private var voiceMemoReturnFocus: MessagesViewInputFocus?
     @State private var didSelectPhotoThisSession: Bool = false
+    @State private var isKeyboardVisible: Bool = false
     @Namespace private var namespace: Namespace.ID
+    // Injected by the host on conversations that hold an agent; nil elsewhere,
+    // and the bubble simply isn't drawn.
+    @Environment(\.agentParticipation) private var agentParticipation: AgentParticipationContext?
 
     public init(
         profile: Profile,
@@ -169,7 +212,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         _focusState = focusState
         self.focusCoordinator = focusCoordinator
         self.pinsExpandedInput = pinsExpandedInput
-        self._isMessageInputFocused = State(initialValue: pinsExpandedInput)
         self.messagesTextFieldEnabled = messagesTextFieldEnabled
         self.onSendMessage = onSendMessage
         self.onClearInvite = onClearInvite
@@ -198,6 +240,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     public var body: some View {
         bodyContent
             .modifier(filePickerModifier)
+            .modifier(KeyboardVisibilityModifier(isKeyboardVisible: $isKeyboardVisible))
     }
 
     @ViewBuilder
@@ -216,9 +259,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 // `currentFocus`, so re-run the expand/collapse logic here too or
                 // the bar would stay collapsed.
                 handleFocusChanged(to: focusCoordinator.currentFocus)
-            }
-            .onChange(of: messageText) { _, _ in
-                handleMessageTextChanged()
             }
             .onChange(of: isVoiceMemoActive) { wasActive, isActive in
                 guard wasActive, !isActive else { return }
@@ -289,17 +329,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         guard !isImagePickerPresented else { return }
         withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
             isExpanded = newValue == .displayName
-            isMessageInputFocused = pinsExpandedInput
-                || newValue == .message
-                || newValue == .voiceMemoRecording
-                || newValue == .sideConvoName
-        }
-    }
-
-    private func handleMessageTextChanged() {
-        guard !isMessageInputFocused, focusCoordinator.currentFocus != .displayName else { return }
-        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-            isMessageInputFocused = true
         }
     }
 
@@ -464,55 +493,117 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         }
     }
 
+    /// Whether the participation bubble stands aside: it does while the keyboard
+    /// is up, so the member typing gets that width back, and comes back the
+    /// moment it goes down. Keyed to the keyboard rather than to focus, which
+    /// desyncs in both directions - see `KeyboardVisibilityModifier`.
+    private var showsParticipationBubble: Bool {
+        !isKeyboardVisible
+    }
+
+    /// The agent-participation control: how much the agents speak in this
+    /// conversation. It leads the composer row, outside the input field, since
+    /// it governs the room rather than the message being written — and it steps
+    /// aside entirely once someone starts typing.
+    @ViewBuilder
+    private var participationBubble: some View {
+        if let participation = agentParticipation, showsParticipationBubble {
+            let bubbleSize: CGFloat = DesignConstants.Spacing.step12x
+            let isLoading: Bool = participation.isLoading
+            let label: String = isLoading
+                ? "Agent participation, loading"
+                : "Agent participation: \(participation.level.title)"
+            ParticipationMenuControl(
+                level: participation.level,
+                isLoading: isLoading,
+                onSelect: participation.onSelect
+            )
+            .equatable()
+            .disabled(isLoading)
+            .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
+            .frame(width: bubbleSize, height: bubbleSize)
+            .clipShape(.circle)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .transition(.scale.combined(with: .opacity))
+            .animation(.easeInOut(duration: 0.2), value: isLoading)
+            .accessibilityLabel(label)
+            .accessibilityHint("Change how much the agents speak here")
+            .accessibilityIdentifier("agent-participation-button")
+        }
+    }
+
+    /// The rows the menu draws. The debug injector joins them only where the
+    /// host handed one over, which it does behind `isDebugInjectorEnabled` -
+    /// hard-locked off in production, so no member ever sees the row.
+    private var offeredAttachmentActions: [ComposerAttachmentAction] {
+        guard onDebugAttachmentTap != nil else { return ComposerAttachmentAction.standard }
+        return ComposerAttachmentAction.standard + [.debugInjector]
+    }
+
+    /// What the composer can't offer right now. The menu greys these rows rather
+    /// than dropping them, so the list doesn't change length as attachments come
+    /// and go and a member can see why an option is unavailable.
+    private var disabledAttachmentActions: Set<ComposerAttachmentAction> {
+        let hasSideConvo: Bool = pendingInviteURL != nil
+        let hasMedia: Bool = !pendingMediaAttachments.isEmpty
+        let isMediaCapacityFull: Bool = pendingMediaAttachments.count >= maxPendingMediaAttachments
+        var disabled: Set<ComposerAttachmentAction> = []
+        if isMediaCapacityFull || hasSideConvo {
+            disabled.formUnion([.photos, .camera, .files])
+        }
+        if hasMedia || hasSideConvo {
+            disabled.insert(.voiceNote)
+        }
+        return disabled
+    }
+
+    /// The `+` as it appears inside the input field: just the glyph, inert. The
+    /// tappable control is `attachmentsControl`, overlaid in the same spot -
+    /// the glyph and the control are split because each needs a different side
+    /// of the field's glass. The glyph must live under it, on the capsule's own
+    /// surface, or it renders washed out; the menu's button must live outside
+    /// it, or the system opens the menu by morphing the whole capsule rather
+    /// than growing a card from the `+` alone.
+    private var attachmentsGlyph: some View {
+        let glyphOpacity: Double = pinsExpandedInput ? 0.4 : 1.0
+        return Image(systemName: "plus")
+            .font(.system(size: 18.0, weight: .medium))
+            .foregroundStyle(Color.colorTextPrimary)
+            .frame(width: 32, height: 32)
+            .opacity(glyphOpacity)
+    }
+
+    /// The control that opens the attachments menu: an invisible hit target
+    /// floating right over `attachmentsGlyph`. A system menu rather than a
+    /// hand-rolled card: it presents in its own window, so the bar's bounds
+    /// can't clip it, and the spring, haptic, dimming, and drag-to-select all
+    /// come with it.
+    private var attachmentsControl: some View {
+        AttachmentsMenuControl(
+            offeredActions: offeredAttachmentActions,
+            disabledActions: disabledAttachmentActions,
+            isDisabled: pinsExpandedInput,
+            onSelect: handleAttachmentSelected
+        )
+        .equatable()
+    }
+
+    /// Runs the picked row. The menu has already dismissed by the time the
+    /// action fires, so a picker can present right away.
+    private func handleAttachmentSelected(_ action: ComposerAttachmentAction) {
+        switch action {
+        case .photos: isPhotoPickerPresented = true
+        case .camera: isCameraPresented = true
+        case .files: isFilePickerPresented = true
+        case .voiceNote: startVoiceMemoRecording()
+        case .debugInjector: onDebugAttachmentTap?()
+        }
+    }
+
     @ViewBuilder
     private var normalInputView: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
-            if isMessageInputFocused {
-                Button {
-                    withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-                        isMessageInputFocused = false
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18.0, weight: .medium))
-                        .foregroundStyle(Color.colorTextPrimary)
-                        .frame(width: 32, height: 32)
-                        .contentShape(.circle)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Show attachments")
-                .accessibilityIdentifier("collapse-input-button")
-                .disabled(pinsExpandedInput)
-                .opacity(messagesTextFieldEnabled && !pinsExpandedInput ? 1.0 : 0.4)
-                .frame(width: DesignConstants.Spacing.step12x, height: DesignConstants.Spacing.step12x)
-                .clipShape(.circle)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .glassEffectID("media", in: namespace)
-                .glassEffectTransition(.matchedGeometry)
-            } else {
-                let hasSideConvo: Bool = pendingInviteURL != nil
-                let hasMedia: Bool = !pendingMediaAttachments.isEmpty
-                let isMediaCapacityFull: Bool = pendingMediaAttachments.count >= maxPendingMediaAttachments
-                let mediaButtonsDisabled: Bool = isMediaCapacityFull || hasSideConvo
-                let voiceMemoDisabled: Bool = hasMedia || hasSideConvo
-                MessagesMediaButtonsView(
-                    isPhotoPickerPresented: $isPhotoPickerPresented,
-                    isCameraPresented: $isCameraPresented,
-                    onVoiceMemoTap: startVoiceMemoRecording,
-                    onFilePickerTap: {
-                        isFilePickerPresented = true
-                    },
-                    isMediaCapacityFull: mediaButtonsDisabled,
-                    isVoiceMemoDisabled: voiceMemoDisabled,
-                    onDebugAttachmentTap: onDebugAttachmentTap
-                )
-                .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
-                .frame(height: DesignConstants.Spacing.step12x)
-                .clipShape(.capsule)
-                .glassEffect(.regular.interactive(), in: .capsule)
-                .glassEffectID("media", in: namespace)
-                .glassEffectTransition(.matchedGeometry)
-            }
+            participationBubble
 
             MessagesInputView(
                 displayName: $displayName,
@@ -537,7 +628,8 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 onClearLinkPreview: onClearLinkPreview,
                 onClearMediaAttachment: onClearMediaAttachment,
                 fileAttachmentPreview: fileAttachmentPreview,
-                agentShareChip: agentShareChip
+                agentShareChip: agentShareChip,
+                attachmentsButton: { attachmentsGlyph }
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
@@ -545,14 +637,10 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
             .glassEffectID("input", in: namespace)
             .glassEffectTransition(.matchedGeometry)
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    guard !isMessageInputFocused else { return }
-                    withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-                        isMessageInputFocused = true
-                    }
-                }
-            )
+            .overlay(alignment: .bottomLeading) {
+                attachmentsControl
+                    .padding(DesignConstants.Spacing.step2x)
+            }
         }
         .disabled(!messagesTextFieldEnabled)
     }
@@ -566,6 +654,121 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 40.0))
             .glassEffectID("profileEditor", in: namespace)
             .glassEffectTransition(.matchedGeometry)
+    }
+}
+
+/// The attachments menu, isolated behind `Equatable` so the bar's re-renders
+/// can't touch it while it is presented. SwiftUI pushes a rebuilt menu into a
+/// visible menu on every re-evaluation of this subtree, and UIKit throws
+/// (`UIFocusSystem` inconsistency) if such a push lands right as hardware-
+/// keyboard focus settles on a menu row - which is exactly what happens when
+/// opening the menu makes the keyboard dismiss and the bar re-lay out. With
+/// `.equatable()`, the subtree only re-evaluates when the menu's actual
+/// content changes.
+private struct AttachmentsMenuControl: View, Equatable {
+    let offeredActions: [ComposerAttachmentAction]
+    let disabledActions: Set<ComposerAttachmentAction>
+    let isDisabled: Bool
+    let onSelect: (ComposerAttachmentAction) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.offeredActions == rhs.offeredActions &&
+            lhs.disabledActions == rhs.disabledActions &&
+            lhs.isDisabled == rhs.isDisabled
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(offeredActions) { action in
+                row(for: action)
+            }
+        } label: {
+            Color.clear
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+        }
+        .menuOrder(.fixed)
+        .accessibilityLabel("Show attachments")
+        .accessibilityIdentifier("attachments-button")
+        .disabled(isDisabled)
+    }
+
+    /// One row of the menu. Rows the composer can't offer right now are greyed
+    /// rather than dropped, so the list doesn't change length as attachments
+    /// come and go.
+    private func row(for action: ComposerAttachmentAction) -> some View {
+        let select = { onSelect(action) }
+        return Button(action: select) {
+            Text(action.title)
+            Image(systemName: action.iconSystemName)
+        }
+        .disabled(disabledActions.contains(action))
+        .accessibilityIdentifier("attachment-\(action.rawValue)-button")
+    }
+}
+
+/// The participation bubble's menu: the levels as a system menu, with a check
+/// on the one the conversation is in. `Equatable` for the same reason as
+/// `AttachmentsMenuControl` - the bar's re-renders must not push a rebuilt
+/// menu into one that is already presented.
+private struct ParticipationMenuControl: View, Equatable {
+    let level: AgentParticipationLevel
+    let isLoading: Bool
+    let onSelect: (AgentParticipationLevel) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.level == rhs.level && lhs.isLoading == rhs.isLoading
+    }
+
+    var body: some View {
+        Menu {
+            Section("Agent participation") {
+                ForEach(AgentParticipationLevel.allCases) { option in
+                    row(for: option)
+                }
+            }
+        } label: {
+            glyph
+        }
+        .menuOrder(.fixed)
+    }
+
+    /// One level as a menu row. A toggle rather than a button so the system
+    /// draws the leading check on the current level while the trailing slot
+    /// keeps the level's own icon.
+    private func row(for option: AgentParticipationLevel) -> some View {
+        let isOn = Binding<Bool>(
+            get: { option == level },
+            set: { selected in
+                guard selected else { return }
+                onSelect(option)
+            }
+        )
+        return Toggle(isOn: isOn) {
+            Text(option.title)
+            Text(option.caption)
+            Image(systemName: option.iconSystemName)
+        }
+        .accessibilityIdentifier("participation-\(option.rawValue)-row")
+    }
+
+    /// The icon, or the resting dot that stands in for it. The level starts at a
+    /// product default the conversation may not actually be in, so showing an
+    /// icon before the read lands would state something that can change a moment
+    /// later — the dot says "not known yet" instead.
+    @ViewBuilder
+    private var glyph: some View {
+        if isLoading {
+            ParticipationLoadingDot()
+                .frame(width: 32, height: 32)
+        } else {
+            Image(systemName: level.iconSystemName)
+                .font(.system(size: 16.0, weight: .medium))
+                .foregroundStyle(Color.colorTextPrimary)
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+                .transition(.opacity)
+        }
     }
 }
 #endif

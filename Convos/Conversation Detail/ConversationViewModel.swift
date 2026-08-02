@@ -979,10 +979,29 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// "<agent> is out of processing power" cell. Surfaces `PaywallView`
     /// against `SubscriptionServices.shared`.
     var presentingPaywall: Bool = false
-    /// Mirrors `CreditsServices.shared.currentBalance?.isDepleted`, refreshed
-    /// via the balance publisher. Drives the in-stream out-of-credits cell
-    /// insertion in `MessagesViewController` and the inline status surfaces.
-    var creditsDepleted: Bool = CreditsServices.shared.currentBalance?.isDepleted ?? false
+    /// Owner-computed per-agent power map keyed by agent inboxId, read from
+    /// `GET /v2/conversations/:id/participation` (`agents[].agentPowerDepleted`).
+    /// `true` means that agent's OWNER cannot fund a turn — the same fact for
+    /// every member, so the "lost power" surfaces show to everyone. A missing
+    /// key is UNKNOWN (old backend, or an agent the backend has no bookkeeping
+    /// for) and renders nothing. The viewer's own wallet is never an input
+    /// here — a zero-balance viewer must see other people's funded agents as
+    /// working.
+    var agentPowerDepletedByInboxId: [String: Bool] = [:]
+
+    @ObservationIgnored
+    private var agentPowerRefreshTask: Task<Void, Never>?
+    /// Agent inbox ids the last power refresh was scheduled for, so membership
+    /// churn that doesn't touch agents doesn't re-fetch.
+    @ObservationIgnored
+    private var lastAgentPowerAgentInboxIds: Set<String> = []
+    /// Bumped at the start of every power refresh. A response only lands if no
+    /// newer refresh started while it was in flight — `refreshAgentPowerStatus`
+    /// is also called directly (member card `.task`), so two reads can overlap
+    /// and resolve out of order; without this the older response could
+    /// overwrite the fresher one.
+    @ObservationIgnored
+    private var agentPowerFetchGeneration: Int = 0
 
     var agentJoinForceErrorCode: Int?
 
@@ -1552,6 +1571,48 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             }
     }
 
+    /// Re-reads the backend's owner-computed per-agent power signal for this
+    /// conversation. The ONLY source for the "lost power" surfaces — never the
+    /// viewer's wallet. Quiet on failure and on old backends (no `agents`
+    /// array): the last known state is kept, because "unknown" must not clear
+    /// or invent an indicator.
+    func refreshAgentPowerStatus() async {
+        let conversation = self.conversation
+        guard !conversation.isDraft, conversation.members.contains(where: \.isAgent) else {
+            if !agentPowerDepletedByInboxId.isEmpty {
+                agentPowerDepletedByInboxId = [:]
+            }
+            return
+        }
+        agentPowerFetchGeneration += 1
+        let generation = agentPowerFetchGeneration
+        do {
+            let client = ConvosAPIClientFactory.client(
+                environment: ConfigManager.shared.currentEnvironment
+            )
+            let response = try await client.getAgentParticipation(
+                conversationId: conversation.id,
+                variantId: FeatureFlags.shared.selectedAgentVariant?.slug
+            )
+            // A newer refresh started while this one was in flight; its
+            // response is the fresher truth, so this one must not land.
+            guard generation == agentPowerFetchGeneration else { return }
+            guard let map = response.agentPowerDepletedByInboxId else { return }
+            if agentPowerDepletedByInboxId != map {
+                agentPowerDepletedByInboxId = map
+            }
+        } catch {
+            Log.error("agent power read failed: \(error)")
+        }
+    }
+
+    private func scheduleAgentPowerRefresh() {
+        agentPowerRefreshTask?.cancel()
+        agentPowerRefreshTask = Task { [weak self] in
+            await self?.refreshAgentPowerStatus()
+        }
+    }
+
     private func observe() {
         messagesListRepository.startObserving()
         setupTypingIndicatorHandler()
@@ -1559,10 +1620,19 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         observeDirectBuildGeneration()
         setupVoiceMemoPlaybackObserver()
         observeCapabilityRequests()
+        scheduleAgentPowerRefresh()
         CreditsServices.shared.balancePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] balance in
-                self?.creditsDepleted = balance?.isDepleted ?? false
+            .map { $0?.isDepleted ?? false }
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                // The viewer's balance no longer drives any agent indicator,
+                // but a flip of their own wallet is the cheapest local hint
+                // that — if they own agents here — the backend's owner-computed
+                // answer may have changed (e.g. right after buying credits).
+                // Re-ask the backend; the truth stays server-side.
+                self?.scheduleAgentPowerRefresh()
             }
             .store(in: &cancellables)
         messagesListRepository.messagesListPublisher
@@ -1628,6 +1698,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 let wasViewingConversation = self.isViewingConversation
                 self.conversation = displayConversation
                 self.loadConversationImage(for: conversation)
+                // Re-read the owner-computed power signal when the agent set
+                // changes (or the conversation swaps), so a just-joined agent
+                // gets an entry and a removed one stops being looked up.
+                let agentInboxIds = Set(displayConversation.members.filter(\.isAgent).map(\.profile.inboxId))
+                if conversation.id != previousId || agentInboxIds != self.lastAgentPowerAgentInboxIds {
+                    self.lastAgentPowerAgentInboxIds = agentInboxIds
+                    self.scheduleAgentPowerRefresh()
+                }
                 if conversation.id != previousId {
                     self.observePhotoPreferences(for: conversation.id)
                     self.loadPhotoPreferences()
@@ -4042,10 +4120,15 @@ extension ConversationViewModel {
     /// The dev-selected agent variant slug to route an agent join, or `nil`.
     /// Gated on the selector flag so a stale persisted selection can't route
     /// joins once the dev toggle is off (mirrors `AgentBuilderViewModel.commit`).
+    /// A selector pick (when the selector is enabled) wins; otherwise fall back to
+    /// a build-time pinned slug from config so a prototype build routes to its
+    /// paired variant with no manual selection. Nil when neither is set.
     private static func selectedAgentVariantSlug() -> String? {
-        FeatureFlags.shared.isAgentVariantSelectorEnabled
-            ? FeatureFlags.shared.selectedAgentVariant?.slug
-            : nil
+        if FeatureFlags.shared.isAgentVariantSelectorEnabled,
+           let selected = FeatureFlags.shared.selectedAgentVariant?.slug {
+            return selected
+        }
+        return ConfigManager.shared.pinnedAgentVariantSlug
     }
 
     private static func performAgentJoinCall(

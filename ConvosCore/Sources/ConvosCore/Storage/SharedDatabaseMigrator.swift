@@ -10,6 +10,13 @@ final class SharedDatabaseMigrator: Sendable {
         let migrator = createMigrator()
         try migrator.migrate(database)
     }
+
+    /// Migrates only up to and including the named migration. Test hook for
+    /// exercising a later migration's backfill against pre-existing rows.
+    func migrate(database: any DatabaseWriter, upTo targetIdentifier: String) throws {
+        let migrator = createMigrator()
+        try migrator.migrate(database, upTo: targetIdentifier)
+    }
 }
 
 extension SharedDatabaseMigrator {
@@ -201,6 +208,7 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addAgentTemplateGenerationJoinIdempotencyKey",
                                    migrate: Self.addAgentTemplateGenerationJoinIdempotencyKey)
         migrator.registerMigration("addProfilePublishJobProfileUpdatedAt", migrate: Self.addProfilePublishJobProfileUpdatedAt)
+        migrator.registerMigration("addConversationLastMessagePointers", migrate: Self.addConversationLastMessagePointers)
 
         return migrator
     }
@@ -329,6 +337,197 @@ extension SharedDatabaseMigrator {
         try db.alter(table: "profilePublishJob") { t in
             t.add(column: "profileUpdatedAt", .datetime)
         }
+    }
+
+    /// Denormalized "newest message" pointers on `conversation`, maintained by
+    /// database triggers so the conversation-list read never derives them from
+    /// the message table. `lastMessageId` points at the newest preview-eligible
+    /// message (content types that surface in the list preview);
+    /// `lastAgentJoinRequestId` points at the newest assistantJoinRequest
+    /// message, which drives `agentJoinStatus`.
+    ///
+    /// Triggers rather than writer code because the database has multiple
+    /// writing processes (app and notification service extension) plus raw-SQL
+    /// paths that bypass record types: publish-time `UPDATE message SET id`
+    /// rewrites, and `ConversationWriter`'s replace-by-inviteTag
+    /// `save(onConflict: .replace)` which re-inserts the conversation row with
+    /// NULL pointers. Each of those cases has a dedicated trigger, so any
+    /// future write path keeps the pointers correct without knowing they exist.
+    ///
+    /// REPLACE conflict resolution deletes rows without firing delete triggers
+    /// (SQLite's default `recursive_triggers` is off). For conversation rows
+    /// that is fine: the messages themselves are cascade-deleted with the old
+    /// row, so NULL pointers on the replacement are correct until its next
+    /// write. For message rows (`id` and `clientMessageId` are both
+    /// unique-on-conflict-replace) the silent delete can leave a pointer at a
+    /// vanished id; `conversation_pointer_dangling_repair` recomputes on the
+    /// very insert that replaced the row, so a dangle never survives the
+    /// transaction that created it.
+    ///
+    /// The excluded content-type list is a frozen snapshot: changing which
+    /// types are preview-eligible requires a new migration that re-creates the
+    /// insert/delete/meta triggers and re-runs the backfill.
+    static func addConversationLastMessagePointers(_ db: Database) throws {
+        try db.alter(table: "conversation") { t in
+            t.add(column: "lastMessageId", .text)
+            t.add(column: "lastAgentJoinRequestId", .text)
+        }
+
+        try createConversationPointerBumpTriggers(db)
+        try createConversationPointerRepairTriggers(db)
+
+        try db.execute(sql: """
+            UPDATE conversation SET lastMessageId = (
+                SELECT id FROM message
+                WHERE conversationId = conversation.id
+                    AND contentType NOT IN \(conversationPointerExcludedContentTypes)
+                ORDER BY dateNs DESC LIMIT 1
+            ),
+            lastAgentJoinRequestId = (
+                SELECT id FROM message
+                WHERE conversationId = conversation.id AND contentType = 'assistantJoinRequest'
+                ORDER BY dateNs DESC LIMIT 1
+            )
+            """)
+    }
+
+    private static let conversationPointerExcludedContentTypes: String = """
+        ('update', 'assistantJoinRequest', 'connectionGrantRequest', \
+        'connectionInvocation', 'connectionInvocationResult', 'connectionPayload')
+        """
+
+    /// Appends are the overwhelmingly common case, so these insert triggers
+    /// are a single conditional pointer bump per insert.
+    private static func createConversationPointerBumpTriggers(_ db: Database) throws {
+        let excludedContentTypes = conversationPointerExcludedContentTypes
+        try db.execute(sql: """
+            CREATE TRIGGER conversation_pointer_message_insert
+            AFTER INSERT ON message
+            WHEN new.contentType NOT IN \(excludedContentTypes)
+            BEGIN
+                UPDATE conversation
+                SET lastMessageId = new.id
+                WHERE id = new.conversationId
+                    AND (lastMessageId IS NULL
+                         OR new.dateNs >= COALESCE((SELECT dateNs FROM message WHERE id = lastMessageId), -1));
+            END;
+
+            CREATE TRIGGER conversation_pointer_join_request_insert
+            AFTER INSERT ON message
+            WHEN new.contentType = 'assistantJoinRequest'
+            BEGIN
+                UPDATE conversation
+                SET lastAgentJoinRequestId = new.id
+                WHERE id = new.conversationId
+                    AND (lastAgentJoinRequestId IS NULL
+                         OR new.dateNs >= COALESCE((SELECT dateNs FROM message WHERE id = lastAgentJoinRequestId), -1));
+            END;
+            """)
+    }
+
+    /// The recompute subquery walks one conversation's (conversationId,
+    /// dateNs) index newest-first and only runs for the rare cases: deletes,
+    /// metadata rewrites, silent REPLACE deletions, and conversation row
+    /// re-insertion.
+    private static func createConversationPointerRepairTriggers(_ db: Database) throws {
+        let excludedContentTypes = conversationPointerExcludedContentTypes
+        try db.execute(sql: """
+            CREATE TRIGGER conversation_pointer_message_delete
+            AFTER DELETE ON message
+            BEGIN
+                UPDATE conversation
+                SET lastMessageId = (
+                    SELECT id FROM message
+                    WHERE conversationId = old.conversationId
+                        AND contentType NOT IN \(excludedContentTypes)
+                    ORDER BY dateNs DESC LIMIT 1
+                )
+                WHERE id = old.conversationId AND lastMessageId = old.id;
+                UPDATE conversation
+                SET lastAgentJoinRequestId = (
+                    SELECT id FROM message
+                    WHERE conversationId = old.conversationId AND contentType = 'assistantJoinRequest'
+                    ORDER BY dateNs DESC LIMIT 1
+                )
+                WHERE id = old.conversationId AND lastAgentJoinRequestId = old.id;
+            END;
+
+            CREATE TRIGGER conversation_pointer_message_id_update
+            AFTER UPDATE OF id ON message
+            WHEN new.id <> old.id
+            BEGIN
+                UPDATE conversation SET lastMessageId = new.id
+                WHERE id = new.conversationId AND lastMessageId = old.id;
+                UPDATE conversation SET lastAgentJoinRequestId = new.id
+                WHERE id = new.conversationId AND lastAgentJoinRequestId = old.id;
+            END;
+
+            CREATE TRIGGER conversation_pointer_message_meta_update
+            AFTER UPDATE OF dateNs, contentType ON message
+            WHEN new.dateNs <> old.dateNs OR new.contentType <> old.contentType
+            BEGIN
+                UPDATE conversation
+                SET lastMessageId = (
+                    SELECT id FROM message
+                    WHERE conversationId = new.conversationId
+                        AND contentType NOT IN \(excludedContentTypes)
+                    ORDER BY dateNs DESC LIMIT 1
+                )
+                WHERE id = new.conversationId;
+                UPDATE conversation
+                SET lastAgentJoinRequestId = (
+                    SELECT id FROM message
+                    WHERE conversationId = new.conversationId AND contentType = 'assistantJoinRequest'
+                    ORDER BY dateNs DESC LIMIT 1
+                )
+                WHERE id = new.conversationId;
+            END;
+
+            CREATE TRIGGER conversation_pointer_dangling_repair
+            AFTER INSERT ON message
+            WHEN EXISTS (
+                SELECT 1 FROM conversation c
+                WHERE c.id = new.conversationId
+                    AND ((c.lastMessageId IS NOT NULL
+                          AND NOT EXISTS (SELECT 1 FROM message m2 WHERE m2.id = c.lastMessageId))
+                      OR (c.lastAgentJoinRequestId IS NOT NULL
+                          AND NOT EXISTS (SELECT 1 FROM message m3 WHERE m3.id = c.lastAgentJoinRequestId)))
+            )
+            BEGIN
+                UPDATE conversation
+                SET lastMessageId = (
+                    SELECT id FROM message
+                    WHERE conversationId = new.conversationId
+                        AND contentType NOT IN \(excludedContentTypes)
+                    ORDER BY dateNs DESC LIMIT 1
+                ),
+                lastAgentJoinRequestId = (
+                    SELECT id FROM message
+                    WHERE conversationId = new.conversationId AND contentType = 'assistantJoinRequest'
+                    ORDER BY dateNs DESC LIMIT 1
+                )
+                WHERE id = new.conversationId;
+            END;
+
+            CREATE TRIGGER conversation_pointer_conversation_insert
+            AFTER INSERT ON conversation
+            WHEN new.lastMessageId IS NULL OR new.lastAgentJoinRequestId IS NULL
+            BEGIN
+                UPDATE conversation
+                SET lastMessageId = (
+                    SELECT id FROM message
+                    WHERE conversationId = new.id
+                        AND contentType NOT IN \(excludedContentTypes)
+                    ORDER BY dateNs DESC LIMIT 1
+                ),
+                lastAgentJoinRequestId = (
+                    SELECT id FROM message
+                    WHERE conversationId = new.id AND contentType = 'assistantJoinRequest'
+                    ORDER BY dateNs DESC LIMIT 1
+                )
+                WHERE id = new.id;
+            END;
+            """)
     }
 
     /// Additive, nullable column recording the `myProfile.updatedAt` of the self

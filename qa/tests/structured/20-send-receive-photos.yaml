@@ -32,7 +32,11 @@ steps:
   - id: send_photo
     name: "Send photo from app"
     actions:
-      - tap: { id: "photo-picker-button" }
+      - tap: { id: "attachments-button" }
+        note: >
+          The "+" inside the input field opens the attachments menu, a popover
+          listing Photos / Camera / Files / Voice note.
+      - tap: { id: "attachment-photos-button" }
       - wait_for_element: { label: "Photos", timeout: 10 }
       - tap_first_photo: {}
       - dismiss_education_sheet: { button: "Got it" }
@@ -43,7 +47,7 @@ steps:
       - element_exists: { label: "Sent" }
     criteria: photo_sent
     note: >
-      Photo picker button: id="photo-picker-button", label="Photo library".
+      Attachments menu row: id="attachment-photos-button", label="Photos".
       First-time send triggers "Pics are personal" education sheet:
       "Real life is off the record. Pics are encrypted on send and deleted
       from temp storage after delivery. Convos never sees or saves to your
