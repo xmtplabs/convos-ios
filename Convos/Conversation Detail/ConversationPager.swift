@@ -95,6 +95,7 @@ struct ConversationPager<MessagesPage: View, AgentDmPage: View, ThingsPage: View
 private struct ConversationPagerDots: View {
     @Binding var selectedPage: ConversationPagerPage
     let pages: [ConversationPagerPage]
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
 
     var body: some View {
         HStack(spacing: 6.0) {
@@ -124,7 +125,11 @@ private struct ConversationPagerDots: View {
     /// pages keep their shaped dots. Colored by selection like every dot.
     @ViewBuilder
     private func indicator(for page: ConversationPagerPage, isSelected: Bool) -> some View {
-        let color: Color = isSelected ? .colorFillSecondary : .colorFillTertiary
+        // The active indicator is pure white in dark mode (the DM page forces
+        // dark, so the selected "A" always lands here); light mode keeps the
+        // fill token. Inactive items stay on the tertiary fill either way.
+        let selectedColor: Color = colorScheme == .dark ? .white : .colorFillSecondary
+        let color: Color = isSelected ? selectedColor : .colorFillTertiary
         switch page {
         case .agentDm:
             // SF Pro Bold 11pt in an 11pt box, per Figma (node 6905-10624).
