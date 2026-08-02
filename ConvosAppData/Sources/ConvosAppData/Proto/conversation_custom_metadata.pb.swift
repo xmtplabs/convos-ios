@@ -42,42 +42,52 @@ public struct ConversationCustomMetadata: Sendable {
   public var profiles: [ConversationProfile] = []
 
   public var expiresAtUnix: Int64 {
-    get {_expiresAtUnix ?? 0}
+    get {return _expiresAtUnix ?? 0}
     set {_expiresAtUnix = newValue}
   }
   /// Returns true if `expiresAtUnix` has been explicitly set.
-  public var hasExpiresAtUnix: Bool {self._expiresAtUnix != nil}
+  public var hasExpiresAtUnix: Bool {return self._expiresAtUnix != nil}
   /// Clears the value of `expiresAtUnix`. Subsequent reads from it will return its default value.
   public mutating func clearExpiresAtUnix() {self._expiresAtUnix = nil}
 
   /// 32-byte AES-256 key for encrypting all images
   public var imageEncryptionKey: Data {
-    get {_imageEncryptionKey ?? Data()}
+    get {return _imageEncryptionKey ?? Data()}
     set {_imageEncryptionKey = newValue}
   }
   /// Returns true if `imageEncryptionKey` has been explicitly set.
-  public var hasImageEncryptionKey: Bool {self._imageEncryptionKey != nil}
+  public var hasImageEncryptionKey: Bool {return self._imageEncryptionKey != nil}
   /// Clears the value of `imageEncryptionKey`. Subsequent reads from it will return its default value.
   public mutating func clearImageEncryptionKey() {self._imageEncryptionKey = nil}
 
   /// Encrypted group avatar
   public var encryptedGroupImage: EncryptedImageRef {
-    get {_encryptedGroupImage ?? EncryptedImageRef()}
+    get {return _encryptedGroupImage ?? EncryptedImageRef()}
     set {_encryptedGroupImage = newValue}
   }
   /// Returns true if `encryptedGroupImage` has been explicitly set.
-  public var hasEncryptedGroupImage: Bool {self._encryptedGroupImage != nil}
+  public var hasEncryptedGroupImage: Bool {return self._encryptedGroupImage != nil}
   /// Clears the value of `encryptedGroupImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedGroupImage() {self._encryptedGroupImage = nil}
 
   public var emoji: String {
-    get {_emoji ?? String()}
+    get {return _emoji ?? String()}
     set {_emoji = newValue}
   }
   /// Returns true if `emoji` has been explicitly set.
-  public var hasEmoji: Bool {self._emoji != nil}
+  public var hasEmoji: Bool {return self._emoji != nil}
   /// Clears the value of `emoji`. Subsequent reads from it will return its default value.
   public mutating func clearEmoji() {self._emoji = nil}
+
+  /// Present when this conversation is a DM with an agent
+  public var agentDm: AgentDmInfo {
+    get {return _agentDm ?? AgentDmInfo()}
+    set {_agentDm = newValue}
+  }
+  /// Returns true if `agentDm` has been explicitly set.
+  public var hasAgentDm: Bool {return self._agentDm != nil}
+  /// Clears the value of `agentDm`. Subsequent reads from it will return its default value.
+  public mutating func clearAgentDm() {self._agentDm = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -87,6 +97,33 @@ public struct ConversationCustomMetadata: Sendable {
   fileprivate var _imageEncryptionKey: Data? = nil
   fileprivate var _encryptedGroupImage: EncryptedImageRef? = nil
   fileprivate var _emoji: String? = nil
+  fileprivate var _agentDm: AgentDmInfo? = nil
+}
+
+/// AgentDmInfo marks a 2-member conversation as a private DM with an agent.
+/// The agent's identity comes from the membership itself (member_kind plus
+/// attestation), not from this marker; clients only honor the marker when the
+/// conversation has exactly 2 members and the other member is an agent.
+public struct AgentDmInfo: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// The primary group this DM was started from
+  public var originConversationID: Data {
+    get {return _originConversationID ?? Data()}
+    set {_originConversationID = newValue}
+  }
+  /// Returns true if `originConversationID` has been explicitly set.
+  public var hasOriginConversationID: Bool {return self._originConversationID != nil}
+  /// Clears the value of `originConversationID`. Subsequent reads from it will return its default value.
+  public mutating func clearOriginConversationID() {self._originConversationID = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _originConversationID: Data? = nil
 }
 
 /// EncryptedImageRef stores encrypted image metadata
@@ -120,41 +157,41 @@ public struct ConversationProfile: Sendable {
   public var inboxID: Data = Data()
 
   public var name: String {
-    get {_name ?? String()}
+    get {return _name ?? String()}
     set {_name = newValue}
   }
   /// Returns true if `name` has been explicitly set.
-  public var hasName: Bool {self._name != nil}
+  public var hasName: Bool {return self._name != nil}
   /// Clears the value of `name`. Subsequent reads from it will return its default value.
   public mutating func clearName() {self._name = nil}
 
   /// Legacy: plain URL (backward compatibility)
   public var image: String {
-    get {_image ?? String()}
+    get {return _image ?? String()}
     set {_image = newValue}
   }
   /// Returns true if `image` has been explicitly set.
-  public var hasImage: Bool {self._image != nil}
+  public var hasImage: Bool {return self._image != nil}
   /// Clears the value of `image`. Subsequent reads from it will return its default value.
   public mutating func clearImage() {self._image = nil}
 
   /// New: encrypted image reference
   public var encryptedImage: EncryptedImageRef {
-    get {_encryptedImage ?? EncryptedImageRef()}
+    get {return _encryptedImage ?? EncryptedImageRef()}
     set {_encryptedImage = newValue}
   }
   /// Returns true if `encryptedImage` has been explicitly set.
-  public var hasEncryptedImage: Bool {self._encryptedImage != nil}
+  public var hasEncryptedImage: Bool {return self._encryptedImage != nil}
   /// Clears the value of `encryptedImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedImage() {self._encryptedImage = nil}
 
   /// JSON grants payload for this sender's connections (see connections.mjs)
   public var connections: String {
-    get {_connections ?? String()}
+    get {return _connections ?? String()}
     set {_connections = newValue}
   }
   /// Returns true if `connections` has been explicitly set.
-  public var hasConnections: Bool {self._connections != nil}
+  public var hasConnections: Bool {return self._connections != nil}
   /// Clears the value of `connections`. Subsequent reads from it will return its default value.
   public mutating func clearConnections() {self._connections = nil}
 
@@ -172,7 +209,7 @@ public struct ConversationProfile: Sendable {
 
 extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationCustomMetadata"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0\u{2}\u{2}agentDm\0\u{c}\u{7}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -186,6 +223,7 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
       case 4: try { try decoder.decodeSingularBytesField(value: &self._imageEncryptionKey) }()
       case 5: try { try decoder.decodeSingularMessageField(value: &self._encryptedGroupImage) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self._emoji) }()
+      case 8: try { try decoder.decodeSingularMessageField(value: &self._agentDm) }()
       default: break
       }
     }
@@ -214,6 +252,9 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     try { if let v = self._emoji {
       try visitor.visitSingularStringField(value: v, fieldNumber: 6)
     } }()
+    try { if let v = self._agentDm {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -224,6 +265,41 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     if lhs._imageEncryptionKey != rhs._imageEncryptionKey {return false}
     if lhs._encryptedGroupImage != rhs._encryptedGroupImage {return false}
     if lhs._emoji != rhs._emoji {return false}
+    if lhs._agentDm != rhs._agentDm {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension AgentDmInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "AgentDmInfo"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}originConversationId\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBytesField(value: &self._originConversationID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._originConversationID {
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: AgentDmInfo, rhs: AgentDmInfo) -> Bool {
+    if lhs._originConversationID != rhs._originConversationID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

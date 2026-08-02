@@ -30,6 +30,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Builder to keep the bar clean during the draft phase, then bring
     /// the item in once the user commits via Make.
     var topBarTrailingHidden: Bool = false
+    /// When set (and that agent has a DM page), the pager opens on the agent's
+    /// DM page instead of the group. Used when a conversations-list row is
+    /// tapped whose most-recent unread is in the DM.
+    var initialAgentDmInboxId: String?
     /// Controls the messages list's leading empty-state view (QR invite +
     /// identity, or the `ConversationInfoPreview`). Defaults to `.standard`
     /// in normal chat. The Agent Builder passes `.hidden` so the
@@ -71,6 +75,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// own out past the bar it lives in.
     @State private var attachmentsMenu: ComposerAttachmentsMenuCoordinator = .init()
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
+    /// Guards the one-time seed of `pagerSelectedPage` from `initialAgentDmInboxId`.
+    @State private var didSeedInitialPage: Bool = false
     /// Tracks keyboard visibility so the pager dots hide and the pager-dots
     /// inset collapses while the keyboard is up.
     @State private var isKeyboardVisible: Bool = false
@@ -94,136 +100,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private var conversationIdForMetrics: String {
         viewModel.conversation.id
-    }
-
-    private func handleConversationSettingsChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(conversationInfo: ConversationInfoNavigatorArgs(conversationId: conversationIdForMetrics))
-    }
-
-    private func handleProfileSettingsChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(myInfo: MyInfoNavigatorArgs())
-    }
-
-    private func handleShareViewChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        // Moving into the Scan/Invite overlay must leave the keyboard down.
-        // The composer's first responder lives across the messages view
-        // controller's UIKit boundary, so clear both layers: the coordinator
-        // (so no focus-restore logic re-raises it) and the actual first
-        // responder. The invite picker sheet additionally re-resigns on its
-        // dismissal (see `AddFromContactsPickerModifier`), because UIKit
-        // restores the composer's first responder when the sheet finishes
-        // dismissing.
-        focusCoordinator.moveFocus(to: nil)
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        navigator?.present(shareInvite: ShareInviteNavigatorArgs(conversationId: conversationIdForMetrics))
-    }
-
-    private func handleConversationForkedChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(conversationForkedInfo: ConversationForkedInfoNavigatorArgs(conversationId: conversationIdForMetrics))
-    }
-
-    private func handleExplodedInviteInfoChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(explodedInviteInfo: ExplodedInviteInfoNavigatorArgs())
-    }
-
-    private func handleAgentsIntroChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(assistantConfirmation: AssistantConfirmationNavigatorArgs(conversationId: conversationIdForMetrics))
-    }
-
-    private func handlePaywallChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(paywall: PaywallNavigatorArgs(source: .lowBalanceBanner))
-    }
-
-    private func handleAgentsInfoChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(agentInfo: AgentInfoNavigatorArgs())
-    }
-
-    private func handleLockedInfoChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(lockedConvoInfo: LockedConvoInfoNavigatorArgs(conversationId: conversationIdForMetrics))
-    }
-
-    private func handleFullInfoChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(fullConvoInfo: FullConvoInfoNavigatorArgs())
-    }
-
-    private func handlePhotosInfoChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(photosInfo: PhotosInfoNavigatorArgs())
-    }
-
-    private func handleAgentBuilderChanged(from wasPresenting: Bool, to isPresenting: Bool) {
-        guard !wasPresenting, isPresenting else { return }
-        navigator?.present(agentBuilder: AgentBuilderNavigatorArgs(conversationId: conversationIdForMetrics, entryMode: .sheet))
-    }
-
-    private func handleNewConvoInviteChanged(from wasPresenting: Bool, to isPresenting: Bool) {
-        guard !wasPresenting, isPresenting else { return }
-        navigator?.present(newConversation: NewConversationNavigatorArgs(mode: .joinInvite))
-    }
-
-    /// The agent-share placeholder card reports as a member-profile present
-    /// with the placeholder's sentinel inbox id (`agent-share:<templateId>`),
-    /// keeping "a profile card opened from this conversation" consistent in
-    /// analytics with the member-avatar path while staying distinguishable.
-    private func handleAgentShareContactChanged(from oldContact: Contact?, to newContact: Contact?) {
-        guard oldContact == nil, let newContact else { return }
-        navigator?.present(
-            memberProfile: MemberProfileNavigatorArgs(
-                conversationId: conversationIdForMetrics,
-                memberId: newContact.inboxId
-            )
-        )
-    }
-
-    private func handleMemberProfileChanged(from oldMember: ConversationMember?, to newMember: ConversationMember?) {
-        guard oldMember == nil, let newMember else { return }
-        navigator?.present(
-            memberProfile: MemberProfileNavigatorArgs(
-                conversationId: conversationIdForMetrics,
-                memberId: newMember.profile.inboxId
-            )
-        )
-    }
-
-    private func handleReactionsChanged(from oldMessage: AnyMessage?, to newMessage: AnyMessage?) {
-        guard oldMessage == nil, let newMessage else { return }
-        navigator?.present(
-            reactions: ReactionsNavigatorArgs(
-                conversationId: conversationIdForMetrics,
-                messageId: newMessage.id
-            )
-        )
-    }
-
-    private func handleThinkingDetailChanged(from oldValue: ThinkingSessionDescriptor?, to newValue: ThinkingSessionDescriptor?) {
-        guard oldValue == nil, let newValue else { return }
-        navigator?.present(
-            thinkingDetail: ThinkingDetailNavigatorArgs(
-                conversationId: conversationIdForMetrics,
-                senderInboxId: newValue.sender.profile.inboxId,
-                messageId: newValue.targetMessageId
-            )
-        )
-    }
-
-    private func handleAddFromContactsChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(
-            addMembers: AddMembersNavigatorArgs(
-                conversationId: conversationIdForMetrics,
-                conversationTitle: viewModel.conversation.name
-            )
-        )
     }
 
     /// Substitutes the user's contact (name + avatar) for any member's
@@ -430,6 +306,27 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
     }
 
+    /// True while the agent-DM page is the pager's selected page. The DM is a
+    /// fixed 2-member conversation, so the invite/add-member affordance is hidden
+    /// there.
+    private var isAgentDmPageActive: Bool {
+        if case .agentDm = pagerSelectedPage { return true }
+        return false
+    }
+
+    /// Opens the pager on the requested agent-DM page once, when the view was
+    /// pushed from a conversations-list row whose most-recent unread is a DM.
+    /// No-op unless that agent actually has a DM page in this conversation.
+    private func seedInitialPageIfNeeded() {
+        guard !didSeedInitialPage else { return }
+        didSeedInitialPage = true
+        guard let inboxId = initialAgentDmInboxId,
+              agentDmPageInboxIds.contains(inboxId) else {
+            return
+        }
+        pagerSelectedPage = .agentDm(agentInboxId: inboxId)
+    }
+
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
         // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
@@ -438,7 +335,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ToolbarItem(placement: .topBarTrailing) {
                 if viewModel.isLocked {
                     lockedInfoButton
-                } else {
+                } else if !isAgentDmPageActive {
                     switch messagesTopBarTrailingItem {
                     case .share:
                         // A full conversation can't mint new invite links, so the
@@ -484,9 +381,27 @@ struct ConversationView<MessagesBottomBar: View>: View {
         { presentingAddFromContactsPicker = true }
     }
 
-    @ViewBuilder
+    /// Non-nil only for members whose agent has a DM pager page (every
+    /// verified agent gets its own segment; anyone else falls back to the
+    /// contact card's direct-create path). Hoisted out of the view function
+    /// so it stays a single builder expression.
+    private func startAgentDmAction(for member: ConversationMember) -> ((String) -> Void)? {
+        guard agentDmPageInboxIds.contains(member.profile.inboxId) else { return nil }
+        return { agentInboxId in
+            viewModel.presentingProfileForMember = nil
+            withAnimation(.easeInOut(duration: 0.25)) {
+                pagerSelectedPage = .agentDm(agentInboxId: agentInboxId)
+            }
+        }
+    }
+
     private func memberContactDetailSheet(for member: ConversationMember) -> some View {
-        MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel)
+        MemberContactDetailSheetContent(
+            viewModel: viewModel,
+            member: member,
+            profileSettingsViewModel: profileSettingsViewModel,
+            onStartAgentDm: startAgentDmAction(for: member)
+        )
     }
 
     @ViewBuilder
@@ -534,7 +449,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Approval sheet for the pending capability request, opened from the
     /// transcript's connect pill. Extracted to keep `body`'s type-check time
     /// in budget. The layout can clear while the sheet is up (another device
-    /// resolved the request) — the view model auto-dismisses in that case and
+    /// resolved the request) - the view model auto-dismisses in that case and
     /// the EmptyView only covers the dismissal animation frame.
     @ViewBuilder
     private var capabilityApprovalSheet: some View {
@@ -570,13 +485,50 @@ struct ConversationView<MessagesBottomBar: View>: View {
         isKeyboardVisible ? 0.0 : 24.0
     }
 
+    /// Inboxes of the conversation's DM-able agents, one per verified agent
+    /// member, when the agent-DM prototype should offer DM pages: not already
+    /// inside a DM, non-production only (matches ContactDetailView's gate).
+    /// Kept in member join order (`_members` is ordered createdAt.asc), so a
+    /// newly-added agent appends a page after the existing ones rather than
+    /// reordering them and relocating a DM the user already opened.
+    private var agentDmPageInboxIds: [String] {
+        guard !ConfigManager.shared.currentEnvironment.isProduction,
+              !viewModel.conversation.isAgentDm else {
+            return []
+        }
+        return viewModel.conversation.members
+            .filter { $0.isVerifiedAgent }
+            .map { $0.profile.inboxId }
+    }
+
+    private var pagerPages: [ConversationPagerPage] {
+        var pages: [ConversationPagerPage] = [.messages]
+        for agentInboxId in agentDmPageInboxIds {
+            pages.append(.agentDm(agentInboxId: agentInboxId))
+        }
+        pages.append(.things)
+        return pages
+    }
+
     var body: some View {
         ConversationPager(
             selectedPage: $pagerSelectedPage,
+            pages: pagerPages,
             showsPageDots: !isKeyboardVisible,
             dotsHidden: contextMenuState.isPresented,
             scrollingDisabled: contextMenuState.isPresented,
             messagesPage: { messagesView },
+            agentDmPage: { agentInboxId in
+                let isActive: Bool = pagerSelectedPage == .agentDm(agentInboxId: agentInboxId)
+                AgentDmPageView(
+                    viewModel: viewModel,
+                    agentInboxId: agentInboxId,
+                    extraBottomInset: pagerDotsInset,
+                    isReadOnly: effectiveReadOnly,
+                    isActivePage: isActive,
+                    keyboardVisible: isKeyboardVisible
+                )
+            },
             thingsPage: { thingsPage }
         )
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -586,8 +538,24 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isKeyboardVisible = false
         }
         .onChange(of: pagerSelectedPage) { _, newPage in
+            let keyboardWasUp: Bool = isKeyboardVisible
             if newPage != .things {
                 focusCoordinator.dismissThingsSearchIfNeeded()
+            }
+            if newPage == .messages {
+                // Returning to the group: transfer the keyboard back onto the
+                // group composer when the user paged in mid-edit.
+                if keyboardWasUp {
+                    focusCoordinator.moveFocus(to: .message)
+                }
+            } else {
+                // Leaving the group for a peer page: release the group composer.
+                // The DM page re-grabs focus onto its own composer (transferring
+                // the keyboard); the Things page has no composer, so it drops.
+                focusCoordinator.dismissMessageComposerIfNeeded()
+                // A right-swipe can both start a reply and page away; cancel the
+                // in-flight reply swipe so the page change doesn't fire a reply.
+                contextMenuState.cancelInFlightSwipe()
             }
         }
         .onChange(of: viewModel.messageText) { _, _ in
@@ -601,6 +569,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ensureNavigator()
             navState.markScreenAppeared()
             viewModel.onConversationAppeared()
+            seedInitialPageIfNeeded()
         }
         .onDisappear {
             focusCoordinator.dismissThingsSearchIfNeeded()
@@ -619,7 +588,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             capabilityApprovalSheet
         }
         .sheet(isPresented: $viewModel.presentingProfileSettings) {
-            // ProfileSetupSheet owns the full save; no dismiss handler —
+            // ProfileSetupSheet owns the full save; no dismiss handler -
             // the old onProfileSettingsDismissed re-saved from the stale
             // myProfileViewModel and clobbered the just-saved profile.
             ProfileSetupSheet(mode: .edit)
@@ -747,6 +716,140 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 }
 
+// The sheet/navigation onChange handlers: each maps a viewModel
+// presentation flag flipping true to a navigator present call.
+private extension ConversationView {
+    func handleConversationSettingsChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(conversationInfo: ConversationInfoNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    func handleProfileSettingsChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(myInfo: MyInfoNavigatorArgs())
+    }
+
+    func handleShareViewChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        // Moving into the Scan/Invite overlay must leave the keyboard down.
+        // The composer's first responder lives across the messages view
+        // controller's UIKit boundary, so clear both layers: the coordinator
+        // (so no focus-restore logic re-raises it) and the actual first
+        // responder. The invite picker sheet additionally re-resigns on its
+        // dismissal (see `AddFromContactsPickerModifier`), because UIKit
+        // restores the composer's first responder when the sheet finishes
+        // dismissing.
+        focusCoordinator.moveFocus(to: nil)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        navigator?.present(shareInvite: ShareInviteNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    func handleConversationForkedChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(conversationForkedInfo: ConversationForkedInfoNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    func handleExplodedInviteInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(explodedInviteInfo: ExplodedInviteInfoNavigatorArgs())
+    }
+
+    func handleAgentsIntroChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(assistantConfirmation: AssistantConfirmationNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    func handlePaywallChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(paywall: PaywallNavigatorArgs(source: .lowBalanceBanner))
+    }
+
+    func handleAgentsInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(agentInfo: AgentInfoNavigatorArgs())
+    }
+
+    func handleLockedInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(lockedConvoInfo: LockedConvoInfoNavigatorArgs(conversationId: conversationIdForMetrics))
+    }
+
+    func handleFullInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(fullConvoInfo: FullConvoInfoNavigatorArgs())
+    }
+
+    func handlePhotosInfoChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(photosInfo: PhotosInfoNavigatorArgs())
+    }
+
+    func handleAgentBuilderChanged(from wasPresenting: Bool, to isPresenting: Bool) {
+        guard !wasPresenting, isPresenting else { return }
+        navigator?.present(agentBuilder: AgentBuilderNavigatorArgs(conversationId: conversationIdForMetrics, entryMode: .sheet))
+    }
+
+    func handleNewConvoInviteChanged(from wasPresenting: Bool, to isPresenting: Bool) {
+        guard !wasPresenting, isPresenting else { return }
+        navigator?.present(newConversation: NewConversationNavigatorArgs(mode: .joinInvite))
+    }
+
+    /// The agent-share placeholder card reports as a member-profile present
+    /// with the placeholder's sentinel inbox id (`agent-share:<templateId>`),
+    /// keeping "a profile card opened from this conversation" consistent in
+    /// analytics with the member-avatar path while staying distinguishable.
+    func handleAgentShareContactChanged(from oldContact: Contact?, to newContact: Contact?) {
+        guard oldContact == nil, let newContact else { return }
+        navigator?.present(
+            memberProfile: MemberProfileNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                memberId: newContact.inboxId
+            )
+        )
+    }
+
+    func handleMemberProfileChanged(from oldMember: ConversationMember?, to newMember: ConversationMember?) {
+        guard oldMember == nil, let newMember else { return }
+        navigator?.present(
+            memberProfile: MemberProfileNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                memberId: newMember.profile.inboxId
+            )
+        )
+    }
+
+    func handleReactionsChanged(from oldMessage: AnyMessage?, to newMessage: AnyMessage?) {
+        guard oldMessage == nil, let newMessage else { return }
+        navigator?.present(
+            reactions: ReactionsNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                messageId: newMessage.id
+            )
+        )
+    }
+
+    func handleThinkingDetailChanged(from oldValue: ThinkingSessionDescriptor?, to newValue: ThinkingSessionDescriptor?) {
+        guard oldValue == nil, let newValue else { return }
+        navigator?.present(
+            thinkingDetail: ThinkingDetailNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                senderInboxId: newValue.sender.profile.inboxId,
+                messageId: newValue.targetMessageId
+            )
+        )
+    }
+
+    func handleAddFromContactsChanged(from oldValue: Bool, to newValue: Bool) {
+        guard !oldValue, newValue else { return }
+        navigator?.present(
+            addMembers: AddMembersNavigatorArgs(
+                conversationId: conversationIdForMetrics,
+                conversationTitle: viewModel.conversation.name
+            )
+        )
+    }
+}
+
 @MainActor
 private func makeConversationViewPreviewViewModel() -> ConversationViewModel {
     .mock
@@ -756,6 +859,7 @@ struct MemberContactDetailSheetContent: View {
     let viewModel: ConversationViewModel
     let member: ConversationMember
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
+    var onStartAgentDm: ((String) -> Void)?
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {
@@ -787,7 +891,8 @@ struct MemberContactDetailSheetContent: View {
                 session: viewModel.session,
                 coreActions: viewModel.coreActions,
                 profileSettingsViewModel: profileSettingsViewModel,
-                onRemove: onRemove
+                onRemove: onRemove,
+                onStartAgentDm: onStartAgentDm
             )
         }
     }
@@ -845,6 +950,8 @@ extension ConversationView {
         guard !effectiveReadOnly, headerMode == .standard else { return false }
         let conversation = viewModel.conversation
         guard !conversation.isDraft else { return false }
+        // Agent DMs are private 2-member conversations; never offer invites.
+        guard !conversation.isAgentDm else { return false }
         return conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull && !conversation.leftHostedInviteSession
     }
 

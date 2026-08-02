@@ -194,7 +194,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 conversationEmoji: signedInvite.emoji,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAgent: false
+                hasHadVerifiedAgent: false,
+                isAgentDm: false
             )
             try conversation.save(db)
             let memberProfile = DBMemberProfile(
@@ -336,7 +337,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Save conversation (handle local conversation updates).
         // Also handles imageLastRenewed preservation inside the transaction.
-        let saveResult = try saveConversation(prepared.dbConversation, in: db)
+        let saveResult = try saveConversation(prepared.dbConversation, memberCount: prepared.dbMembers.count, in: db)
 
         // Save local state
         let localState = ConversationLocalState(
@@ -774,6 +775,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let debugInfo: ConversationDebugInfo
         let isLocked: Bool
         let hasHadVerifiedAgent: Bool
+        let isAgentDm: Bool
+        let memberCount: Int
     }
 
     private func extractConversationMetadata(from conversation: XMTPiOS.Group) async throws -> ConversationMetadata {
@@ -785,6 +788,19 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let imageEncryptionKey = try? conversation.imageEncryptionKey
         let conversationEmoji = try? conversation.conversationEmoji
         Log.info("extractConversationMetadata: emoji=\(conversationEmoji ?? "nil") for convo: \(conversation.id)")
+
+        // Classification requires the marker, exactly two members, and the
+        // other member being an attested verified agent. The marker alone is
+        // member-writable appData, so honoring it on any human 1:1 would let a
+        // peer permanently hide that conversation from the victim (list + count
+        // filters key on this flag). Verified-agent status is read from the
+        // per-inbox identity table, where the inbound seam stores the resolved
+        // (attested) member kind -- a value a human peer cannot forge.
+        let hasAgentDmMarker = (try? conversation.currentCustomMetadata.hasAgentDm) ?? false
+        let members = (try? await conversation.members) ?? []
+        let memberCount = members.count
+        let hasVerifiedAgentMember = try await anyMemberIsVerifiedAgent(inboxIds: members.map(\.inboxId))
+        let isAgentDm = hasAgentDmMarker && memberCount == 2 && hasVerifiedAgentMember
 
         return ConversationMetadata(
             kind: .group,
@@ -798,8 +814,62 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             expiresAt: try conversation.expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked,
-            hasHadVerifiedAgent: false
+            hasHadVerifiedAgent: false,
+            isAgentDm: isAgentDm,
+            memberCount: memberCount
         )
+    }
+
+    /// Whether any of the given inboxes resolves to a verified agent in the
+    /// per-inbox identity table. Backs the agent-DM classification and latch:
+    /// only self plus a verified agent may classify as an agent DM, and self is
+    /// never a verified agent, so a 2-member conversation with a verified-agent
+    /// member is exactly a self+agent DM.
+    private func anyMemberIsVerifiedAgent(inboxIds: [String]) async throws -> Bool {
+        guard !inboxIds.isEmpty else { return false }
+        return try await databaseWriter.read { db in
+            try Self.containsVerifiedAgentProfile(db, inboxIds: inboxIds)
+        }
+    }
+
+    static func containsVerifiedAgentProfile(_ db: Database, inboxIds: [String]) throws -> Bool {
+        try DBProfile
+            .fetchAll(db, inboxIds: inboxIds)
+            .contains { $0.agentVerification.isVerified }
+    }
+
+    static func conversationHasVerifiedAgentMember(_ db: Database, conversationId: String) throws -> Bool {
+        let inboxIds = try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .fetchAll(db)
+            .map(\.inboxId)
+        return try containsVerifiedAgentProfile(db, inboxIds: inboxIds)
+    }
+
+    /// One-way agent-DM latch: concurrent custom-metadata writers at creation
+    /// time (invite tag, emoji) do read-modify-write on the same appData blob
+    /// and can briefly rewrite it without the agent-DM marker, so an
+    /// extraction reading false must not un-mark a row that was ever marked
+    /// locally -- a de-classified DM would leak into the conversations list.
+    ///
+    /// The latch only applies while the conversation still has at most two
+    /// members: a marked DM whose agent left (count 1) stays hidden, but a
+    /// conversation that grew beyond two members must never be re-marked --
+    /// otherwise a transiently marked group could be hidden permanently.
+    ///
+    /// Re-marking also requires the conversation to still hold a verified-agent
+    /// member: the marker is member-writable, so without this a human 1:1 that
+    /// was momentarily marked could be re-latched into permanent hiding.
+    static func applyingAgentDmLatch(
+        incoming: DBConversation,
+        existing: DBConversation?,
+        memberCount: Int,
+        otherMemberIsVerifiedAgent: Bool
+    ) -> DBConversation {
+        guard existing?.isAgentDm == true, !incoming.isAgentDm, memberCount <= 2, otherMemberIsVerifiedAgent else {
+            return incoming
+        }
+        return incoming.with(isAgentDm: true)
     }
 
     private func createDBConversation(
@@ -841,7 +911,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             conversationEmoji: metadata.conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            hasHadVerifiedAgent: metadata.hasHadVerifiedAgent
+            hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
+            isAgentDm: metadata.isAgentDm
         )
     }
 
@@ -863,6 +934,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     /// ensures atomic read-modify-write, preventing concurrent asset renewal from losing timestamps).
     private func saveConversation(
         _ dbConversation: DBConversation,
+        memberCount: Int,
         in db: Database
     ) throws -> ConversationSaveResult {
         let firstTimeSeeingConversationExpired: Bool
@@ -886,6 +958,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Apply the preserved timestamp
         var conversationToSave = dbConversation.with(imageLastRenewed: imageLastRenewed)
+
+        conversationToSave = Self.applyingAgentDmLatch(
+            incoming: conversationToSave,
+            existing: existingConversation,
+            memberCount: memberCount,
+            otherMemberIsVerifiedAgent: try Self.conversationHasVerifiedAgentMember(db, conversationId: dbConversation.id)
+        )
 
         if dbConversation.inviteTag.isEmpty,
            let existingConversation,
@@ -964,6 +1043,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             // agent flag must carry forward.
             let mergedHasAgentByTag: Bool = localConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
             conversationToSave = conversationToSave.with(hasHadVerifiedAgent: mergedHasAgentByTag)
+            // Same for the agent-DM latch: the replaced row is the "existing"
+            // one for latch purposes even though the incoming id differs.
+            conversationToSave = Self.applyingAgentDmLatch(
+                incoming: conversationToSave,
+                existing: localConversation,
+                memberCount: memberCount,
+                otherMemberIsVerifiedAgent: try Self.conversationHasVerifiedAgentMember(db, conversationId: localConversation.id)
+            )
             try conversationToSave.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
             actualClientConversationId = preferredClientConversationId

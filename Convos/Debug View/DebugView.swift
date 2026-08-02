@@ -49,6 +49,7 @@ struct DebugViewSection: View {
     @State private var creditsPresetSelection: CreditsStatePreset = FeatureFlags.shared.mockCreditsPreset
     @State private var useRealStoreKit: Bool = SubscriptionServices.useRealStoreKit
     @State private var useRealCredits: Bool = CreditsServices.useRealBackend
+    @State private var identity: DeviceIdentitySnapshot?
 
     var body: some View {
         Group {
@@ -66,6 +67,8 @@ struct DebugViewSection: View {
         .task {
             await refreshNotificationStatus()
             logStorageInfo = DebugLogExporter.getStorageInfo(environment: environment)
+            let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
+            identity = await DeviceIdentitySnapshot.current(identityStore: identityStore)
         }
     }
 
@@ -99,6 +102,8 @@ struct DebugViewSection: View {
     @ViewBuilder
     private var subscriptionSection: some View {
         Section("Subscription") {
+            DebugRevealableValueRow(label: "Account ID", value: identity?.accountId)
+            DebugRevealableValueRow(label: "Inbox ID", value: identity?.inboxId)
             Toggle("Use real StoreKit", isOn: $useRealStoreKit)
                 .onChange(of: useRealStoreKit) { _, newValue in
                     SubscriptionServices.setUseRealStoreKit(newValue)

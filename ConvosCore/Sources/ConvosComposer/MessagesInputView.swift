@@ -7,6 +7,7 @@ import UIKit
 public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsButton: View>: View {
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String
+    let messagePlaceholder: String
     @Binding var messageText: String
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
@@ -48,6 +49,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
     public init(
         displayName: Binding<String>,
         emptyDisplayNamePlaceholder: String,
+        messagePlaceholder: String = "Chat",
         messageText: Binding<String>,
         pendingMediaAttachments: [PendingMediaAttachment] = [],
         composerLinkPreview: LinkPreview? = nil,
@@ -73,6 +75,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
     ) {
         _displayName = displayName
         self.emptyDisplayNamePlaceholder = emptyDisplayNamePlaceholder
+        self.messagePlaceholder = messagePlaceholder
         _messageText = messageText
         self.pendingMediaAttachments = pendingMediaAttachments
         self.composerLinkPreview = composerLinkPreview
@@ -135,7 +138,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
     private var messageTextField: some View {
         Group {
             TextField(
-                "Chat",
+                messagePlaceholder,
                 text: $messageText,
                 axis: .vertical
             )

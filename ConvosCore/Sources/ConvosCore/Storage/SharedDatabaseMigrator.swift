@@ -210,6 +210,11 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addProfilePublishJobProfileUpdatedAt", migrate: Self.addProfilePublishJobProfileUpdatedAt)
         migrator.registerMigration("addConversationLastMessagePointers", migrate: Self.addConversationLastMessagePointers)
 
+        // Must stay last: this migration was appended after the two above landed
+        // on dev, so existing installs applied those first. Registering it ahead
+        // of them re-triggers the erase described above.
+        Self.registerAgentDmMigrations(on: &migrator)
+
         return migrator
     }
 
@@ -1216,6 +1221,17 @@ extension SharedDatabaseMigrator {
                 t.column("nextRefreshAt", .datetime).notNull()
                 t.column("periodLabel", .text).notNull()
                 t.column("updatedAt", .datetime).notNull()
+            }
+        }
+    }
+
+    // Registered last: migrations must only ever be appended to the chain --
+    // inserting into an earlier group runs after already-shipped identifiers
+    // on upgraded installs and diverges fresh-install/upgrade schema order.
+    private static func registerAgentDmMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("addConversationIsAgentDm") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "isAgentDm", .boolean).notNull().defaults(to: false)
             }
         }
     }

@@ -25,6 +25,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @Binding var conversationImage: UIImage?
     @Binding var displayName: String
     @Binding var messageText: String
+    var messagePlaceholder: String = "Chat"
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
@@ -279,6 +280,7 @@ struct MessagesView<BottomBarContent: View>: View {
                     focusState: $focusState,
                     focusCoordinator: focusCoordinator,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
+                    messagePlaceholder: messagePlaceholder,
                     onSendMessage: {
                         scrollToBottom?()
                         onSendMessage()

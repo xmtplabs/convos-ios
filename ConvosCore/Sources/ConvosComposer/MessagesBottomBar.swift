@@ -84,6 +84,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     let profile: Profile
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String = "Somebody"
+    let messagePlaceholder: String
     @Binding var messageText: String
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
@@ -176,6 +177,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         focusCoordinator: FocusCoordinator,
         pinsExpandedInput: Bool = false,
         messagesTextFieldEnabled: Bool,
+        messagePlaceholder: String = "Chat",
         onSendMessage: @escaping () -> Void,
         onClearInvite: @escaping () -> Void,
         onClearLinkPreview: @escaping () -> Void,
@@ -216,6 +218,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         self.focusCoordinator = focusCoordinator
         self.pinsExpandedInput = pinsExpandedInput
         self.messagesTextFieldEnabled = messagesTextFieldEnabled
+        self.messagePlaceholder = messagePlaceholder
         self.onSendMessage = onSendMessage
         self.onClearInvite = onClearInvite
         self.onClearLinkPreview = onClearLinkPreview
@@ -625,6 +628,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             MessagesInputView(
                 displayName: $displayName,
                 emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
+                messagePlaceholder: messagePlaceholder,
                 messageText: $messageText,
                 pendingMediaAttachments: pendingMediaAttachments,
                 composerLinkPreview: composerLinkPreview,
