@@ -97,7 +97,7 @@ private struct ConversationPagerDots: View {
     let pages: [ConversationPagerPage]
 
     var body: some View {
-        HStack(spacing: 10.0) {
+        HStack(spacing: 6.0) {
             ForEach(pages) { page in
                 let isSelected: Bool = page == selectedPage
                 let action = {
@@ -113,7 +113,7 @@ private struct ConversationPagerDots: View {
                 .accessibilityLabel(label(for: page))
             }
         }
-        .padding(.horizontal, 10.0)
+        .padding(.horizontal, DesignConstants.Spacing.step2x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .glassEffect(.regular.interactive(), in: .capsule)
         .accessibilityIdentifier("conversation-pager-dots")
@@ -127,10 +127,11 @@ private struct ConversationPagerDots: View {
         let color: Color = isSelected ? .colorFillSecondary : .colorFillTertiary
         switch page {
         case .agentDm:
+            // SF Pro Bold 11pt in an 11pt box, per Figma (node 6905-10624).
             Text("A")
-                .font(.system(size: 9.0, weight: .bold))
+                .font(.system(size: 11.0, weight: .bold))
                 .foregroundStyle(color)
-                .frame(width: 8.0, height: 8.0)
+                .frame(width: 11.0, height: 11.0)
         default:
             pageShape(for: page)
                 .fill(color)
