@@ -106,9 +106,7 @@ private struct ConversationPagerDots: View {
                     }
                 }
                 Button(action: action) {
-                    pageShape(for: page)
-                        .fill(isSelected ? Color.colorFillSecondary : Color.colorFillTertiary)
-                        .frame(width: 8.0, height: 8.0)
+                    indicator(for: page, isSelected: isSelected)
                         .animation(.easeInOut(duration: 0.2), value: isSelected)
                 }
                 .buttonStyle(.plain)
@@ -119,6 +117,25 @@ private struct ConversationPagerDots: View {
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .glassEffect(.regular.interactive(), in: .capsule)
         .accessibilityIdentifier("conversation-pager-dots")
+    }
+
+    /// The per-page indicator glyph. The agent-DM page reads as a small "A"
+    /// (mirroring the agent badge elsewhere) instead of a plain dot; the other
+    /// pages keep their shaped dots. Colored by selection like every dot.
+    @ViewBuilder
+    private func indicator(for page: ConversationPagerPage, isSelected: Bool) -> some View {
+        let color: Color = isSelected ? .colorFillSecondary : .colorFillTertiary
+        switch page {
+        case .agentDm:
+            Text("A")
+                .font(.system(size: 9.0, weight: .bold))
+                .foregroundStyle(color)
+                .frame(width: 8.0, height: 8.0)
+        default:
+            pageShape(for: page)
+                .fill(color)
+                .frame(width: 8.0, height: 8.0)
+        }
     }
 
     private func pageShape(for page: ConversationPagerPage) -> UnevenRoundedRectangle {
