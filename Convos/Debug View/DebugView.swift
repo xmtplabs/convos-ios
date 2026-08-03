@@ -108,13 +108,13 @@ struct DebugViewSection: View {
     /// the next read (no relaunch needed).
     @ViewBuilder
     private var abilitiesFeatureToggles: some View {
-        Toggle("Abilities V2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
+        Toggle("Abilities v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
         if FeatureFlags.shared.isAbilitiesV2Enabled {
             Toggle("Abilities: live backend", isOn: $useLiveAbilities)
                 .onChange(of: useLiveAbilities) { _, newValue in
                     AbilitiesServices.setUseLiveBackend(newValue)
                 }
-            Toggle("Abilities: V1 awareness shim", isOn: $abilitiesV1ShimEnabled)
+            Toggle("Abilities: v1 awareness shim", isOn: $abilitiesV1ShimEnabled)
                 .onChange(of: abilitiesV1ShimEnabled) { _, newValue in
                     AbilitiesServices.setV1AwarenessShimEnabled(newValue)
                 }

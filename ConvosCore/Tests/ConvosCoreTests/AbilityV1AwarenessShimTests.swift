@@ -95,7 +95,7 @@ struct AbilityV1AwarenessShimTests {
         let written = grants(in: payload)
         #expect(written.count == 1)
         let entry = try #require(written.first)
-        #expect(entry["id"] as? String == "grant_v2_googlecalendar_conv-1_agent-1")
+        #expect(entry["id"] as? String == "grant_v2_14.googlecalendar_6.conv-1_7.agent-1")
         #expect(entry["service"] as? String == "googlecalendar")
         #expect(entry["grantedToInboxId"] as? String == "agent-1")
         #expect(entry["senderId"] as? String == "my-inbox")
@@ -115,6 +115,27 @@ struct AbilityV1AwarenessShimTests {
 
         let payload = try payloadObject(from: writer, conversationId: "conv-1")
         #expect(grants(in: payload).count == 1)
+    }
+
+    @Test("Components containing the separator cannot collide or cross-delete")
+    func separatorComponentsDoNotCollide() async throws {
+        let writer = StatefulMetadataWriter()
+        let shim = makeShim(writer: writer)
+
+        // Under a plain underscore join both tuples would share one id,
+        // so the second upsert would replace the first and the withdrawal
+        // below would delete the survivor.
+        await shim.recordExtension(conversationId: "c", abilityId: "a", agentInboxId: "c_d", bundleIds: [])
+        await shim.recordExtension(conversationId: "c", abilityId: "a_c", agentInboxId: "d", bundleIds: [])
+
+        let payload = try payloadObject(from: writer, conversationId: "c")
+        #expect(grants(in: payload).count == 2)
+
+        await shim.recordWithdrawal(conversationId: "c", abilityId: "a", agentInboxId: "c_d")
+        let afterWithdrawal = try payloadObject(from: writer, conversationId: "c")
+        let remaining = grants(in: afterWithdrawal)
+        #expect(remaining.count == 1)
+        #expect(remaining.first?["service"] as? String == "a_c")
     }
 
     @Test("Distinct agents and services keep separate entries")

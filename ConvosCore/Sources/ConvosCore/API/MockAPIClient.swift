@@ -295,7 +295,7 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     }
 
     func createAbilityEntitlement(abilityId: String, redirectUri: String?) async throws -> AbilitiesAPI.EntitlementInitiationResponse {
-        AbilitiesAPI.EntitlementInitiationResponse(
+        try AbilitiesAPI.EntitlementInitiationResponse(
             status: .pendingAuth,
             redirectUrl: "https://mock.convos.org/oauth/\(abilityId)",
             connectionRequestId: "mock-connection-request-\(abilityId)"

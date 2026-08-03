@@ -62,6 +62,16 @@ private final class AbilitiesStubAPIClient: TestStubAPIClient, @unchecked Sendab
     }
 }
 
+/// Mutable identity for tests that switch accounts mid-run. Reads and
+/// writes are sequenced by the test body itself.
+private final class ScopeBox: @unchecked Sendable {
+    var inboxId: String?
+
+    init(inboxId: String?) {
+        self.inboxId = inboxId
+    }
+}
+
 @Suite("LiveAbilitiesService")
 struct LiveAbilitiesServiceTests {
     private func makeService(
@@ -210,7 +220,7 @@ struct LiveAbilitiesServiceTests {
         let client = AbilitiesStubAPIClient()
         client.onCreateEntitlement = { abilityId, redirectUri in
             #expect(redirectUri == "convos-testing://connections/callback")
-            return AbilitiesAPI.EntitlementInitiationResponse(
+            return try AbilitiesAPI.EntitlementInitiationResponse(
                 status: .pendingAuth,
                 redirectUrl: "https://consent.example/\(abilityId)",
                 connectionRequestId: "creq-42"
@@ -239,7 +249,7 @@ struct LiveAbilitiesServiceTests {
     func continueResumesRetainedAttempt() async throws {
         let client = AbilitiesStubAPIClient()
         client.onCreateEntitlement = { _, _ in
-            AbilitiesAPI.EntitlementInitiationResponse(
+            try AbilitiesAPI.EntitlementInitiationResponse(
                 status: .pendingAuth,
                 redirectUrl: "https://consent.example/x",
                 connectionRequestId: "creq-7"
@@ -271,7 +281,7 @@ struct LiveAbilitiesServiceTests {
     func otherCompleteFailureDropsAttempt() async throws {
         let client = AbilitiesStubAPIClient()
         client.onCreateEntitlement = { _, _ in
-            AbilitiesAPI.EntitlementInitiationResponse(
+            try AbilitiesAPI.EntitlementInitiationResponse(
                 status: .pendingAuth,
                 redirectUrl: "https://consent.example/x",
                 connectionRequestId: "creq-1"
@@ -296,7 +306,7 @@ struct LiveAbilitiesServiceTests {
         let client = AbilitiesStubAPIClient()
         client.onCreateEntitlement = { _, _ in
             try await Task.sleep(for: .milliseconds(50))
-            return AbilitiesAPI.EntitlementInitiationResponse(
+            return try AbilitiesAPI.EntitlementInitiationResponse(
                 status: .pendingAuth,
                 redirectUrl: "https://consent.example/x",
                 connectionRequestId: "creq-shared"
@@ -316,7 +326,7 @@ struct LiveAbilitiesServiceTests {
     func concurrentCompletesSubmitOnce() async throws {
         let client = AbilitiesStubAPIClient()
         client.onCreateEntitlement = { _, _ in
-            AbilitiesAPI.EntitlementInitiationResponse(
+            try AbilitiesAPI.EntitlementInitiationResponse(
                 status: .pendingAuth,
                 redirectUrl: "https://consent.example/x",
                 connectionRequestId: "creq-9"
@@ -334,6 +344,71 @@ struct LiveAbilitiesServiceTests {
         _ = try await [first, second]
 
         #expect(client.completeCalls.count == 1)
+    }
+
+    @Test("An account switch drops the previous account's OAuth attempt")
+    func accountSwitchDropsAttempt() async throws {
+        let client = AbilitiesStubAPIClient()
+        client.onCreateEntitlement = { _, _ in
+            try AbilitiesAPI.EntitlementInitiationResponse(
+                status: .pendingAuth,
+                redirectUrl: "https://consent.example/a",
+                connectionRequestId: "creq-account-a"
+            )
+        }
+        let scopeBox = ScopeBox(inboxId: "inbox-a")
+        let service = LiveAbilitiesService(
+            apiClient: client,
+            callbackURLScheme: "convos-testing",
+            cache: nil,
+            myInboxIdProvider: { scopeBox.inboxId }
+        )
+
+        _ = try await service.beginEntitlement(abilityId: "spotify")
+        scopeBox.inboxId = "inbox-b"
+
+        // The next begin under the new identity must detect the switch and
+        // mint a fresh connection request instead of resuming inbox-a's.
+        client.onCreateEntitlement = { _, _ in
+            try AbilitiesAPI.EntitlementInitiationResponse(
+                status: .pendingAuth,
+                redirectUrl: "https://consent.example/b",
+                connectionRequestId: "creq-account-b"
+            )
+        }
+        let resumed = try await service.beginEntitlement(abilityId: "spotify")
+        #expect(resumed.redirectUrl == "https://consent.example/b")
+        #expect(client.createCalls.count == 2)
+
+        // Completion echoes the new account's attempt, never inbox-a's.
+        client.onCompleteEntitlement = { _, _ in AbilitiesAPI.EntitlementCompleteResponse() }
+        try await service.completeEntitlement(abilityId: "spotify")
+        #expect(client.completeCalls.map(\.connectionRequestId) == ["creq-account-b"])
+    }
+
+    @Test("A late-finishing older fetch cannot clobber newer committed state")
+    func lateOlderFetchDoesNotClobber() async throws {
+        let client = AbilitiesStubAPIClient()
+        let staleAbilities: [AbilitiesAPI.Ability] = MockAbilitiesService.standardCatalog()
+            .map { $0.withEntitlementState(.notEntitled) }
+        client.onGetAbilities = {
+            try await Task.sleep(for: .milliseconds(200))
+            return try AbilitiesAPI.CatalogResponse(catalogVersion: 6, abilities: staleAbilities)
+        }
+        let service = makeService(client: client)
+
+        async let older = service.fetchCatalog()
+        try await Task.sleep(for: .milliseconds(50))
+        client.onGetAbilities = { try self.authoritativeResponse() }
+        _ = try await service.fetchCatalog()
+        _ = try await older
+
+        // Outage resolution must carry the newer fetch's committed state:
+        // googlecalendar stays active instead of reverting to the stale
+        // snapshot the older fetch delivered late.
+        client.onGetAbilities = { try self.unavailableResponse() }
+        let resolved = try await service.fetchCatalog()
+        #expect(resolved.abilities.first { $0.id == "googlecalendar" }?.entitlement?.status == .active)
     }
 
     @Test("requireAccount rejections surface as accountRequired")

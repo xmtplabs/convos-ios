@@ -172,6 +172,13 @@ final class ConversationAbilitiesViewModel {
             needsEntitlementAbility = ability
             return
         }
+        guard !ability.bundles.isEmpty else {
+            // The extension PUT requires a non-empty bundle selection, so
+            // a zero-bundle catalog ability cannot be extended yet: explain
+            // immediately instead of bouncing through a doomed mutation.
+            errorMessage = LiveAbilitiesServiceError.noBundlesSelected(abilityId: ability.id).localizedDescription
+            return
+        }
         if ability.bundles.count > 1 {
             bundleSelection = AbilityBundleSelectionContext(ability: ability, agent: row.agent)
         } else {

@@ -102,7 +102,12 @@ final class AbilitiesListViewModel {
         Task {
             do {
                 let initiation = try await service.beginEntitlement(abilityId: ability.id)
-                catalog = try await service.fetchCatalog()
+                // Cosmetic mid-flow refresh (the row shows Continue and
+                // Disconnect behind the authorization surface). It must
+                // never gate the authorization step: begin has already
+                // opened a backend OAuth round, and failing here would
+                // strand it behind an error message.
+                await refreshCatalogQuietly()
                 if initiation.status == .pendingAuth, let redirectUrl = initiation.redirectUrl {
                     if let authorizer {
                         await runBrowserAuthorization(for: ability, redirectUrl: redirectUrl, using: authorizer)
@@ -115,6 +120,14 @@ final class AbilitiesListViewModel {
             }
             busyAbilityIds.remove(ability.id)
         }
+    }
+
+    /// Mid-flow catalog refresh that must never derail the surrounding
+    /// lifecycle: updates on success, quietly keeps the stale catalog
+    /// otherwise (the flow's own completion refresh retries).
+    private func refreshCatalogQuietly() async {
+        guard let fetched = try? await service.fetchCatalog() else { return }
+        catalog = fetched
     }
 
     /// Live-transport authorization: `ASWebAuthenticationSession` replaces
@@ -139,12 +152,19 @@ final class AbilitiesListViewModel {
             }
             return
         }
+        // Completion and the follow-up refresh fail independently: a
+        // refresh hiccup after a successful complete must not report the
+        // connect as failed, so the refresh runs outside the do/catch and
+        // the mutation error is re-asserted over the refresh's outcome.
+        var completionError: String?
         do {
             try await completeRetryingAuthIncomplete(abilityId: ability.id)
-            catalog = try await service.fetchCatalog()
         } catch {
-            await refresh()
-            errorMessage = error.localizedDescription
+            completionError = error.localizedDescription
+        }
+        await refresh()
+        if let completionError {
+            errorMessage = completionError
         }
     }
 
@@ -182,11 +202,15 @@ final class AbilitiesListViewModel {
         pendingAuthorization = nil
         busyAbilityIds.insert(context.ability.id)
         Task {
+            var completionError: String?
             do {
                 try await service.completeEntitlement(abilityId: context.ability.id)
-                catalog = try await service.fetchCatalog()
             } catch {
-                errorMessage = error.localizedDescription
+                completionError = error.localizedDescription
+            }
+            await refresh()
+            if let completionError {
+                errorMessage = completionError
             }
             busyAbilityIds.remove(context.ability.id)
         }
@@ -220,11 +244,15 @@ final class AbilitiesListViewModel {
         busyAbilityIds.insert(ability.id)
         errorMessage = nil
         Task {
+            var mutationError: String?
             do {
                 try await service.revokeEntitlement(abilityId: ability.id)
-                catalog = try await service.fetchCatalog()
             } catch {
-                errorMessage = error.localizedDescription
+                mutationError = error.localizedDescription
+            }
+            await refresh()
+            if let mutationError {
+                errorMessage = mutationError
             }
             busyAbilityIds.remove(ability.id)
         }

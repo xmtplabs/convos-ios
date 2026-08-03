@@ -68,6 +68,26 @@ struct AbilitiesEndpointsContractTests {
         }
     }
 
+    @Test("Initiation rejects incoherent status/auth-field combinations")
+    func initiationRejectsIncoherentShapes() {
+        #expect(throws: (any Error).self) {
+            _ = try decode(AbilitiesAPI.EntitlementInitiationResponse.self, """
+            { "status": "pending_auth", "redirectUrl": null, "connectionRequestId": null }
+            """)
+        }
+        #expect(throws: (any Error).self) {
+            _ = try decode(AbilitiesAPI.EntitlementInitiationResponse.self, """
+            { "status": "active", "redirectUrl": "https://x.example", "connectionRequestId": "creq_1" }
+            """)
+        }
+        #expect(throws: AbilitiesAPI.WireValidationError.incoherentEntitlementState) {
+            _ = try AbilitiesAPI.EntitlementInitiationResponse(status: .expired)
+        }
+        #expect(throws: AbilitiesAPI.WireValidationError.incoherentEntitlementState) {
+            _ = try AbilitiesAPI.EntitlementInitiationResponse(status: .pendingAuth)
+        }
+    }
+
     @Test("Complete response rejects every non-active status (const)")
     func completeRejectsNonActive() {
         for status in ["pending_auth", "expired", "needs_reauth", "revoked", "done"] {
@@ -103,7 +123,7 @@ struct AbilitiesEndpointsContractTests {
 
     @Test("Strict responses round-trip with explicit nulls preserved")
     func strictRoundTrip() throws {
-        let initiation = AbilitiesAPI.EntitlementInitiationResponse(status: .active)
+        let initiation = try AbilitiesAPI.EntitlementInitiationResponse(status: .active)
         let data = try JSONEncoder().encode(initiation)
         let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(object.keys.contains("redirectUrl"))

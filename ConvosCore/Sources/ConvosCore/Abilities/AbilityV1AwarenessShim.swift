@@ -48,9 +48,17 @@ public final class AbilityV1AwarenessShimWriter: AbilityV1AwarenessShimWriting, 
 
     /// The deterministic shim-owned entry id. The `grant_v2_` namespace is
     /// the ownership marker: merge logic may only ever touch entries whose
-    /// id matches one of these exactly.
+    /// id matches one of these exactly. Components are length-prefixed
+    /// because they may themselves contain the separator: a plain join
+    /// would collide across distinct tuples (`("a_b", "c")` vs
+    /// `("a", "b_c")`), letting one ability's extension replace or remove
+    /// another's shim entry.
     static func shimEntryId(abilityId: String, conversationId: String, agentInboxId: String) -> String {
-        "grant_v2_\(abilityId)_\(conversationId)_\(agentInboxId)"
+        let components = [abilityId, conversationId, agentInboxId]
+        let encoded = components
+            .map { (component: String) -> String in "\(component.utf8.count).\(component)" }
+            .joined(separator: "_")
+        return "grant_v2_\(encoded)"
     }
 
     public func recordExtension(conversationId: String, abilityId: String, agentInboxId: String, bundleIds: [String]) async {

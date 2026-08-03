@@ -1,7 +1,9 @@
 import Foundation
 
-/// Failures specific to the live transport's client-side bookkeeping (not
-/// part of the backend's error vocabulary).
+/// Failures of the client-side entitlement lifecycle bookkeeping (not part
+/// of the backend's error vocabulary). Thrown by the live transport and
+/// mirrored by the mock so surfaces exercise the same error paths in both
+/// modes.
 public enum LiveAbilitiesServiceError: Error, Sendable, Equatable {
     /// `completeEntitlement` ran without a retained OAuth attempt from a
     /// prior `beginEntitlement` in this process (e.g. the app restarted
@@ -86,6 +88,20 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     private var hasLoadedCache: Bool = false
     /// The scope `lastKnownCatalog` belongs to; a change resets it.
     private var catalogScope: String?
+    /// Monotonic fetch ordering: every `fetchCatalog` takes a sequence
+    /// number before its network await and may only commit its result if
+    /// no higher-numbered fetch committed first. Without this, actor
+    /// reentrancy lets an older response that finishes late clobber newer
+    /// state in memory and on disk. `handleAccountDataWiped` bumps the
+    /// committed watermark past every in-flight fetch, so a refresh that
+    /// was already on the network cannot resurrect wiped data.
+    private var fetchSequence: UInt64 = 0
+    private var committedFetchSequence: UInt64 = 0
+    /// Bumped on every genuine scope change (and on wipe). OAuth attempt
+    /// state is only valid within the epoch that created it: in-flight
+    /// begin/complete tasks are keyed by epoch so a new account can never
+    /// join or mutate the previous account's attempts.
+    private var scopeEpoch: UInt64 = 0
     private var pendingAttempts: [String: PendingAttempt] = [:]
     private var inFlightBegins: [String: Task<AbilityEntitlementInitiation, Error>] = [:]
     private var inFlightCompletes: [String: Task<Void, Error>] = [:]
@@ -111,18 +127,31 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     public func fetchCatalog() async throws -> AbilitiesCatalog {
         let scope = await myInboxIdProvider?()
         prepareLastKnownCatalog(for: scope)
+        // Snapshot before suspending: the actor is reentrant at the await,
+        // and a concurrent fetch for another scope may swap
+        // `lastKnownCatalog` underneath this one. Merging against the
+        // snapshot keeps the result pure to this fetch's scope.
+        let lastKnownAtStart = lastKnownCatalog
+        fetchSequence += 1
+        let sequence = fetchSequence
         let response: AbilitiesAPI.CatalogResponse
         do {
             response = try await apiClient.getAbilities()
         } catch {
             throw mapCatalogError(error)
         }
-        let catalog = AbilitiesCatalog.resolving(response: response, lastKnown: lastKnownCatalog)
+        let catalog = AbilitiesCatalog.resolving(response: response, lastKnown: lastKnownAtStart)
         // The merged result becomes the new last-known catalog even under
         // the flag, so back-to-back outages keep carrying state forward.
-        lastKnownCatalog = catalog
-        if let scope {
-            cache?.save(catalog, scope: scope)
+        // Commit only if this scope is still current and nothing newer
+        // (a later fetch, or a wipe) committed while we were suspended;
+        // the caller still gets this fetch's resolved catalog either way.
+        if catalogScope == scope && sequence > committedFetchSequence {
+            committedFetchSequence = sequence
+            lastKnownCatalog = catalog
+            if let scope {
+                cache?.save(catalog, scope: scope)
+            }
         }
         return catalog
     }
@@ -140,6 +169,11 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     }
 
     public func beginEntitlement(abilityId: String) async throws -> AbilityEntitlementInitiation {
+        // Resolve the scope first so an account switch is detected here
+        // too, not only on catalog fetches: the switch clears the previous
+        // account's attempts before the resume check below can serve one.
+        let scope = await myInboxIdProvider?()
+        prepareLastKnownCatalog(for: scope)
         // Resume before re-begin: a retained attempt means an OAuth round
         // is already open for this ability, and re-serving its consent URL
         // keeps "Continue connecting" on the same backend connection
@@ -147,13 +181,18 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         if let attempt = pendingAttempts[abilityId] {
             return AbilityEntitlementInitiation(status: .pendingAuth, redirectUrl: attempt.redirectUrl)
         }
-        if let inFlight = inFlightBegins[abilityId] {
+        let epoch = scopeEpoch
+        let inFlightKey = attemptKey(abilityId: abilityId, epoch: epoch)
+        if let inFlight = inFlightBegins[inFlightKey] {
             return try await inFlight.value
         }
         let task = Task { () throws -> AbilityEntitlementInitiation in
             do {
                 let response = try await apiClient.createAbilityEntitlement(abilityId: abilityId, redirectUri: redirectUri)
-                if let connectionRequestId = response.connectionRequestId {
+                // Guarded by epoch: if the account changed while the begin
+                // was on the network, the attempt belongs to the previous
+                // identity and must not be retained for the new one.
+                if let connectionRequestId = response.connectionRequestId, scopeEpoch == epoch {
                     pendingAttempts[abilityId] = PendingAttempt(
                         connectionRequestId: connectionRequestId,
                         redirectUrl: response.redirectUrl
@@ -164,15 +203,17 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
                 throw mapServiceError(error, abilityId: abilityId)
             }
         }
-        inFlightBegins[abilityId] = task
-        defer { inFlightBegins[abilityId] = nil }
+        inFlightBegins[inFlightKey] = task
+        defer { inFlightBegins[inFlightKey] = nil }
         return try await task.value
     }
 
     public func completeEntitlement(abilityId: String) async throws {
+        let epoch = scopeEpoch
+        let inFlightKey = attemptKey(abilityId: abilityId, epoch: epoch)
         // Duplicate completes join the in-flight submission instead of
         // re-posting the same connection-request id.
-        if let inFlight = inFlightCompletes[abilityId] {
+        if let inFlight = inFlightCompletes[inFlightKey] {
             return try await inFlight.value
         }
         guard let attempt = pendingAttempts[abilityId] else {
@@ -184,7 +225,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
                     abilityId: abilityId,
                     connectionRequestId: attempt.connectionRequestId
                 )
-                pendingAttempts.removeValue(forKey: abilityId)
+                removeAttempt(abilityId: abilityId, epoch: epoch)
             } catch let error as AbilitiesAPI.EndpointError where error.isAuthIncomplete {
                 // Retained on purpose: auth_incomplete is retryable against
                 // the same connection request (ownership is verified by id
@@ -197,22 +238,23 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
                 // fault after which the request state is unknown): retrying
                 // the same id cannot be trusted to converge, so the next
                 // connect re-begins. Begin is idempotent server-side.
-                pendingAttempts.removeValue(forKey: abilityId)
+                removeAttempt(abilityId: abilityId, epoch: epoch)
                 throw mapServiceError(error, abilityId: abilityId)
             }
         }
-        inFlightCompletes[abilityId] = task
-        defer { inFlightCompletes[abilityId] = nil }
+        inFlightCompletes[inFlightKey] = task
+        defer { inFlightCompletes[inFlightKey] = nil }
         return try await task.value
     }
 
     public func revokeEntitlement(abilityId: String) async throws {
+        let epoch = scopeEpoch
         do {
             try await apiClient.revokeAbilityEntitlement(abilityId: abilityId)
         } catch {
             throw mapServiceError(error, abilityId: abilityId)
         }
-        pendingAttempts.removeValue(forKey: abilityId)
+        removeAttempt(abilityId: abilityId, epoch: epoch)
     }
 
     public func conversationAbilities(conversationId: String) async throws -> [ConversationAbility] {
@@ -288,14 +330,34 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         }
     }
 
+    /// Account-wipe hygiene, on the actor so it serializes with every
+    /// fetch commit: invalidates in-flight fetches (a refresh already on
+    /// the network resumes past the watermark and cannot recreate the
+    /// wiped cache file), drops OAuth attempts, and clears the disk cache
+    /// after the watermark bump so nothing committed in between survives.
+    public func handleAccountDataWiped() {
+        committedFetchSequence = fetchSequence
+        scopeEpoch += 1
+        pendingAttempts.removeAll()
+        lastKnownCatalog = nil
+        catalogScope = nil
+        hasLoadedCache = false
+        cache?.clearAll()
+    }
+
     // MARK: - Helpers
 
     /// Loads (or reloads) the last-known catalog for the resolved scope.
     /// A scope change -- account adopted mid-process, account switched --
     /// drops the previous scope's in-memory state before anything can
-    /// merge against it.
+    /// merge against it, and orphans the previous scope's OAuth attempts
+    /// so the new identity can never resume or complete them.
     private func prepareLastKnownCatalog(for scope: String?) {
         guard !hasLoadedCache || scope != catalogScope else { return }
+        if hasLoadedCache {
+            scopeEpoch += 1
+            pendingAttempts.removeAll()
+        }
         hasLoadedCache = true
         catalogScope = scope
         if let scope {
@@ -303,6 +365,22 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         } else {
             lastKnownCatalog = nil
         }
+    }
+
+    /// Key for the in-flight begin/complete maps: epoch-qualified so tasks
+    /// started under a previous identity are invisible to the current one
+    /// (joining them would hand the new account the old account's consent
+    /// URL), and so their cleanup can never remove a successor's entry.
+    private func attemptKey(abilityId: String, epoch: UInt64) -> String {
+        "\(epoch):\(abilityId)"
+    }
+
+    /// Drops a retained attempt only if it still belongs to the epoch that
+    /// created it; after a scope change the same ability id may already
+    /// carry the new account's attempt.
+    private func removeAttempt(abilityId: String, epoch: UInt64) {
+        guard scopeEpoch == epoch else { return }
+        pendingAttempts.removeValue(forKey: abilityId)
     }
 
     /// Maps wire failures onto the service-level error vocabulary the view

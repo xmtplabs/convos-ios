@@ -89,10 +89,14 @@ enum AbilitiesServices {
     }
 
     /// Account-wipe hygiene: drops every account's persisted catalog. The
-    /// service's in-memory state is scope-keyed, so the next fetch under a
-    /// new identity starts clean by construction.
+    /// synchronous clear removes the files immediately; the actor hop then
+    /// invalidates the service's in-flight fetches and re-clears, so a
+    /// catalog refresh that was already on the network can neither commit
+    /// nor recreate the wiped files when it resumes.
     static func handleAccountDataWiped() {
         catalogCache?.clearAll()
+        guard let liveService else { return }
+        Task { await liveService.handleAccountDataWiped() }
     }
 
     /// Debug sub-toggle under the Abilities V2 flag: live backend versus

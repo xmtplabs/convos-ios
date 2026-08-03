@@ -106,6 +106,14 @@ public actor MockAbilitiesService: AbilitiesServiceProtocol {
         guard let index = abilities.firstIndex(where: { $0.id == abilityId }) else {
             throw AbilitiesServiceError.unknownAbility(abilityId: abilityId)
         }
+        // Completion is only valid for an OAuth ability mid-authorization,
+        // matching the live transport: any other state has no open OAuth
+        // round to complete, and activating it here would let surfaces
+        // exercise entitlement transitions the real service cannot produce.
+        guard abilities[index].auth.type == .oauth,
+              abilities[index].entitlement?.status == .pendingAuth else {
+            throw LiveAbilitiesServiceError.missingConnectionRequest(abilityId: abilityId)
+        }
         let entitlement = try AbilitiesAPI.Entitlement(
             status: .active,
             expiresAt: Date().addingTimeInterval(Constant.mockCredentialLifetime),

@@ -90,7 +90,8 @@ extension AbilitiesAPI {
         public let redirectUrl: String?
         public let connectionRequestId: String?
 
-        public init(status: EntitlementStatus, redirectUrl: String? = nil, connectionRequestId: String? = nil) {
+        public init(status: EntitlementStatus, redirectUrl: String? = nil, connectionRequestId: String? = nil) throws {
+            try Self.validate(status: status, redirectUrl: redirectUrl, connectionRequestId: connectionRequestId)
             self.status = status
             self.redirectUrl = redirectUrl
             self.connectionRequestId = connectionRequestId
@@ -106,9 +107,31 @@ extension AbilitiesAPI {
                     debugDescription: "Initiation status must be pending_auth or active, got \"\(rawStatus)\""
                 )
             }
+            let redirectUrl = try container.requiredNullable(String.self, forKey: .redirectUrl)
+            let connectionRequestId = try container.requiredNullable(String.self, forKey: .connectionRequestId)
+            try Self.validate(status: status, redirectUrl: redirectUrl, connectionRequestId: connectionRequestId)
             self.status = status
-            self.redirectUrl = try container.requiredNullable(String.self, forKey: .redirectUrl)
-            self.connectionRequestId = try container.requiredNullable(String.self, forKey: .connectionRequestId)
+            self.redirectUrl = redirectUrl
+            self.connectionRequestId = connectionRequestId
+        }
+
+        /// Shared by decoding and programmatic construction so the type is
+        /// strict in both directions: `pending_auth` carries both auth
+        /// fields, `active` carries neither, and no other status exists in
+        /// the initiation contract.
+        private static func validate(status: EntitlementStatus, redirectUrl: String?, connectionRequestId: String?) throws {
+            switch status {
+            case .pendingAuth:
+                guard redirectUrl != nil, connectionRequestId != nil else {
+                    throw WireValidationError.incoherentEntitlementState
+                }
+            case .active:
+                guard redirectUrl == nil, connectionRequestId == nil else {
+                    throw WireValidationError.incoherentEntitlementState
+                }
+            default:
+                throw WireValidationError.incoherentEntitlementState
+            }
         }
 
         public func encode(to encoder: Encoder) throws {
