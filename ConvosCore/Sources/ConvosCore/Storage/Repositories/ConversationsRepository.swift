@@ -166,7 +166,7 @@ fileprivate extension Database {
         // groups with a verified-agent member resolve a DM; the extra
         // `composeOneToOne` read runs inside this same `db` transaction so
         // GRDB's ValueObservation tracks the DM and keeps the list reactive.
-        return try conversations.map { (conversation: Conversation) -> Conversation in
+        let folded = try conversations.map { (conversation: Conversation) -> Conversation in
             guard let agentMember = conversation.members.first(where: { $0.isVerifiedAgent }) else {
                 return conversation
             }
@@ -187,6 +187,20 @@ fileprivate extension Database {
             )
             return row
         }
+        // The SQL order only knows each group's own messages; a reply in the
+        // folded DM lane must float the origin conversation just like a group
+        // message would. Re-sort in memory by the newer of the two lanes,
+        // keeping the SQL order for ties so rows without a DM are unaffected.
+        guard folded.contains(where: { $0.agentDm != nil }) else { return folded }
+        return folded
+            .enumerated()
+            .sorted { (lhs: EnumeratedSequence<[Conversation]>.Element, rhs: EnumeratedSequence<[Conversation]>.Element) -> Bool in
+                let lhsDate: Date = lhs.element.lastActivityDate
+                let rhsDate: Date = rhs.element.lastActivityDate
+                guard lhsDate == rhsDate else { return lhsDate > rhsDate }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
     }
 
     func composeAgentTemplateConversations(templateId: String, consent: [Consent]) throws -> AgentTemplateConversations {
@@ -280,6 +294,17 @@ fileprivate extension Database {
         let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
         let contactNameResolver = try ContactsRepository.contactNameResolverInTransaction(db: self)
         return details.hydrateConversation(currentInboxId: currentInboxId, contactNameResolver: contactNameResolver)
+    }
+}
+
+fileprivate extension Conversation {
+    /// The row's most recent activity across both lanes: the group's own last
+    /// message (falling back to `createdAt`, matching the SQL ordering key)
+    /// and the folded agent DM's last message.
+    var lastActivityDate: Date {
+        let groupDate: Date = lastMessage?.createdAt ?? createdAt
+        guard let dmDate = agentDm?.lastMessage?.createdAt else { return groupDate }
+        return max(groupDate, dmDate)
     }
 }
 

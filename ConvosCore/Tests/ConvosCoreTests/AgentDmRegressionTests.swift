@@ -7,6 +7,8 @@ import Testing
 /// CON-761 (see docs/plans/agent-dms.md and agent-dms-qa.md). Each test pins a
 /// behavior that broke at least once during development:
 /// - a DM leaking into the conversations list or count (hidden-set invariant)
+/// - a DM reply failing to float its origin conversation in the list (the
+///   SQL order only knows each group's own messages)
 /// - `findAgentDm` resolving the wrong 1:1 (builder convo shadowing the DM)
 /// - the one-way classification latch (marker transiently rewritten off the
 ///   appData blob must not un-mark a DM)
@@ -98,6 +100,76 @@ struct AgentDmRegressionTests {
         ).insert(db)
         try seedMember(db, conversationId: id, inboxId: Self.selfInbox)
         try seedMember(db, conversationId: id, inboxId: otherInboxId)
+    }
+
+    @discardableResult
+    private func seedMessage(
+        _ db: Database,
+        conversationId: String,
+        id: String,
+        senderId: String,
+        dateNs: Int64,
+        date: Date
+    ) throws -> String {
+        try DBMessage(
+            id: id,
+            clientMessageId: id,
+            conversationId: conversationId,
+            senderId: senderId,
+            dateNs: dateNs,
+            date: date,
+            sortId: dateNs,
+            status: .published,
+            messageType: .original,
+            contentType: .text,
+            text: "text-\(id)",
+            emoji: nil,
+            invite: nil,
+            linkPreview: nil,
+            sourceMessageId: nil,
+            attachmentUrls: [],
+            update: nil
+        ).insert(db)
+        return id
+    }
+
+    /// Two groups and one agent DM: the agent group's own message is the
+    /// oldest, the plain group's is fresher, and the DM holds the newest.
+    private func seedReorderFixture(_ db: Database, base: Date) throws {
+        try seedInbox(db)
+        try seedProfile(db, inboxId: Self.selfInbox, memberKind: nil)
+        try seedProfile(db, inboxId: Self.agentInbox, memberKind: .verifiedConvos)
+        try seedConversation(db, id: "group-agent", isAgentDm: false)
+        try seedConversation(db, id: "dm-1", isAgentDm: true)
+        try seedConversation(db, id: "group-plain", isAgentDm: false, otherInboxId: "human-2")
+        try seedMessage(db, conversationId: "group-agent", id: "msg-oldest", senderId: Self.agentInbox, dateNs: 1_000, date: base)
+        try seedMessage(db, conversationId: "group-plain", id: "msg-middle", senderId: "human-2", dateNs: 2_000, date: base.addingTimeInterval(60))
+    }
+
+    @Test("a newer DM message floats the origin conversation above fresher groups")
+    func dmMessageFloatsOriginConversation() throws {
+        let dbQueue = try makeDatabase()
+        let base = Date()
+        try dbQueue.write { db in
+            try seedReorderFixture(db, base: base)
+            try seedMessage(db, conversationId: "dm-1", id: "msg-newest", senderId: Self.agentInbox, dateNs: 3_000, date: base.addingTimeInterval(120))
+        }
+        let repository = ConversationsRepository(dbReader: dbQueue, consent: [.allowed])
+        let listed = try repository.fetchAll().map(\.id)
+        #expect(listed == ["group-agent", "group-plain"])
+    }
+
+    @Test("a DM older than both groups leaves the SQL order untouched")
+    func staleDmKeepsSqlOrder() throws {
+        let dbQueue = try makeDatabase()
+        let base = Date()
+        try dbQueue.write { db in
+            try seedReorderFixture(db, base: base)
+            try seedMessage(db, conversationId: "dm-1", id: "msg-stale", senderId: Self.agentInbox, dateNs: 500, date: base.addingTimeInterval(-60))
+        }
+        let repository = ConversationsRepository(dbReader: dbQueue, consent: [.allowed])
+        let listed = try repository.fetchAll().map(\.id)
+        #expect(listed == ["group-plain", "group-agent"])
     }
 
     @Test("agent DMs are hidden from the conversations list")
