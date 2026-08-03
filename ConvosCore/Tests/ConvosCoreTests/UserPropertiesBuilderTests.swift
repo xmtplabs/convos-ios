@@ -66,6 +66,10 @@ private final class StubConversationsRepository: ConversationsRepositoryProtocol
         nil
     }
 
+    func findAgentDm(with inboxId: String) throws -> Conversation? {
+        nil
+    }
+
     func conversationsPublisher(withAgentTemplateId templateId: String) -> AnyPublisher<AgentTemplateConversations, Never> {
         Just(AgentTemplateConversations(addedByCurrentUser: [], addedByOthers: [])).eraseToAnyPublisher()
     }
