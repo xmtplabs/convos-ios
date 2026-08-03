@@ -89,4 +89,15 @@ public final class NoOpCoreActions: CoreActions, @unchecked Sendable {
     ) async {}
 
     public func purchasesRestored(restoredCount: Int) async {}
+
+    public func devicePairingStarted(role: DevicePairingRole) async {}
+
+    public func devicePairingCompleted(role: DevicePairingRole, durationSecs: Float) async {}
+
+    public func devicePairingFailed(
+        role: DevicePairingRole,
+        reason: DevicePairingFailureReason,
+        step: DevicePairingStep,
+        durationSecs: Float
+    ) async {}
 }

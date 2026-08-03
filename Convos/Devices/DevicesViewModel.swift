@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosMetrics
 import Observation
 import SwiftUI
 
@@ -60,6 +61,7 @@ final class DevicesViewModel {
     private let pairingServiceFactory: @MainActor () -> any PairingServiceProtocol
     private let session: (any SessionManagerProtocol)?
     private let appGroupIdentifier: String?
+    private let coreActions: any CoreActions
     @ObservationIgnored
     private let observers: PairingNotificationObservers = .init()
     @ObservationIgnored
@@ -77,11 +79,13 @@ final class DevicesViewModel {
     init(
         pairingServiceFactory: @escaping @MainActor () -> any PairingServiceProtocol,
         session: (any SessionManagerProtocol)? = nil,
-        appGroupIdentifier: String? = nil
+        appGroupIdentifier: String? = nil,
+        coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.pairingServiceFactory = pairingServiceFactory
         self.session = session
         self.appGroupIdentifier = appGroupIdentifier
+        self.coreActions = coreActions
         self.devices = [
             PairedDevice(
                 id: "self",
@@ -159,7 +163,8 @@ final class DevicesViewModel {
         let vm = PairingSheetViewModel(
             pairingService: service,
             appGroupIdentifier: appGroupIdentifier,
-            targetDeviceName: backup.deviceName ?? Self.shortICloudDeviceName(inboxId: backup.inboxId)
+            targetDeviceName: backup.deviceName ?? Self.shortICloudDeviceName(inboxId: backup.inboxId),
+            coreActions: coreActions
         )
         pairingViewModel = vm
         showPairingSheet = true
@@ -350,7 +355,8 @@ final class DevicesViewModel {
         let service = pairingServiceFactory()
         let vm = PairingSheetViewModel(
             pairingService: service,
-            appGroupIdentifier: appGroupIdentifier
+            appGroupIdentifier: appGroupIdentifier,
+            coreActions: coreActions
         )
         pairingViewModel = vm
         showPairingSheet = true

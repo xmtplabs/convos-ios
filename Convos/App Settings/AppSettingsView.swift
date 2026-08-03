@@ -179,7 +179,8 @@ struct AppSettingsView: View {
                             DeferredInitiatorPairingService(session: session)
                         },
                         session: session,
-                        appGroupIdentifier: ConfigManager.shared.currentEnvironment.appGroupIdentifier
+                        appGroupIdentifier: ConfigManager.shared.currentEnvironment.appGroupIdentifier,
+                        coreActions: coreActions
                     )
                 )
                 .onAppear { navigator?.navigateTo(devices: DevicesNavigatorArgs()) }
