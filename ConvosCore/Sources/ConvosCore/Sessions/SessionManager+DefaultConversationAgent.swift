@@ -7,6 +7,7 @@ import GRDB
 actor DefaultConversationAgentCoordinator {
     private var provisionTasks: [String: Task<Void, Never>] = [:]
     private var readySignaledConversationIds: Set<String> = []
+    private var joinKeys: [String: ConvosAPI.JoinIdempotencyKey] = [:]
 
     /// Returns the in-flight (or completed) provision task for the
     /// conversation, creating it from `operation` on first call. Callers await
@@ -33,6 +34,25 @@ actor DefaultConversationAgentCoordinator {
     /// conversation per process.
     func shouldSendReadySignal(for conversationId: String) -> Bool {
         readySignaledConversationIds.insert(conversationId).inserted
+    }
+
+    /// The idempotency key for the conversation's current logical join,
+    /// minted on first use and stable across retries so the backend adopts
+    /// the in-flight instance instead of provisioning a duplicate.
+    func joinKey(for conversationId: String) -> ConvosAPI.JoinIdempotencyKey {
+        if let existing = joinKeys[conversationId] {
+            return existing
+        }
+        let key = ConvosAPI.JoinIdempotencyKey.mint()
+        joinKeys[conversationId] = key
+        return key
+    }
+
+    /// Forgets the key once its join has landed, or after an explicit
+    /// provision failure — the server retains the failed instance under the
+    /// old key, so reusing it can only fail again.
+    func clearJoinKey(for conversationId: String) {
+        joinKeys[conversationId] = nil
     }
 }
 
@@ -104,17 +124,81 @@ extension SessionManager {
                 Log.debug("Default agent: conversation \(conversationId) already has a second member, skipping provision")
                 return
             }
-            _ = try await addAgentToConversation(
-                conversationId: conversationId,
-                templateId: nil,
-                options: .defaultConversationAgent(variantId: await Self.defaultAgentVariantIdProvider?()),
-                forceErrorCode: nil,
-                idempotencyKey: nil
-            )
+            let variantId = await Self.defaultAgentVariantIdProvider?()
+            let ownerProfileName = await currentOwnerProfileName()
+            do {
+                try await provisionDefaultAgent(
+                    conversationId: conversationId,
+                    variantId: variantId,
+                    ownerProfileName: ownerProfileName
+                )
+            } catch {
+                // One idempotent retry. An explicit provision failure clears
+                // the key first (the server retains the failed instance under
+                // it); every other failure reuses the key so the server adopts
+                // the in-flight instance instead of provisioning a duplicate.
+                if case APIError.agentProvisionFailed = error {
+                    await defaultAgentCoordinator.clearJoinKey(for: conversationId)
+                }
+                Log.error("Default agent: provision attempt failed for conversation \(conversationId), retrying once: \(error)")
+                try await provisionDefaultAgent(
+                    conversationId: conversationId,
+                    variantId: variantId,
+                    ownerProfileName: ownerProfileName
+                )
+            }
+            await defaultAgentCoordinator.clearJoinKey(for: conversationId)
             Log.info("Default agent: provisioned into conversation \(conversationId)")
         } catch {
+            // An ambiguous terminal failure keeps the join key so a later
+            // ensure (the claim-time backstop) adopts a join that actually
+            // landed server-side instead of duplicating it. An explicit
+            // provision failure clears the key — the server retains the failed
+            // instance under it.
+            if case APIError.agentProvisionFailed = error {
+                await defaultAgentCoordinator.clearJoinKey(for: conversationId)
+            }
             Log.error("Default agent: provisioning failed for conversation \(conversationId): \(error)")
             await defaultAgentCoordinator.clearProvisionTask(for: conversationId)
+        }
+    }
+
+    private func provisionDefaultAgent(
+        conversationId: String,
+        variantId: String?,
+        ownerProfileName: String?
+    ) async throws {
+        let idempotencyKey = await defaultAgentCoordinator.joinKey(for: conversationId)
+        _ = try await addAgentToConversation(
+            conversationId: conversationId,
+            templateId: nil,
+            options: .defaultConversationAgent(variantId: variantId),
+            forceErrorCode: nil,
+            idempotencyKey: idempotencyKey,
+            ownerProfileName: ownerProfileName,
+            grantAdmin: true
+        )
+    }
+
+    /// The user's own profile name, nil when unset or unreadable. A brand-new
+    /// session can fill the cache before the profile exists; the backend
+    /// composes the agent's display name only when a name rides the join.
+    private func currentOwnerProfileName() async -> String? {
+        do {
+            return try await databaseReader.read { db -> String? in
+                guard let inboxId = try DBInbox.currentInboxId(db) else {
+                    return nil
+                }
+                let name = try DBMyProfile
+                    .filter(DBMyProfile.Columns.inboxId == inboxId)
+                    .fetchOne(db)?
+                    .name
+                let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        } catch {
+            Log.error("Default agent: reading owner profile name failed: \(error)")
+            return nil
         }
     }
 

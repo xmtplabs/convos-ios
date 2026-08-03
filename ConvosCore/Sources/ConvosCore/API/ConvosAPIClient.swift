@@ -1250,6 +1250,7 @@ extension ConvosAPIClient {
                 slug: joinRequest.slug,
                 conversationId: joinRequest.conversationId,
                 templateId: joinRequest.templateId,
+                ownerProfileName: joinRequest.ownerProfileName,
                 idempotencyKey: joinRequest.idempotencyKey,
                 options: safeOptions,
                 timezone: joinRequest.timezone

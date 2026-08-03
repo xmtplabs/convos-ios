@@ -221,6 +221,12 @@ public enum ConvosAPI {
         public let slug: String?
         public let conversationId: String?
         public let templateId: String?
+        /// Raw profile name of the joining user, sent on default-agent joins
+        /// so the backend can compose the agent's display name ("Saul's
+        /// agent"). Composition stays server-side so the copy can change
+        /// without a client release. Optional and nil-omitted so other joins
+        /// stay byte-identical.
+        public let ownerProfileName: String?
         /// Optional and nil-omitted by Codable, so default joins stay
         /// byte-identical and the wire format remains backward-compatible.
         public let idempotencyKey: JoinIdempotencyKey?
@@ -239,6 +245,7 @@ public enum ConvosAPI {
             slug: String? = nil,
             conversationId: String? = nil,
             templateId: String? = nil,
+            ownerProfileName: String? = nil,
             idempotencyKey: JoinIdempotencyKey? = nil,
             options: AgentJoinOptions? = nil,
             timezone: String? = nil
@@ -246,6 +253,7 @@ public enum ConvosAPI {
             self.slug = slug
             self.conversationId = conversationId
             self.templateId = templateId
+            self.ownerProfileName = ownerProfileName
             self.idempotencyKey = idempotencyKey
             self.options = options
             self.timezone = timezone
@@ -283,17 +291,15 @@ public enum ConvosAPI {
 
         public static let agentBuilder: AgentJoinOptions = AgentJoinOptions(onboarding: "agent-builder")
 
-        /// Join options for the bare default agent pre-added to every new
-        /// conversation. The assistant worker's onboarding schema is a strict
-        /// two-value enum ("agent-builder" | "first-impression"); a bare join
-        /// with "agent-builder" arms the self-build kickoff on the user's
-        /// first message, and skipGreeting holds the static welcome since the
-        /// agent joins the conversation while it is still hidden in the warm
-        /// cache. `variantId` (dev only) routes the join to an ephemeral
-        /// variant runtime, e.g. the agent-first prototype worker.
+        /// Join options for the silent bare default agent pre-added to every
+        /// new conversation: no onboarding arc — the Desktop screen owns the
+        /// welcome, and the agent speaks only when addressed — and
+        /// skipGreeting holds the static welcome since the agent joins while
+        /// the conversation is still hidden in the warm cache. `variantId`
+        /// (dev only) routes the join to an ephemeral variant runtime.
         public static func defaultConversationAgent(variantId: String? = nil) -> AgentJoinOptions {
             AgentJoinOptions(
-                onboarding: "agent-builder",
+                onboarding: nil,
                 variantId: variantId,
                 skipGreeting: true
             )
