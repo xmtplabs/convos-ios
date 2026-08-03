@@ -2,11 +2,9 @@ import Foundation
 import GRDB
 
 /// Per-conversation bookkeeping for the default-agent flow: dedupes concurrent
-/// provisions (cache-time vs claim-time) by sharing one task per conversation,
-/// and latches the one-shot `conversation_ready` send.
+/// provisions (cache-time vs claim-time) by sharing one task per conversation.
 actor DefaultConversationAgentCoordinator {
     private var provisionTasks: [String: Task<Void, Never>] = [:]
-    private var readySignaledConversationIds: Set<String> = []
     private var joinKeys: [String: ConvosAPI.JoinIdempotencyKey] = [:]
 
     /// Returns the in-flight (or completed) provision task for the
@@ -28,12 +26,6 @@ actor DefaultConversationAgentCoordinator {
     /// Forgets a failed provision so a later ensure can retry it.
     func clearProvisionTask(for conversationId: String) {
         provisionTasks[conversationId] = nil
-    }
-
-    /// One-shot latch for the ready signal; true only on the first call per
-    /// conversation per process.
-    func shouldSendReadySignal(for conversationId: String) -> Bool {
-        readySignaledConversationIds.insert(conversationId).inserted
     }
 
     /// The idempotency key for the conversation's current logical join,
@@ -93,29 +85,12 @@ extension SessionManager {
     /// agent (join with no template, greeting deferred) and adds it. Safe to
     /// call repeatedly - concurrent callers share one provision task, and a
     /// failed provision is retryable on the next call.
-    func ensureDefaultAgentInConversation(id conversationId: String) async {
+    public func ensureDefaultAgentInConversation(id conversationId: String) async {
         guard Self.defaultAgentProvisioningEnabled(environment) else { return }
         let task = await defaultAgentCoordinator.provisionTask(for: conversationId) { [weak self] in
             await self?.runDefaultAgentProvision(conversationId: conversationId)
         }
         await task.value
-    }
-
-    /// Cache-miss entry point (see `SessionManagerProtocol`): same ensure +
-    /// ready-cue sequence the claimed-cache commit path runs.
-    public func ensureDefaultAgentConversationReady(id conversationId: String) async {
-        await sendConversationReadySignalIfNeeded(conversationId: conversationId)
-    }
-
-    /// Fires the invisible `conversation_ready` cue once per conversation,
-    /// after making sure its default agent has actually landed - the agent
-    /// joined with its greeting suppressed and this message is what prompts
-    /// the welcome. Best-effort and fully async; callers fire-and-forget.
-    func sendConversationReadySignalIfNeeded(conversationId: String) async {
-        guard Self.defaultAgentProvisioningEnabled(environment) else { return }
-        await ensureDefaultAgentInConversation(id: conversationId)
-        guard await defaultAgentCoordinator.shouldSendReadySignal(for: conversationId) else { return }
-        await messagingService().sendConversationReadySignal(for: conversationId)
     }
 
     private func runDefaultAgentProvision(conversationId: String) async {

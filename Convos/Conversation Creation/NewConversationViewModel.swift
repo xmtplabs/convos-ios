@@ -225,10 +225,9 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// acquire; the cache-miss path defers by creating the conversation
     /// with `startsUnused: true`.
     private let defersVisibilityUntilCommit: Bool
-    /// Whether this flow's conversation should carry the default agent and
-    /// receive the `conversation_ready` greeting cue. True for the plain
-    /// new-convo modes; false for joins, existing conversations, and
-    /// template spawns (which bring their own agent).
+    /// Whether this flow's conversation should carry the silent default
+    /// agent. True for the plain new-convo modes; false for joins, existing
+    /// conversations, and template spawns (which bring their own agent).
     private let wantsDefaultAgent: Bool
 
     /// Set when `commitConversationVisibility()` runs before the
@@ -1387,7 +1386,7 @@ extension NewConversationViewModel {
                 claimedConversationId = result.conversationId
             }
 
-            notifyDefaultAgentConversationReadyIfNeeded(result)
+            ensureDefaultAgentIfNeeded(result)
 
             // Agent-template spawn: the conversation now exists with a
             // shareable invite, so request a fresh instance for each
@@ -1618,29 +1617,27 @@ private extension NewConversationViewModel {
     }
 }
 
-// MARK: - Default agent readiness
+// MARK: - Default agent provisioning
 
 extension NewConversationViewModel {
     /// Cache-miss fallback for the default agent: a conversation the state
     /// machine created fresh never passes through
-    /// `commitClaimedConversation`, so ensure the agent and fire its greeting
-    /// cue here. Idempotent for warm-cache conversations (the commit path
-    /// already latched the ready signal); deferred-visibility flows wait for
-    /// their commit instead.
-    fileprivate func notifyDefaultAgentConversationReadyIfNeeded(_ result: ConversationReadyResult) {
+    /// `commitClaimedConversation`, so ensure the agent here. Idempotent for
+    /// warm-cache conversations (concurrent ensures share one provision
+    /// task); deferred-visibility flows wait for their commit instead.
+    fileprivate func ensureDefaultAgentIfNeeded(_ result: ConversationReadyResult) {
         guard result.origin == .created, wantsDefaultAgent, !defersVisibilityUntilCommit else { return }
         let readyConversationId = result.conversationId
         Task { [session] in
-            await session.ensureDefaultAgentConversationReady(id: readyConversationId)
+            await session.ensureDefaultAgentInConversation(id: readyConversationId)
         }
     }
 }
 
 extension NewConversationMode {
-    /// Whether this mode's conversation should carry the default agent and
-    /// receive the `conversation_ready` greeting cue. False for joins,
-    /// existing conversations, and template spawns (which bring their own
-    /// agent).
+    /// Whether this mode's conversation should carry the silent default
+    /// agent. False for joins, existing conversations, and template spawns
+    /// (which bring their own agent).
     var wantsDefaultAgent: Bool {
         switch self {
         case .newConversation, .newConversationWithMembers:
