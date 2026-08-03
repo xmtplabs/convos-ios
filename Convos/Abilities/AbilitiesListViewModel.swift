@@ -152,20 +152,18 @@ final class AbilitiesListViewModel {
             }
             return
         }
-        // Completion and the follow-up refresh fail independently: a
-        // refresh hiccup after a successful complete must not report the
-        // connect as failed, so the refresh runs outside the do/catch and
-        // the mutation error is re-asserted over the refresh's outcome.
-        var completionError: String?
+        // Completion and the follow-up refresh fail independently: after a
+        // successful complete, the row update is quiet so a transient fetch
+        // hiccup can never report the finished connect as failed; after a
+        // failed complete, the mutation error wins over the refresh outcome.
         do {
             try await completeRetryingAuthIncomplete(abilityId: ability.id)
         } catch {
-            completionError = error.localizedDescription
+            await refresh()
+            errorMessage = error.localizedDescription
+            return
         }
-        await refresh()
-        if let completionError {
-            errorMessage = completionError
-        }
+        await refreshCatalogQuietly()
     }
 
     /// Bounded same-attempt completion retry. `auth_incomplete` means the
@@ -202,15 +200,12 @@ final class AbilitiesListViewModel {
         pendingAuthorization = nil
         busyAbilityIds.insert(context.ability.id)
         Task {
-            var completionError: String?
             do {
                 try await service.completeEntitlement(abilityId: context.ability.id)
+                await refreshCatalogQuietly()
             } catch {
-                completionError = error.localizedDescription
-            }
-            await refresh()
-            if let completionError {
-                errorMessage = completionError
+                await refresh()
+                errorMessage = error.localizedDescription
             }
             busyAbilityIds.remove(context.ability.id)
         }
@@ -244,15 +239,12 @@ final class AbilitiesListViewModel {
         busyAbilityIds.insert(ability.id)
         errorMessage = nil
         Task {
-            var mutationError: String?
             do {
                 try await service.revokeEntitlement(abilityId: ability.id)
+                await refreshCatalogQuietly()
             } catch {
-                mutationError = error.localizedDescription
-            }
-            await refresh()
-            if let mutationError {
-                errorMessage = mutationError
+                await refresh()
+                errorMessage = error.localizedDescription
             }
             busyAbilityIds.remove(ability.id)
         }

@@ -46,19 +46,35 @@ public final class AbilityV1AwarenessShimWriter: AbilityV1AwarenessShimWriting, 
         self.myInboxIdProvider = myInboxIdProvider
     }
 
-    /// The deterministic shim-owned entry id. The `grant_v2_` namespace is
-    /// the ownership marker: merge logic may only ever touch entries whose
-    /// id matches one of these exactly. Components are length-prefixed
-    /// because they may themselves contain the separator: a plain join
-    /// would collide across distinct tuples (`("a_b", "c")` vs
-    /// `("a", "b_c")`), letting one ability's extension replace or remove
-    /// another's shim entry.
+    /// The ownership namespace for shim-written entries. Merge logic here
+    /// may only touch entries carrying this prefix, and the V1 grant
+    /// writer's wholesale payload rebuild preserves them by the same
+    /// marker.
+    static let entryIdNamespace: String = "grant_v2_"
+
+    /// The deterministic shim-owned entry id. Components are
+    /// length-prefixed because they may themselves contain the separator:
+    /// a plain join would collide across distinct tuples (`("a_b", "c")`
+    /// vs `("a", "b_c")`), letting one ability's extension replace or
+    /// remove another's shim entry.
     static func shimEntryId(abilityId: String, conversationId: String, agentInboxId: String) -> String {
         let components = [abilityId, conversationId, agentInboxId]
         let encoded = components
             .map { (component: String) -> String in "\(component.utf8.count).\(component)" }
             .joined(separator: "_")
-        return "grant_v2_\(encoded)"
+        return "\(entryIdNamespace)\(encoded)"
+    }
+
+    /// The shim-owned entries in an existing connections payload, as
+    /// generic JSON objects. Used by `CloudConnectionGrantWriter` to carry
+    /// them across its from-scratch payload rebuilds, which would otherwise
+    /// silently drop V2 awareness whenever a V1 grant changes. An
+    /// unparseable payload reads as no entries -- the V1 writer is about
+    /// to replace it wholesale anyway.
+    static func shimOwnedEntries(inPayload json: String?) -> [[String: Any]] {
+        guard let json, let payload = parsePayload(json) else { return [] }
+        let grants: [[String: Any]] = (payload["grants"] as? [[String: Any]]) ?? []
+        return grants.filter { (($0["id"] as? String) ?? "").hasPrefix(entryIdNamespace) }
     }
 
     public func recordExtension(conversationId: String, abilityId: String, agentInboxId: String, bundleIds: [String]) async {

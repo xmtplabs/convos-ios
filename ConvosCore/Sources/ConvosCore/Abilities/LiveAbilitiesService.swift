@@ -97,6 +97,13 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     /// was already on the network cannot resurrect wiped data.
     private var fetchSequence: UInt64 = 0
     private var committedFetchSequence: UInt64 = 0
+    /// Bumped by `handleAccountDataWiped`. Operations capture it at entry,
+    /// before their first await, and refuse to persist anything if it moved:
+    /// the sequence watermark only invalidates fetches that took a number
+    /// before the wipe, so an operation suspended in the identity-provider
+    /// await at wipe time needs this second fence to keep its late results
+    /// (a catalog save, a retained OAuth attempt) out of the post-wipe world.
+    private var wipeCount: UInt64 = 0
     /// Bumped on every genuine scope change (and on wipe). OAuth attempt
     /// state is only valid within the epoch that created it: in-flight
     /// begin/complete tasks are keyed by epoch so a new account can never
@@ -125,6 +132,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     // MARK: - AbilitiesServiceProtocol
 
     public func fetchCatalog() async throws -> AbilitiesCatalog {
+        let wipeMark = wipeCount
         let scope = await myInboxIdProvider?()
         prepareLastKnownCatalog(for: scope)
         // Snapshot before suspending: the actor is reentrant at the await,
@@ -146,7 +154,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         // Commit only if this scope is still current and nothing newer
         // (a later fetch, or a wipe) committed while we were suspended;
         // the caller still gets this fetch's resolved catalog either way.
-        if catalogScope == scope && sequence > committedFetchSequence {
+        if catalogScope == scope && sequence > committedFetchSequence && wipeCount == wipeMark {
             committedFetchSequence = sequence
             lastKnownCatalog = catalog
             if let scope {
@@ -169,6 +177,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     }
 
     public func beginEntitlement(abilityId: String) async throws -> AbilityEntitlementInitiation {
+        let wipeMark = wipeCount
         // Resolve the scope first so an account switch is detected here
         // too, not only on catalog fetches: the switch clears the previous
         // account's attempts before the resume check below can serve one.
@@ -189,10 +198,12 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         let task = Task { () throws -> AbilityEntitlementInitiation in
             do {
                 let response = try await apiClient.createAbilityEntitlement(abilityId: abilityId, redirectUri: redirectUri)
-                // Guarded by epoch: if the account changed while the begin
-                // was on the network, the attempt belongs to the previous
-                // identity and must not be retained for the new one.
-                if let connectionRequestId = response.connectionRequestId, scopeEpoch == epoch {
+                // Guarded by epoch and wipe mark: if the account changed
+                // while the begin was on the network, or a data wipe landed
+                // anywhere after entry (including during the identity
+                // resolution above), the attempt belongs to the previous
+                // identity and must not be retained.
+                if let connectionRequestId = response.connectionRequestId, scopeEpoch == epoch, wipeCount == wipeMark {
                     pendingAttempts[abilityId] = PendingAttempt(
                         connectionRequestId: connectionRequestId,
                         redirectUrl: response.redirectUrl
@@ -336,6 +347,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     /// wiped cache file), drops OAuth attempts, and clears the disk cache
     /// after the watermark bump so nothing committed in between survives.
     public func handleAccountDataWiped() {
+        wipeCount += 1
         committedFetchSequence = fetchSequence
         scopeEpoch += 1
         pendingAttempts.removeAll()

@@ -117,6 +117,36 @@ struct AbilityV1AwarenessShimTests {
         #expect(grants(in: payload).count == 1)
     }
 
+    @Test("V1 payload rebuilds preserve shim-owned entries")
+    func v1RebuildPreservesShimEntries() throws {
+        let shimEntry: [String: Any] = ["id": "grant_v2_1.a_1.c_1.d", "service": "a"]
+        let v1Only = """
+        {"version":1,"grants":[{"id":"grant_conn1_c_agent","service":"googlecalendar"}]}
+        """
+
+        let mixedPayload = try #require(
+            CloudConnectionGrantWriter.connectionsJson(rebuilt: v1Only, preservingShimEntries: [shimEntry])
+        )
+        let extracted = AbilityV1AwarenessShimWriter.shimOwnedEntries(inPayload: mixedPayload)
+        #expect(extracted.count == 1)
+        #expect(extracted.first?["id"] as? String == "grant_v2_1.a_1.c_1.d")
+
+        let data = try #require(mixedPayload.data(using: .utf8))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let grants = try #require(object["grants"] as? [[String: Any]])
+        #expect(grants.count == 2)
+
+        // A V1 rebuild that empties the V1 grants keeps the payload alive
+        // while shim entries remain, instead of clearing the key.
+        let shimOnly = try #require(
+            CloudConnectionGrantWriter.connectionsJson(rebuilt: nil, preservingShimEntries: [shimEntry])
+        )
+        #expect(AbilityV1AwarenessShimWriter.shimOwnedEntries(inPayload: shimOnly).count == 1)
+
+        // Nothing at all clears the key.
+        #expect(CloudConnectionGrantWriter.connectionsJson(rebuilt: nil, preservingShimEntries: []) == nil)
+    }
+
     @Test("Components containing the separator cannot collide or cross-delete")
     func separatorComponentsDoNotCollide() async throws {
         let writer = StatefulMetadataWriter()
