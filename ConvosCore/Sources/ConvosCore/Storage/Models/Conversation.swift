@@ -287,7 +287,10 @@ public extension Conversation {
         // suppress the member cluster.
         let otherProfiles = otherMembers.map(\.profile)
         if !otherProfiles.isEmpty, otherProfiles.hasAnyAvatar {
-            return .clustered(Array(otherProfiles.sortedForCluster().prefix(7)))
+            let clusterMembers = otherMembers.map {
+                ClusteredAvatarMember(profile: $0.profile, agentVerification: $0.agentVerification)
+            }
+            return .clustered(Array(clusterMembers.sortedForCluster().prefix(7)))
         }
         return .emoji(defaultEmoji)
     }

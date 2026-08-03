@@ -151,9 +151,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     // Injected by the host on conversations that hold an agent; nil elsewhere,
     // and the bubble simply isn't drawn.
     @Environment(\.agentParticipation) private var agentParticipation: AgentParticipationContext?
-    // The host draws the attachments card, floated above the composer from its
-    // root overlay; nil in hosts that draw none, and the `+` stays inert.
-    @Environment(\.composerAttachmentsMenu) private var attachmentsMenu: ComposerAttachmentsMenuCoordinator?
 
     public init(
         profile: Profile,
@@ -519,10 +516,12 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             let label: String = isLoading
                 ? "Agent participation, loading"
                 : "Agent participation: \(participation.level.title)"
-            Button(action: participation.onTap) {
-                participationGlyph(for: participation)
-            }
-            .buttonStyle(.plain)
+            ParticipationMenuControl(
+                level: participation.level,
+                isLoading: isLoading,
+                onSelect: participation.onSelect
+            )
+            .equatable()
             .disabled(isLoading)
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .frame(width: bubbleSize, height: bubbleSize)
@@ -533,25 +532,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .accessibilityLabel(label)
             .accessibilityHint("Change how much the agents speak here")
             .accessibilityIdentifier("agent-participation-button")
-        }
-    }
-
-    /// The icon, or the resting dot that stands in for it. The level starts at a
-    /// product default the conversation may not actually be in, so showing an
-    /// icon before the read lands would state something that can change a moment
-    /// later — the dot says "not known yet" instead.
-    @ViewBuilder
-    private func participationGlyph(for participation: AgentParticipationContext) -> some View {
-        if participation.isLoading {
-            ParticipationLoadingDot()
-                .frame(width: 32, height: 32)
-        } else {
-            Image(systemName: participation.level.iconSystemName)
-                .font(.system(size: 16.0, weight: .medium))
-                .foregroundStyle(Color.colorTextPrimary)
-                .frame(width: 32, height: 32)
-                .contentShape(.circle)
-                .transition(.opacity)
         }
     }
 
@@ -580,36 +560,39 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         return disabled
     }
 
-    /// Opens the attachments menu. It sits inside the input field as a leading
-    /// accessory, so it is drawn bare: the field's own capsule is the surface it
-    /// belongs to, and a glass circle in there would read as a chip stuck on the
-    /// field. The icon row it used to swap places with lives in the menu now.
-    @ViewBuilder
-    private var attachmentsControl: some View {
-        let isInert: Bool = pinsExpandedInput || attachmentsMenu == nil
-        let buttonOpacity: Double = messagesTextFieldEnabled && !isInert ? 1.0 : 0.4
-        Button {
-            attachmentsMenu?.present(
-                actions: offeredAttachmentActions,
-                disabledActions: disabledAttachmentActions,
-                onSelect: handleAttachmentSelected
-            )
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 18.0, weight: .medium))
-                .foregroundStyle(Color.colorTextPrimary)
-                .frame(width: 32, height: 32)
-                .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Show attachments")
-        .accessibilityIdentifier("attachments-button")
-        .disabled(isInert)
-        .opacity(buttonOpacity)
+    /// The `+` as it appears inside the input field: just the glyph, inert. The
+    /// tappable control is `attachmentsControl`, overlaid in the same spot -
+    /// the glyph and the control are split because each needs a different side
+    /// of the field's glass. The glyph must live under it, on the capsule's own
+    /// surface, or it renders washed out; the menu's button must live outside
+    /// it, or the system opens the menu by morphing the whole capsule rather
+    /// than growing a card from the `+` alone.
+    private var attachmentsGlyph: some View {
+        let glyphOpacity: Double = pinsExpandedInput ? 0.4 : 1.0
+        return Image(systemName: "plus")
+            .font(.system(size: 18.0, weight: .medium))
+            .foregroundStyle(Color.colorTextPrimary)
+            .frame(width: 32, height: 32)
+            .opacity(glyphOpacity)
     }
 
-    /// Runs the picked row. The card is an overlay rather than a presentation, so
-    /// there is nothing for a picker to collide with and it can go up right away.
+    /// The control that opens the attachments menu: an invisible hit target
+    /// floating right over `attachmentsGlyph`. A system menu rather than a
+    /// hand-rolled card: it presents in its own window, so the bar's bounds
+    /// can't clip it, and the spring, haptic, dimming, and drag-to-select all
+    /// come with it.
+    private var attachmentsControl: some View {
+        AttachmentsMenuControl(
+            offeredActions: offeredAttachmentActions,
+            disabledActions: disabledAttachmentActions,
+            isDisabled: pinsExpandedInput,
+            onSelect: handleAttachmentSelected
+        )
+        .equatable()
+    }
+
+    /// Runs the picked row. The menu has already dismissed by the time the
+    /// action fires, so a picker can present right away.
     private func handleAttachmentSelected(_ action: ComposerAttachmentAction) {
         switch action {
         case .photos: isPhotoPickerPresented = true
@@ -650,7 +633,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 onClearMediaAttachment: onClearMediaAttachment,
                 fileAttachmentPreview: fileAttachmentPreview,
                 agentShareChip: agentShareChip,
-                attachmentsButton: { attachmentsControl }
+                attachmentsButton: { attachmentsGlyph }
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
@@ -658,6 +641,10 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
             .glassEffectID("input", in: namespace)
             .glassEffectTransition(.matchedGeometry)
+            .overlay(alignment: .bottomLeading) {
+                attachmentsControl
+                    .padding(DesignConstants.Spacing.step2x)
+            }
         }
         .disabled(!messagesTextFieldEnabled)
     }
@@ -671,6 +658,121 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 40.0))
             .glassEffectID("profileEditor", in: namespace)
             .glassEffectTransition(.matchedGeometry)
+    }
+}
+
+/// The attachments menu, isolated behind `Equatable` so the bar's re-renders
+/// can't touch it while it is presented. SwiftUI pushes a rebuilt menu into a
+/// visible menu on every re-evaluation of this subtree, and UIKit throws
+/// (`UIFocusSystem` inconsistency) if such a push lands right as hardware-
+/// keyboard focus settles on a menu row - which is exactly what happens when
+/// opening the menu makes the keyboard dismiss and the bar re-lay out. With
+/// `.equatable()`, the subtree only re-evaluates when the menu's actual
+/// content changes.
+private struct AttachmentsMenuControl: View, Equatable {
+    let offeredActions: [ComposerAttachmentAction]
+    let disabledActions: Set<ComposerAttachmentAction>
+    let isDisabled: Bool
+    let onSelect: (ComposerAttachmentAction) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.offeredActions == rhs.offeredActions &&
+            lhs.disabledActions == rhs.disabledActions &&
+            lhs.isDisabled == rhs.isDisabled
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(offeredActions) { action in
+                row(for: action)
+            }
+        } label: {
+            Color.clear
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+        }
+        .menuOrder(.fixed)
+        .accessibilityLabel("Show attachments")
+        .accessibilityIdentifier("attachments-button")
+        .disabled(isDisabled)
+    }
+
+    /// One row of the menu. Rows the composer can't offer right now are greyed
+    /// rather than dropped, so the list doesn't change length as attachments
+    /// come and go.
+    private func row(for action: ComposerAttachmentAction) -> some View {
+        let select = { onSelect(action) }
+        return Button(action: select) {
+            Text(action.title)
+            Image(systemName: action.iconSystemName)
+        }
+        .disabled(disabledActions.contains(action))
+        .accessibilityIdentifier("attachment-\(action.rawValue)-button")
+    }
+}
+
+/// The participation bubble's menu: the levels as a system menu, with a check
+/// on the one the conversation is in. `Equatable` for the same reason as
+/// `AttachmentsMenuControl` - the bar's re-renders must not push a rebuilt
+/// menu into one that is already presented.
+private struct ParticipationMenuControl: View, Equatable {
+    let level: AgentParticipationLevel
+    let isLoading: Bool
+    let onSelect: (AgentParticipationLevel) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.level == rhs.level && lhs.isLoading == rhs.isLoading
+    }
+
+    var body: some View {
+        Menu {
+            Section("Agent participation") {
+                ForEach(AgentParticipationLevel.allCases) { option in
+                    row(for: option)
+                }
+            }
+        } label: {
+            glyph
+        }
+        .menuOrder(.fixed)
+    }
+
+    /// One level as a menu row. A toggle rather than a button so the system
+    /// draws the leading check on the current level while the trailing slot
+    /// keeps the level's own icon.
+    private func row(for option: AgentParticipationLevel) -> some View {
+        let isOn = Binding<Bool>(
+            get: { option == level },
+            set: { selected in
+                guard selected else { return }
+                onSelect(option)
+            }
+        )
+        return Toggle(isOn: isOn) {
+            Text(option.title)
+            Text(option.caption)
+            Image(systemName: option.iconSystemName)
+        }
+        .accessibilityIdentifier("participation-\(option.rawValue)-row")
+    }
+
+    /// The icon, or the resting dot that stands in for it. The level starts at a
+    /// product default the conversation may not actually be in, so showing an
+    /// icon before the read lands would state something that can change a moment
+    /// later — the dot says "not known yet" instead.
+    @ViewBuilder
+    private var glyph: some View {
+        if isLoading {
+            ParticipationLoadingDot()
+                .frame(width: 32, height: 32)
+        } else {
+            Image(systemName: level.iconSystemName)
+                .font(.system(size: 16.0, weight: .medium))
+                .foregroundStyle(Color.colorTextPrimary)
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+                .transition(.opacity)
+        }
     }
 }
 #endif

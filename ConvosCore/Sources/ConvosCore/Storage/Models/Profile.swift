@@ -394,16 +394,30 @@ public extension Array where Element == Profile {
     }
 
     func sortedForCluster() -> [Profile] {
-        sorted { p1, p2 in
-            let p1HasAvatar = p1.avatarURL != nil || p1.profileEmoji != nil
-            let p2HasAvatar = p2.avatarURL != nil || p2.profileEmoji != nil
-            if p1HasAvatar != p2HasAvatar { return p1HasAvatar }
+        sorted(by: Profile.clusterSortsBefore)
+    }
+}
 
-            let p1HasName = p1.name != nil && !(p1.name ?? "").isEmpty
-            let p2HasName = p2.name != nil && !(p2.name ?? "").isEmpty
-            if p1HasName != p2HasName { return p1HasName }
+public extension Profile {
+    /// Ordering used when laying out members in a clustered group avatar:
+    /// profiles with an avatar first, then named profiles, then by inboxId
+    /// for a stable tiebreak. Shared by the profile and
+    /// `ClusteredAvatarMember` sort helpers so both order identically.
+    static func clusterSortsBefore(_ p1: Profile, _ p2: Profile) -> Bool {
+        let p1HasAvatar = p1.avatarURL != nil || p1.profileEmoji != nil
+        let p2HasAvatar = p2.avatarURL != nil || p2.profileEmoji != nil
+        if p1HasAvatar != p2HasAvatar { return p1HasAvatar }
 
-            return p1.inboxId < p2.inboxId
-        }
+        let p1HasName = p1.name != nil && !(p1.name ?? "").isEmpty
+        let p2HasName = p2.name != nil && !(p2.name ?? "").isEmpty
+        if p1HasName != p2HasName { return p1HasName }
+
+        return p1.inboxId < p2.inboxId
+    }
+}
+
+public extension Array where Element == ClusteredAvatarMember {
+    func sortedForCluster() -> [ClusteredAvatarMember] {
+        sorted { Profile.clusterSortsBefore($0.profile, $1.profile) }
     }
 }

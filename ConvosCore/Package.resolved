@@ -1,5 +1,5 @@
 {
-  "originHash" : "3e62d21768fe925827a3661d9cbb98928ffd5071149bb6f84f00d717e287aaf7",
+  "originHash" : "f69f6a73a70ced5aee5850da0a38d9e5b06551d660cce8026403e4cc36795af8",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -34,7 +34,7 @@
       "location" : "https://github.com/xmtplabs/convos-shared.git",
       "state" : {
         "branch" : "main",
-        "revision" : "8b5f741bb0368c1a4edea87f00c1ec0463b181bb"
+        "revision" : "da310944a7c7ec3aa40369a22951e114749e5474"
       }
     },
     {

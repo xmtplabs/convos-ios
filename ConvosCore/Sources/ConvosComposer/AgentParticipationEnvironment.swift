@@ -2,7 +2,7 @@
 import SwiftUI
 
 /// What the composer needs to show the participation control: the level the
-/// conversation is in, and what to do when someone taps it.
+/// conversation is in, and what to do when someone picks another one.
 ///
 /// The composer owns none of this. The host resolves the level for the
 /// conversation and performs the change; the bubble is only the affordance.
@@ -14,12 +14,12 @@ public struct AgentParticipationContext {
     /// only a placeholder until then, so the bubble shows a resting dot instead
     /// of an icon that might be about to change under the member's eyes.
     public let isLoading: Bool
-    public let onTap: () -> Void
+    public let onSelect: (AgentParticipationLevel) -> Void
 
-    public init(level: AgentParticipationLevel, isLoading: Bool = false, onTap: @escaping () -> Void) {
+    public init(level: AgentParticipationLevel, isLoading: Bool = false, onSelect: @escaping (AgentParticipationLevel) -> Void) {
         self.level = level
         self.isLoading = isLoading
-        self.onTap = onTap
+        self.onSelect = onSelect
     }
 }
 
