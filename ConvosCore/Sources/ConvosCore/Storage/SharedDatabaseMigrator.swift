@@ -199,27 +199,27 @@ extension SharedDatabaseMigrator {
         Self.registerTailMigrations(on: &migrator)
         Self.registerMemberDepartureMigrations(on: &migrator)
 
-        // Registration is append-only across releases: new migrations go here,
-        // after every already-shipped one. Inserting earlier (e.g. into a
-        // register* group above) reorders the registered list relative to
-        // databases that already applied the later migrations, which the DEBUG
-        // eraseDatabaseOnSchemaChange replay treats as a schema change and
-        // erases an upgrading user's database.
+        Self.registerAppendOnlyMigrations(on: &migrator)
+
+        return migrator
+    }
+
+    /// Registration is append-only across releases: new migrations go here, at
+    /// the bottom, after every already-shipped one. Inserting earlier (e.g. into
+    /// a register* group above) reorders the registered list relative to
+    /// databases that already applied the later migrations, which the DEBUG
+    /// eraseDatabaseOnSchemaChange replay treats as a schema change and erases
+    /// an upgrading user's database.
+    ///
+    /// Grouped into a helper to keep `createMigrator` under the function-length
+    /// budget, the same way `registerTailMigrations` is.
+    private static func registerAppendOnlyMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("addAgentTemplateGenerationJoinIdempotencyKey",
                                    migrate: Self.addAgentTemplateGenerationJoinIdempotencyKey)
         migrator.registerMigration("addProfilePublishJobProfileUpdatedAt", migrate: Self.addProfilePublishJobProfileUpdatedAt)
         migrator.registerMigration("addConversationLastMessagePointers", migrate: Self.addConversationLastMessagePointers)
-
-        // Appended after the two above landed on dev, so existing installs
-        // applied those first. Registering it ahead of them re-triggers the
-        // erase described above.
         Self.registerAgentDmMigrations(on: &migrator)
-
-        // Must stay last: shipped after the agent-DM migration, so installs on
-        // dev already applied that one.
         migrator.registerMigration("addConversationAddedById", migrate: Self.addConversationAddedById)
-
-        return migrator
     }
 
     /// Per-conversation catch-up cursor (see DBConversationCatchUpCursor).
