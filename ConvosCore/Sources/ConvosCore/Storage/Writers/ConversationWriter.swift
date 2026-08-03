@@ -34,16 +34,6 @@ extension DecodedMessage {
             && contentType.typeID == ContentTypeBuilderBundleManifest.typeID
     }
 
-    /// `convos.org/conversation_ready` cues from retired builds persist in
-    /// XMTP history. Nothing sends or decodes them, but without this skip
-    /// they classify as regular and `dbRepresentation()` throws
-    /// `unsupportedContentType`, failing catch-up for any conversation that
-    /// contains one.
-    var isLegacyConversationReady: Bool {
-        guard let contentType = try? encodedContent.type else { return false }
-        return contentType.authorityID == "convos.org"
-            && contentType.typeID == "conversation_ready"
-    }
 }
 
 enum ConversationWriterError: Error {

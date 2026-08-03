@@ -490,10 +490,6 @@ extension MessagingService {
             return .droppedMessage
         }
 
-        if decodedMessage.isLegacyConversationReady {
-            return .droppedMessage
-        }
-
         if decodedMessage.isReadReceipt {
             await persistReadReceiptInNSE(decodedMessage, conversationId: conversationId)
             return .droppedMessage
