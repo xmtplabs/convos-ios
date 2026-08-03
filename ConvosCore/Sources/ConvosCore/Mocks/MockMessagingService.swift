@@ -213,6 +213,9 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     public func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws {
     }
 
+    public func sendConversationReadySignal(for conversationId: String) async {
+    }
+
     public func sendDebugConnectionPayload(_ payload: ConnectionPayload, to conversationId: String) async throws {
     }
 

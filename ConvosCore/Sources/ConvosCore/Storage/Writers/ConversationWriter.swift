@@ -34,6 +34,11 @@ extension DecodedMessage {
             && contentType.typeID == ContentTypeBuilderBundleManifest.typeID
     }
 
+    var isConversationReady: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        return contentType.authorityID == ContentTypeConversationReady.authorityID
+            && contentType.typeID == ContentTypeConversationReady.typeID
+    }
 }
 
 enum ConversationWriterError: Error {

@@ -277,9 +277,10 @@ public enum ConvosAPI {
         /// the worker.
         public let variantId: String?
         /// Asks the assistant runtime to hold its greeting after attaching.
-        /// The default agent is silent — the Desktop screen owns the welcome —
-        /// so nothing releases the held greeting. Omitted from the encoded
-        /// body when `nil` so existing joins stay byte-identical.
+        /// The default-convo flow joins the agent into a hidden warm-cache
+        /// conversation long before the user enters it; the greeting is cued
+        /// later by the `conversation_ready` content type. Omitted from the
+        /// encoded body when `nil` so existing joins stay byte-identical.
         public let skipGreeting: Bool?
 
         public init(onboarding: String?, variantId: String? = nil, skipGreeting: Bool? = nil) {

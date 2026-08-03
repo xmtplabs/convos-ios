@@ -470,8 +470,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
         if let conversationId {
             // Claim-time backstop: cache-time provisioning is best-effort, so
-            // re-ensure the default agent on the way out. Fire-and-forget;
-            // concurrent ensures share one provision task.
+            // re-ensure the default agent on the way out. Fire-and-forget; the
+            // ready signal sent at commit awaits the shared provision task.
             Task { [weak self] in
                 await self?.ensureDefaultAgentInConversation(id: conversationId)
             }
@@ -490,11 +490,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             id: conversationId,
             databaseWriter: databaseWriter
         )
-        // Commit-time backstop: make sure the pre-added default agent actually
-        // landed (the agent stays silent — the Desktop screen owns the
-        // welcome). Fire-and-forget so committing never blocks on the network.
+        // The user has entered the conversation - cue the pre-added default
+        // agent to send its greeting. Fire-and-forget so committing never
+        // blocks on the network.
         Task { [weak self] in
-            await self?.ensureDefaultAgentInConversation(id: conversationId)
+            await self?.sendConversationReadySignalIfNeeded(conversationId: conversationId)
         }
     }
 

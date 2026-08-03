@@ -129,9 +129,9 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// Cache-miss fallback for the default-agent flow: a conversation the
     /// state machine created fresh (no warm-cache claim, so
     /// `commitClaimedConversation` never fires) is already visible and in use.
-    /// Ensures the default agent is provisioned into it. Best-effort and
-    /// idempotent; the agent joins silently.
-    func ensureDefaultAgentInConversation(id conversationId: String) async
+    /// Ensures the default agent is provisioned into it and sends the one-shot
+    /// `conversation_ready` greeting cue. Best-effort and idempotent.
+    func ensureDefaultAgentConversationReady(id conversationId: String) async
 
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
