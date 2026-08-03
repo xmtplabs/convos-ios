@@ -158,6 +158,15 @@ public final class FocusCoordinator {
         moveFocus(to: nil)
     }
 
+    /// Dismisses the messages composer if it currently holds focus. Used when the
+    /// conversation pager pages away from the messages page (e.g. to an agent-DM
+    /// page), so the group composer's keyboard doesn't stay up while a peer page
+    /// is active. Peer pages own their own composer focus.
+    public func dismissMessageComposerIfNeeded() {
+        guard currentFocus == .message || currentFocus == .voiceMemoRecording else { return }
+        moveFocus(to: nil)
+    }
+
     /// Moves focus to `message` if we're currently focusing a quick-editor field
     public func dismissQuickEditor() {
         guard currentFocus == .displayName

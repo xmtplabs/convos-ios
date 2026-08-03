@@ -215,6 +215,31 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                 // timestamp. Tracked as a follow-up — see the contacts MVP plan.
                 try ContactsWriter.saveMemberProfileAndMirrorToContactInTransaction(db: db, profile: dbProfile, receivedAt: Date())
 
+                // Rendering reads the canonical profile tables; without this
+                // row the joiner shows as "Somebody" until their first
+                // ProfileUpdate arrives (or forever, if that publish fails).
+                // Applied at snapshot precedence: the join request carries no
+                // original timestamp (stamped now), so update precedence would
+                // let a replayed stale request beat a real, older-stamped
+                // ProfileUpdate. The image is a plain URL and cannot become a
+                // canonical avatar slot (slots are group-encrypted); the
+                // avatar arrives with the joiner's first ProfileUpdate.
+                try ProfileInboundApplier.apply(
+                    db: db,
+                    conversationId: conversationId,
+                    event: ProfileInboundApplier.Incoming(
+                        inboxId: joinerInboxId,
+                        source: .profileSnapshot,
+                        name: profile?.name,
+                        avatar: .fillIfPresent(nil),
+                        memberKind: memberKind,
+                        metadata: profileMetadata,
+                        receivedAt: Date()
+                    ),
+                    selfInboxId: try DBInbox.currentInboxId(db),
+                    fallbackEncryptionKey: nil
+                )
+
                 if dbProfile.agentVerification.isConvosAgent,
                    let conversation = try DBConversation.fetchOne(db, id: conversationId),
                    !conversation.hasHadVerifiedAgent {

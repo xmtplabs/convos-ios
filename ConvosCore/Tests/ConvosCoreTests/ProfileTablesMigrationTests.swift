@@ -288,4 +288,38 @@ struct ProfileTablesMigrationTests {
             #expect(onlyScoped?.metadata == nil)
         }
     }
+
+    @Test("addProfilePublishJobProfileUpdatedAt adds the column to an old table and no-ops on a fresh one")
+    func addsProfilePublishJobProfileUpdatedAt() throws {
+        // Upgrade path: a dev install whose profilePublishJob predates the
+        // column.
+        let upgraded = try DatabaseQueue()
+        try upgraded.write { db in
+            try db.create(table: "conversation") { t in
+                t.column("id", .text).notNull().primaryKey()
+            }
+            try db.create(table: "profilePublishJob") { t in
+                t.column("id", .text).notNull().primaryKey()
+                t.column("seq", .integer).notNull()
+                t.column("conversationId", .text).notNull()
+                t.column("state", .text).notNull()
+                t.column("nextAttemptAt", .datetime).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try SharedDatabaseMigrator.addProfilePublishJobProfileUpdatedAt(db)
+            let columns = try db.columns(in: "profilePublishJob").map(\.name)
+            #expect(columns.contains("profileUpdatedAt"))
+        }
+
+        // Fresh path: createProfileTables already includes the column; the
+        // guarded migration must no-op instead of failing on a duplicate.
+        let fresh = try DatabaseQueue()
+        try fresh.write { db in
+            try self.makeSchema(db)
+            try SharedDatabaseMigrator.addProfilePublishJobProfileUpdatedAt(db)
+            let columns = try db.columns(in: "profilePublishJob").map(\.name)
+            #expect(columns.filter { $0 == "profileUpdatedAt" }.count == 1)
+        }
+    }
 }

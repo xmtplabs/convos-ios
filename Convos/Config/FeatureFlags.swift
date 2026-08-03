@@ -5,6 +5,16 @@ import Foundation
 final class FeatureFlags {
     static let shared: FeatureFlags = FeatureFlags()
 
+    // Reaching a flag in a production build takes two changes, not one, and
+    // missing either looks identical from the device: the control just is not
+    // there.
+    // 1. The flag itself has to read UserDefaults in production rather than
+    //    returning false behind an `isProduction` guard, as most below do.
+    // 2. `ProdDebugMenuView` has to carry a row for it. That menu is a curated,
+    //    hardcoded list, not a render of every flag here, so a flag unlocked in
+    //    step 1 is still unreachable until it is listed there. The full
+    //    `DebugView` features section is non-production only.
+
     /// Off by default — gates the testtube debug-injector button in the composer
     /// media bar. Toggle from App Settings → Debug. Hard-locked off in production
     /// builds so the flag can never be `true` for end users, even if a UserDefaults
@@ -38,6 +48,32 @@ final class FeatureFlags {
                 selectedAgentVariant = nil
             }
         }
+    }
+
+    /// Gates the per-conversation agent participation control ("Listen"):
+    /// Speak freely / Mentions only / Paused. Toggle from App Settings -> Debug
+    /// in non-production builds, or from the curated prod debug menu in
+    /// production. Deliberately not prod-locked like the flags above: the
+    /// control is reachable everywhere so Listen can be dogfooded in TestFlight.
+    ///
+    /// The default follows the build: on for the internal Dev/local builds that
+    /// ship to TestFlight, off for production, so end users still have to opt in
+    /// from the prod debug menu. An explicit toggle in either direction is
+    /// remembered and wins over the default.
+    var isListenParticipationEnabled: Bool {
+        get {
+            guard let stored = UserDefaults.standard.object(forKey: Constant.listenParticipationEnabledKey) as? Bool else {
+                return Self.listenParticipationDefault
+            }
+            return stored
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Constant.listenParticipationEnabledKey)
+        }
+    }
+
+    private static var listenParticipationDefault: Bool {
+        !ConfigManager.shared.currentEnvironment.isProduction
     }
 
     /// Off by default -- opts libxmtp streams onto the shared bidi wire by
@@ -112,6 +148,7 @@ final class FeatureFlags {
         static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"
         static let selectedAgentVariantKey: String = "featureFlags.selectedAgentVariant"
         static let agentVariantSelectorEnabledKey: String = "featureFlags.agentVariantSelectorEnabled"
+        static let listenParticipationEnabledKey: String = "featureFlags.listenParticipationEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
         static let abilitiesV2EnabledKey: String = "featureFlags.abilitiesV2Enabled"
     }

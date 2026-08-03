@@ -105,6 +105,28 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// the poll hit the default worker, which has no record of the instance.
     func getAgentJoinStatus(instanceId: String, variantId: String?) async throws -> ConvosAPI.AgentJoinStatusResponse
 
+    /// Sets how much the agents in a conversation may speak. The backend holds
+    /// the assistant control-plane key and forwards this; the app cannot reach
+    /// that plane directly. Paused depends on the hop: the level has to be
+    /// recorded there for a message to be refused before an agent is woken.
+    ///
+    /// Keyed by conversation, not by agent: one level governs every agent in
+    /// the room, and an agent that joins later inherits it.
+    func setAgentParticipation(
+        conversationId: String,
+        mode: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentParticipationResponse
+
+    /// The level a conversation is currently in. Any member may change it, so
+    /// a device-local guess goes stale the moment someone else does — the
+    /// control has to render from the shared record. Answered upstream without
+    /// waking an agent.
+    func getAgentParticipation(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentParticipationResponse
+
     // Agent templates
     /// Public detail fetch for a published agent template, keyed by its
     /// template id (UUID) or hashed url slug (e.g. `gandalf.felpl`). Backs the
@@ -640,13 +662,15 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.forbidden
         case 404:
             throw APIError.notFound
+        case 409:
+            let json: [String: Any]? = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let code: String? = json?["code"] as? String
+            guard code == "subscription_account_mismatch" else {
+                throw APIError.serverError(parseErrorMessage(from: data))
+            }
+            throw APIError.subscriptionAccountMismatch(parseErrorMessage(from: data))
         default:
-            // 409 (subscription_account_mismatch) falls through deliberately.
-            // The backend still returns it (PR #215 strict-ownership invariant),
-            // but iOS treats it as a generic retryable server fault instead
-            // of a typed dead-end — purchase + restore flows already surface
-            // .serverError with a "try again" affordance, and refresh logic
-            // (foreground + view-appear) will reconcile any transient state.
+            // Unhandled statuses remain generic server errors.
             throw APIError.serverError(parseErrorMessage(from: data))
         }
     }
@@ -876,6 +900,52 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // request fails fast and the next iteration's deadline check fires.
         request.timeoutInterval = 10
         return try await performRequest(request)
+    }
+
+    func setAgentParticipation(
+        conversationId: String,
+        mode: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentParticipationResponse {
+        // `variantId` is load-bearing, exactly as on the join poll: an agent
+        // provisioned on a variant worker only exists there, so a write that
+        // omits it lands on the default worker — which has no such conversation
+        // and rejects the update.
+        var request = try authenticatedRequest(
+            for: "v2/conversations/\(participationPathComponent(conversationId))/participation",
+            method: "PATCH",
+            queryParameters: prodSafeVariantId(variantId).map { ["variantId": $0] }
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // One small write that fans out to every agent in the conversation and,
+        // for the two speaking levels, on to their containers. Bounded so a
+        // stuck call cannot leave the menu waiting.
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(
+            ConvosAPI.AgentParticipationRequest(mode: mode)
+        )
+        return try await performRequest(request)
+    }
+
+    func getAgentParticipation(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentParticipationResponse {
+        // Read and write must resolve to the same worker (see setAgentParticipation),
+        // or the control renders a level that isn't the conversation's.
+        var request = try authenticatedRequest(
+            for: "v2/conversations/\(participationPathComponent(conversationId))/participation",
+            method: "GET",
+            queryParameters: prodSafeVariantId(variantId).map { ["variantId": $0] }
+        )
+        // Read on open; the control falls back to its default if this is slow,
+        // so it must not hold the view.
+        request.timeoutInterval = 10
+        return try await performRequest(request)
+    }
+
+    private func participationPathComponent(_ conversationId: String) -> String {
+        conversationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? conversationId
     }
 
     // MARK: - Agent templates
@@ -1309,6 +1379,7 @@ public enum APIError: Error {
     case invalidResponse
     case invalidRequest
     case serverError(String?)
+    case subscriptionAccountMismatch(String?)
     case rateLimitExceeded
     case noAgentsAvailable
     case agentPoolTimeout
@@ -1339,6 +1410,8 @@ extension APIError: DisplayError {
             return "Invalid request"
         case .serverError:
             return "Server error"
+        case .subscriptionAccountMismatch:
+            return "Subscription needs attention"
         case .rateLimitExceeded:
             return "Too many requests"
         case .noAgentsAvailable:
@@ -1374,6 +1447,8 @@ extension APIError: DisplayError {
             return "The request could not be created."
         case .serverError(let message):
             return message ?? "The server encountered an error."
+        case .subscriptionAccountMismatch(let message):
+            return message ?? "This subscription belongs to a different account. Contact support."
         case .rateLimitExceeded:
             return "Too many requests. Please try again later."
         case .noAgentsAvailable:

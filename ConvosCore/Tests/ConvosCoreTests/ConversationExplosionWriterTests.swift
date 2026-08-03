@@ -327,6 +327,7 @@ private final class RecordingMetadataWriter: ConversationMetadataWriterProtocol,
     func updateDescription(_ description: String, for conversationId: String) async throws {}
     func updateImageUrl(_ imageURL: String, for conversationId: String) async throws {}
     func addMembers(_ memberInboxIds: [String], to conversationId: String) async throws {}
+    func markAsAgentDm(_ conversationId: String, originConversationId: String?) async throws {}
 
     func removeMembers(_ memberInboxIds: [String], from conversationId: String) async throws {
         removedMembers.append((memberIds: memberInboxIds, conversationId: conversationId))

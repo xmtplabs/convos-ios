@@ -20,8 +20,10 @@ final class StoreKitSubscriptionServiceCacheTests: XCTestCase {
     /// `UserDefaults.standard` is process-wide; any leftover value would
     /// poison other tests in this file (and any others touching the same
     /// key). Clear before each test and after, regardless of which path
-    /// the test exercises.
-    private static let cacheKey: String = "storeKit.lastKnownSubscription"
+    /// the test exercises. The key must match
+    /// `Constant.lastKnownSubscriptionKey`, which now points at the
+    /// backend-confirmed cache.
+    private static let cacheKey: String = "backend.lastKnownSubscription"
 
     override func setUp() {
         super.setUp()

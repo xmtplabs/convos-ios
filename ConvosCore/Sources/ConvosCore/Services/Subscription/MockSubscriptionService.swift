@@ -6,6 +6,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
     public static let shared: MockSubscriptionService = MockSubscriptionService()
 
     private let subscriptionSubject: CurrentValueSubject<UserSubscription?, Never>
+    private let syncStateSubject: CurrentValueSubject<SubscriptionSyncState, Never>
     private let queue: DispatchQueue = DispatchQueue(label: "convos.mock-subscription-service")
     private var currentPreset: CreditsStatePreset
     /// Source of truth for what `refresh()` should re-publish. Initially seeded
@@ -13,6 +14,10 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
     /// service can survive a refresh after a mock purchase without reverting
     /// to the preset's subscription.
     private var currentSubscriptionSnapshot: UserSubscription?
+    /// Non-nil overrides the subscription-derived sync state so previews and
+    /// tests can render the syncing / needs-attention surfaces, which the
+    /// derived mapping (nil -> idle, non-nil -> confirmed) can never reach.
+    private var forcedSyncState: SubscriptionSyncState?
     private let mockProducts: [PaywallProduct]
 
     public init(initialPreset: CreditsStatePreset = .plusAmple) {
@@ -20,6 +25,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
         self.currentPreset = initialPreset
         self.currentSubscriptionSnapshot = initialSubscription
         self.subscriptionSubject = CurrentValueSubject(initialSubscription)
+        self.syncStateSubject = CurrentValueSubject(Self.syncState(for: initialSubscription))
         self.mockProducts = Self.defaultMockProducts()
     }
 
@@ -29,6 +35,14 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
 
     public var currentSubscription: UserSubscription? {
         subscriptionSubject.value
+    }
+
+    public var syncStatePublisher: AnyPublisher<SubscriptionSyncState, Never> {
+        syncStateSubject.eraseToAnyPublisher()
+    }
+
+    public var currentSyncState: SubscriptionSyncState {
+        syncStateSubject.value
     }
 
     public func availableProducts() async throws -> [PaywallProduct] {
@@ -58,6 +72,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
             currentSubscriptionSnapshot = updated
         }
         subscriptionSubject.send(updated)
+        syncStateSubject.send(resolvedSyncState(for: updated))
     }
 
     public func restorePurchases() async throws {
@@ -67,6 +82,7 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
     public func refresh(force: Bool) async {
         let snapshot = queue.sync { currentSubscriptionSnapshot }
         subscriptionSubject.send(snapshot)
+        syncStateSubject.send(resolvedSyncState(for: snapshot))
     }
 
     public func setPreset(_ preset: CreditsStatePreset) {
@@ -76,6 +92,26 @@ public final class MockSubscriptionService: SubscriptionServiceProtocol, @unchec
             currentSubscriptionSnapshot = presetSubscription
         }
         subscriptionSubject.send(presetSubscription)
+        syncStateSubject.send(resolvedSyncState(for: presetSubscription))
+    }
+
+    /// Force a sync state for previews/tests; pass nil to return to the
+    /// subscription-derived state.
+    public func setSyncState(_ state: SubscriptionSyncState?) {
+        let snapshot: UserSubscription? = queue.sync {
+            forcedSyncState = state
+            return currentSubscriptionSnapshot
+        }
+        syncStateSubject.send(state ?? Self.syncState(for: snapshot))
+    }
+
+    private func resolvedSyncState(for subscription: UserSubscription?) -> SubscriptionSyncState {
+        let forced: SubscriptionSyncState? = queue.sync { forcedSyncState }
+        return forced ?? Self.syncState(for: subscription)
+    }
+
+    private static func syncState(for subscription: UserSubscription?) -> SubscriptionSyncState {
+        subscription == nil ? .idle : .confirmed
     }
 
     private static func defaultMockProducts() -> [PaywallProduct] {

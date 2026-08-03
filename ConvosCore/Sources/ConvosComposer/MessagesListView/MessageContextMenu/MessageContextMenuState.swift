@@ -36,6 +36,17 @@ public class MessageContextMenuState: @unchecked Sendable {
 
     public var currentSourceFrame: CGRect = .zero
 
+    /// Bumped to cancel any in-flight swipe-to-reply gesture on this list's
+    /// messages. Used when the conversation pager changes the active page, so a
+    /// horizontal swipe that started a reply on the page being left is cancelled
+    /// rather than firing a stray reply as the page changes.
+    public private(set) var swipeCancellationToken: Int = 0
+
+    /// Cancels any in-flight swipe-to-reply on this list's messages.
+    public func cancelInFlightSwipe() {
+        swipeCancellationToken &+= 1
+    }
+
     public var isPresented: Bool {
         presentedMessage != nil
     }

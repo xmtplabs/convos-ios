@@ -1,5 +1,7 @@
 import ConvosAppData
+import CryptoKit
 import Foundation
+import os
 
 /// Parameters needed to download and decrypt an encrypted image
 public struct EncryptedImageParams: Sendable {
@@ -48,6 +50,13 @@ public enum EncryptedImageFetchPriority: Sendable {
     case background
 }
 
+/// Thrown when a fetch is refused because the URL previously failed
+/// deterministically (oversized payload, decryption failure, undecodable
+/// bytes). Encrypted assets are immutable blobs - a re-uploaded image gets a
+/// new URL - so a deterministic failure for a URL can never heal and
+/// refetching it only wastes bandwidth.
+public struct EncryptedImageKnownBadURL: Error {}
+
 /// Utility for downloading and decrypting encrypted images
 public enum EncryptedImageLoader {
     /// Per-priority caps on concurrent encrypted-image downloads. Sync can
@@ -58,10 +67,26 @@ public enum EncryptedImageLoader {
     private static let interactiveGate: AsyncSemaphore = AsyncSemaphore(width: 4)
     private static let backgroundGate: AsyncSemaphore = AsyncSemaphore(width: 4)
 
+    /// URLs whose fetch failed deterministically this process lifetime. The
+    /// same URL always yields the same ciphertext and the same key material,
+    /// so retrying cannot change the outcome; without this memory every
+    /// avatar render and sync pass refires the download.
+    private static let knownBadURLs: OSAllocatedUnfairLock<Set<String>> = OSAllocatedUnfairLock(initialState: [])
+
     /// The production transport: streams the payload to a temporary file so
     /// the encoded bytes are never fully buffered in memory.
     private static let urlSessionTransport: DownloadTransport = { url in
         try await URLSession.shared.download(from: url)
+    }
+
+    /// The production size probe: a HEAD request, so an oversized asset is
+    /// rejected for the cost of one header round trip instead of a full
+    /// download. Returns -1 when the server does not report a length.
+    private static let urlSessionSizeProbe: SizeProbe = { url in
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        let (_, response) = try await URLSession.shared.data(for: request)
+        return response.expectedContentLength
     }
 
     /// Downloads a URL to a temporary file and returns its location plus the
@@ -69,29 +94,80 @@ public enum EncryptedImageLoader {
     /// without a live network.
     typealias DownloadTransport = @Sendable (URL) async throws -> (URL, URLResponse)
 
+    /// Reports the expected payload size for a URL (-1 when unknown).
+    /// Injectable so tests can drive the preflight without a live network.
+    typealias SizeProbe = @Sendable (URL) async throws -> Int64
+
     /// Download ciphertext from URL and decrypt using provided parameters
     /// - Parameters:
     ///   - params: Encryption parameters including URL and crypto values
     ///   - priority: Which concurrency budget the fetch belongs to
     /// - Returns: Decrypted image data
-    /// - Throws: Network errors or `ImageEncryptionError` on decryption failure
+    /// - Throws: `EncryptedImageKnownBadURL` without touching the network when
+    ///   the URL previously failed deterministically; otherwise network errors
+    ///   or `ImageEncryptionError` on decryption failure
     public static func loadAndDecrypt(
         params: EncryptedImageParams,
         priority: EncryptedImageFetchPriority = .background
     ) async throws -> Data {
-        try await loadAndDecrypt(params: params, priority: priority, transport: urlSessionTransport)
+        try await loadAndDecrypt(
+            params: params,
+            priority: priority,
+            transport: urlSessionTransport,
+            sizeProbe: urlSessionSizeProbe
+        )
     }
 
     static func loadAndDecrypt(
         params: EncryptedImageParams,
         priority: EncryptedImageFetchPriority,
-        transport: @escaping DownloadTransport
+        transport: @escaping DownloadTransport,
+        sizeProbe: @escaping SizeProbe = { _ in -1 }
     ) async throws -> Data {
-        try await gate(for: priority).withSlot {
-            let (fileURL, response) = try await transport(params.url)
-            defer { try? FileManager.default.removeItem(at: fileURL) }
-            return try decryptDownloadedFile(at: fileURL, response: response, params: params)
+        let urlKey = params.url.absoluteString
+        guard !isKnownBadURL(urlKey) else {
+            throw EncryptedImageKnownBadURL()
         }
+        do {
+            return try await gate(for: priority).withSlot {
+                // Best-effort preflight: a failed probe falls through to the
+                // download, where the post-download size check still guards.
+                let expectedBytes: Int64 = (try? await sizeProbe(params.url)) ?? -1
+                guard expectedBytes <= Int64(Constant.maxCiphertextBytes) else {
+                    throw URLError(.dataLengthExceedsMaximum)
+                }
+                let (fileURL, response) = try await transport(params.url)
+                defer { try? FileManager.default.removeItem(at: fileURL) }
+                return try decryptDownloadedFile(at: fileURL, response: response, params: params)
+            }
+        } catch {
+            if isPermanentFailure(error) {
+                markKnownBadURL(urlKey)
+            }
+            throw error
+        }
+    }
+
+    /// Whether an error can never succeed on retry for the same URL:
+    /// oversized payloads and cryptographic failures are functions of the
+    /// immutable ciphertext and key material, unlike network errors.
+    public static func isPermanentFailure(_ error: any Error) -> Bool {
+        if error is EncryptedImageKnownBadURL { return true }
+        if error is ImageEncryptionError { return true }
+        if error is CryptoKitError { return true }
+        if let urlError = error as? URLError, urlError.code == .dataLengthExceedsMaximum { return true }
+        return false
+    }
+
+    /// Records a URL whose payload proved deterministically unusable (e.g.
+    /// decrypted bytes that are not a decodable image). Subsequent fetches
+    /// fail fast with `EncryptedImageKnownBadURL`.
+    static func markKnownBadURL(_ urlKey: String) {
+        knownBadURLs.withLock { _ = $0.insert(urlKey) }
+    }
+
+    static func isKnownBadURL(_ urlKey: String) -> Bool {
+        knownBadURLs.withLock { $0.contains(urlKey) }
     }
 
     /// Validates the response and ciphertext size, then decrypts from a

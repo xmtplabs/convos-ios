@@ -34,7 +34,9 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let contextMenuState: MessageContextMenuState
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAgentOutOfCredits: () -> Void
-    let creditsDepleted: Bool
+    /// Backend owner-computed per-agent power map (inboxId -> depleted).
+    /// Empty means unknown for every agent -> no power indicator anywhere.
+    let agentPowerDepletedByInboxId: [String: Bool]
     let onTapUpdateMember: (ConversationMember) -> Void
     var onTapCapabilityConnect: (CapabilityConnectPrompt) -> Void = { _ in }
     let onRetryMessage: (AnyMessage) -> Void
@@ -111,7 +113,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         contextMenuState: MessageContextMenuState,
         onPhotoDimensionsLoaded: @escaping (String, Int, Int) -> Void,
         onAgentOutOfCredits: @escaping () -> Void,
-        creditsDepleted: Bool,
+        agentPowerDepletedByInboxId: [String: Bool],
         onTapUpdateMember: @escaping (ConversationMember) -> Void,
         onTapCapabilityConnect: @escaping (CapabilityConnectPrompt) -> Void = { _ in },
         onRetryMessage: @escaping (AnyMessage) -> Void,
@@ -165,7 +167,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.contextMenuState = contextMenuState
         self.onPhotoDimensionsLoaded = onPhotoDimensionsLoaded
         self.onAgentOutOfCredits = onAgentOutOfCredits
-        self.creditsDepleted = creditsDepleted
+        self.agentPowerDepletedByInboxId = agentPowerDepletedByInboxId
         self.onTapUpdateMember = onTapUpdateMember
         self.onTapCapabilityConnect = onTapCapabilityConnect
         self.onRetryMessage = onRetryMessage
@@ -245,7 +247,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
             self.onPhotoDimensionsLoaded(key, width, height)
         }
         messagesViewController.onAgentOutOfCredits = onAgentOutOfCredits
-        messagesViewController.creditsDepleted = creditsDepleted
+        messagesViewController.agentPowerDepletedByInboxId = agentPowerDepletedByInboxId
         messagesViewController.agentBuilderSummaryProvider = agentBuilderSummaryProvider
         messagesViewController.currentUserProfileImage = currentUserProfileImage
         messagesViewController.backwardsSecrecyInfoSheet = backwardsSecrecyInfoSheet

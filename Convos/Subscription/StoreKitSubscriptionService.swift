@@ -15,10 +15,11 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
 
     private let apiClient: any ConvosAPIClientProtocol
     /// `CurrentValueSubject` is internally synchronized but not declared
-    /// `Sendable`. `nonisolated(unsafe)` lets the actor expose the
-    /// publisher + current value synchronously without bridging through
+    /// `Sendable`. `nonisolated(unsafe)` lets the actor expose publishers
+    /// and current values synchronously without bridging through
     /// `@preconcurrency import Combine`.
     nonisolated(unsafe) private let subscriptionSubject: CurrentValueSubject<UserSubscription?, Never>
+    nonisolated(unsafe) private let syncStateSubject: CurrentValueSubject<SubscriptionSyncState, Never>
     /// Set once during init, cancelled in deinit. `nonisolated(unsafe)`
     /// keeps deinit able to reach it under Swift 6 actor-deinit isolation
     /// rules; no concurrent mutation happens past init.
@@ -28,19 +29,41 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     /// in this process. See `refreshFromEntitlements()` for why per-launch
     /// forwarding (not persisted) is the right granularity.
     private var forwardedTransactionIds: Set<UInt64> = []
+    /// Transaction ids whose verify failed permanently (account mismatch,
+    /// bad request); never re-sent for the rest of the process. Per-process
+    /// only: the app has no sign-out or account-switch flow (identities are
+    /// per-install), so there is no hook that could clear this set for a
+    /// different account. If such a flow is ever added, clear this set and
+    /// `forwardedTransactionIds` there.
+    private var permanentlyFailedTransactionIds: Set<UInt64> = []
+    /// Counts verify failures across transactions and refresh ticks within
+    /// this process. "Consecutive" means uninterrupted by any successful
+    /// verify: only a success resets it; offline failures neither count
+    /// nor reset.
+    private var consecutiveVerifyFailures: Int = 0
+    private var hasLocalEntitlement: Bool = false
+    /// Incremented by every verify-success publish. `reconcileWithBackend()`
+    /// snapshots it before issuing its GET and discards the response when a
+    /// verify published fresher backend truth while the GET was in flight
+    /// (actor reentrancy allows that interleaving), so a stale snapshot,
+    /// nil or not, cannot overwrite a just-confirmed subscription in the
+    /// subject or the persisted cache.
+    private var verifyPublishGeneration: UInt64 = 0
 
     public init(apiClient: any ConvosAPIClientProtocol) {
         self.apiClient = apiClient
+        UserDefaults.standard.removeObject(forKey: Constant.legacyLastKnownSubscriptionKey)
         // Seed the subject with the last persisted snapshot so the first
         // UI render after launch shows the user's actual tier (the common
         // case) instead of flashing "Basic" for the few hundred ms it
-        // takes `refreshFromEntitlements()` to round-trip Apple +
-        // backend. `BackendCreditsService` already has this behavior for
+        // takes backend reconciliation to complete.
+        // `BackendCreditsService` already has this behavior for
         // credits via its GRDB-backed read; subscriptions had no
         // equivalent cache, which is why the HOME pill flickered Basic →
         // Plus at every cold start. The cache is corrected by every
-        // subsequent publish (refresh / purchase / Apple update).
+        // subsequent backend-confirmed publish.
         self.subscriptionSubject = CurrentValueSubject(Self.loadCachedSubscription())
+        self.syncStateSubject = CurrentValueSubject(.idle)
         let listenerTask = Task.detached { [weak self] in
             guard let self else { return }
             await self.refreshFromEntitlements()
@@ -53,9 +76,9 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         updateListenerTask?.cancel()
     }
 
-    /// Single funnel for every subscription-state publish. Sends on the
-    /// in-memory subject (drives `subscriptionPublisher` / UI bindings)
-    /// AND writes through to UserDefaults so the next cold start can
+    /// Single funnel for every backend-confirmed subscription-state publish.
+    /// Sends on the in-memory subject (drives `subscriptionPublisher` /
+    /// UI bindings) and writes through to UserDefaults so the next cold start can
     /// seed the subject without flickering through nil. Use everywhere
     /// instead of touching `subscriptionSubject` directly.
     private func publish(_ subscription: UserSubscription?) {
@@ -69,6 +92,14 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
 
     nonisolated public var currentSubscription: UserSubscription? {
         subscriptionSubject.value
+    }
+
+    nonisolated public var syncStatePublisher: AnyPublisher<SubscriptionSyncState, Never> {
+        syncStateSubject.eraseToAnyPublisher()
+    }
+
+    nonisolated public var currentSyncState: SubscriptionSyncState {
+        syncStateSubject.value
     }
 
     public func availableProducts() async throws -> [PaywallProduct] {
@@ -114,23 +145,8 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         switch result {
         case .success(let verification):
             let transaction = try verifiedTransaction(verification)
+            hasLocalEntitlement = true
             await sendToBackendVerify(jwsRepresentation: verification.jwsRepresentation, transactionId: transaction.id)
-            // The verified transaction from `.success` IS the authoritative
-            // new entitlement. Publish it directly and skip the
-            // `refreshFromEntitlements()` reconciliation that used to follow.
-            // Apple's local `Transaction.currentEntitlements` cache lags by
-            // seconds after a successful purchase, and for an upgrade
-            // (e.g. Monthly -> Annual) the cache still holds the
-            // just-superseded old entitlement. Iterating it would emit the
-            // stale tier and overwrite the fresh one we just published —
-            // surfacing as a brief "Current plan" flash on the new tier card
-            // before reverting to the old. `Transaction.updates` (the listener
-            // in `listenForTransactionUpdates()`) re-emits when Apple's view
-            // catches up; periodic foreground `refresh()` calls reconcile
-            // beyond that.
-            if let sub = await userSubscription(from: transaction) {
-                publish(sub)
-            }
             // Force a credits refresh: the tier just changed (or was set for
             // the first time), so `monthlyGrant` derived from
             // PAYMENTS_GRANT_<TIER>_MONTHLY changed too. Skip the TTL so
@@ -169,20 +185,16 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     private func listenForTransactionUpdates() async {
         for await result in Transaction.updates {
             guard let transaction = try? verifiedTransaction(result) else { continue }
+            // A revoked or expired transaction is not a live entitlement;
+            // treating it as one would leave a refunded subscription stuck
+            // in the activating state instead of returning to free once the
+            // backend reports no subscription.
+            hasLocalEntitlement = Self.isLiveEntitlement(
+                revocationDate: transaction.revocationDate,
+                expirationDate: transaction.expirationDate
+            )
             await sendToBackendVerify(jwsRepresentation: result.jwsRepresentation, transactionId: transaction.id)
-            // Publish from the verified transaction directly, for the same
-            // reason as in `purchase()`: re-querying
-            // `Transaction.currentEntitlements` here races with Apple's
-            // local cache update for plan changes initiated through the
-            // system "Manage Subscriptions" sheet. The cache may still hold
-            // the just-superseded entitlement when the listener fires,
-            // overwriting the new one. The verified transaction in hand
-            // is authoritative for this update — including refunds /
-            // revocations, where `userSubscription(from:)` returns a
-            // non-nil snapshot with status `.revoked` or `.expired`.
-            if let sub = await userSubscription(from: transaction) {
-                publish(sub)
-            }
+            await reconcileWithBackend()
             // Apple-side transition (renew, refund, tier change) → tier or
             // status may have changed → credits need to re-derive from the
             // new Subscription row. Force-refresh to bypass TTL.
@@ -191,26 +203,84 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         }
     }
 
+    /// `internal` rather than `private` so unit tests can exercise the
+    /// revoked/expired/live classification directly; `Transaction` itself
+    /// is not constructible in tests, which is why this takes the two
+    /// dates instead of the transaction.
+    static func isLiveEntitlement(revocationDate: Date?, expirationDate: Date?, now: Date = Date()) -> Bool {
+        guard revocationDate == nil else { return false }
+        guard let expirationDate else { return true }
+        return expirationDate > now
+    }
+
     /// Best-effort relay of a verified StoreKit transaction to the backend so it
     /// can credit the account ledger. The backend extracts both the
     /// `appAccountToken` and the `originalTransactionId` from the signed JWS
     /// payload itself, authenticates the caller via JWT, and refuses cross-
     /// account binding attempts — so the iOS side only needs to pass the JWS.
     ///
-    /// Returns `true` on success so callers that track forwarded transactions
+    /// Returns the outcome so callers that track forwarded transactions
     /// (`refreshFromEntitlements`) can retry on the next refresh after a
     /// transient failure instead of waiting for an app relaunch. Failures
-    /// are logged but never propagate — `Transaction.currentEntitlements`
-    /// is still authoritative for local UI state.
+    /// are logged but never propagate. The existing backend-confirmed UI
+    /// snapshot remains until verification or reconciliation succeeds.
     @discardableResult
-    private func sendToBackendVerify(jwsRepresentation: String, transactionId: UInt64) async -> Bool {
-        do {
-            _ = try await apiClient.verifySubscription(jwsRepresentation: jwsRepresentation)
-            return true
-        } catch {
-            Log.error("Backend verify failed for transaction \(transactionId): \(error)")
-            return false
+    private func sendToBackendVerify(
+        jwsRepresentation: String,
+        transactionId: UInt64
+    ) async -> VerifyResult {
+        guard !permanentlyFailedTransactionIds.contains(transactionId) else {
+            return .permanent
         }
+        // A send attempt means this transaction is not yet backend-confirmed,
+        // even if an earlier transaction was: drop any stale .confirmed so the
+        // state reflects the entitlement actually being verified. A standing
+        // .needsAttention is preserved until a verify succeeds.
+        if syncStateSubject.value != .needsAttention {
+            syncStateSubject.send(.syncing)
+        }
+        do {
+            let backendSubscription = try await apiClient.verifySubscription(jwsRepresentation: jwsRepresentation)
+            publish(backendSubscription)
+            verifyPublishGeneration += 1
+            consecutiveVerifyFailures = 0
+            syncStateSubject.send(.confirmed)
+            return .success
+        } catch let error as APIError {
+            switch error {
+            case .subscriptionAccountMismatch, .badRequest:
+                permanentlyFailedTransactionIds.insert(transactionId)
+                syncStateSubject.send(.needsAttention)
+                Log.error("Subscription verify permanently failed for transaction \(transactionId): \(error)")
+                return .permanent
+            default:
+                return handleRetryableVerifyFailure(error, transactionId: transactionId)
+            }
+        } catch {
+            return handleRetryableVerifyFailure(error, transactionId: transactionId)
+        }
+    }
+
+    private func handleRetryableVerifyFailure(_ error: any Error, transactionId: UInt64) -> VerifyResult {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                // Offline failures neither count toward the attention
+                // threshold nor move the state: the pre-send transition
+                // already set .syncing, and a standing .needsAttention
+                // must not be masked by connectivity loss.
+                Log.error("Backend verify failed for transaction \(transactionId): \(error)")
+                return .retryable
+            default:
+                break
+            }
+        }
+        consecutiveVerifyFailures += 1
+        if consecutiveVerifyFailures >= 3 {
+            syncStateSubject.send(.needsAttention)
+        }
+        Log.error("Backend verify failed for transaction \(transactionId): \(error)")
+        return .retryable
     }
 
     public func refresh(force: Bool) async {
@@ -223,10 +293,11 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
     }
 
     private func refreshFromEntitlements() async {
-        var latest: UserSubscription?
         var forwardedAnyEntitlement: Bool = false
+        var sawAnyEntitlement: Bool = false
         for await result in Transaction.currentEntitlements {
             guard let transaction = try? verifiedTransaction(result) else { continue }
+            sawAnyEntitlement = true
             // Forward each entitlement to the backend at most once per
             // process. Covers entitlements iOS reads locally that the
             // backend doesn't know about yet:
@@ -241,8 +312,9 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
             // The verify endpoint is idempotent on `originalTransactionId`,
             // so the server already deduplicates; the in-memory set just
             // avoids hammering it every refresh (TTL is 15s).
-            if !forwardedTransactionIds.contains(transaction.id) {
-                let succeeded = await sendToBackendVerify(
+            if !forwardedTransactionIds.contains(transaction.id),
+               !permanentlyFailedTransactionIds.contains(transaction.id) {
+                let verifyResult = await sendToBackendVerify(
                     jwsRepresentation: result.jwsRepresentation,
                     transactionId: transaction.id
                 )
@@ -250,15 +322,21 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
                 // (network blip, transient 5xx, backend deploy in flight)
                 // retries on the next refresh tick rather than waiting for
                 // an app relaunch.
-                if succeeded {
+                if verifyResult == .success {
                     forwardedTransactionIds.insert(transaction.id)
                     forwardedAnyEntitlement = true
                 }
             }
-            guard let sub = await userSubscription(from: transaction) else { continue }
-            latest = sub
         }
-        publish(latest)
+        hasLocalEntitlement = sawAnyEntitlement
+        if !sawAnyEntitlement {
+            syncStateSubject.send(.idle)
+        } else if !forwardedAnyEntitlement,
+                  currentSyncState != .confirmed,
+                  currentSyncState != .needsAttention {
+            syncStateSubject.send(.syncing)
+        }
+        await reconcileWithBackend()
         // If the backend just learned about an entitlement it didn't
         // previously have, its `GET /credits` answer changes (tier-based
         // grant kicks in). Force-refresh credits so the local depleted
@@ -268,6 +346,34 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         // refresh.
         if forwardedAnyEntitlement {
             await CreditsServices.shared.refresh(force: true)
+        }
+    }
+
+    private func reconcileWithBackend() async {
+        let generationAtRequest: UInt64 = verifyPublishGeneration
+        do {
+            let fetchedSubscription: UserSubscription? = try await apiClient.getSubscription()
+            guard verifyPublishGeneration == generationAtRequest else {
+                // A verify published fresher backend truth while this GET
+                // was in flight; the GET snapshot predates the POST and is
+                // stale whether it carries a subscription or nil. Drop it.
+                return
+            }
+            guard let backendSubscription = fetchedSubscription else {
+                publish(nil)
+                if hasLocalEntitlement {
+                    if syncStateSubject.value != .needsAttention {
+                        syncStateSubject.send(.syncing)
+                    }
+                } else {
+                    syncStateSubject.send(.idle)
+                }
+                return
+            }
+            publish(backendSubscription)
+            syncStateSubject.send(.confirmed)
+        } catch {
+            Log.error("Failed reconciling subscription with backend: \(error)")
         }
     }
 
@@ -298,123 +404,29 @@ public actor StoreKitSubscriptionService: SubscriptionServiceProtocol {
         )
     }
 
-    private func userSubscription(from transaction: Transaction) async -> UserSubscription? {
-        guard let tier = SubscriptionProductIDs.tier(for: transaction.productID),
-              let period = SubscriptionProductIDs.period(for: transaction.productID) else {
-            return nil
-        }
-        let snapshot: StoreKitSubscriptionSnapshot = await storeKitSubscriptionSnapshot(for: transaction)
-        let isInTrial: Bool = transaction.offer?.type == .introductory
-        return UserSubscription(
-            tier: tier,
-            period: period,
-            status: snapshot.status,
-            productId: transaction.productID,
-            currentPeriodEnd: transaction.expirationDate ?? Date(),
-            willRenew: snapshot.willRenew,
-            isInTrial: isInTrial
-        )
-    }
-
-    /// Combines what we can derive from the Transaction alone with what only
-    /// StoreKit's subscription-status APIs can tell us:
-    ///
-    ///   - `RenewalInfo.willAutoRenew` is the only reliable signal for "did
-    ///     the user cancel auto-renewal?". `Transaction.revocationDate` is
-    ///     unrelated — it only fires on a refund / Family Sharing revoke.
-    ///   - `Product.SubscriptionInfo.RenewalState` distinguishes
-    ///     in-grace-period and in-billing-retry from plain active, neither
-    ///     of which the bare Transaction surfaces.
-    ///
-    /// Falls back to the transaction-only derivation if the status lookup
-    /// fails (network hiccup, product gone from ASC, verified transaction
-    /// without a matching status row).
-    private func storeKitSubscriptionSnapshot(for transaction: Transaction) async -> StoreKitSubscriptionSnapshot {
-        let fallback: StoreKitSubscriptionSnapshot = StoreKitSubscriptionSnapshot(
-            status: subscriptionStatus(from: transaction),
-            // Conservative fallback: at purchase time auto-renew is on by
-            // default. If the user cancelled since and we can't read the
-            // renewal info, we'll be wrong until the next successful status
-            // read — preferable to silently flipping non-renewing users to
-            // "Expires" while their plan is still active.
-            willRenew: transaction.revocationDate == nil
-        )
-
-        do {
-            let products = try await Product.products(for: [transaction.productID])
-            guard let subscription = products.first?.subscription else {
-                return fallback
-            }
-            let statuses: [Product.SubscriptionInfo.Status] = try await subscription.status
-            guard let status = statuses.first(where: { status in
-                guard let statusTransaction = try? verifiedTransaction(status.transaction) else { return false }
-                return statusTransaction.originalID == transaction.originalID
-            }) else {
-                return fallback
-            }
-            let renewalInfo: Product.SubscriptionInfo.RenewalInfo = try verifiedTransaction(status.renewalInfo)
-            return StoreKitSubscriptionSnapshot(
-                status: subscriptionStatus(from: status.state, transaction: transaction),
-                willRenew: renewalInfo.willAutoRenew
-            )
-        } catch {
-            Log.error("Failed reading StoreKit renewal info for \(transaction.productID): \(error)")
-            return fallback
-        }
-    }
-
-    private func subscriptionStatus(from transaction: Transaction) -> ConvosCore.SubscriptionStatus {
-        if transaction.revocationDate != nil { return .revoked }
-        if let expiration = transaction.expirationDate, expiration < Date() {
-            return .expired
-        }
-        return transaction.offer?.type == .introductory ? .trial : .active
-    }
-
-    /// Maps StoreKit's authoritative `RenewalState` onto our local
-    /// `SubscriptionStatus`. Preferred over the Transaction-only derivation
-    /// because it surfaces grace-period and billing-retry states.
-    private func subscriptionStatus(
-        from renewalState: Product.SubscriptionInfo.RenewalState,
-        transaction: Transaction
-    ) -> ConvosCore.SubscriptionStatus {
-        switch renewalState {
-        case .subscribed:
-            return transaction.offer?.type == .introductory ? .trial : .active
-        case .inGracePeriod:
-            return .grace
-        case .inBillingRetryPeriod:
-            return .billingRetry
-        case .expired:
-            return .expired
-        case .revoked:
-            return .revoked
-        default:
-            return subscriptionStatus(from: transaction)
-        }
-    }
-
     private func perMonthString(for product: Product) -> String? {
         let monthly: Decimal = product.price / 12
         let formatted: String = monthly.formatted(product.priceFormatStyle)
         return "\(formatted)/mo"
     }
 
-    private struct StoreKitSubscriptionSnapshot {
-        let status: ConvosCore.SubscriptionStatus
-        let willRenew: Bool
+    private enum VerifyResult: Equatable {
+        case success
+        case retryable
+        case permanent
     }
 
     private enum Constant {
         static let appAccountTokenKey: String = "storeKit.appAccountToken"
-        static let lastKnownSubscriptionKey: String = "storeKit.lastKnownSubscription"
+        static let lastKnownSubscriptionKey: String = "backend.lastKnownSubscription"
+        // Legacy StoreKit-derived cache removed during initialization.
+        static let legacyLastKnownSubscriptionKey: String = "storeKit.lastKnownSubscription"
     }
 
-    /// Persist the most recently published subscription snapshot so the next
-    /// app launch can seed its initial UI state without waiting for the
-    /// async `refreshFromEntitlements()` round-trip. Cleared (set to nil)
-    /// when the user no longer has an entitlement so the cached "Plus"
-    /// doesn't outlive the actual subscription.
+    /// Persist the most recently backend-confirmed subscription snapshot so the next
+    /// app launch can seed its initial UI state without waiting for async
+    /// backend reconciliation. Cleared when the backend returns no subscription
+    /// so the cached "Plus" does not outlive the backend subscription.
     ///
     /// `internal` rather than `private` so unit tests can exercise the
     /// cache round-trip directly without driving a full StoreKit purchase

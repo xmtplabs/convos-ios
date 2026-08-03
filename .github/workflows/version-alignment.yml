@@ -1,0 +1,27 @@
+# Version Alignment — thin caller. The job lives in convos-releases:
+# https://github.com/xmtplabs/convos-releases/blob/main/.github/workflows/check-versions.yml
+#
+# On every PR to dev, asserts this repo's Convos.xcodeproj MARKETING_VERSION
+# entries are internally consistent (the ShareExtension-stuck-at-2.0.0 drift
+# that aborted a cut) AND match convos-client's current dev VERSION_NAME, so
+# the two apps can't drift apart and abort the next release cut.
+name: Version Alignment
+
+on:
+  pull_request:
+    branches: [dev]
+
+concurrency:
+  group: version-alignment-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check_versions:
+    # Match the reusable workflow's declared job permissions explicitly.
+    permissions:
+      contents: read
+    uses: xmtplabs/convos-releases/.github/workflows/check-versions.yml@main
+    with:
+      self-repo: xmtplabs/convos-ios
+      sibling-repo: xmtplabs/convos-client
+    secrets: inherit

@@ -108,6 +108,7 @@ struct AppSettingsView: View {
             .toolbar { topToolbar }
             .onReceive(CreditsServices.shared.balancePublisher) { creditBalance = $0 }
             .onReceive(SubscriptionServices.shared.subscriptionPublisher) { currentSubscription = $0 }
+            .onReceive(SubscriptionServices.shared.syncStatePublisher) { subscriptionSyncState = $0 }
             .onAppear {
                 ensureNavigator()
                 navState.markScreenAppeared()
@@ -288,14 +289,22 @@ struct AppSettingsView: View {
     @State private var presentingPaywall: Bool = false
     @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
     @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
+    @State private var subscriptionSyncState: SubscriptionSyncState = SubscriptionServices.shared.currentSyncState
 
     private var membershipFooterLabel: String {
+        if subscriptionNeedsAttention { return SubscriptionCopy.syncNeedsAttentionRowLabel }
         if currentSubscription != nil { return "Plus membership" }
         return "Basic membership"
     }
 
     private var isPowerDepleted: Bool {
         creditBalance?.isDepleted == true
+    }
+
+    /// Only the dead-end state badges the row; syncing is transient and
+    /// would be noise here. The paywall the row opens carries the details.
+    private var subscriptionNeedsAttention: Bool {
+        subscriptionSyncState == .needsAttention
     }
 
     @ViewBuilder
@@ -331,7 +340,7 @@ struct AppSettingsView: View {
 
             Spacer()
 
-            if isPowerDepleted {
+            if isPowerDepleted || subscriptionNeedsAttention {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.colorLava)
             }
@@ -524,5 +533,21 @@ struct AppSettingsView: View {
             coreActions: NoOpCoreActions(),
             onDeleteAllData: {}
         )
+    }
+}
+
+#Preview("Subscription needs attention") {
+    let profileSettingsViewModel = ProfileSettingsViewModel.shared
+    NavigationStack {
+        AppSettingsView(
+            viewModel: .mock,
+            profileSettingsViewModel: profileSettingsViewModel,
+            session: MockInboxesService(),
+            coreActions: NoOpCoreActions(),
+            onDeleteAllData: {}
+        )
+        .onAppear {
+            MockSubscriptionService.shared.setSyncState(.needsAttention)
+        }
     }
 }

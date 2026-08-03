@@ -50,6 +50,9 @@ enum SubscriptionCopy {
     static let upgradeAnytimeLabel: String = "Upgrade anytime"
     static let upgradeLabel: String = "Upgrade"
     static let manageSubscriptionLabel: String = "Manage subscription"
+    static let syncActivatingNotice: String = "Activating your subscription..."
+    static let syncNeedsAttentionNotice: String = "Subscription needs attention. Contact support."
+    static let syncNeedsAttentionRowLabel: String = "Subscription needs attention"
 
     static let legalDisclaimer: String = """
         Auto-renewing subscription. You'll be charged at the rate shown until you cancel. \
