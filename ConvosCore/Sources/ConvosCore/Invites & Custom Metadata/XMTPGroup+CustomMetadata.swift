@@ -93,6 +93,21 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// The parent ("origin") conversation this agent DM was created from, as a
+    /// hex conversation id, or nil when not recorded. Written once in
+    /// `markAsAgentDm`; read back so a DM notification tap can route to its
+    /// parent group (the DM is only viewable as a page inside that group).
+    public var agentDmOriginConversationId: String? {
+        get throws {
+            let metadata = try currentCustomMetadata
+            guard metadata.hasAgentDm, metadata.agentDm.hasOriginConversationID else {
+                return nil
+            }
+            let data = metadata.agentDm.originConversationID
+            return data.isEmpty ? nil : data.toHexString()
+        }
+    }
+
     /// Stamps this conversation as a private DM with an agent. Called once by
     /// the device that creates the DM conversation, before adding the agent.
     public func markAsAgentDm(originConversationId: Data? = nil) async throws {

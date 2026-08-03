@@ -33,6 +33,10 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
         nil
     }
 
+    public func agentDmTapRouting(forConversationId conversationId: String) throws -> AgentDmTapRouting? {
+        nil
+    }
+
     public func findOneToOne(with inboxId: String, excluding excludedConversationId: String?) throws -> Conversation? {
         mockConversations.first { conversation in
             guard conversation.id != excludedConversationId else { return false }

@@ -432,6 +432,13 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             let updated = try DBConversation
                 .filter(key: conversationId)
                 .updateAll(db, DBConversation.Columns.isAgentDm.set(to: true))
+            // Mirror the DM -> parent link locally on the creating device too, so
+            // a tap routes correctly before the next full save re-extracts it.
+            try DBAgentDmOrigin.record(
+                conversationId: conversationId,
+                originConversationId: originConversationId,
+                in: db
+            )
             if updated == 0 {
                 // The local row may not exist yet (marker written before the
                 // first store). Not fatal -- extraction re-derives the flag

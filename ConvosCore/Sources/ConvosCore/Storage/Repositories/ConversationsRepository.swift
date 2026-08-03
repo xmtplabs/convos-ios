@@ -2,6 +2,19 @@ import Combine
 import Foundation
 import GRDB
 
+/// Where a tapped agent-DM notification should route. A DM is its own
+/// conversation but is only viewable as a page inside its parent group, so a
+/// tap opens `originConversationId` and selects the DM page for `agentInboxId`.
+public struct AgentDmTapRouting: Equatable, Sendable {
+    public let originConversationId: String
+    public let agentInboxId: String
+
+    public init(originConversationId: String, agentInboxId: String) {
+        self.originConversationId = originConversationId
+        self.agentInboxId = agentInboxId
+    }
+}
+
 public protocol ConversationsRepositoryProtocol {
     var conversationsPublisher: AnyPublisher<[Conversation], Never> { get }
     func fetchAll() throws -> [Conversation]
@@ -26,6 +39,12 @@ public protocol ConversationsRepositoryProtocol {
     /// The user's agent DM with this inbox, if one exists (conversations
     /// carrying the agent-DM marker only).
     func findAgentDm(with inboxId: String) throws -> Conversation?
+
+    /// Routing for a tapped agent-DM notification. The tap carries the DM's own
+    /// conversation id; return the parent group to open and the agent whose DM
+    /// page to select. nil when the id is not a routable agent DM (not a DM, no
+    /// recorded parent, or no agent member found).
+    func agentDmTapRouting(forConversationId conversationId: String) throws -> AgentDmTapRouting?
 
     /// Conversations that contain an agent provisioned from `templateId`,
     /// split by who added that agent: `addedByCurrentUser` when the agent
@@ -98,6 +117,43 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
                 onlyAgentDms: true
             )
         }
+    }
+
+    func agentDmTapRouting(forConversationId conversationId: String) throws -> AgentDmTapRouting? {
+        try dbReader.read { db in
+            guard let conversation = try DBConversation.fetchOne(db, key: conversationId),
+                  conversation.isAgentDm else {
+                return nil
+            }
+            guard let originConversationId = try DBAgentDmOrigin
+                .originConversationId(for: conversationId, in: db) else {
+                return nil
+            }
+            guard let agentInboxId = try Self.verifiedAgentInboxId(
+                conversationId: conversationId,
+                in: db
+            ) else {
+                return nil
+            }
+            return AgentDmTapRouting(
+                originConversationId: originConversationId,
+                agentInboxId: agentInboxId
+            )
+        }
+    }
+
+    /// The verified-agent member of a 2-member agent DM (the other member is the
+    /// current user). Drives which pager page a DM tap selects.
+    private static func verifiedAgentInboxId(conversationId: String, in db: Database) throws -> String? {
+        let memberInboxIds = try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .fetchAll(db)
+            .map(\.inboxId)
+        guard !memberInboxIds.isEmpty else { return nil }
+        return try DBProfile
+            .fetchAll(db, inboxIds: memberInboxIds)
+            .first { $0.agentVerification.isVerified }?
+            .inboxId
     }
 
     func conversationsPublisher(withAgentTemplateId templateId: String) -> AnyPublisher<AgentTemplateConversations, Never> {

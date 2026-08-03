@@ -70,6 +70,10 @@ private final class StubConversationsRepository: ConversationsRepositoryProtocol
         nil
     }
 
+    func agentDmTapRouting(forConversationId conversationId: String) throws -> AgentDmTapRouting? {
+        nil
+    }
+
     func conversationsPublisher(withAgentTemplateId templateId: String) -> AnyPublisher<AgentTemplateConversations, Never> {
         Just(AgentTemplateConversations(addedByCurrentUser: [], addedByOthers: [])).eraseToAnyPublisher()
     }
