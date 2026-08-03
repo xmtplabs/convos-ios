@@ -92,7 +92,7 @@ struct ConversationConsentReconcilerTests {
                 id: "convo-added-by-contact",
                 creatorId: "stranger-creator",
                 consent: .unknown,
-                addedById: "contact-adder"
+                adder: .known("contact-adder")
             )
         }
 
@@ -116,7 +116,7 @@ struct ConversationConsentReconcilerTests {
                 id: "convo-blocked-adder",
                 creatorId: "contact-creator",
                 consent: .allowed,
-                addedById: "blocked-adder"
+                adder: .known("blocked-adder")
             )
         }
 
@@ -140,7 +140,7 @@ struct ConversationConsentReconcilerTests {
                 id: "convo-blocked-creator",
                 creatorId: "blocked-creator",
                 consent: .allowed,
-                addedById: "contact-adder"
+                adder: .known("contact-adder")
             )
         }
 
@@ -165,7 +165,7 @@ struct ConversationConsentReconcilerTests {
                 id: "convo-two-contacts",
                 creatorId: "contact-creator",
                 consent: .unknown,
-                addedById: "contact-adder"
+                adder: .known("contact-adder")
             )
         }
 
@@ -185,7 +185,7 @@ struct ConversationConsentReconcilerTests {
                 id: "convo-stranger-adder",
                 creatorId: "stranger-creator",
                 consent: .unknown,
-                addedById: "stranger-adder"
+                adder: .known("stranger-adder")
             )
         }
 
@@ -194,6 +194,74 @@ struct ConversationConsentReconcilerTests {
         }
 
         #expect(targets.isEmpty)
+    }
+
+    @Test("An unresolved adder is not promoted on the creator's contact status")
+    func testUnresolvedAdderIsNotPromoted() throws {
+        // The inviter could be anyone, including someone blocked, so promoting
+        // on the creator alone would undo `contactsVouch`'s fail-closed choice.
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try dbManager.dbWriter.write { db in
+            try Self.seedContact(db: db, inboxId: "contact-creator", blockedAt: nil)
+            try Self.seedConversation(
+                db: db,
+                id: "convo-unresolved-adder",
+                creatorId: "contact-creator",
+                consent: .unknown,
+                adder: .unresolved
+            )
+        }
+
+        let targets = try dbManager.dbReader.read { db in
+            try ConversationConsentReconciler.fetchMismatchedTargets(db: db)
+        }
+
+        #expect(targets.isEmpty)
+    }
+
+    @Test("An unresolved adder is still demoted when the creator is blocked")
+    func testUnresolvedAdderIsStillDemoted() throws {
+        // Fail-closed narrows promotion only - demotion stays inclusive.
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try dbManager.dbWriter.write { db in
+            try Self.seedContact(db: db, inboxId: "blocked-creator", blockedAt: Date())
+            try Self.seedConversation(
+                db: db,
+                id: "convo-unresolved-blocked",
+                creatorId: "blocked-creator",
+                consent: .allowed,
+                adder: .unresolved
+            )
+        }
+
+        let targets = try dbManager.dbReader.read { db in
+            try ConversationConsentReconciler.fetchMismatchedTargets(db: db)
+        }
+
+        #expect(targets == [.init(conversationId: "convo-unresolved-blocked", consent: .denied)])
+    }
+
+    @Test("A row predating the adder column is still promoted on the creator")
+    func testNotRecordedAdderIsPromotedOnCreator() throws {
+        // Preserves the behavior these rows had before the column existed;
+        // they upgrade on the next write.
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try dbManager.dbWriter.write { db in
+            try Self.seedContact(db: db, inboxId: "contact-creator", blockedAt: nil)
+            try Self.seedConversation(
+                db: db,
+                id: "convo-legacy",
+                creatorId: "contact-creator",
+                consent: .unknown,
+                adder: .notRecorded
+            )
+        }
+
+        let targets = try dbManager.dbReader.read { db in
+            try ConversationConsentReconciler.fetchMismatchedTargets(db: db)
+        }
+
+        #expect(targets == [.init(conversationId: "convo-legacy", consent: .allowed)])
     }
 
     private static func seedContact(db: Database, inboxId: String, blockedAt: Date?) throws {
@@ -217,7 +285,7 @@ struct ConversationConsentReconcilerTests {
         id: String,
         creatorId: String,
         consent: Consent,
-        addedById: String? = nil
+        adder: AdderResolution = .notRecorded
     ) throws {
         try DBMember(inboxId: creatorId).save(db, onConflict: .ignore)
         try DBConversation(
@@ -243,7 +311,7 @@ struct ConversationConsentReconcilerTests {
             imageLastRenewed: nil,
             isUnused: false,
             hasHadVerifiedAgent: false,
-            addedById: addedById
+            adder: adder
         ).insert(db)
     }
 }

@@ -68,7 +68,7 @@ struct ConversationAddedByIdMigrationTests {
         }
     }
 
-    @Test("Rows written before the migration survive it, defaulting to NULL")
+    @Test("Rows written before the migration survive it, defaulting to notRecorded")
     func testPreExistingRowsSurviveWithNullAdder() throws {
         let database = try DatabaseQueue()
         try SharedDatabaseMigrator.shared.migrate(
@@ -103,8 +103,93 @@ struct ConversationAddedByIdMigrationTests {
         }
         #expect(row != nil)
         #expect(row?.addedById == nil)
+        // Legacy rows adjudicate on the creator alone, as they did before the
+        // column existed - not fail-closed, which would freeze them out of
+        // promotion until something rewrote them.
+        #expect(row?.adderStatus == .notRecorded)
+        #expect(row?.adder == .notRecorded)
         // The migration must not disturb the rest of the row.
         #expect(row?.creatorId == "creator-inbox")
         #expect(row?.consent == .allowed)
+    }
+
+    @Test("The CHECK rejects a status that disagrees with addedById")
+    func testCheckConstraintRejectsInconsistentPair() throws {
+        let database = try DatabaseQueue()
+        try SharedDatabaseMigrator.shared.migrate(database: database)
+
+        let debugInfo = String(decoding: try JSONEncoder().encode(ConversationDebugInfo.empty), as: UTF8.self)
+        let insertInconsistent: (Database, String, String?, String) throws -> Void = { db, id, addedById, status in
+            try db.execute(
+                sql: """
+                    INSERT INTO conversation
+                        (id, clientConversationId, inviteTag, creatorId, kind, consent,
+                         createdAt, includeInfoInPublicPreview, isLocked, isUnused,
+                         hasHadVerifiedAgent, debugInfo, addedById, adderStatus)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, ?, ?)
+                    """,
+                arguments: [
+                    id, "client-\(id)", "tag-\(id)", "creator-inbox",
+                    ConversationKind.group.rawValue, Consent.allowed.rawValue, Date(), debugInfo,
+                    addedById, status
+                ]
+            )
+        }
+
+        // resolved without an id, and an id without resolved.
+        #expect(throws: DatabaseError.self) {
+            try database.write { db in try insertInconsistent(db, "bad-1", nil, AdderStatus.resolved.rawValue) }
+        }
+        #expect(throws: DatabaseError.self) {
+            try database.write { db in try insertInconsistent(db, "bad-2", "adder-inbox", AdderStatus.unresolved.rawValue) }
+        }
+        try database.write { db in
+            try insertInconsistent(db, "good", "adder-inbox", AdderStatus.resolved.rawValue)
+        }
+    }
+
+    @Test("Every AdderResolution case round-trips through the row")
+    func testAdderRoundTrips() throws {
+        let database = try DatabaseQueue()
+        try SharedDatabaseMigrator.shared.migrate(database: database)
+
+        let cases: [AdderResolution] = [.known("adder-inbox"), .none, .unresolved, .notRecorded]
+        for (index, adder) in cases.enumerated() {
+            let id = "convo-\(index)"
+            try database.write { db in
+                try DBMember(inboxId: "creator-inbox").save(db, onConflict: .ignore)
+                try Self.makeConversation(id: id, adder: adder).insert(db)
+            }
+            let row = try database.read { db in try DBConversation.fetchOne(db, key: id) }
+            #expect(row?.adder == adder)
+        }
+    }
+
+    private static func makeConversation(id: String, adder: AdderResolution) -> DBConversation {
+        DBConversation(
+            id: id,
+            clientConversationId: "client-\(id)",
+            inviteTag: "tag-\(id)",
+            creatorId: "creator-inbox",
+            kind: .group,
+            consent: .allowed,
+            createdAt: Date(),
+            name: nil,
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: false,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            imageLastRenewed: nil,
+            isUnused: false,
+            hasHadVerifiedAgent: false,
+            adder: adder
+        )
     }
 }

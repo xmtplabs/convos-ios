@@ -159,8 +159,12 @@ final class ConversationConsentReconciler: @unchecked Sendable {
         let allowed: String = Consent.allowed.rawValue
         let denied: String = Consent.denied.rawValue
         let unknown: String = Consent.unknown.rawValue
-        // `IN (creatorId, addedById)` handles a NULL `addedById` naturally:
-        // NULL matches no contact row.
+        // `IN (creatorId, addedById)` matches no contact row when `addedById`
+        // is NULL, so an unresolved adder would otherwise be adjudicated on the
+        // creator alone - promoting a conversation whose inviter might be
+        // blocked. `adderIsAccountedFor` excludes those from promotion only;
+        // demotion stays inclusive, since narrowing it would hide less.
+        let adderIsAccountedFor = "conversation.adderStatus <> '\(AdderStatus.unresolved.rawValue)'"
         let anyRelatedContact = """
             EXISTS (
                 SELECT 1 FROM contact
@@ -180,7 +184,7 @@ final class ConversationConsentReconciler: @unchecked Sendable {
             FROM conversation
             WHERE \(anyRelatedContact)
               AND (
-                    (NOT \(anyRelatedContactBlocked) AND conversation.consent = ?)
+                    (NOT \(anyRelatedContactBlocked) AND \(adderIsAccountedFor) AND conversation.consent = ?)
                  OR (\(anyRelatedContactBlocked) AND conversation.consent <> ?)
               )
             """, arguments: [denied, allowed, unknown, denied])

@@ -872,6 +872,19 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         return incoming.with(isAgentDm: true)
     }
 
+    /// A resolved adder is write-once: it records who invited us, which never
+    /// changes. The invite placeholder path has no XMTP handle and a failed
+    /// libxmtp read yields `.unresolved`; neither may erase a stored adder,
+    /// since the reconciler and the block demote depend on it.
+    static func preservingResolvedAdder(incoming: DBConversation, existing: DBConversation?) -> DBConversation {
+        guard incoming.adderStatus != .resolved,
+              let existing,
+              existing.adderStatus == .resolved else {
+            return incoming
+        }
+        return incoming.with(adder: existing.adder)
+    }
+
     private func createDBConversation(
         from conversation: XMTPiOS.Group,
         metadata: ConversationMetadata,
@@ -914,19 +927,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
             isAgentDm: metadata.isAgentDm,
             // Shares one definition of the empty-vs-throw semantics with the
-            // consent gate (`StreamProcessor.contactsVouch`), and logs rather
-            // than silently flattening a failed read.
-            //
-            // nil here covers both "no adder" and "the read failed", because
-            // neither is something to record - we only persist an adder we
-            // actually resolved. A read failure must not sink the whole
-            // conversation write, and the save path preserves any previously
-            // stored value when this is nil, so a failure can't erase one. On a
-            // brand-new row there is nothing to preserve, so a failure leaves
-            // `addedById` nil until the next store re-reads it (every welcome
-            // and catch-up runs through here) - during that window the consent
-            // reconciler and the block demote see no inviter for this row.
-            addedById: conversation.resolvedAdder().knownInboxId
+            // consent gate (`StreamProcessor.contactsVouch`). A failed read
+            // persists as `.unresolved` rather than being flattened to "no
+            // adder", so the reconciler can fail closed on it.
+            adder: conversation.resolvedAdder()
         )
     }
 
@@ -998,14 +1002,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         if let existingConversation {
             let mergedHasAgent: Bool = existingConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
             conversationToSave = conversationToSave.with(hasHadVerifiedAgent: mergedHasAgent)
-            // `addedById` is write-once: it records who invited us, which
-            // never changes. Callers with no XMTP handle (the invite
-            // placeholder path) pass nil, and a transient libxmtp read
-            // failure also yields nil — neither may erase a stored adder,
-            // since the reconciler and the block demote depend on it.
-            if conversationToSave.addedById == nil, let existingAddedById = existingConversation.addedById {
-                conversationToSave = conversationToSave.with(addedById: existingAddedById)
-            }
+            conversationToSave = Self.preservingResolvedAdder(
+                incoming: conversationToSave,
+                existing: existingConversation
+            )
         }
 
         let existingConversationByTag = try existingConversationMatchingInviteTag(
@@ -1075,9 +1075,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             )
             // Same write-once rule as the by-id branch above: the row being
             // replaced may hold the adder this read couldn't produce.
-            if conversationToSave.addedById == nil, let localAddedById = localConversation.addedById {
-                conversationToSave = conversationToSave.with(addedById: localAddedById)
-            }
+            conversationToSave = Self.preservingResolvedAdder(
+                incoming: conversationToSave,
+                existing: localConversation
+            )
             try conversationToSave.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
             actualClientConversationId = preferredClientConversationId

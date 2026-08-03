@@ -18,6 +18,7 @@ import Testing
 struct StreamProcessorAdderVouchingTests {
     private static let creator: String = "creator-inbox"
     private static let adder: String = "adder-inbox"
+    private static let client: String = "client-inbox"
 
     @Test("A non-blocked contact who added us vouches, even when the creator is a stranger")
     func testKnownContactAdderVouches() async throws {
@@ -29,6 +30,24 @@ struct StreamProcessorAdderVouchingTests {
         let vouched = try await StreamProcessor.contactsVouch(
             adder: .known(Self.adder),
             creatorInboxId: Self.creator,
+            clientInboxId: Self.client,
+            databaseReader: dbManager.dbReader
+        )
+
+        #expect(vouched)
+    }
+
+    @Test("A non-blocked contact creator vouches for a row that predates the adder column")
+    func testContactCreatorVouchesWhenAdderNotRecorded() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try await dbManager.dbWriter.write { db in
+            try Self.seedContact(db: db, inboxId: Self.creator, blockedAt: nil)
+        }
+
+        let vouched = try await StreamProcessor.contactsVouch(
+            adder: .notRecorded,
+            creatorInboxId: Self.creator,
+            clientInboxId: Self.client,
             databaseReader: dbManager.dbReader
         )
 
@@ -37,6 +56,8 @@ struct StreamProcessorAdderVouchingTests {
 
     @Test("A non-blocked contact creator vouches when there is genuinely no adder")
     func testContactCreatorVouchesWhenNoAdder() async throws {
+        // A foreign creator here is logged as an anomaly but deliberately still
+        // vouches - see `contactsVouch`.
         let dbManager = MockDatabaseManager.makeTestDatabase()
         try await dbManager.dbWriter.write { db in
             try Self.seedContact(db: db, inboxId: Self.creator, blockedAt: nil)
@@ -45,6 +66,7 @@ struct StreamProcessorAdderVouchingTests {
         let vouched = try await StreamProcessor.contactsVouch(
             adder: .none,
             creatorInboxId: Self.creator,
+            clientInboxId: Self.client,
             databaseReader: dbManager.dbReader
         )
 
@@ -68,6 +90,7 @@ struct StreamProcessorAdderVouchingTests {
         let vouched = try await StreamProcessor.contactsVouch(
             adder: .unresolved,
             creatorInboxId: Self.creator,
+            clientInboxId: Self.client,
             databaseReader: dbManager.dbReader
         )
 
@@ -85,6 +108,7 @@ struct StreamProcessorAdderVouchingTests {
         let vouched = try await StreamProcessor.contactsVouch(
             adder: .known(Self.adder),
             creatorInboxId: Self.creator,
+            clientInboxId: Self.client,
             databaseReader: dbManager.dbReader
         )
 
@@ -102,6 +126,7 @@ struct StreamProcessorAdderVouchingTests {
         let vouched = try await StreamProcessor.contactsVouch(
             adder: .known(Self.adder),
             creatorInboxId: Self.creator,
+            clientInboxId: Self.client,
             databaseReader: dbManager.dbReader
         )
 
@@ -115,6 +140,7 @@ struct StreamProcessorAdderVouchingTests {
         let vouched = try await StreamProcessor.contactsVouch(
             adder: .known(Self.adder),
             creatorInboxId: Self.creator,
+            clientInboxId: Self.client,
             databaseReader: dbManager.dbReader
         )
 

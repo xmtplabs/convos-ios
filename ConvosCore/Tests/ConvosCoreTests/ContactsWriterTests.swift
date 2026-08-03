@@ -46,7 +46,7 @@ struct ContactsWriterTests {
         id: String,
         creatorId: String,
         consent: Consent,
-        addedById: String? = nil
+        adder: AdderResolution = .notRecorded
     ) throws {
         try DBMember(inboxId: creatorId).save(db, onConflict: .ignore)
         try DBConversation(
@@ -72,7 +72,7 @@ struct ContactsWriterTests {
             imageLastRenewed: nil,
             isUnused: false,
             hasHadVerifiedAgent: false,
-            addedById: addedById
+            adder: adder
         ).insert(db)
     }
 
@@ -565,7 +565,7 @@ struct ContactsWriterTests {
                 id: "conv-added-by-blocked",
                 creatorId: "stranger-creator",
                 consent: .allowed,
-                addedById: blockedInboxId
+                adder: .known(blockedInboxId)
             )
             // Untouched control: neither created nor added by the blocked inbox.
             try Self.seedConversation(
@@ -573,7 +573,7 @@ struct ContactsWriterTests {
                 id: "conv-unrelated",
                 creatorId: "other-creator",
                 consent: .allowed,
-                addedById: "other-adder"
+                adder: .known("other-adder")
             )
         }
         try await writer.upsertContact(

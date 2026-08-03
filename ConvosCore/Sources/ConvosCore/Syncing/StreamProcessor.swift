@@ -767,7 +767,11 @@ actor StreamProcessor: StreamProcessorProtocol {
             if hasOutgoingJoinRequest {
                 isConsented = true
             } else {
-                isConsented = try await aContactVouchesFor(conversation, creatorInboxId: creatorInboxId)
+                isConsented = try await aContactVouchesFor(
+                    conversation,
+                    creatorInboxId: creatorInboxId,
+                    clientInboxId: clientInboxId
+                )
             }
             if isConsented {
                 try await conversation.updateConsentState(state: .allowed)
@@ -787,11 +791,13 @@ actor StreamProcessor: StreamProcessorProtocol {
     /// of a group even when its creator is a contact.
     private func aContactVouchesFor(
         _ conversation: XMTPiOS.Group,
-        creatorInboxId: String
+        creatorInboxId: String,
+        clientInboxId: String
     ) async throws -> Bool {
         try await Self.contactsVouch(
             adder: conversation.resolvedAdder(),
             creatorInboxId: creatorInboxId,
+            clientInboxId: clientInboxId,
             databaseReader: databaseReader
         )
     }
@@ -808,6 +814,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     static func contactsVouch(
         adder: AdderResolution,
         creatorInboxId: String,
+        clientInboxId: String,
         databaseReader: any DatabaseReader
     ) async throws -> Bool {
         let inboxIds: [String]
@@ -815,6 +822,16 @@ actor StreamProcessor: StreamProcessorProtocol {
         case .unresolved:
             return false
         case .none:
+            // "No adder" is supposed to mean we created the group, so a foreign
+            // creator means that assumption is wrong. Logged rather than
+            // declined: unlike `.unresolved` this state is stable, so declining
+            // would hide the conversation permanently if it turns out to be
+            // reachable. Tighten only once this is known never to fire.
+            if creatorInboxId != clientInboxId {
+                Log.warning("contactsVouch: no adder on a group we did not create (creator \(creatorInboxId))")
+            }
+            inboxIds = [creatorInboxId]
+        case .notRecorded:
             inboxIds = [creatorInboxId]
         case let .known(addedByInboxId):
             inboxIds = [addedByInboxId, creatorInboxId]

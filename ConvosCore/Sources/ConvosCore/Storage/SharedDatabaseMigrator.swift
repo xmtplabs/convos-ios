@@ -401,7 +401,7 @@ extension SharedDatabaseMigrator {
     }
 
     /// Records the XMTP welcome sender (`Group.addedByInboxId()`) on the
-    /// conversation row.
+    /// conversation row, plus how that value was arrived at.
     ///
     /// `creatorId` is the group's original creator, which is *not* necessarily
     /// whoever invited the local user: anyone with add permission can pull a
@@ -412,14 +412,18 @@ extension SharedDatabaseMigrator {
     /// persisted, but invisible in the `.allowed`-scoped feed, and eventually
     /// reclaimed by the stale-stranger GC.
     ///
-    /// NULL for self-created conversations and for every row written before
-    /// this migration; those backfill naturally, since `ConversationWriter`
-    /// rebuilds the row from XMTP on the conversation's next inbound welcome
-    /// or message.
+    /// `adderStatus` carries what a nullable `addedById` cannot: whether NULL
+    /// means "nobody added us" or "the lookup failed". Existing rows default to
+    /// `notRecorded`, which adjudicates on the creator alone exactly as before
+    /// this migration; they upgrade on the next write, since
+    /// `ConversationWriter` rebuilds the row from XMTP on every welcome and
+    /// message. The CHECK keeps the pair consistent.
     static func addConversationAddedById(_ db: Database) throws {
-        try db.alter(table: "conversation") { t in
-            t.add(column: "addedById", .text)
-        }
+        try db.execute(sql: "ALTER TABLE conversation ADD COLUMN addedById TEXT")
+        try db.execute(sql: """
+            ALTER TABLE conversation ADD COLUMN adderStatus TEXT NOT NULL DEFAULT 'not_recorded'
+                CHECK ((adderStatus = 'resolved') = (addedById IS NOT NULL))
+            """)
     }
 
     private static let conversationPointerExcludedContentTypes: String = """

@@ -52,6 +52,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let hasHadVerifiedAgent: Column = Column(CodingKeys.hasHadVerifiedAgent)
         static let isAgentDm: Column = Column(CodingKeys.isAgentDm)
         static let addedById: Column = Column(CodingKeys.addedById)
+        static let adderStatus: Column = Column(CodingKeys.adderStatus)
     }
 
     let id: String
@@ -77,17 +78,21 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let isUnused: Bool
     let hasHadVerifiedAgent: Bool
     let isAgentDm: Bool
-    /// The inbox that added the local user to this conversation (the XMTP
-    /// welcome sender), which is *not* necessarily `creatorId` — anyone with
-    /// add permission can pull a member into a group somebody else created.
-    /// `nil` for self-created conversations, for rows written before the
-    /// column existed, and whenever libxmtp can't report an adder.
-    ///
-    /// Persisted so the passes that run long after the welcome —
-    /// `ConversationConsentReconciler` and the block-driven demote in
-    /// `ContactsWriter` — can key on the same identity `StreamProcessor` used
-    /// when it decided whether to consent on the user's behalf.
+    /// Storage for `adder` - read that instead, and set it through `init`.
+    /// The pair is kept consistent by a CHECK constraint: `addedById` is
+    /// non-null exactly when `adderStatus` is `resolved`.
     let addedById: String?
+    let adderStatus: AdderStatus
+
+    /// The inbox that added the local user, which is *not* necessarily
+    /// `creatorId` - anyone with add permission can pull a member into a group
+    /// somebody else created. Persisted so the passes that run long after the
+    /// welcome (`ConversationConsentReconciler`, the block demote in
+    /// `ContactsWriter`) key on the same identity `StreamProcessor` used when
+    /// it decided whether to consent on the user's behalf.
+    var adder: AdderResolution {
+        .init(status: adderStatus, addedById: addedById)
+    }
 
     init(
         id: String,
@@ -113,7 +118,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         isUnused: Bool,
         hasHadVerifiedAgent: Bool,
         isAgentDm: Bool = false,
-        addedById: String? = nil
+        adder: AdderResolution = .notRecorded
     ) {
         self.id = id
         self.clientConversationId = clientConversationId
@@ -138,7 +143,8 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.isUnused = isUnused
         self.hasHadVerifiedAgent = hasHadVerifiedAgent
         self.isAgentDm = isAgentDm
-        self.addedById = addedById
+        self.addedById = adder.knownInboxId
+        self.adderStatus = adder.status
     }
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
@@ -324,7 +330,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -353,7 +359,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -382,7 +388,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -411,7 +417,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -440,7 +446,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -471,7 +477,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -500,7 +506,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -529,7 +535,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -558,7 +564,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -587,7 +593,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -616,7 +622,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -645,7 +651,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -674,7 +680,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -703,7 +709,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -732,7 +738,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -761,7 +767,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -818,7 +824,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
@@ -847,11 +853,11 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
-    func with(addedById: String?) -> Self {
+    func with(adder: AdderResolution) -> Self {
         .init(
             id: id,
             clientConversationId: clientConversationId,
@@ -876,7 +882,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            addedById: addedById
+            adder: adder
         )
     }
 
