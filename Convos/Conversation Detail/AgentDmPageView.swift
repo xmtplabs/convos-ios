@@ -43,10 +43,6 @@ struct AgentDmPageView: View {
     @State private var draftText: String = ""
     @State private var isCreatingDm: Bool = false
     @State private var draftPhotoPickerPresented: Bool = false
-    /// The attachments card the composer's `+` opens on the full DM page.
-    /// Drawn here for the same reason ConversationView draws its own: the
-    /// composer lives in a safe-area bar and can't float a card past it.
-    @State private var attachmentsMenu: ComposerAttachmentsMenuCoordinator = .init()
 
     private var agent: ConversationMember? {
         viewModel.conversation.members.first { $0.profile.inboxId == agentInboxId }
@@ -60,8 +56,6 @@ struct AgentDmPageView: View {
         Group {
             if let dmViewModel {
                 dmMessagesViewWithSheets(dmViewModel)
-                    .environment(\.composerAttachmentsMenu, attachmentsMenu)
-                    .overlay { attachmentsOverlay }
             } else {
                 emptyStateWithComposer
             }
@@ -430,54 +424,6 @@ struct AgentDmPageView: View {
             coreActions: dmVm.coreActions
         )
         PaywallView(viewModel: paywallViewModel)
-    }
-
-    // MARK: - Attachments card
-
-    /// The card the composer's `+` opens on the full DM page. Floated just above
-    /// the composer over a scrim that takes the outside tap, mirroring
-    /// ConversationView's own attachments card. Empty until the `+` is tapped.
-    @ViewBuilder
-    private var attachmentsOverlay: some View {
-        if attachmentsMenu.isPresented {
-            composerCard(bottomInset: extraBottomInset) {
-                attachmentsMenu.dismiss()
-            } card: {
-                ComposerAttachmentsMenu(
-                    actions: attachmentsMenu.actions,
-                    disabledActions: attachmentsMenu.disabledActions,
-                    showsBackground: true,
-                    onSelect: attachmentsMenu.select
-                )
-                // Hugs its rows: the list is a few short names, and a card
-                // stretched to the composer's width would be mostly empty.
-                .fixedSize()
-            }
-        }
-    }
-
-    /// The shared placement for a card opened from the DM composer: floated above
-    /// the bar, leading-aligned with it, over a scrim that takes the outside tap.
-    @ViewBuilder
-    private func composerCard<Card: View>(
-        bottomInset: CGFloat,
-        onDismiss: @escaping () -> Void,
-        @ViewBuilder card: () -> Card
-    ) -> some View {
-        ZStack(alignment: .bottomLeading) {
-            Color.black.opacity(0.001)
-                .ignoresSafeArea()
-                .contentShape(.rect)
-                .onTapGesture(perform: onDismiss)
-
-            card()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-                .padding(.bottom, bottomInset)
-                // Grows out of the control's own corner rather than sliding up
-                // from the edge, so the card reads as opened by the `+`.
-                .transition(.scale(scale: 0.92, anchor: .bottomLeading).combined(with: .opacity))
-        }
     }
 
     @ViewBuilder
