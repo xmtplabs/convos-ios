@@ -386,6 +386,46 @@ struct LiveAbilitiesServiceTests {
         #expect(client.completeCalls.map(\.connectionRequestId) == ["creq-account-b"])
     }
 
+    @Test("A wipe during identity resolution fences out the late begin and fetch results")
+    func wipeDuringIdentityResolutionFencesLateResults() async throws {
+        let client = AbilitiesStubAPIClient()
+        client.onGetAbilities = { try self.authoritativeResponse() }
+        client.onCreateEntitlement = { _, _ in
+            try AbilitiesAPI.EntitlementInitiationResponse(
+                status: .pendingAuth,
+                redirectUrl: "https://consent.example/x",
+                connectionRequestId: "creq-pre-wipe"
+            )
+        }
+        let cache = temporaryCache()
+        let service = LiveAbilitiesService(
+            apiClient: client,
+            callbackURLScheme: "convos-testing",
+            cache: cache,
+            myInboxIdProvider: {
+                try? await Task.sleep(for: .milliseconds(150))
+                return "test-inbox"
+            }
+        )
+
+        // Both operations enter, then suspend in the identity provider;
+        // the wipe lands mid-resolution, after their entry marks.
+        async let fetch = service.fetchCatalog()
+        async let begin = service.beginEntitlement(abilityId: "spotify")
+        try await Task.sleep(for: .milliseconds(50))
+        await service.handleAccountDataWiped()
+        _ = try await fetch
+        _ = try await begin
+
+        // The late fetch must not recreate the wiped cache file, and the
+        // late begin must not retain the pre-wipe OAuth attempt: a
+        // complete after the wipe finds no connection request.
+        #expect(cache.load(scope: "test-inbox") == nil)
+        await #expect(throws: LiveAbilitiesServiceError.missingConnectionRequest(abilityId: "spotify")) {
+            try await service.completeEntitlement(abilityId: "spotify")
+        }
+    }
+
     @Test("A late-finishing older fetch cannot clobber newer committed state")
     func lateOlderFetchDoesNotClobber() async throws {
         let client = AbilitiesStubAPIClient()
