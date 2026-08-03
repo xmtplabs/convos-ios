@@ -247,8 +247,16 @@ public enum AgentCreationFlow {
         pollInterval: Duration = Constant.pollInterval
     ) async throws -> String {
         for attempt in 0..<attempts {
-            if case .ready(let result) = stateManager.currentState {
+            switch stateManager.currentState {
+            case .ready(let result):
                 return result.conversationId
+            case .error(let error):
+                // A machine that already failed can only be restarted by a
+                // fresh action; polling out the rest of the budget would just
+                // delay the caller's error path.
+                throw error
+            default:
+                break
             }
             if attempt < attempts - 1 {
                 try await Task.sleep(for: pollInterval)

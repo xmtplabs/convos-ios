@@ -16,6 +16,25 @@ extension SessionManager {
         }
     }
 
+    /// One-shot cleanup of conversation shells stranded by earlier builds'
+    /// eager DM creates (visible, unnamed, agent-less rows rendering as
+    /// "New Convo" - see `StrandedConversationSweeper`). Gated with the
+    /// reconciler because the shells it targets came from the same path.
+    func sweepStrandedAgentDmShells() {
+        guard eagerAgentDmEnabled else { return }
+        Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            do {
+                let swept = try await StrandedConversationSweeper.sweep(databaseWriter: self.databaseWriter)
+                if swept > 0 {
+                    Log.info("StrandedConversationSweeper: hid \(swept) stranded conversation shell(s)")
+                }
+            } catch {
+                Log.error("StrandedConversationSweeper failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Stops and clears the session's reconciler; called from inbox teardown
     /// so an in-flight create cannot re-insert rows after the wipe.
     func stopAgentDmReconciler() {

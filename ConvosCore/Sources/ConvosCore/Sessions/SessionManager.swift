@@ -179,6 +179,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             // agent-DM reconciler (ensures a DM exists for every verified
             // agent as soon as it appears; non-production only).
             _ = (self.agentBuilderConnectionGrantReplayer(), self.unsentBuilderBriefReplayer(), self.agentDmReconciler())
+            self.sweepStrandedAgentDmShells()
 
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
