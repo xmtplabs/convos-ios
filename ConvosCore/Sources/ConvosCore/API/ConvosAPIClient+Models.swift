@@ -293,15 +293,14 @@ public enum ConvosAPI {
 
         /// Join options for the silent bare default agent pre-added to every
         /// new conversation: no onboarding arc — the Desktop screen owns the
-        /// welcome, and the agent speaks only when addressed — and
-        /// skipGreeting holds the static welcome since the agent joins while
-        /// the conversation is still hidden in the warm cache. `variantId`
-        /// (dev only) routes the join to an ephemeral variant runtime.
+        /// welcome, and the agent speaks only when addressed. Silence needs no
+        /// flag: a bare join (no template) defaults to skipGreeting as
+        /// platform policy on the assistant worker. `variantId` (dev only)
+        /// routes the join to an ephemeral variant runtime.
         public static func defaultConversationAgent(variantId: String? = nil) -> AgentJoinOptions {
             AgentJoinOptions(
                 onboarding: nil,
-                variantId: variantId,
-                skipGreeting: true
+                variantId: variantId
             )
         }
     }
