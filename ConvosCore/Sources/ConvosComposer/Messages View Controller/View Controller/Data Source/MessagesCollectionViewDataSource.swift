@@ -32,7 +32,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var contextMenuState: MessageContextMenuState?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
-    var creditsDepleted: Bool = false
+    var agentPowerDepletedByInboxId: [String: Bool] = [:]
     var onTapUpdateMember: ((ConversationMember) -> Void)?
     var onTapCapabilityConnect: ((CapabilityConnectPrompt) -> Void)?
     var onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
@@ -142,7 +142,7 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onAgentOutOfCredits: { [weak self] in
                 self?.onAgentOutOfCredits?()
             },
-            creditsDepleted: creditsDepleted,
+            agentPowerDepletedByInboxId: agentPowerDepletedByInboxId,
             onRetryAgentJoin: { [weak self] in
                 self?.onRetryAgentJoin?()
             },

@@ -9,6 +9,12 @@ public protocol MessagesListRepositoryProtocol {
 
     func startObserving()
     func fetchInitial() throws -> [MessagesListItemType]
+    /// Turns an already-fetched initial result into display items, seeding
+    /// the transcript and hidden-bundle state exactly like `fetchInitial()`.
+    /// Lets callers run the heavy message-page read off the main thread
+    /// (see `BoundedInitialRead`) and keep only this cheap processing step
+    /// on the main actor.
+    func processInitial(_ result: ConversationMessagesResult) -> [MessagesListItemType]
     func fetchPrevious() throws
 
     var hasMoreMessages: Bool { get }
@@ -185,6 +191,10 @@ public final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     public func fetchInitial() throws -> [MessagesListItemType] {
         let result = try messagesRepository.fetchInitialResult()
+        return processInitial(result)
+    }
+
+    public func processInitial(_ result: ConversationMessagesResult) -> [MessagesListItemType] {
         // Seed the stored transcripts synchronously so the very first list
         // emission already carries any persisted transcripts. Otherwise the
         // transcripts publisher subscription in startObserving() lags behind

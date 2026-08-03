@@ -249,6 +249,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var agentBuilderSummaryCancellable: AnyCancellable?
     @ObservationIgnored
     private var observedAgentBuilderSummaryConversationId: String?
+    /// Whether the messages list / summary observations have delivered at
+    /// least one emission. The late prime path must skip applying its stale
+    /// snapshot after any emission, including a legitimately empty or nil
+    /// one, so this cannot be inferred from the data values themselves.
+    @ObservationIgnored
+    private var messagesObservationHasEmitted: Bool = false
+    @ObservationIgnored
+    private var summaryObservationHasEmitted: Bool = false
     @ObservationIgnored
     private var directBuildGenerationCancellable: AnyCancellable?
     /// One-shot backstop: cleared/re-armed as the direct build reaches the
@@ -474,9 +482,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     ///
     /// The agent-template flows ("Chat on a contact" + the
     /// `convos://template/<id>` deep link) take priority and supply the real
-    /// identity (`showsContactCard == true`). The Agent Builder is the
+    /// identity (`showsContactCard == true`). The Agent Builder starts as the
     /// generic "no identity" case (`name`/`emoji` nil, `showsContactCard
-    /// == false`) -- it keeps its own gating in
+    /// == false`) and adopts the direct build's draft preview identity once
+    /// the backend streams one -- it keeps its own gating in
     /// `shouldRenderAsPendingAgentBuilder` and its own summary card. Both
     /// drop the moment a real verified Convos agent joins
     /// `conversation.members`, and both are time-boxed as a backstop.
@@ -493,16 +502,21 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 showsContactCard: hasIdentity
             )
         }
-        // Direct builder: the header intentionally stays generic ("Agent" title
-        // + add-agent glyph + "Making agent..." subtitle) for the whole build.
-        // The draft preview identity is revealed progressively by the dedicated
-        // `.agentActivating` card, not the header; the header only adopts the
-        // real name/emoji once the verified agent actually joins. So fall
-        // through to the generic no-identity pending case below.
+        // Direct builder: the header starts generic ("New Agent" title +
+        // add-agent glyph) and adopts the draft preview identity (name +
+        // emoji) as soon as the build streams one, so the header matches the
+        // `.agentActivating` card instead of staying a placeholder while the
+        // agent's name is already on screen. The card keeps owning the
+        // progressive reveal (`showsContactCard` stays false); the repository
+        // retains the last preview through the terminal poll, so the identity
+        // doesn't regress before the agent joins.
         if shouldRenderAsPendingAgentBuilder {
+            let preview: ConvosAPI.AgentPreview? = directBuildGeneration?.preview
+            let previewName: String? = preview?.agentName.flatMap { $0.isEmpty ? nil : $0 }
+            let previewEmoji: String? = preview?.emoji.flatMap { $0.isEmpty ? nil : $0 }
             return PendingAgentPresentation(
-                name: nil,
-                emoji: nil,
+                name: previewName,
+                emoji: previewEmoji,
                 avatarURL: nil,
                 agentDescription: nil,
                 showsContactCard: false
@@ -965,10 +979,29 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// "<agent> is out of processing power" cell. Surfaces `PaywallView`
     /// against `SubscriptionServices.shared`.
     var presentingPaywall: Bool = false
-    /// Mirrors `CreditsServices.shared.currentBalance?.isDepleted`, refreshed
-    /// via the balance publisher. Drives the in-stream out-of-credits cell
-    /// insertion in `MessagesViewController` and the inline status surfaces.
-    var creditsDepleted: Bool = CreditsServices.shared.currentBalance?.isDepleted ?? false
+    /// Owner-computed per-agent power map keyed by agent inboxId, read from
+    /// `GET /v2/conversations/:id/participation` (`agents[].agentPowerDepleted`).
+    /// `true` means that agent's OWNER cannot fund a turn — the same fact for
+    /// every member, so the "lost power" surfaces show to everyone. A missing
+    /// key is UNKNOWN (old backend, or an agent the backend has no bookkeeping
+    /// for) and renders nothing. The viewer's own wallet is never an input
+    /// here — a zero-balance viewer must see other people's funded agents as
+    /// working.
+    var agentPowerDepletedByInboxId: [String: Bool] = [:]
+
+    @ObservationIgnored
+    private var agentPowerRefreshTask: Task<Void, Never>?
+    /// Agent inbox ids the last power refresh was scheduled for, so membership
+    /// churn that doesn't touch agents doesn't re-fetch.
+    @ObservationIgnored
+    private var lastAgentPowerAgentInboxIds: Set<String> = []
+    /// Bumped at the start of every power refresh. A response only lands if no
+    /// newer refresh started while it was in flight — `refreshAgentPowerStatus`
+    /// is also called directly (member card `.task`), so two reads can overlap
+    /// and resolve out of order; without this the older response could
+    /// overwrite the fresher one.
+    @ObservationIgnored
+    private var agentPowerFetchGeneration: Int = 0
 
     var agentJoinForceErrorCode: Int?
 
@@ -1185,14 +1218,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         )
         messagesListRepo.currentOtherMemberCount = conversation.membersWithoutCurrent.count
         messagesListRepo.verifiedAgent = conversation.members.first(where: \.isVerifiedConvosAgent)
-        // Hydrate the persisted summary *before* `fetchInitial()` so the first
-        // emission already includes the `.agentBuilderSummary` card and the
-        // cutoff-filtered messages. The publisher subscription below picks up
-        // any subsequent writes.
-        let initialSummary: AgentBuilderSummary? = session.agentBuilderSummaryRepository().summarySync(for: conversation.id)
-        messagesListRepo.agentBuilderSummary = initialSummary
         self.messagesListRepository = messagesListRepo
-        self.agentBuilderSummary = initialSummary
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
@@ -1219,17 +1245,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.voiceMemoTranscriptionService = transcriptionService
         self.typingIndicatorManager = .shared
 
-        do {
-            self.messages = try messagesListRepository.fetchInitial()
-        } catch {
-            Log.error("Error fetching messages: \(error.localizedDescription)")
-            self.messages = []
-        }
+        self.messages = []
 
         editingConversationName = self.conversation.name ?? ""
         editingDescription = self.conversation.description ?? ""
 
         presentingConversationForked = shouldPresentConversationForked
+
+        primeInitialMessages(messagesRepository: messagesRepository)
 
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
         let individualMessageCount = messages.reduce(0) { count, item in
@@ -1250,7 +1273,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
         startOnboarding()
         registerInlineAttachmentRecovery()
-        scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
 
         // The initial assignment of `conversation` does not run its
         // `didSet`, so a conversation that already has other members must
@@ -1267,6 +1289,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         applyGlobalDefaultsForNewConversation: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
+        let perfStart = CFAbsoluteTimeGetCurrent()
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
@@ -1287,10 +1310,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         )
         messagesListRepo2.currentOtherMemberCount = conversation.membersWithoutCurrent.count
         messagesListRepo2.verifiedAgent = conversation.members.first(where: \.isVerifiedConvosAgent)
-        let initialSummary2: AgentBuilderSummary? = session.agentBuilderSummaryRepository().summarySync(for: conversation.id)
-        messagesListRepo2.agentBuilderSummary = initialSummary2
         self.messagesListRepository = messagesListRepo2
-        self.agentBuilderSummary = initialSummary2
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
@@ -1314,13 +1334,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         self.voiceMemoTranscriptionService = transcriptionService
         self.typingIndicatorManager = .shared
 
-        do {
-            self.messages = try messagesListRepository.fetchInitial()
-        } catch {
-            Log.error("Error fetching messages: \(error.localizedDescription)")
-            self.messages = []
-        }
+        self.messages = []
 
+        primeInitialMessages(messagesRepository: messagesRepository)
+
+        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+        let individualMessageCount = messages.reduce(0) { count, item in
+            if case .messages(let group) = item { return count + group.messages.count }
+            return count
+        }
+        Log.info("[PERF] ConversationViewModel.init(draft): \(perfElapsed)ms, \(individualMessageCount) messages loaded (\(messages.count) list items)")
         Log.info("Created for draft conversation: \(conversation.id)")
 
         applyGlobalDefaultsForDraftConversationIfNeeded()
@@ -1329,7 +1352,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
         observeAgentBuilderSummary()
-        scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -1341,6 +1363,74 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
 
     // MARK: - Private
+
+    private struct InitialPrime {
+        let summary: AgentBuilderSummary?
+        let result: ConversationMessagesResult?
+    }
+
+    /// Loads the persisted agent-builder summary and the initial message
+    /// page on a background queue, waiting only a bounded time for the
+    /// result. `init` used to run both reads synchronously on the main
+    /// thread, which hung the UI whenever a message row carried a large
+    /// text payload or a background writer had the SQLite page cache
+    /// contended (Sentry CONVOS-IOS-4A). In the common case the read
+    /// finishes inside the deadline and messages are on screen in the
+    /// first rendered frame, exactly as before; in the pathological case
+    /// the wait gives up and the result is applied as soon as the read
+    /// lands, keeping the app responsive instead of hanging.
+    private func primeInitialMessages(messagesRepository: any MessagesRepositoryProtocol) {
+        // The reads are thread-safe (GRDB pool reads plus stateQueue-guarded
+        // pagination state); the existential just isn't Sendable.
+        nonisolated(unsafe) let primeRepository = messagesRepository
+        let summaryRepository = session.agentBuilderSummaryRepository()
+        let conversationId = conversation.id
+        let primed: InitialPrime? = BoundedInitialRead.prime(read: {
+            let summary = summaryRepository.summarySync(for: conversationId)
+            do {
+                return InitialPrime(summary: summary, result: try primeRepository.fetchInitialResult())
+            } catch {
+                // Distinguish a failed read from a merely slow one: the
+                // deadline-miss log alone would hide real database errors.
+                Log.error("Initial message prime failed for \(conversationId): \(error.localizedDescription)")
+                return InitialPrime(summary: summary, result: nil)
+            }
+        }, late: { [weak self] payload in
+            self?.applyInitialPrime(payload, deliveredLate: true)
+        })
+        if let primed {
+            applyInitialPrime(primed, deliveredLate: false)
+        } else {
+            Log.info("[PERF] ConversationViewModel: initial message read missed the first-frame deadline; applying when it completes")
+        }
+    }
+
+    private func applyInitialPrime(_ prime: InitialPrime, deliveredLate: Bool) {
+        // Setting the summary before processing the message page keeps the
+        // original ordering guarantee: the first emission already carries
+        // the summary card and the cutoff-filtered messages. The didSet
+        // seeds messagesListRepository and arms the placeholder expiry.
+        if let summary = prime.summary, !summaryObservationHasEmitted, agentBuilderSummary == nil {
+            agentBuilderSummary = summary
+        }
+        guard let result = prime.result else { return }
+        // On the late path the observation pipeline may have emitted
+        // already; it is the source of truth, so never replace its emission
+        // with this older snapshot. An emission can legitimately be empty
+        // (for example the last message was just deleted), so check the
+        // explicit flag rather than inferring from the data.
+        if deliveredLate, messagesObservationHasEmitted || !messages.isEmpty { return }
+        let items = messagesListRepository.processInitial(result)
+        messages = items
+        scheduleVoiceMemoTranscriptionsIfNeeded(in: items)
+        if deliveredLate {
+            let individualMessageCount = items.reduce(0) { (count: Int, item: MessagesListItemType) -> Int in
+                if case .messages(let group) = item { return count + group.messages.count }
+                return count
+            }
+            Log.info("[PERF] ConversationViewModel.applyInitialPrime: \(individualMessageCount) messages applied after the deadline (\(items.count) list items)")
+        }
+    }
 
     private func loadPhotoPreferences() {
         Task { @MainActor [weak self] in
@@ -1373,6 +1463,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .summaryPublisher(for: conversationId)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] summary in
+                self?.summaryObservationHasEmitted = true
                 self?.agentBuilderSummary = summary
             }
         // The summary set during `init` doesn't fire `agentBuilderSummary`'s
@@ -1480,6 +1571,48 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             }
     }
 
+    /// Re-reads the backend's owner-computed per-agent power signal for this
+    /// conversation. The ONLY source for the "lost power" surfaces — never the
+    /// viewer's wallet. Quiet on failure and on old backends (no `agents`
+    /// array): the last known state is kept, because "unknown" must not clear
+    /// or invent an indicator.
+    func refreshAgentPowerStatus() async {
+        let conversation = self.conversation
+        guard !conversation.isDraft, conversation.members.contains(where: \.isAgent) else {
+            if !agentPowerDepletedByInboxId.isEmpty {
+                agentPowerDepletedByInboxId = [:]
+            }
+            return
+        }
+        agentPowerFetchGeneration += 1
+        let generation = agentPowerFetchGeneration
+        do {
+            let client = ConvosAPIClientFactory.client(
+                environment: ConfigManager.shared.currentEnvironment
+            )
+            let response = try await client.getAgentParticipation(
+                conversationId: conversation.id,
+                variantId: FeatureFlags.shared.selectedAgentVariant?.slug
+            )
+            // A newer refresh started while this one was in flight; its
+            // response is the fresher truth, so this one must not land.
+            guard generation == agentPowerFetchGeneration else { return }
+            guard let map = response.agentPowerDepletedByInboxId else { return }
+            if agentPowerDepletedByInboxId != map {
+                agentPowerDepletedByInboxId = map
+            }
+        } catch {
+            Log.error("agent power read failed: \(error)")
+        }
+    }
+
+    private func scheduleAgentPowerRefresh() {
+        agentPowerRefreshTask?.cancel()
+        agentPowerRefreshTask = Task { [weak self] in
+            await self?.refreshAgentPowerStatus()
+        }
+    }
+
     private func observe() {
         messagesListRepository.startObserving()
         setupTypingIndicatorHandler()
@@ -1487,10 +1620,19 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         observeDirectBuildGeneration()
         setupVoiceMemoPlaybackObserver()
         observeCapabilityRequests()
+        scheduleAgentPowerRefresh()
         CreditsServices.shared.balancePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] balance in
-                self?.creditsDepleted = balance?.isDepleted ?? false
+            .map { $0?.isDepleted ?? false }
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in
+                // The viewer's balance no longer drives any agent indicator,
+                // but a flip of their own wallet is the cheapest local hint
+                // that — if they own agents here — the backend's owner-computed
+                // answer may have changed (e.g. right after buying credits).
+                // Re-ask the backend; the truth stays server-side.
+                self?.scheduleAgentPowerRefresh()
             }
             .store(in: &cancellables)
         messagesListRepository.messagesListPublisher
@@ -1498,6 +1640,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages in
                 guard let self else { return }
+                self.messagesObservationHasEmitted = true
                 self.clearTypingForNewMessages(old: self.messages, new: messages)
                 let messageCount = messages.countMessages
                 let messagesChanged = messageCount != self.lastMessageCountForReadReceipt
@@ -1555,6 +1698,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 let wasViewingConversation = self.isViewingConversation
                 self.conversation = displayConversation
                 self.loadConversationImage(for: conversation)
+                // Re-read the owner-computed power signal when the agent set
+                // changes (or the conversation swaps), so a just-joined agent
+                // gets an entry and a removed one stops being looked up.
+                let agentInboxIds = Set(displayConversation.members.filter(\.isAgent).map(\.profile.inboxId))
+                if conversation.id != previousId || agentInboxIds != self.lastAgentPowerAgentInboxIds {
+                    self.lastAgentPowerAgentInboxIds = agentInboxIds
+                    self.scheduleAgentPowerRefresh()
+                }
                 if conversation.id != previousId {
                     self.observePhotoPreferences(for: conversation.id)
                     self.loadPhotoPreferences()
@@ -3969,10 +4120,15 @@ extension ConversationViewModel {
     /// The dev-selected agent variant slug to route an agent join, or `nil`.
     /// Gated on the selector flag so a stale persisted selection can't route
     /// joins once the dev toggle is off (mirrors `AgentBuilderViewModel.commit`).
+    /// A selector pick (when the selector is enabled) wins; otherwise fall back to
+    /// a build-time pinned slug from config so a prototype build routes to its
+    /// paired variant with no manual selection. Nil when neither is set.
     private static func selectedAgentVariantSlug() -> String? {
-        FeatureFlags.shared.isAgentVariantSelectorEnabled
-            ? FeatureFlags.shared.selectedAgentVariant?.slug
-            : nil
+        if FeatureFlags.shared.isAgentVariantSelectorEnabled,
+           let selected = FeatureFlags.shared.selectedAgentVariant?.slug {
+            return selected
+        }
+        return ConfigManager.shared.pinnedAgentVariantSlug
     }
 
     private static func performAgentJoinCall(

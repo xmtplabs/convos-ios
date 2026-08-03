@@ -6,7 +6,7 @@ import SwiftUI
 /// keeps CoreText layout bounded on the main thread. Classification is cheap
 /// (character count plus a capped newline scan) and never measures or lays out
 /// the text.
-enum MessageLengthClass {
+public enum MessageLengthClass {
     case short
     case long
     case pathological
@@ -17,17 +17,17 @@ enum MessageLengthClass {
 /// no CoreText, no `NSAttributedString`, no `boundingRect`. Thresholds are
 /// tunable in one place. Exposed (not private) so any caller that builds a
 /// `MessageBubble` preview shares the same classification semantics.
-enum MessageBodyClassifier {
-    static let longCharThreshold: Int = 500 // a few paragraphs; human messages rarely exceed this
-    static let pathologicalCharThreshold: Int = 1_500 // long-form; well past a normal chat message
-    static let shortNewlineThreshold: Int = 20 // many short lines, e.g. code snippets or poems
+public enum MessageBodyClassifier {
+    public static let longCharThreshold: Int = 500 // a few paragraphs; human messages rarely exceed this
+    public static let pathologicalCharThreshold: Int = 1_500 // long-form; well past a normal chat message
+    public static let shortNewlineThreshold: Int = 20 // many short lines, e.g. code snippets or poems
     static let longPreviewLineLimit: Int = 6
     static let pathologicalPreviewLineLimit: Int = 6
     // Short ease so the inline "Read More" expand/collapse reads as a quick
     // reveal, not a slow unfold that the user has to wait through.
     static let readMoreExpandAnimationDuration: Double = 0.18
 
-    static func classify(_ text: String) -> MessageLengthClass {
+    public static func classify(_ text: String) -> MessageLengthClass {
         let count: Int = text.count
         if count > pathologicalCharThreshold { return .pathological }
         let newlines: Int = newlineCount(in: text, cappedAt: shortNewlineThreshold + 1)

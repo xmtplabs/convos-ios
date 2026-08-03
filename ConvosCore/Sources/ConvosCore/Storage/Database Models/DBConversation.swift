@@ -50,6 +50,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let imageLastRenewed: Column = Column(CodingKeys.imageLastRenewed)
         static let isUnused: Column = Column(CodingKeys.isUnused)
         static let hasHadVerifiedAgent: Column = Column(CodingKeys.hasHadVerifiedAgent)
+        static let isAgentDm: Column = Column(CodingKeys.isAgentDm)
     }
 
     let id: String
@@ -74,6 +75,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let imageLastRenewed: Date?
     let isUnused: Bool
     let hasHadVerifiedAgent: Bool
+    let isAgentDm: Bool
 
     init(
         id: String,
@@ -97,7 +99,8 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         conversationEmoji: String?,
         imageLastRenewed: Date?,
         isUnused: Bool,
-        hasHadVerifiedAgent: Bool
+        hasHadVerifiedAgent: Bool,
+        isAgentDm: Bool = false
     ) {
         self.id = id
         self.clientConversationId = clientConversationId
@@ -121,6 +124,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.imageLastRenewed = imageLastRenewed
         self.isUnused = isUnused
         self.hasHadVerifiedAgent = hasHadVerifiedAgent
+        self.isAgentDm = isAgentDm
     }
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
@@ -186,21 +190,32 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         using: ForeignKey([Columns.id], to: [DBMessage.Columns.conversationId])
     ).order(DBMessage.Columns.dateNs.desc)
 
-    static let lastMessageRequest: QueryInterfaceRequest<DBMessage> = DBMessage
-        .filter(DBMessage.Columns.contentType != MessageContentType.update.rawValue)
-        .filter(DBMessage.Columns.contentType != MessageContentType.assistantJoinRequest.rawValue)
-        .filter(DBMessage.Columns.contentType != MessageContentType.connectionGrantRequest.rawValue)
-        .filter(DBMessage.Columns.contentType != MessageContentType.connectionInvocation.rawValue)
-        .filter(DBMessage.Columns.contentType != MessageContentType.connectionInvocationResult.rawValue)
-        .filter(DBMessage.Columns.contentType != MessageContentType.connectionPayload.rawValue)
-        .annotated { max($0.dateNs) }
-        .group(\.conversationId)
-
+    /// Newest preview-eligible message per conversation, resolved through the
+    /// denormalized `conversation.lastMessageId` pointer. The pointer is
+    /// maintained by the `conversation_pointer_*` database triggers (see
+    /// `SharedDatabaseMigrator.addConversationLastMessagePointers`), which
+    /// also own the excluded-content-type list, so this read needs no
+    /// filtering and costs one primary-key lookup per conversation.
     nonisolated(unsafe) static let lastMessageCTE: CommonTableExpression<DBMessage> = CommonTableExpression<DBMessage>(
         named: "conversationLastMessage",
-        request: lastMessageRequest
-    )
+        sql: """
+            SELECT m.*
+            FROM conversation c
+            JOIN message m ON m.id = c.lastMessageId
+            """
+        )
 
+    /// The text columns are capped with substr so a pathological message
+    /// body (XMTP allows just under 1MB, roughly 250 SQLite overflow pages
+    /// per row) cannot drag overflow pages for every conversation's last
+    /// message through the page cache on each list read. 4096 characters
+    /// covers the longest preview and the ConnectionEventSummary JSON that
+    /// `hydrateMessagePreview` decodes out of `text`.
+    ///
+    /// Rows come from the `conversation.lastMessageId` pointer (see
+    /// `lastMessageCTE`), so materializing this CTE is one primary-key
+    /// lookup per conversation regardless of message volume, and eligibility
+    /// filtering already happened at write time in the pointer triggers.
     nonisolated(unsafe) static let lastMessageWithSourceCTE: CommonTableExpression<DBLastMessageWithSource> =
         CommonTableExpression<DBLastMessageWithSource>(
             named: "conversationLastMessageWithSource",
@@ -208,52 +223,26 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                 SELECT
                     m.id, m.clientMessageId, m.conversationId, m.senderId,
                     m.dateNs, m.date, m.status, m.messageType, m.contentType,
-                    m.text, m.emoji, m.invite, m.linkPreview, m.sourceMessageId, m.attachmentUrls,
-                    src.text as sourceMessageText
-                FROM message m
+                    substr(m.text, 1, 4096) as text,
+                    m.emoji, m.invite, m.linkPreview, m.sourceMessageId, m.attachmentUrls,
+                    substr(src.text, 1, 4096) as sourceMessageText
+                FROM conversation c
+                JOIN message m ON m.id = c.lastMessageId
                 LEFT JOIN message src ON m.sourceMessageId = src.id
-                WHERE m.contentType NOT IN (?, ?, ?, ?, ?, ?)
-                AND m.dateNs = (
-                    SELECT MAX(m2.dateNs)
-                    FROM message m2
-                    WHERE m2.conversationId = m.conversationId
-                    AND m2.contentType NOT IN (?, ?, ?, ?, ?, ?)
-                )
-                """,
-            arguments: [
-                MessageContentType.update.rawValue,
-                MessageContentType.assistantJoinRequest.rawValue,
-                MessageContentType.connectionGrantRequest.rawValue,
-                MessageContentType.connectionInvocation.rawValue,
-                MessageContentType.connectionInvocationResult.rawValue,
-                MessageContentType.connectionPayload.rawValue,
-                MessageContentType.update.rawValue,
-                MessageContentType.assistantJoinRequest.rawValue,
-                MessageContentType.connectionGrantRequest.rawValue,
-                MessageContentType.connectionInvocation.rawValue,
-                MessageContentType.connectionInvocationResult.rawValue,
-                MessageContentType.connectionPayload.rawValue,
-            ]
+                """
         )
 
+    /// Newest agent join request per conversation, resolved through the
+    /// denormalized `conversation.lastAgentJoinRequestId` pointer maintained
+    /// by the same trigger set as `lastMessageCTE`.
     nonisolated(unsafe) static let latestAgentJoinRequestCTE: CommonTableExpression<DBAgentJoinRequest> =
         CommonTableExpression<DBAgentJoinRequest>(
             named: "conversationAgentJoinRequest",
             sql: """
                 SELECT m.conversationId, m.text AS status, m.date
-                FROM message m
-                WHERE m.contentType = ?
-                AND m.dateNs = (
-                    SELECT MAX(m2.dateNs)
-                    FROM message m2
-                    WHERE m2.conversationId = m.conversationId
-                    AND m2.contentType = ?
-                )
-                """,
-            arguments: [
-                MessageContentType.assistantJoinRequest.rawValue,
-                MessageContentType.assistantJoinRequest.rawValue,
-            ]
+                FROM conversation c
+                JOIN message m ON m.id = c.lastAgentJoinRequestId
+                """
         )
 
     static let localState: HasOneAssociation<DBConversation, ConversationLocalState> = hasOne(
@@ -319,7 +308,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -346,7 +336,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -373,7 +364,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -400,7 +392,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -427,7 +420,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -456,7 +450,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -483,7 +478,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -510,7 +506,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -537,7 +534,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -564,7 +562,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -591,7 +590,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -618,7 +618,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -645,7 +646,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -672,7 +674,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -699,7 +702,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -726,7 +730,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -753,7 +758,36 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
+        )
+    }
+
+    func with(isAgentDm: Bool) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 
@@ -780,7 +814,8 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
         )
     }
 

@@ -191,6 +191,28 @@ struct ProfileMergeIdentityTests {
         )
         #expect(fresh.metadata == nil)
     }
+
+    @Test("equal time replays are inert on wire tiers but win on the mirror tiers")
+    func equalTimeSemanticsPerTier() {
+        // A wire update replayed at the same sentAt (history catch-up) must
+        // not replace - replay is inert.
+        let wire = DBProfile(inboxId: "i", name: "Current", profileSource: .profileUpdate, updatedAt: t1)
+        let replayed = ProfileMerge.mergeIdentity(
+            existing: wire, inboxId: "i", incoming: IncomingIdentity(name: "Replayed"),
+            source: .profileUpdate, sentAt: t1
+        )
+        #expect(replayed.name == "Current")
+
+        // The contact tier is the backfill mirror: always floor-stamped, so an
+        // equal-time event is a mirror re-run that must adopt legacy changes.
+        let floor = Date(timeIntervalSince1970: 0)
+        let mirrored = DBProfile(inboxId: "i", name: "Old Legacy", profileSource: .contact, updatedAt: floor)
+        let refreshed = ProfileMerge.mergeIdentity(
+            existing: mirrored, inboxId: "i", incoming: IncomingIdentity(name: "Renamed Legacy"),
+            source: .contact, sentAt: floor
+        )
+        #expect(refreshed.name == "Renamed Legacy")
+    }
 }
 
 @Suite("Profile merge - avatar")
@@ -299,6 +321,113 @@ struct ProfileMergeAvatarTests {
         )
         #expect(preserved?.url == "enc")
         #expect(preserved?.hasValidEncryptedAvatar == true)
+    }
+
+    @Test("replaying the same message is inert: no rebuild, no renewal-stamp wipe")
+    func equalTimeReplayIsInert() {
+        let renewed = Date(timeIntervalSince1970: 150)
+        let existing = DBProfileAvatar(
+            inboxId: "i", conversationId: "c", url: "u", salt: salt, nonce: nonce,
+            encryptionKey: key, profileSource: .profileUpdate, updatedAt: t1, lastRenewed: renewed
+        )
+        // History catch-up re-applies the newest ProfileUpdate every launch
+        // with the same sentAt. The merged row must be the existing row itself
+        // (renewal stamp intact), so nothing is saved and nothing churns.
+        let replayed = ProfileMerge.mergeAvatar(
+            existing: existing, inboxId: "i", conversationId: "c", incoming: setAvatar("u"),
+            source: .profileUpdate, sentAt: t1
+        )
+        #expect(replayed == existing)
+    }
+
+    @Test("an equal-time replay cannot resurrect a deliberately cleared URL")
+    func equalTimeReplayCannotResurrectClearedURL() {
+        // ExpiredAssetRecoveryHandler clears a dead URL in place, keeping the
+        // slot's updatedAt. Replaying the original message (same sentAt) must
+        // not re-insert the dead URL, or recovery and replay loop forever.
+        let recoveryCleared = DBProfileAvatar(
+            inboxId: "i", conversationId: "c", url: nil, profileSource: .profileUpdate, updatedAt: t1
+        )
+        let replayed = ProfileMerge.mergeAvatar(
+            existing: recoveryCleared, inboxId: "i", conversationId: "c", incoming: setAvatar("dead-url"),
+            source: .profileUpdate, sentAt: t1
+        )
+        #expect(replayed?.url == nil)
+    }
+
+    @Test("a mirror-tier re-run adopts a changed avatar at the constant floor")
+    func mirrorTierAdoptsChangedAvatar() {
+        // Backfill (.contact) and app-data mirrors always stamp the same floor
+        // timestamp, so a changed legacy/app-data avatar arrives at equal time
+        // and must still replace the stored slot.
+        let floor = Date(timeIntervalSince1970: 0)
+        for source in [ProfileSource.contact, .appData] {
+            let existing = DBProfileAvatar(
+                inboxId: "i", conversationId: "c", url: "old", salt: salt, nonce: nonce,
+                encryptionKey: key, profileSource: source, updatedAt: floor
+            )
+            let merged = ProfileMerge.mergeAvatar(
+                existing: existing, inboxId: "i", conversationId: "c", incoming: setAvatar("new"),
+                source: source, sentAt: floor
+            )
+            #expect(merged?.url == "new", "\(source) mirror must adopt the changed avatar")
+
+            // An unchanged re-offer stays inert: same row back, stamps intact.
+            let renewed = Date(timeIntervalSince1970: 150)
+            let renewedExisting = DBProfileAvatar(
+                inboxId: "i", conversationId: "c", url: "old", salt: salt, nonce: nonce,
+                encryptionKey: key, profileSource: source, updatedAt: floor, lastRenewed: renewed
+            )
+            let reoffered = ProfileMerge.mergeAvatar(
+                existing: renewedExisting, inboxId: "i", conversationId: "c", incoming: setAvatar("old"),
+                source: source, sentAt: floor
+            )
+            #expect(reoffered == renewedExisting, "\(source) unchanged re-offer must be inert")
+        }
+    }
+
+    @Test("a mirror-tier re-run cannot resurrect a recovery-cleared slot")
+    func mirrorTierCannotResurrectTombstone() {
+        // ExpiredAssetRecoveryHandler clears a dead URL in place, keeping the
+        // slot's floor updatedAt. The mirror still holds its dirty copy of that
+        // URL and re-offers it at the same floor every sync; adopting it would
+        // loop clear/re-add forever. The slot fills again only via a higher
+        // source (a real ProfileUpdate).
+        let floor = Date(timeIntervalSince1970: 0)
+        let tombstone = DBProfileAvatar(inboxId: "i", conversationId: "c", url: nil, profileSource: .contact, updatedAt: floor)
+        let reoffered = ProfileMerge.mergeAvatar(
+            existing: tombstone, inboxId: "i", conversationId: "c", incoming: setAvatar("dead-url"),
+            source: .contact, sentAt: floor
+        )
+        #expect(reoffered?.url == nil)
+
+        let realUpdate = ProfileMerge.mergeAvatar(
+            existing: tombstone, inboxId: "i", conversationId: "c", incoming: setAvatar("fresh"),
+            source: .profileUpdate, sentAt: Date(timeIntervalSince1970: 100)
+        )
+        #expect(realUpdate?.url == "fresh")
+    }
+
+    @Test("a strictly newer set of the same URL carries the renewal stamp; a new URL resets it")
+    func newerSetCarriesRenewalStampForSameURL() {
+        let renewed = Date(timeIntervalSince1970: 150)
+        let existing = DBProfileAvatar(
+            inboxId: "i", conversationId: "c", url: "u", salt: salt, nonce: nonce,
+            encryptionKey: key, profileSource: .profileUpdate, updatedAt: t1, lastRenewed: renewed
+        )
+
+        let sameURL = ProfileMerge.mergeAvatar(
+            existing: existing, inboxId: "i", conversationId: "c", incoming: setAvatar("u"),
+            source: .profileUpdate, sentAt: t2
+        )
+        #expect(sameURL?.lastRenewed == renewed)
+        #expect(sameURL?.updatedAt == t2)
+
+        let newURL = ProfileMerge.mergeAvatar(
+            existing: existing, inboxId: "i", conversationId: "c", incoming: setAvatar("v"),
+            source: .profileUpdate, sentAt: t2
+        )
+        #expect(newURL?.lastRenewed == nil)
     }
 }
 

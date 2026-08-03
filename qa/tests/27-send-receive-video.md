@@ -20,7 +20,7 @@ Verify end-to-end video messaging: selecting a video from the photo picker, send
 
 ### Picker shows photos and videos
 
-6. Tap the media picker button (`photo-picker-button`). The system PhotosPicker should appear showing both photos and videos. Videos are distinguishable by a duration badge in the picker grid.
+6. Tap the `+` inside the input field (`attachments-button`) to open the attachments menu, then tap "Photos" (`attachment-photos-button`). The system PhotosPicker should appear showing both photos and videos. Videos are distinguishable by a duration badge in the picker grid.
 
 ### Send a video from the app
 

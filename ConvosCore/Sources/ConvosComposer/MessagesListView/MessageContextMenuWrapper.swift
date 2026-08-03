@@ -77,6 +77,14 @@ struct MessageGestureModifier: ViewModifier {
             .offset(x: swipeOffset)
             .background(alignment: .leading) { swipeReplyIndicator }
             .overlay { gestureOverlay }
+            .onChange(of: contextMenuState.swipeCancellationToken) { _, _ in
+                // The conversation pager changed pages while this row's swipe was
+                // in flight: reset the offset directly so the reply indicator
+                // doesn't stay stuck when the page comes back on screen. The pan
+                // recognizer is cancelled in parallel via the overlay's coordinator.
+                swipeOffset = 0
+                externalSwipeOffset?.wrappedValue = 0
+            }
             .accessibilityActions {
                 if !isReadOnly {
                     Button("React") {
@@ -116,6 +124,7 @@ struct MessageGestureModifier: ViewModifier {
         GeometryReader { geometry in
             GestureOverlayView(
                 contextMenuState: contextMenuState,
+                cancellationToken: contextMenuState.swipeCancellationToken,
                 hasSingleTap: onSingleTap != nil,
                 excludedFrames: interactiveExclusionFrames,
                 onSingleTap: { onSingleTap?() },
@@ -261,6 +270,7 @@ struct GesturePassthroughBackground: UIViewRepresentable {
 
 private struct GestureOverlayView: UIViewRepresentable {
     let contextMenuState: MessageContextMenuState
+    let cancellationToken: Int
     let hasSingleTap: Bool
     let excludedFrames: [CGRect]
     let onSingleTap: () -> Void
@@ -290,6 +300,7 @@ private struct GestureOverlayView: UIViewRepresentable {
         pan.delaysTouchesBegan = false
         pan.delaysTouchesEnded = false
         view.addGestureRecognizer(pan)
+        coordinator.panRecognizer = pan
 
         let longPress = UILongPressGestureRecognizer(
             target: coordinator,
@@ -339,6 +350,10 @@ private struct GestureOverlayView: UIViewRepresentable {
 
     func updateUIView(_ uiView: GesturePassthroughView, context: Context) {
         context.coordinator.contextMenuState = contextMenuState
+        if context.coordinator.lastSwipeCancellationToken != cancellationToken {
+            context.coordinator.lastSwipeCancellationToken = cancellationToken
+            context.coordinator.cancelActiveSwipe()
+        }
         context.coordinator.excludedFrames = excludedFrames
         context.coordinator.onSingleTap = onSingleTap
         context.coordinator.onDoubleTap = onDoubleTap
@@ -430,6 +445,8 @@ private struct GestureOverlayView: UIViewRepresentable {
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         weak var overlayView: GesturePassthroughView?
         weak var singleTapRecognizer: UITapGestureRecognizer?
+        weak var panRecognizer: UIPanGestureRecognizer?
+        var lastSwipeCancellationToken: Int = 0
         weak var contextMenuState: MessageContextMenuState?
         var excludedFrames: [CGRect] = []
         var onSingleTap: (() -> Void)?
@@ -483,7 +500,11 @@ private struct GestureOverlayView: UIViewRepresentable {
                 cancelPress()
                 cachedScrollView?.panGestureRecognizer.isEnabled = true
                 cachedScrollView = nil
-                let didTrigger = swipeTriggered
+                // Only a naturally-ended swipe fires the reply. A cancelled or
+                // failed pan (e.g. the pager took over and changed pages, or the
+                // recognizer was disabled to cancel it) resets the offset without
+                // replying.
+                let didTrigger = pan.state == .ended && swipeTriggered
                 swipeTriggered = false
                 onSwipeEnded?(didTrigger)
 
@@ -546,6 +567,15 @@ private struct GestureOverlayView: UIViewRepresentable {
                 isPressActive = false
                 onPressChanged?(false)
             }
+        }
+
+        /// Cancels an in-flight swipe-to-reply by momentarily disabling the pan
+        /// recognizer, which transitions it to `.cancelled` and resets the offset
+        /// without firing a reply. No-op when no swipe is active.
+        func cancelActiveSwipe() {
+            guard panActive, let pan = panRecognizer else { return }
+            pan.isEnabled = false
+            pan.isEnabled = true
         }
 
         private func isGestureInsideOverlay(_ gesture: UIGestureRecognizer) -> Bool {

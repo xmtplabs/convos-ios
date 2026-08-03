@@ -13,8 +13,9 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    uses: xmtplabs/convos-releases/.github/workflows/ios-testflight-prod.yml@main
+    uses: xmtplabs/convos-releases/.github/workflows/ios-testflight.yml@main
     with:
+      flavor: prod
       runner: warp-macos-latest-arm64-12x
       xcode-app-path: /Applications/Xcode_26.3.app
       xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app

@@ -50,15 +50,28 @@ public final class HTMLPageMetadata {
         }.value
     }
 
+    /// Both the decimal and hex numeric forms are decoded, because the two
+    /// producers disagree: HTML written by hand tends to use `&#39;`, while
+    /// Python's `html.escape` — which the runtime runs over every artifact
+    /// title — emits `&#x27;`. Decoding only one leaves titles like
+    /// "Who&#x27;s here" on screen, which is what the group sees for any
+    /// artifact whose title contains an apostrophe.
     private nonisolated static func decodeEntities(_ value: String) -> String {
         value
-            .replacingOccurrences(of: "&amp;", with: "&")
             .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&#x3C;", with: "<", options: .caseInsensitive)
             .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&#x3E;", with: ">", options: .caseInsensitive)
             .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#34;", with: "\"")
+            .replacingOccurrences(of: "&#x22;", with: "\"", options: .caseInsensitive)
             .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&#x27;", with: "'", options: .caseInsensitive)
             .replacingOccurrences(of: "&apos;", with: "'")
             .replacingOccurrences(of: "&nbsp;", with: " ")
+            // Ampersand last: decoding it first would turn an escaped literal
+            // like `&amp;#x27;` into `&#x27;` and then into an apostrophe.
+            .replacingOccurrences(of: "&amp;", with: "&")
     }
 }
 #endif

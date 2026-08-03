@@ -136,6 +136,7 @@ struct ConversationsView: View {
                 messagesTopBarTrailingItemEnabled: !convoVM.conversation.isPendingInvite,
                 messagesTextFieldEnabled: !convoVM.conversation.isPendingInvite,
                 isReadOnly: isReadOnly,
+                initialAgentDmInboxId: viewModel.selectedInitialAgentDmInboxId,
                 bottomBarContent: { EmptyView() }
             )
         }
@@ -178,7 +179,7 @@ struct ConversationsView: View {
             isFilteredResultEmpty: viewModel.isFilteredResultEmpty,
             filterEmptyMessage: viewModel.activeFilter.emptyStateMessage,
             onSelectConversation: { conversation in
-                viewModel.selectedConversationId = conversation.id
+                viewModel.select(conversation)
             },
             onConfirmedDeleteConversation: { conversation in
                 viewModel.leave(conversation: conversation)

@@ -34,6 +34,15 @@ if [ "$CONFIGURATION" = "Local" ]; then
         AGENT_DEBUG_JWKS=$(grep -v '^#' "${SRCROOT}/.env" | grep '^AGENT_DEBUG_JWKS=' | cut -d'=' -f2- | sed -e "s/^'//" -e "s/'$//" || true)
         POSTHOG_API_KEY=$(grep -v '^#' "${SRCROOT}/.env" | grep '^POSTHOG_API_KEY=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
     fi
+    # Resolve the XMTP host the same way Scripts/generate-secrets-local.sh does:
+    # USE_CONFIG means "no custom host, use the network the config selects", and
+    # must stay genuinely empty because the app treats any non-empty value as a
+    # local node to dial. Unset falls back to the auto-detected LAN IP as before.
+    if [ "$XMTP_CUSTOM_HOST" = "USE_CONFIG" ]; then
+        XMTP_HOST_RESOLVED=""
+    else
+        XMTP_HOST_RESOLVED="${XMTP_CUSTOM_HOST:-$LOCAL_IP}"
+    fi
     # Firebase debug token: cached .env first, else 1Password ("Convos" vault); empty in CI.
     FIREBASE_TOKEN="$(resolve_firebase_debug_token "${SRCROOT}/.env")"
 
@@ -45,7 +54,7 @@ import Foundation
 // swiftlint:disable all
 enum Secrets {
     static let CONVOS_API_BASE_URL = "${CONVOS_API_BASE_URL:-http://$LOCAL_IP:4000/api}"
-    static let XMTP_CUSTOM_HOST = "${XMTP_CUSTOM_HOST:-$LOCAL_IP}"
+    static let XMTP_CUSTOM_HOST = "${XMTP_HOST_RESOLVED}"
     static let GATEWAY_URL = ""
     static let SENTRY_DSN = ""
     static let POSTHOG_API_KEY = "$POSTHOG_API_KEY"

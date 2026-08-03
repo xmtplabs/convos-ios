@@ -120,10 +120,10 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
 
-                case let .agentOutOfCredits(member, isCurrentUserCreator):
+                case let .agentOutOfCredits(member, showsUpgradeCTA):
                     AgentLostPowerStatus(
                         agentName: member.profile.displayName,
-                        isCreator: isCurrentUserCreator,
+                        isCreator: showsUpgradeCTA,
                         onUpgrade: config.onAgentOutOfCredits
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)
@@ -174,6 +174,13 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     AgentActivatingCardView(content: content)
                         .padding(.vertical, DesignConstants.Spacing.step4x)
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
+
+                case let .agentDmInfo(agentProfile, agentVerification, agentName):
+                    AgentDmInfoCellView(
+                        agentProfile: agentProfile,
+                        agentVerification: agentVerification,
+                        agentName: agentName
+                    )
 
                 case .typingIndicator:
                     EmptyView()
@@ -251,7 +258,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             onRetryTranscript: config.onRetryTranscript,
             allVoiceMemoTranscripts: config.allVoiceMemoTranscripts,
             htmlAttachmentTransitionNamespace: config.htmlAttachmentTransitionNamespace,
-            creditsDepleted: config.creditsDepleted,
+            agentPowerDepletedByInboxId: config.agentPowerDepletedByInboxId,
             memberContactOverride: config.memberContactOverride
         )
     }

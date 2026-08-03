@@ -467,7 +467,8 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: true,
-                hasHadVerifiedAgent: false
+                hasHadVerifiedAgent: false,
+                isAgentDm: false
             )
             try dbConversation.save(db)
         }

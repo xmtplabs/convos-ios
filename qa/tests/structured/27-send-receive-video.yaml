@@ -51,7 +51,11 @@ steps:
   - id: picker_shows_videos
     name: "Photo picker shows both photos and videos"
     actions:
-      - tap: { id: "photo-picker-button" }
+      - tap: { id: "attachments-button" }
+        note: >
+          The "+" inside the input field opens the attachments menu, a popover
+          listing Photos / Camera / Files / Voice note.
+      - tap: { id: "attachment-photos-button" }
       - wait_for_element: { label: "Photos", timeout: 10 }
       - screenshot: {}
     verify:
@@ -103,7 +107,11 @@ steps:
   - id: remove_video_before_send
     name: "Remove video attachment before sending"
     actions:
-      - tap: { id: "photo-picker-button" }
+      - tap: { id: "attachments-button" }
+        note: >
+          The "+" inside the input field opens the attachments menu, a popover
+          listing Photos / Camera / Files / Voice note.
+      - tap: { id: "attachment-photos-button" }
       - wait_for_element: { label: "Photos", timeout: 10 }
       - tap_first_video: {}
       - dismiss_education_sheet: { button: "Got it" }
@@ -223,7 +231,11 @@ steps:
   - id: photo_still_works
     name: "Photo sending still works alongside video"
     actions:
-      - tap: { id: "photo-picker-button" }
+      - tap: { id: "attachments-button" }
+        note: >
+          The "+" inside the input field opens the attachments menu, a popover
+          listing Photos / Camera / Files / Voice note.
+      - tap: { id: "attachment-photos-button" }
       - wait_for_element: { label: "Photos", timeout: 10 }
       - tap_first_photo: {}
       - dismiss_education_sheet: { button: "Got it" }

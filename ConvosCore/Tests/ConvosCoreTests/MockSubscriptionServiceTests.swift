@@ -1,4 +1,5 @@
 @testable import ConvosCore
+import Combine
 import Foundation
 import Testing
 
@@ -56,8 +57,24 @@ struct MockSubscriptionServiceTests {
     @Test func init_seedsCurrentSubscriptionFromPreset() {
         let plus: MockSubscriptionService = MockSubscriptionService(initialPreset: .plusAmple)
         #expect(plus.currentSubscription?.tier == .plus)
+        #expect(plus.currentSyncState == .confirmed)
 
         let none: MockSubscriptionService = MockSubscriptionService(initialPreset: .noSubNoTrial)
         #expect(none.currentSubscription == nil)
+        #expect(none.currentSyncState == .idle)
+    }
+
+    @Test func subscriptionChanges_publishDerivedSyncState() async throws {
+        let service: MockSubscriptionService = MockSubscriptionService(initialPreset: .noSubNoTrial)
+        var states: [SubscriptionSyncState] = []
+        let cancellable = service.syncStatePublisher.sink { state in
+            states.append(state)
+        }
+
+        try await service.purchase(productId: SubscriptionProductIDs.plusMonthly)
+        service.setPreset(.noSubNoTrial)
+
+        #expect(states == [.idle, .confirmed, .idle])
+        withExtendedLifetime(cancellable) {}
     }
 }

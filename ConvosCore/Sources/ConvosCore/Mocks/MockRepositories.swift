@@ -19,12 +19,20 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
         mockConversations
     }
 
+    public func fetchAll() async throws -> [Conversation] {
+        mockConversations
+    }
+
     /// Note: this mock doesn't model the repo's `consent` scope, so a
     /// test that injects conversations with mixed consent values and
     /// queries with a narrow scope (e.g. `[.allowed]`) will see false
     /// positives. The production `ConversationsRepository` enforces
     /// the scope via the `WHERE consent IN (...)` clause in
     /// `composeOneToOne`.
+    public func findAgentDm(with inboxId: String) throws -> Conversation? {
+        nil
+    }
+
     public func findOneToOne(with inboxId: String, excluding excludedConversationId: String?) throws -> Conversation? {
         mockConversations.first { conversation in
             guard conversation.id != excludedConversationId else { return false }

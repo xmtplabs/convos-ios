@@ -51,6 +51,7 @@ struct DebugViewSection: View {
     @State private var useRealCredits: Bool = CreditsServices.useRealBackend
     @State private var useLiveAbilities: Bool = AbilitiesServices.useLiveBackend
     @State private var abilitiesV1ShimEnabled: Bool = AbilitiesServices.isV1AwarenessShimEnabled
+    @State private var identity: DeviceIdentitySnapshot?
 
     var body: some View {
         Group {
@@ -68,6 +69,8 @@ struct DebugViewSection: View {
         .task {
             await refreshNotificationStatus()
             logStorageInfo = DebugLogExporter.getStorageInfo(environment: environment)
+            let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
+            identity = await DeviceIdentitySnapshot.current(identityStore: identityStore)
         }
     }
 
@@ -76,6 +79,7 @@ struct DebugViewSection: View {
         Section("Features") {
             Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
             Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
+            Toggle("Listen (agent participation)", isOn: Bindable(FeatureFlags.shared).isListenParticipationEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
             abilitiesFeatureToggles
 
@@ -120,6 +124,8 @@ struct DebugViewSection: View {
     @ViewBuilder
     private var subscriptionSection: some View {
         Section("Subscription") {
+            DebugRevealableValueRow(label: "Account ID", value: identity?.accountId)
+            DebugRevealableValueRow(label: "Inbox ID", value: identity?.inboxId)
             Toggle("Use real StoreKit", isOn: $useRealStoreKit)
                 .onChange(of: useRealStoreKit) { _, newValue in
                     SubscriptionServices.setUseRealStoreKit(newValue)
