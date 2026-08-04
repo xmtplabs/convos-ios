@@ -245,21 +245,13 @@ struct AgentDmPageView: View {
         Task {
             defer { isCreatingDm = false }
             do {
-                let conversationId = try await AgentDmFlow.startOrFindDm(
-                    agentInboxId: agentInboxId,
-                    originConversationId: viewModel.conversation.id,
-                    session: viewModel.session
-                )
-                _ = conversationId
-                // Bind to whatever DM now exists for this agent, not only the
-                // one this send created: the eager reconciler can win the
-                // create race, and converging on the surviving DM both keeps
-                // the message and avoids stranding it in a conversation the
-                // backend's dedup will make the agent leave.
+                // The agent owns DM creation now; the client only reflects the
+                // DM once it syncs. Bind to the agent-created DM if it exists
+                // and send; otherwise keep the draft so the user can retry once
+                // the DM arrives via sync.
                 guard let conversation = try viewModel.session
                     .conversationsRepository(for: [.allowed, .unknown])
                     .findAgentDm(with: agentInboxId) else {
-                    Log.error("Agent DM created but not found for binding")
                     await MainActor.run { draftText = text }
                     return
                 }
@@ -268,7 +260,7 @@ struct AgentDmPageView: View {
                 dmVm.messageText = text
                 dmVm.onSendMessage(focusCoordinator: focusCoordinator)
             } catch {
-                Log.error("Failed to start agent DM: \(error.localizedDescription)")
+                Log.error("Failed to open agent DM: \(error.localizedDescription)")
                 await MainActor.run { draftText = text }
             }
         }

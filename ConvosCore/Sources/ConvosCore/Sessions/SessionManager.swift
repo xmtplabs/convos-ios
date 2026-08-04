@@ -174,11 +174,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             // Kick off the session-scoped services after the capability
             // providers have bootstrapped (the grant replayer relies on the
             // cloud-connection and enablement stores being ready to query):
-            // the AgentBuilder grant replayer, the unsent-brief replayer
-            // (re-sends briefs a previous process died holding), and the
-            // agent-DM reconciler (ensures a DM exists for every verified
-            // agent as soon as it appears; non-production only).
-            _ = (self.agentBuilderConnectionGrantReplayer(), self.unsentBuilderBriefReplayer(), self.agentDmReconciler())
+            // the AgentBuilder grant replayer and the unsent-brief replayer
+            // (re-sends briefs a previous process died holding). Agent DMs are
+            // created server-side by the agent now; the client only reflects
+            // them, so there is no client-side creation service to start.
+            _ = (self.agentBuilderConnectionGrantReplayer(), self.unsentBuilderBriefReplayer())
 
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
@@ -586,15 +586,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func tearDownInbox() async throws {
-        // Cancel initialization first: if teardown lands before the session
-        // start block reached the service kicks, the reconciler would
-        // otherwise be created (and start creating conversations) after the
-        // wipe below.
+        // Cancel initialization first so the launch-time service kicks cannot
+        // rebuild session state after the wipe below.
         initializationTask?.cancel()
         initializationTask = nil
-        // Stop the agent-DM reconciler before rows are wiped: an in-flight
-        // create finishing after teardown would re-insert conversation state.
-        stopAgentDmReconciler()
 
         // Cancel the launch-time bootstrap and the freshly-built profile-services
         // task first so neither can rebuild - and re-register - an inbox after the
@@ -899,10 +894,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// Session-wide unsent-brief replayer (one-shot scan at session start).
     /// Constructed by the accessor in `SessionManager+UnsentBriefReplayer.swift`.
     let unsentBriefReplayerLock: OSAllocatedUnfairLock<UnsentBuilderBriefReplayer?> = .init(initialState: nil)
-
-    /// Session-wide agent-DM reconciler (observes membership; creates a DM per
-    /// verified agent). Constructed in `SessionManager+AgentDmReconciler.swift`.
-    let agentDmReconcilerLock: OSAllocatedUnfairLock<AgentDmReconciler?> = .init(initialState: nil)
 
     public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
         capabilityRegistryLock.withLock { registry in

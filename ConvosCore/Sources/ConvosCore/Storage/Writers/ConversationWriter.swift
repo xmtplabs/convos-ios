@@ -902,13 +902,23 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             return inbox.clientId
         }
 
+        // Auto-allow the agent-owned DM: it arrives as a welcome with unknown
+        // consent, but the other member is a verified agent the user shares a
+        // group with (the same signal agent-DM classification requires), so the
+        // client reflects it straight into the agent's DM lane instead of an
+        // unknown/spam request. This is a client-side reflector decision on the
+        // existing verified-agent check; non-agent-DM conversations keep their
+        // synced consent untouched. Re-runs idempotently on every extraction.
+        let syncedConsent: Consent = try conversation.consentState().consent
+        let resolvedConsent: Consent = (metadata.isAgentDm && syncedConsent == .unknown) ? .allowed : syncedConsent
+
         return DBConversation(
             id: conversation.id,
             clientConversationId: clientConversationId ?? conversation.id,
             inviteTag: try conversation.inviteTag,
             creatorId: try await conversation.creatorInboxId(),
             kind: metadata.kind,
-            consent: try conversation.consentState().consent,
+            consent: resolvedConsent,
             createdAt: conversation.createdAt,
             name: metadata.name,
             description: metadata.description,
