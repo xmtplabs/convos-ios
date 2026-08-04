@@ -70,6 +70,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// presented.
     @State private var contextMenuState: MessageContextMenuState = .init()
     @State private var showingDebugInjector: Bool = false
+    /// Consent surface for agent ability-use asks, latched once per view
+    /// lifetime by `prepareEscalationIfNeeded` (nil while the abilities
+    /// flag is off or the conversation has no agent).
+    @State private var escalationViewModel: ConversationEscalationViewModel?
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
     @State private var navigator: ConversationCollector?
@@ -232,25 +236,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
-
-                    // Capability requests no longer auto-present a card here:
-                    // the transcript's connect pill is the single entry point
-                    // and opens the approval sheet. The slot keeps the
-                    // post-approval toast and the onboarding view.
-                    Group {
-                        if viewModel.showsCapabilityApprovedToast {
-                            CapabilityApprovedToastView()
-                                .transition(.blurReplace)
-                        } else {
-                            ConversationOnboardingView(
-                                coordinator: onboardingCoordinator,
-                                focusCoordinator: focusCoordinator,
-                                coreActions: viewModel.coreActions
-                            )
-                            .transition(.blurReplace)
-                        }
-                    }
-                    .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
+                    bottomBarStatusSlot
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
@@ -557,6 +543,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             navState.markScreenAppeared()
             viewModel.onConversationAppeared()
             seedInitialPageIfNeeded()
+            prepareEscalationIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
             handleSelectAgentDmPageRequest(note)
@@ -565,6 +552,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             focusCoordinator.dismissThingsSearchIfNeeded()
             viewModel.onConversationDisappeared()
             navigator?.closed(context: navState.closeContext())
+            escalationViewModel?.stopObserving()
         }
         .modifier(metricsObserversPart1)
         .modifier(metricsObserversPart2)
@@ -1072,5 +1060,80 @@ private extension ConversationView {
         )
         store.apply(syncedLevel: AgentParticipationLevel(mode: mode))
         participation = store
+    }
+}
+
+/// Which view occupies the status slot under the composer; also the
+/// animation value for the slot's transitions, so the whole slot animates
+/// on one Equatable instead of stacking per-branch `.animation` modifiers.
+private enum ConversationBottomBarSlot: Equatable {
+    case capabilityApprovedToast
+    case escalationPrompt(requestId: String)
+    case onboarding
+}
+
+// MARK: - Bottom bar status slot
+
+private extension ConversationView {
+    /// Toast wins, then a pending agent ability-use ask, then onboarding.
+    var bottomBarSlot: ConversationBottomBarSlot {
+        if viewModel.showsCapabilityApprovedToast {
+            return .capabilityApprovedToast
+        }
+        if let request = escalationViewModel?.pendingRequest {
+            return .escalationPrompt(requestId: request.id)
+        }
+        return .onboarding
+    }
+
+    /// The status slot under the composer. Capability requests no longer
+    /// auto-present a card here: the transcript's connect pill is the
+    /// single entry point for those and opens the approval sheet. The slot
+    /// keeps the post-approval toast, the agent ability-use consent card,
+    /// and the onboarding view.
+    var bottomBarStatusSlot: some View {
+        @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
+        return Group {
+            switch bottomBarSlot {
+            case .capabilityApprovedToast:
+                CapabilityApprovedToastView()
+                    .transition(.blurReplace)
+            case .escalationPrompt:
+                if let escalationViewModel {
+                    AbilityEscalationPromptSurface(viewModel: escalationViewModel)
+                        .transition(.blurReplace)
+                }
+            case .onboarding:
+                ConversationOnboardingView(
+                    coordinator: onboardingCoordinator,
+                    focusCoordinator: focusCoordinator,
+                    coreActions: viewModel.coreActions
+                )
+                .transition(.blurReplace)
+            }
+        }
+        .animation(.spring(duration: 0.4, bounce: 0.2), value: bottomBarSlot)
+    }
+
+    /// Builds the escalation view model once per view lifetime: only when
+    /// the Abilities V2 flag is on and the conversation has an agent. The
+    /// flag is read once and latched -- same posture as
+    /// `ConversationInfoView.AgentAccessMode`. Re-appearance restarts the
+    /// stream observation on the latched model.
+    func prepareEscalationIfNeeded() {
+        if let escalationViewModel {
+            escalationViewModel.startObserving()
+            return
+        }
+        guard FeatureFlags.shared.isAbilitiesV2Enabled,
+              viewModel.conversation.hasAgent else {
+            return
+        }
+        let escalation = ConversationEscalationViewModel(
+            conversationId: viewModel.conversation.id,
+            selection: AbilitiesServices.selection
+        )
+        escalation.startObserving()
+        escalationViewModel = escalation
     }
 }

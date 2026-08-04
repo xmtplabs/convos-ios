@@ -13,10 +13,20 @@ struct AbilitiesSelection {
     /// Nil in mock mode: the stub authorization sheet stands in, and a
     /// mock connect never opens a real browser.
     let authorizer: (any AbilityAuthorizing)?
+    /// The consent-flow seam. Escalation has no live transport, so the
+    /// mock is the only implementation in both modes; app code must pass
+    /// `AbilitiesServices`' shared instance so grants carry across
+    /// surfaces. The default (a fresh, isolated mock) is for previews.
+    let escalation: any AbilityEscalationServiceProtocol
 
-    init(service: any AbilitiesServiceProtocol, authorizer: (any AbilityAuthorizing)? = nil) {
+    init(
+        service: any AbilitiesServiceProtocol,
+        authorizer: (any AbilityAuthorizing)? = nil,
+        escalation: (any AbilityEscalationServiceProtocol)? = nil
+    ) {
         self.service = service
         self.authorizer = authorizer
+        self.escalation = escalation ?? MockAbilityEscalationService()
     }
 }
 
@@ -36,17 +46,26 @@ enum AbilitiesServices {
     nonisolated(unsafe) private static var liveService: LiveAbilitiesService?
     nonisolated(unsafe) private static var catalogCache: AbilitiesCatalogDiskCache?
     private static let mockService: MockAbilitiesService = MockAbilitiesService()
+    /// One escalation mock app-wide so grants made in a conversation are
+    /// visible in the ability detail's delegations list. Both selection
+    /// branches carry it: escalation has no live transport, so the mock is
+    /// the only source either way; the `isActive` gate decides whether it
+    /// serves anything.
+    private static let escalationService: MockAbilityEscalationService = MockAbilityEscalationService(
+        isActive: { AbilitiesServices.isEscalationMockEnabled }
+    )
 
     /// The atomic (service, authorizer) pair for the current mode. Resolve
     /// once per screen/view-model lifetime and pass the whole value down;
     /// never read the halves at different times.
     static var selection: AbilitiesSelection {
         guard let liveService, useLiveBackend else {
-            return AbilitiesSelection(service: mockService)
+            return AbilitiesSelection(service: mockService, escalation: escalationService)
         }
         return AbilitiesSelection(
             service: liveService,
-            authorizer: AbilityOAuthAuthorizer(callbackURLScheme: ConfigManager.shared.appUrlScheme)
+            authorizer: AbilityOAuthAuthorizer(callbackURLScheme: ConfigManager.shared.appUrlScheme),
+            escalation: escalationService
         )
     }
 
@@ -130,8 +149,26 @@ enum AbilitiesServices {
         UserDefaults.standard.set(value, forKey: Constant.v1AwarenessShimEnabledKey)
     }
 
+    /// Debug sub-toggle for the mock consent flow (agent ability-use
+    /// requests and delegations). Default on in non-production so enabling
+    /// the abilities flag is the only step needed to demo the full consent
+    /// flow; production always reads false.
+    static var isEscalationMockEnabled: Bool {
+        guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+        if let stored = UserDefaults.standard.object(forKey: Constant.escalationMockEnabledKey) as? Bool {
+            return stored
+        }
+        return true
+    }
+
+    static func setEscalationMockEnabled(_ value: Bool) {
+        guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+        UserDefaults.standard.set(value, forKey: Constant.escalationMockEnabledKey)
+    }
+
     private enum Constant {
         static let useLiveBackendKey: String = "abilitiesServices.useLiveBackend"
         static let v1AwarenessShimEnabledKey: String = "abilitiesServices.v1AwarenessShimEnabled"
+        static let escalationMockEnabledKey: String = "abilitiesServices.escalationMockEnabled"
     }
 }
