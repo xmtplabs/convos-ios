@@ -69,6 +69,22 @@ struct ConversationPresenter<Content: View>: View {
         return viewModel.presentingShareView
     }
 
+    /// Drives the invite-code sheet. Clearing it also resets the requested
+    /// initial segment so the next presentation opens on Invite unless a
+    /// caller asks for Scan again.
+    private var shareOverlayBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel?.presentingShareView ?? false },
+            set: { newValue in
+                guard let viewModel else { return }
+                viewModel.presentingShareView = newValue
+                if !newValue {
+                    viewModel.shareViewInitialSegment = .invite
+                }
+            }
+        )
+    }
+
     /// Read-only when the host asks for it (stale/removed device) or when
     /// the local user was removed from this conversation but can still view
     /// it. Mirrors `ConversationView.effectiveReadOnly` for the indicator.
@@ -89,28 +105,9 @@ struct ConversationPresenter<Content: View>: View {
             .ignoresSafeArea()
             .allowsHitTesting(true)
             .zIndex(1000)
-
-            if let viewModel, viewModel.presentingShareView {
-                ConversationShareOverlay(
-                    conversation: viewModel.conversation,
-                    invite: viewModel.invite,
-                    isPresented: Binding(
-                        get: { viewModel.presentingShareView },
-                        set: { newValue in
-                            viewModel.presentingShareView = newValue
-                            if !newValue {
-                                viewModel.shareViewInitialSegment = .invite
-                            }
-                        }
-                    ),
-                    topSafeAreaInset: insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x,
-                    coreActions: viewModel.coreActions,
-                    initialSegment: viewModel.shareViewInitialSegment,
-                    onScannedCode: { code in viewModel.handleScannedCodeInCurrentConversation(code) }
-                )
-                .ignoresSafeArea()
-                .zIndex(2000)
-            }
+        }
+        .sheet(isPresented: shareOverlayBinding) {
+            shareOverlaySheet
         }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear {
@@ -137,6 +134,22 @@ struct ConversationPresenter<Content: View>: View {
         .task(id: viewModel?.conversation.id) {
             // Set default focus when conversation changes
             focusState = defaultFocusOverride ?? focusCoordinator.defaultFocus
+        }
+    }
+
+    @ViewBuilder
+    private var shareOverlaySheet: some View {
+        if let viewModel {
+            ConversationShareOverlay(
+                conversation: viewModel.conversation,
+                invite: viewModel.invite,
+                isPresented: shareOverlayBinding,
+                topSafeAreaInset: 0.0,
+                coreActions: viewModel.coreActions,
+                initialSegment: viewModel.shareViewInitialSegment,
+                onScannedCode: { code in viewModel.handleScannedCodeInCurrentConversation(code) }
+            )
+            .presentationDetents([.large])
         }
     }
 

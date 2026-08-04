@@ -700,24 +700,23 @@ struct ConversationInfoView: View {
                     AgentsInfoView(onMakeAgent: { pendingAgentBuilderAfterIntro = true })
                         .padding(.top, 20)
                 })
-                .overlay {
-                    if presentingShareView {
-                        ConversationShareOverlay(
-                            conversation: viewModel.conversation,
-                            invite: viewModel.invite,
-                            isPresented: localShareOverlayBinding,
-                            topSafeAreaInset: 0,
-                            coreActions: viewModel.coreActions,
-                            // Honors the segment the contacts picker's rows
-                            // request (Show invite code -> .invite, Scan ->
-                            // .scan); the toolbar convo-code path leaves the
-                            // view model default (.invite) untouched.
-                            initialSegment: viewModel.shareViewInitialSegment,
-                            onScannedCode: { code in
-                                handleOverlayScannedCode(code)
-                            }
-                        )
-                    }
+                .sheet(isPresented: localShareOverlayBinding) {
+                    ConversationShareOverlay(
+                        conversation: viewModel.conversation,
+                        invite: viewModel.invite,
+                        isPresented: localShareOverlayBinding,
+                        topSafeAreaInset: 0,
+                        coreActions: viewModel.coreActions,
+                        // Honors the segment the contacts picker's rows
+                        // request (Show invite code -> .invite, Scan ->
+                        // .scan); the toolbar convo-code path leaves the
+                        // view model default (.invite) untouched.
+                        initialSegment: viewModel.shareViewInitialSegment,
+                        onScannedCode: { code in
+                            handleOverlayScannedCode(code)
+                        }
+                    )
+                    .presentationDetents([.large])
                 }
                 .background {
                     Color.clear

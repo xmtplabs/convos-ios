@@ -11,10 +11,10 @@ import UIKit
 //   wrapper with `mode: .newConvo`; only the captions and nav metadata differ.
 //
 // The toggle + Invite/Scan tabs themselves live in `InviteCodeBody`, the single
-// shared implementation. This overlay only composes that body under its floating
-// liquid-glass nav for the full-screen flow; `ConversationView` embeds the same
-// `InviteCodeBody` via a top `safeAreaInset` when a "Show an invite code" convo
-// owns the QR inline. Both share `InviteCodeBody` so the toggle + tabs don't fork.
+// shared implementation. This overlay only composes that body under a standard
+// sheet nav bar (X close button, conversation title chip) for the sheet flow;
+// `ConversationView` embeds the same `InviteCodeBody` via a top `safeAreaInset`
+// when a "Show an invite code" convo owns the QR inline. Both share `InviteCodeBody` so the toggle + tabs don't fork.
 //
 // The Invite tab renders the legacy QR glyph (`QRCodeGenerator`: rounded modules,
 // Q error correction, a center hole) on the Figma `fillSubtle` rounded-56 card,
@@ -25,8 +25,9 @@ import UIKit
 // from the photo library. Both decoded paths feed the same `onScannedCode` handler.
 
 /// The Scan/Invite toggle screen from the invite design. Composes the shared
-/// `InviteCodeBody` (segmented control + Invite/Scan tabs) under the floating
-/// liquid-glass nav.
+/// `InviteCodeBody` (segmented control + Invite/Scan tabs) under a standard
+/// navigation bar. Presented as a `.sheet` with a `.large` detent, so the
+/// system supplies the grabber, swipe-to-dismiss, and the X close button.
 struct InviteCodeOverlay: View {
     let conversation: Conversation
     let encodedURLString: String
@@ -48,20 +49,20 @@ struct InviteCodeOverlay: View {
 
     @State private var conversationImage: UIImage?
 
-    @Environment(\.safeAreaInsets) private var safeAreaInsets: EdgeInsets
-
     var body: some View {
-        ZStack {
-            backdrop
-            VStack(spacing: 0.0) {
-                contentColumn
-                Spacer(minLength: 0.0)
+        NavigationStack {
+            ZStack {
+                backdrop
+                VStack(spacing: 0.0) {
+                    contentColumn
+                    Spacer(minLength: 0.0)
+                }
+                .padding(.top, DesignConstants.Spacing.step8x)
             }
-            .padding(.top, safeAreaInsets.top + Constant.navHeight + DesignConstants.Spacing.step8x)
-            floatingNav
+            .background(.colorBackgroundSurfaceless)
+            .toolbarTitleDisplayMode(.inline)
+            .toolbar { navigationBarContent }
         }
-        .background(.colorBackgroundSurfaceless)
-        .ignoresSafeArea()
         .cachedImage(for: conversation, into: $conversationImage)
     }
 
@@ -81,38 +82,29 @@ struct InviteCodeOverlay: View {
         )
     }
 
-    // MARK: - Floating nav
+    // MARK: - Nav bar
 
-    private var floatingNav: some View {
-        VStack {
-            HStack(alignment: .center) {
-                navCircleButton(icon: "chevron.backward", action: dismiss)
-                    .accessibilityLabel("Back")
-                Spacer(minLength: DesignConstants.Spacing.step2x)
-                navTitleChip
-                Spacer(minLength: DesignConstants.Spacing.step2x)
-                if let onAddPeople {
-                    navCircleButton(icon: "person.crop.circle.badge.plus", action: onAddPeople)
-                        .accessibilityLabel("Add people")
-                } else {
-                    Color.clear.frame(width: Constant.navButtonSize, height: Constant.navButtonSize)
+    /// Standard sheet chrome: the system X close button in the cancellation
+    /// slot (matching `ContactDetailView`), the conversation chip as the
+    /// title, and Add People trailing when the caller supplies it.
+    @ToolbarContentBuilder
+    private var navigationBarContent: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            let action = { dismiss() }
+            Button(role: .cancel, action: action)
+                .accessibilityIdentifier("invite-code-close")
+        }
+        ToolbarItem(placement: .principal) {
+            navTitleChip
+        }
+        if let onAddPeople {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: onAddPeople) {
+                    Image(systemName: "person.crop.circle.badge.plus")
                 }
+                .accessibilityLabel("Add people")
             }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.top, safeAreaInsets.top + DesignConstants.Spacing.step3x)
-            Spacer()
         }
-    }
-
-    private func navCircleButton(icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.body.weight(.medium))
-                .foregroundStyle(.colorTextPrimary)
-                .frame(width: Constant.navButtonSize, height: Constant.navButtonSize)
-                .glassEffect(.regular.interactive(), in: .circle)
-        }
-        .buttonStyle(.plain)
     }
 
     private var navTitleChip: some View {
@@ -129,8 +121,6 @@ struct InviteCodeOverlay: View {
             }
             .lineLimit(1)
         }
-        .padding(DesignConstants.Spacing.step2x)
-        .glassEffect(.regular.interactive(), in: .capsule)
         .accessibilityIdentifier("invite-nav-title-chip")
     }
 
@@ -152,9 +142,7 @@ struct InviteCodeOverlay: View {
     }
 
     private enum Constant {
-        static let navHeight: CGFloat = 44.0
-        static let navButtonSize: CGFloat = 44.0
-        static let navAvatarSize: CGFloat = 36.0
+        static let navAvatarSize: CGFloat = 28.0
     }
 }
 
