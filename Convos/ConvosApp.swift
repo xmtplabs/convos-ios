@@ -174,10 +174,27 @@ struct ConvosApp: App {
             profileViewModel.bind(session: profileSession)
         }
 
-        let metricsSession = convos.session
+        Self.startMetricsIdentification(
+            session: convos.session,
+            environment: environment,
+            coreMetrics: coreMetrics,
+            metricsDelegate: metricsDelegate
+        )
+
+        Self.configureTabBarItemColors()
+    }
+
+    /// Identifies the metrics stack once the inbox is ready and streams
+    /// user properties into it; runs entirely off the launch path.
+    private static func startMetricsIdentification(
+        session: any SessionManagerProtocol,
+        environment: AppEnvironment,
+        coreMetrics: CoreMetrics,
+        metricsDelegate: PostHogCollector
+    ) {
         Task {
             do {
-                let messagingService = metricsSession.messagingService()
+                let messagingService = session.messagingService()
                 let inboxReady = try await messagingService.sessionStateManager.waitForInboxReadyResult()
                 coreMetrics.identify(privateKey: Data(inboxReady.client.inboxId.utf8))
                 // The backend accountId (not the XMTP inbox id) lets product
@@ -188,7 +205,7 @@ struct ConvosApp: App {
                 let accountId = await DeviceIdentitySnapshot.current(identityStore: identityStore).accountId
                 let builder = UserPropertiesBuilder(
                     contactsRepository: messagingService.contactsRepository(),
-                    conversationsRepository: metricsSession.conversationsRepository(for: .all),
+                    conversationsRepository: session.conversationsRepository(for: .all),
                     accountId: accountId
                 )
                 metricsDelegate.userPropertiesCancellable = builder.publisher()
@@ -199,8 +216,6 @@ struct ConvosApp: App {
                 Log.warning("Metrics identify failed: \(error.localizedDescription)")
             }
         }
-
-        Self.configureTabBarItemColors()
     }
 
     /// Wires the live abilities service (mock/live selection happens per

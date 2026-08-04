@@ -23,6 +23,29 @@ struct AbilityBundleSelectionContext: Identifiable, Hashable {
     }
 }
 
+/// Sheet context for connecting an ability inline from the conversation
+/// abilities section: the tapped ability, the agent whose row started the
+/// flow, and how to continue once the connect succeeds. Mirrors
+/// `AbilityBundleSelectionContext`'s shape for the sibling sheet.
+struct ConversationAbilityConnectContext: Identifiable, Hashable {
+    let ability: AbilitiesAPI.Ability
+    let agent: ConversationAgentDescriptor
+    /// True when a successful connect flows straight into extending the
+    /// ability to the agent (the toggle-on path). False when an opt-in
+    /// already exists and only the entitlement needed repair -- the opt-in
+    /// and its bundle selection already stand and must not be overwritten.
+    let continuesToExtension: Bool
+    /// Bundles already chosen before a connect interrupted an extension
+    /// (the extend call bounced with `needsEntitlement`); nil derives the
+    /// selection after connect instead (bundle picker for multi-bundle
+    /// abilities, manifest defaults otherwise).
+    let preselectedBundleIds: [String]?
+
+    var id: ConversationAbilityKey {
+        ConversationAbilityKey(abilityId: ability.id, agentInboxId: agent.inboxId)
+    }
+}
+
 @MainActor @Observable
 final class ConversationAbilitiesViewModel {
     /// One toggle: an ability crossed with one agent. Single-agent
@@ -63,9 +86,14 @@ final class ConversationAbilitiesViewModel {
     private(set) var errorMessage: String?
     /// Non-nil presents the bundle picker sheet.
     var bundleSelection: AbilityBundleSelectionContext?
-    /// Non-nil presents the abilities list sheet: the tapped ability has no
-    /// active entitlement, so the user connects or reconnects it there.
-    var needsEntitlementAbility: AbilitiesAPI.Ability?
+    /// Non-nil presents the inline connect sheet: the tapped ability has no
+    /// active entitlement, so the user connects (or reconnects) it right
+    /// here instead of detouring through App Settings.
+    var connectContext: ConversationAbilityConnectContext?
+    /// Parked continuation for a connect that succeeded: the connect sheet
+    /// finishes dismissing first, then `handleConnectSheetDismissed` flows
+    /// into the extension, so the bundle picker never races the dismissal.
+    private var pendingExtensionAfterConnect: ConversationAbilityConnectContext?
 
     private var catalog: AbilitiesCatalog?
     private var optIns: [ConversationAbility] = []
@@ -124,9 +152,78 @@ final class ConversationAbilitiesViewModel {
                 requestExtension(for: row)
             }
         case .needsAttention, .needsEntitlement:
-            needsEntitlementAbility = row.ability
+            presentConnect(for: row)
         case .unknown:
             break
+        }
+    }
+
+    /// Presents the inline connect sheet for a row without a usable
+    /// entitlement. Rows not yet opted in continue into the extension after
+    /// a successful connect; already-opted-in rows (needs-attention) only
+    /// repair the entitlement, since their opt-in and bundle selection
+    /// already stand.
+    func presentConnect(for row: Row) {
+        connectContext = ConversationAbilityConnectContext(
+            ability: row.ability,
+            agent: row.agent,
+            continuesToExtension: !row.isOn,
+            preselectedBundleIds: nil
+        )
+    }
+
+    /// The connect sheet reports the entitlement went active. Park the
+    /// continuation with the refreshed ability (the pre-connect copy still
+    /// carries the stale entitlement) and dismiss the sheet;
+    /// `handleConnectSheetDismissed` picks the continuation up.
+    func handleConnected(_ refreshedAbility: AbilitiesAPI.Ability) {
+        guard let context = connectContext else { return }
+        if context.continuesToExtension {
+            pendingExtensionAfterConnect = ConversationAbilityConnectContext(
+                ability: refreshedAbility,
+                agent: context.agent,
+                continuesToExtension: true,
+                preselectedBundleIds: context.preselectedBundleIds
+            )
+        }
+        connectContext = nil
+    }
+
+    /// Runs on every dismissal of the connect sheet. A parked continuation
+    /// means the connect succeeded: flow into the extension. Anything else
+    /// (cancel, swipe-down, failure) just refreshes -- the toggle was never
+    /// optimistically flipped, so it reads off again by construction.
+    func handleConnectSheetDismissed() {
+        if let pending = pendingExtensionAfterConnect {
+            pendingExtensionAfterConnect = nil
+            continueExtensionAfterConnect(pending)
+        } else {
+            refreshSoon()
+        }
+    }
+
+    private func continueExtensionAfterConnect(_ context: ConversationAbilityConnectContext) {
+        let ability = context.ability
+        guard ability.entitlement?.status == .active else {
+            refreshSoon()
+            return
+        }
+        if let bundleIds = context.preselectedBundleIds {
+            extend(ability: ability, agent: context.agent, bundleIds: bundleIds)
+            return
+        }
+        guard !ability.bundles.isEmpty else {
+            errorMessage = LiveAbilitiesServiceError.noBundlesSelected(abilityId: ability.id).localizedDescription
+            refreshSoon()
+            return
+        }
+        if ability.bundles.count > 1 {
+            // Refresh beneath the picker so the rows already show the
+            // now-active entitlement while the user chooses bundles.
+            refreshSoon()
+            bundleSelection = AbilityBundleSelectionContext(ability: ability, agent: context.agent)
+        } else {
+            extend(ability: ability, agent: context.agent, bundleIds: defaultBundleIds(for: ability))
         }
     }
 
@@ -146,7 +243,15 @@ final class ConversationAbilitiesViewModel {
                     bundleIds: bundleIds
                 )
             } catch AbilitiesServiceError.needsEntitlement {
-                needsEntitlementAbility = ability
+                // The server says the entitlement is gone mid-extend: run
+                // the connect inline and retry with the bundles the user
+                // already chose, instead of re-opening the picker.
+                connectContext = ConversationAbilityConnectContext(
+                    ability: ability,
+                    agent: agent,
+                    continuesToExtension: true,
+                    preselectedBundleIds: bundleIds
+                )
             } catch {
                 mutationError = error.localizedDescription
             }
@@ -160,16 +265,15 @@ final class ConversationAbilitiesViewModel {
         }
     }
 
-    /// The selection driving this conversation's rows. The
-    /// needs-entitlement deep link hands the whole pair to
-    /// `AbilitiesListScreen` so a connect there is visible here after
-    /// dismissal, and the sheet's authorizer always matches this service.
+    /// The selection driving this conversation's rows. The connect sheet
+    /// receives the whole pair, so a connect there mutates the same service
+    /// these rows read and its authorizer always matches this service.
     var abilitiesSelection: AbilitiesSelection { selection }
 
     private func requestExtension(for row: Row) {
         let ability = row.ability
         guard ability.entitlement?.status == .active else {
-            needsEntitlementAbility = ability
+            presentConnect(for: row)
             return
         }
         guard !ability.bundles.isEmpty else {
