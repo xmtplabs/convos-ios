@@ -165,6 +165,31 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         clientConversationId: String? = nil
     ) async throws {
+        // A newly created group is processed by both the creating
+        // ConversationStateMachine and SyncingManager's conversation stream
+        // (each with its own StreamProcessor), so coalesce process-wide: the
+        // second caller awaits the in-flight sync instead of duplicating it.
+        // nonisolated(unsafe) because XMTP types are not Sendable; the group
+        // handle is only used by whichever caller wins the single-flight slot.
+        nonisolated(unsafe) let conversation = conversation
+        try await ConversationSyncSingleFlight.shared.run(
+            conversationId: conversation.id,
+            clientConversationId: clientConversationId
+        ) { [weak self] in
+            guard let self else { return }
+            try await self.runConversationSync(
+                conversation,
+                params: params,
+                clientConversationId: clientConversationId
+            )
+        }
+    }
+
+    private func runConversationSync(
+        _ conversation: XMTPiOS.Group,
+        params: SyncClientParams,
+        clientConversationId: String?
+    ) async throws {
         let decision = try await decideInboundConversation(conversation, params: params)
         switch decision {
         case .reject:
@@ -185,13 +210,10 @@ actor StreamProcessor: StreamProcessorProtocol {
     ) async throws {
         let creatorInboxId = try await conversation.creatorInboxId()
         if creatorInboxId == params.client.inboxId {
-            // we created the conversation, update permissions, set inviteTag, and generate encryption key
-            try await conversation.ensureInviteTag()
-            do {
-                try await conversation.ensureImageEncryptionKey()
-            } catch {
-                Log.warning("Failed to generate image encryption key: \(error). Will retry on first image upload.")
-            }
+            // We created the conversation: seed invite tag, image encryption
+            // key, and (when the creation flow supplies its seed) the emoji
+            // in a single metadata commit, then update permissions.
+            try await conversation.ensureCreatorMetadata(emojiSeed: clientConversationId)
             let permissions = try conversation.permissionPolicySet()
             if permissions.addMemberPolicy != .allow && permissions.addMemberPolicy != .deny {
                 try await conversation.updateAddMemberPermission(newPermissionOption: .allow)
@@ -199,6 +221,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
 
         let perfStart = CFAbsoluteTimeGetCurrent()
+        let backgroundTransitionsBefore = AppBackgroundTransitionCounter.shared.count
         Log.info("Syncing conversation: \(conversation.id)")
         let storedConversation = try await conversationWriter.storeWithLatestMessages(
             conversation: conversation,
@@ -206,7 +229,11 @@ actor StreamProcessor: StreamProcessorProtocol {
             clientConversationId: clientConversationId
         )
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
-        Log.info("[PERF] conversation.sync: \(perfElapsed)ms id=\(conversation.id)")
+        // Wall clock keeps running across an iOS suspension, so flag samples
+        // that spanned one; they measure the suspension, not the sync.
+        let spannedBackground = AppBackgroundTransitionCounter.shared.count != backgroundTransitionsBefore
+        let backgroundSuffix = spannedBackground ? " spannedBackground=true" : ""
+        Log.info("[PERF] conversation.sync: \(perfElapsed)ms id=\(conversation.id)\(backgroundSuffix)")
 
         // The user deleted this conversation while its invite was still
         // verifying -- it arrived denied and stays hidden, so skip the

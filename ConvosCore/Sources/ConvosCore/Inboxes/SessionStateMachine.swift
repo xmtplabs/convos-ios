@@ -955,10 +955,16 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
     private func handleEnterBackground(result: InboxReadyResult) async throws {
         Log.info("App entering background, pausing sync for clientId \(initialClientId)...")
+        AppBackgroundTransitionCounter.shared.record()
 
         await stopNetworkMonitoring()
         stopRevocationObserver()
         await syncingManager?.pause()
+
+        // Give in-flight conversation syncs (the creation flow's state
+        // machine runs outside the paused streams) a bounded window to
+        // finish before the SQLCipher connection drops out from under them.
+        await ConversationSyncSingleFlight.shared.waitForInFlight()
 
         try result.client.dropLocalDatabaseConnection()
 

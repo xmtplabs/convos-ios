@@ -461,13 +461,10 @@ public actor ConversationStateMachine {
         // Publish the conversation
         try await optimisticConversation.publish()
 
-        do {
-            if let group = optimisticConversation as? XMTPiOS.Group {
-                _ = try await group.ensureConversationEmoji(seed: clientConversationId)
-            }
-        } catch {
-            Log.warning("Failed to seed conversation emoji for new conversation: \(error)")
-        }
+        // The emoji is seeded by processConversation below, which passes
+        // clientConversationId as the emoji seed into the creator-metadata
+        // commit - one commit for emoji + invite tag + image encryption key
+        // instead of one commit per field.
 
         // Process the conversation in case the syncing manager
         // has not finished starting the streams, or the streams closed
