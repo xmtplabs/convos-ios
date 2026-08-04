@@ -1024,7 +1024,8 @@ private extension LightweightConversationDetails {
             isLocked: conversation.isLocked,
             agentJoinStatus: nil,
             hasHadVerifiedAgent: conversation.hasHadVerifiedAgent,
-            wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil
+            wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil,
+            isAgentDm: conversation.isAgentDm
         )
     }
 }

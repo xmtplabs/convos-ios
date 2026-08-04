@@ -56,7 +56,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     let databaseWriter: any DatabaseWriter
     let databaseReader: any DatabaseReader
+    // Internal so same-module session services (e.g. the agent-DM reconciler
+    // accessor) can gate on the environment without touching the global
+    // ConfigManager, which traps when unconfigured (unit tests).
     let environment: AppEnvironment
+    // Internal (not private): the account-deletion teardown extension
+    // (SessionManager+AccountDeletion.swift) lives in a separate file of this
+    // module and needs the store to bind deletion records to identities.
     let identityStore: any KeychainIdentityStoreProtocol
     private let coreActions: any CoreActions
     private var initializationTask: Task<Void, Never>?
@@ -189,15 +195,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             await self.bootstrapCapabilityProviders()
             guard !Task.isCancelled else { return }
 
-            // Kick off the AgentBuilder grant replayer after the capability
-            // providers have bootstrapped — it relies on the cloud-connection
-            // and enablement stores being ready to query.
-            _ = self.agentBuilderConnectionGrantReplayer()
-
-            // Replay any builder brief whose send a previous process died
-            // holding (the agent-join hold can last 150s; see
-            // UnsentBuilderBriefReplayer).
-            _ = self.unsentBuilderBriefReplayer()
+            // Kick off the session-scoped services after the capability
+            // providers have bootstrapped (the grant replayer relies on the
+            // cloud-connection and enablement stores being ready to query):
+            // the AgentBuilder grant replayer, the unsent-brief replayer
+            // (re-sends briefs a previous process died holding), and the
+            // agent-DM reconciler (ensures a DM exists for every verified
+            // agent as soon as it appears; non-production only).
+            _ = (self.agentBuilderConnectionGrantReplayer(), self.unsentBuilderBriefReplayer(), self.agentDmReconciler())
 
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
@@ -649,7 +654,19 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
     }
 
+    // Internal (not private): also entered by the account-deletion teardown
+    // resequencing in SessionManager+AccountDeletion.swift (separate file).
     func tearDownInbox() async throws {
+        // Cancel initialization first: if teardown lands before the session
+        // start block reached the service kicks, the reconciler would
+        // otherwise be created (and start creating conversations) after the
+        // wipe below.
+        initializationTask?.cancel()
+        initializationTask = nil
+        // Stop the agent-DM reconciler before rows are wiped: an in-flight
+        // create finishing after teardown would re-insert conversation state.
+        stopAgentDmReconciler()
+
         // Cancel the launch-time bootstrap and the freshly-built profile-services
         // task first so neither can rebuild - and re-register - an inbox after the
         // wipe below clears the keychain and the cached service.
@@ -907,6 +924,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// Session-wide unsent-brief replayer (one-shot scan at session start).
     /// Constructed by the accessor in `SessionManager+UnsentBriefReplayer.swift`.
     let unsentBriefReplayerLock: OSAllocatedUnfairLock<UnsentBuilderBriefReplayer?> = .init(initialState: nil)
+
+    /// Session-wide agent-DM reconciler (observes membership; creates a DM per
+    /// verified agent). Constructed in `SessionManager+AgentDmReconciler.swift`.
+    let agentDmReconcilerLock: OSAllocatedUnfairLock<AgentDmReconciler?> = .init(initialState: nil)
 
     public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
         capabilityRegistryLock.withLock { registry in

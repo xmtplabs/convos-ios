@@ -174,15 +174,41 @@ struct ConvosApp: App {
             profileViewModel.bind(session: profileSession)
         }
 
-        let metricsSession = convos.session
+        Self.startMetricsIdentification(
+            session: convos.session,
+            coreMetrics: coreMetrics,
+            metricsDelegate: metricsDelegate,
+            environment: environment
+        )
+
+        Self.configureTabBarItemColors()
+    }
+
+    /// Identifies the analytics session once the inbox is ready and wires
+    /// the user-properties stream. Extracted from `init` so the wiring
+    /// reads as one unit and the initializer stays within lint's
+    /// function-body budget.
+    private static func startMetricsIdentification(
+        session metricsSession: any SessionManagerProtocol,
+        coreMetrics: CoreMetrics,
+        metricsDelegate: PostHogCollector,
+        environment: AppEnvironment
+    ) {
         Task {
             do {
                 let messagingService = metricsSession.messagingService()
                 let inboxReady = try await messagingService.sessionStateManager.waitForInboxReadyResult()
                 coreMetrics.identify(privateKey: Data(inboxReady.client.inboxId.utf8))
+                // The backend accountId (not the XMTP inbox id) lets product
+                // analytics cross-link to backend records. Backend SIWE auth
+                // caches it in the keychain before the session reaches inbox
+                // ready, so this network-free keychain read has it by now.
+                let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
+                let accountId = await DeviceIdentitySnapshot.current(identityStore: identityStore).accountId
                 let builder = UserPropertiesBuilder(
                     contactsRepository: messagingService.contactsRepository(),
-                    conversationsRepository: metricsSession.conversationsRepository(for: .all)
+                    conversationsRepository: metricsSession.conversationsRepository(for: .all),
+                    accountId: accountId
                 )
                 metricsDelegate.userPropertiesCancellable = builder.publisher()
                     .sink { properties in
@@ -192,8 +218,6 @@ struct ConvosApp: App {
                 Log.warning("Metrics identify failed: \(error.localizedDescription)")
             }
         }
-
-        Self.configureTabBarItemColors()
     }
 
     /// Registers the app-layer account-deletion wipe steps. These cover

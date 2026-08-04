@@ -1131,7 +1131,7 @@ struct ShareComposeView: View {
                 contextMenuState: contextMenuState,
                 onPhotoDimensionsLoaded: { _, _, _ in },
                 onAgentOutOfCredits: {},
-                creditsDepleted: false,
+                agentPowerDepletedByInboxId: [:],
                 onTapUpdateMember: { _ in },
                 onRetryMessage: { _ in },
                 onDeleteMessage: { _ in },

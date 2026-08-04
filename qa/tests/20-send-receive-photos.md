@@ -24,7 +24,7 @@ Verify end-to-end photo messaging: sending a photo from the app, receiving a pho
 
 ### Send a photo from the app
 
-5. Tap the photo library button (accessibility identifier: `photo-picker-button`). The system PhotosPicker should appear.
+5. Tap the `+` inside the input field (`attachments-button`) to open the attachments menu, then tap "Photos" (`attachment-photos-button`). The system PhotosPicker should appear.
 6. If this is the first time sending a photo, a "Pics are personal" education sheet will appear after selecting a photo. It has a "Got it" button — tap it to dismiss. This sheet only appears once per install.
 7. Select any photo from the picker by tapping a thumbnail.
 8. Verify the attachment preview appears in the composer area (accessibility identifier: `attachment-preview-image`).

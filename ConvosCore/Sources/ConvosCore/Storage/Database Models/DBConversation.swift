@@ -50,6 +50,9 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let imageLastRenewed: Column = Column(CodingKeys.imageLastRenewed)
         static let isUnused: Column = Column(CodingKeys.isUnused)
         static let hasHadVerifiedAgent: Column = Column(CodingKeys.hasHadVerifiedAgent)
+        static let isAgentDm: Column = Column(CodingKeys.isAgentDm)
+        static let addedById: Column = Column(CodingKeys.addedById)
+        static let adderStatus: Column = Column(CodingKeys.adderStatus)
     }
 
     let id: String
@@ -74,6 +77,22 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let imageLastRenewed: Date?
     let isUnused: Bool
     let hasHadVerifiedAgent: Bool
+    let isAgentDm: Bool
+    /// Storage for `adder` - read that instead, and set it through `init`.
+    /// The pair is kept consistent by a CHECK constraint: `addedById` is
+    /// non-null exactly when `adderStatus` is `resolved`.
+    let addedById: String?
+    let adderStatus: AdderStatus
+
+    /// The inbox that added the local user, which is *not* necessarily
+    /// `creatorId` - anyone with add permission can pull a member into a group
+    /// somebody else created. Persisted so the passes that run long after the
+    /// welcome (`ConversationConsentReconciler`, the block demote in
+    /// `ContactsWriter`) key on the same identity `StreamProcessor` used when
+    /// it decided whether to consent on the user's behalf.
+    var adder: AdderResolution {
+        .init(status: adderStatus, addedById: addedById)
+    }
 
     init(
         id: String,
@@ -97,7 +116,9 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         conversationEmoji: String?,
         imageLastRenewed: Date?,
         isUnused: Bool,
-        hasHadVerifiedAgent: Bool
+        hasHadVerifiedAgent: Bool,
+        isAgentDm: Bool = false,
+        adder: AdderResolution = .notRecorded
     ) {
         self.id = id
         self.clientConversationId = clientConversationId
@@ -121,6 +142,9 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.imageLastRenewed = imageLastRenewed
         self.isUnused = isUnused
         self.hasHadVerifiedAgent = hasHadVerifiedAgent
+        self.isAgentDm = isAgentDm
+        self.addedById = adder.knownInboxId
+        self.adderStatus = adder.status
     }
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
@@ -186,20 +210,20 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         using: ForeignKey([Columns.id], to: [DBMessage.Columns.conversationId])
     ).order(DBMessage.Columns.dateNs.desc)
 
-    static let lastMessageRequest: QueryInterfaceRequest<DBMessage> = DBMessage
-        .filter(DBMessage.Columns.contentType != MessageContentType.update.rawValue)
-        .filter(DBMessage.Columns.contentType != MessageContentType.assistantJoinRequest.rawValue)
-        .filter(DBMessage.Columns.contentType != MessageContentType.connectionGrantRequest.rawValue)
-        .filter(DBMessage.Columns.contentType != MessageContentType.connectionInvocation.rawValue)
-        .filter(DBMessage.Columns.contentType != MessageContentType.connectionInvocationResult.rawValue)
-        .filter(DBMessage.Columns.contentType != MessageContentType.connectionPayload.rawValue)
-        .annotated { max($0.dateNs) }
-        .group(\.conversationId)
-
+    /// Newest preview-eligible message per conversation, resolved through the
+    /// denormalized `conversation.lastMessageId` pointer. The pointer is
+    /// maintained by the `conversation_pointer_*` database triggers (see
+    /// `SharedDatabaseMigrator.addConversationLastMessagePointers`), which
+    /// also own the excluded-content-type list, so this read needs no
+    /// filtering and costs one primary-key lookup per conversation.
     nonisolated(unsafe) static let lastMessageCTE: CommonTableExpression<DBMessage> = CommonTableExpression<DBMessage>(
         named: "conversationLastMessage",
-        request: lastMessageRequest
-    )
+        sql: """
+            SELECT m.*
+            FROM conversation c
+            JOIN message m ON m.id = c.lastMessageId
+            """
+        )
 
     /// The text columns are capped with substr so a pathological message
     /// body (XMTP allows just under 1MB, roughly 250 SQLite overflow pages
@@ -207,6 +231,11 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     /// message through the page cache on each list read. 4096 characters
     /// covers the longest preview and the ConnectionEventSummary JSON that
     /// `hydrateMessagePreview` decodes out of `text`.
+    ///
+    /// Rows come from the `conversation.lastMessageId` pointer (see
+    /// `lastMessageCTE`), so materializing this CTE is one primary-key
+    /// lookup per conversation regardless of message volume, and eligibility
+    /// filtering already happened at write time in the pointer triggers.
     nonisolated(unsafe) static let lastMessageWithSourceCTE: CommonTableExpression<DBLastMessageWithSource> =
         CommonTableExpression<DBLastMessageWithSource>(
             named: "conversationLastMessageWithSource",
@@ -217,50 +246,23 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                     substr(m.text, 1, 4096) as text,
                     m.emoji, m.invite, m.linkPreview, m.sourceMessageId, m.attachmentUrls,
                     substr(src.text, 1, 4096) as sourceMessageText
-                FROM message m
+                FROM conversation c
+                JOIN message m ON m.id = c.lastMessageId
                 LEFT JOIN message src ON m.sourceMessageId = src.id
-                WHERE m.contentType NOT IN (?, ?, ?, ?, ?, ?)
-                AND m.dateNs = (
-                    SELECT MAX(m2.dateNs)
-                    FROM message m2
-                    WHERE m2.conversationId = m.conversationId
-                    AND m2.contentType NOT IN (?, ?, ?, ?, ?, ?)
-                )
-                """,
-            arguments: [
-                MessageContentType.update.rawValue,
-                MessageContentType.assistantJoinRequest.rawValue,
-                MessageContentType.connectionGrantRequest.rawValue,
-                MessageContentType.connectionInvocation.rawValue,
-                MessageContentType.connectionInvocationResult.rawValue,
-                MessageContentType.connectionPayload.rawValue,
-                MessageContentType.update.rawValue,
-                MessageContentType.assistantJoinRequest.rawValue,
-                MessageContentType.connectionGrantRequest.rawValue,
-                MessageContentType.connectionInvocation.rawValue,
-                MessageContentType.connectionInvocationResult.rawValue,
-                MessageContentType.connectionPayload.rawValue,
-            ]
+                """
         )
 
+    /// Newest agent join request per conversation, resolved through the
+    /// denormalized `conversation.lastAgentJoinRequestId` pointer maintained
+    /// by the same trigger set as `lastMessageCTE`.
     nonisolated(unsafe) static let latestAgentJoinRequestCTE: CommonTableExpression<DBAgentJoinRequest> =
         CommonTableExpression<DBAgentJoinRequest>(
             named: "conversationAgentJoinRequest",
             sql: """
                 SELECT m.conversationId, m.text AS status, m.date
-                FROM message m
-                WHERE m.contentType = ?
-                AND m.dateNs = (
-                    SELECT MAX(m2.dateNs)
-                    FROM message m2
-                    WHERE m2.conversationId = m.conversationId
-                    AND m2.contentType = ?
-                )
-                """,
-            arguments: [
-                MessageContentType.assistantJoinRequest.rawValue,
-                MessageContentType.assistantJoinRequest.rawValue,
-            ]
+                FROM conversation c
+                JOIN message m ON m.id = c.lastAgentJoinRequestId
+                """
         )
 
     static let localState: HasOneAssociation<DBConversation, ConversationLocalState> = hasOne(
@@ -326,7 +328,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -353,7 +357,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -380,7 +386,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -407,7 +415,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -434,7 +444,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -463,7 +475,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -490,7 +504,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -517,7 +533,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -544,7 +562,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -571,7 +591,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -598,7 +620,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -625,7 +649,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -652,7 +678,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -679,7 +707,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -706,7 +736,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -733,7 +765,9 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -760,7 +794,37 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm
+        )
+    }
+
+    func with(isAgentDm: Bool) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 
@@ -787,7 +851,38 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
+        )
+    }
+
+    func with(adder: AdderResolution) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            adder: adder
         )
     }
 

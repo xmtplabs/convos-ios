@@ -108,6 +108,56 @@ final class PaywallViewModelTests: XCTestCase {
         XCTAssertEqual(callbackCount, 1)
         XCTAssertFalse(viewModel.isShowingAlert, "Success path must not show an error alert")
     }
+
+    // MARK: - Sync-state surfacing (state -> copy mapping)
+
+    func testSyncNotice_needsAttention_mapsToAttentionCopy() {
+        let service: MockSubscriptionService = MockSubscriptionService(initialPreset: .plusAmple)
+        service.setSyncState(.needsAttention)
+        let viewModel: PaywallViewModel = PaywallViewModel(subscriptionService: service, paywallSource: .debug)
+
+        XCTAssertEqual(viewModel.syncNotice, SubscriptionCopy.syncNeedsAttentionNotice)
+        XCTAssertFalse(
+            viewModel.showsActivatingInsteadOfCTA,
+            "needsAttention surfaces a notice but must not swap the CTA area for the activating spinner"
+        )
+    }
+
+    func testSyncNotice_syncingWhileUnsubscribed_replacesSubscribeCTA() {
+        let service: MockSubscriptionService = MockSubscriptionService(initialPreset: .noSubNoTrial)
+        service.setSyncState(.syncing)
+        let viewModel: PaywallViewModel = PaywallViewModel(subscriptionService: service, paywallSource: .debug)
+
+        XCTAssertEqual(viewModel.syncNotice, SubscriptionCopy.syncActivatingNotice)
+        XCTAssertTrue(
+            viewModel.showsActivatingInsteadOfCTA,
+            "An entitlement awaiting backend confirmation must not be pitched the subscribe CTA"
+        )
+    }
+
+    func testSyncNotice_syncingWhileSubscribed_keepsManageCTA() {
+        let service: MockSubscriptionService = MockSubscriptionService(initialPreset: .plusAmple)
+        service.setSyncState(.syncing)
+        let viewModel: PaywallViewModel = PaywallViewModel(subscriptionService: service, paywallSource: .debug)
+
+        XCTAssertEqual(viewModel.syncNotice, SubscriptionCopy.syncActivatingNotice)
+        XCTAssertFalse(
+            viewModel.showsActivatingInsteadOfCTA,
+            "A subscribed render keeps the manage button; the activating copy rides the footer line instead"
+        )
+    }
+
+    func testSyncNotice_confirmedAndIdle_surfaceNothing() {
+        let confirmed: MockSubscriptionService = MockSubscriptionService(initialPreset: .plusAmple)
+        let confirmedViewModel: PaywallViewModel = PaywallViewModel(subscriptionService: confirmed, paywallSource: .debug)
+        XCTAssertNil(confirmedViewModel.syncNotice)
+        XCTAssertFalse(confirmedViewModel.showsActivatingInsteadOfCTA)
+
+        let idle: MockSubscriptionService = MockSubscriptionService(initialPreset: .noSubNoTrial)
+        let idleViewModel: PaywallViewModel = PaywallViewModel(subscriptionService: idle, paywallSource: .debug)
+        XCTAssertNil(idleViewModel.syncNotice)
+        XCTAssertFalse(idleViewModel.showsActivatingInsteadOfCTA)
+    }
 }
 
 // MARK: - Fakes
@@ -129,6 +179,10 @@ private final class SlowAvailableProductsService: SubscriptionServiceProtocol, @
         Just<UserSubscription?>(nil).eraseToAnyPublisher()
     }
     var currentSubscription: UserSubscription? { nil }
+    var syncStatePublisher: AnyPublisher<SubscriptionSyncState, Never> {
+        Just(.idle).eraseToAnyPublisher()
+    }
+    var currentSyncState: SubscriptionSyncState { .idle }
 
     func availableProducts() async throws -> [PaywallProduct] {
         countQueue.sync { _availableProductsCallCount += 1 }
@@ -154,6 +208,10 @@ private final class StubSubscriptionService: SubscriptionServiceProtocol, @unche
         Just<UserSubscription?>(nil).eraseToAnyPublisher()
     }
     var currentSubscription: UserSubscription? { nil }
+    var syncStatePublisher: AnyPublisher<SubscriptionSyncState, Never> {
+        Just(.idle).eraseToAnyPublisher()
+    }
+    var currentSyncState: SubscriptionSyncState { .idle }
 
     func availableProducts() async throws -> [PaywallProduct] { [] }
 

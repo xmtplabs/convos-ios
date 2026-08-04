@@ -7,7 +7,6 @@ struct ConversationMemberView: View {
     let member: ConversationMember
 
     @State private var presentingBlockConfirmation: Bool = false
-    @State private var creditsBalance: CreditBalance? = CreditsServices.shared.currentBalance
     @State private var presentingPaywall: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.openURL) private var openURL: OpenURLAction
@@ -25,14 +24,11 @@ struct ConversationMemberView: View {
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
-        .onReceive(CreditsServices.shared.balancePublisher) { newBalance in
-            creditsBalance = newBalance
-        }
         .task {
-            // Refresh credits when the contact sheet appears so the
-            // "out of credits" section + upgrade CTA reflect current
-            // backend state. TTL-debounced inside the service.
-            await CreditsServices.shared.refresh()
+            // Re-read the backend's owner-computed per-agent power signal when
+            // the contact sheet appears, so the "No power" section reflects
+            // current backend state (never the viewer's wallet).
+            await viewModel.refreshAgentPowerStatus()
         }
         .sheet(isPresented: $presentingPaywall) {
             let paywallViewModel = PaywallViewModel(
@@ -60,23 +56,30 @@ struct ConversationMemberView: View {
         if shouldShowOutOfCredits {
             Section {
                 outOfCreditsRow
-                upgradeButton
+                if showsUpgradeCTA {
+                    upgradeButton
+                }
             }
             .listRowBackground(Color.colorBackgroundRaised)
         }
     }
 
     private var shouldShowOutOfCredits: Bool {
-        // `creditsBalance.isDepleted` is the LOCAL viewer's wallet, so this
-        // "No power" row is only correct for agents the viewer OWNS. On a
-        // non-owned agent's card it would wrongly attribute depletion to that
-        // agent. Gate on ownership (same fix as the in-stream cell); non-owners
-        // see nothing until a backend per-agent power signal exists.
-        guard member.isAgent,
-              viewModel.conversation.creator.isCurrentUser,
-              !ConfigManager.shared.currentEnvironment.isProduction,
-              let creditsBalance else { return false }
-        return creditsBalance.isDepleted
+        // Bound to the backend's owner-computed `agentPowerDepleted` for THIS
+        // agent (matched by inboxId) — the same fact for every member, so it
+        // shows to everyone. A missing entry is unknown (old backend, or an
+        // agent the backend has no bookkeeping for) and shows nothing. The
+        // viewer's own wallet is never consulted — a zero-balance viewer must
+        // see a funded owner's agent as working.
+        guard member.isAgent else { return false }
+        return viewModel.agentPowerDepletedByInboxId[member.profile.inboxId] == true
+    }
+
+    private var showsUpgradeCTA: Bool {
+        // The backend doesn't expose agent ownership, so conversation
+        // creatorship is the closest proxy for "the viewer is who tops this
+        // agent up". CTA only — the row above shows for everyone.
+        viewModel.conversation.creator.isCurrentUser
     }
 
     @ViewBuilder
@@ -89,7 +92,7 @@ struct ConversationMemberView: View {
                 Text("No power")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
-                Text("Your agents are in read-only mode until power is restored.")
+                Text("\(member.profile.displayName) is in read-only mode until power is restored.")
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)

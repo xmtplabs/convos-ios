@@ -75,5 +75,19 @@ struct SelfProfileStoreTests {
         try await store.clear()
         let scopedAfterClear = try await store.scopedMetadata(inboxId: "me", conversationId: "convo-a")
         #expect(scopedAfterClear == nil)
+
+        // update(edit:) starts from a blank row when none exists.
+        let created = try await store.update(SelfProfileEdit(name: .set("Fresh")), updatedAt: t)
+        #expect(created.name == "Fresh")
+
+        // update(edit:) is an atomic read-apply-write: two concurrent edits to
+        // disjoint fields must both land (a snapshot-based read-modify-write
+        // would let one silently revert the other).
+        async let nameEdit = store.update(SelfProfileEdit(name: .set("Renamed")), updatedAt: t)
+        async let metadataEdit = store.update(SelfProfileEdit(metadata: .set(["k": .string("v")])), updatedAt: t)
+        _ = try await (nameEdit, metadataEdit)
+        let afterConcurrent = try await store.load()
+        #expect(afterConcurrent?.name == "Renamed")
+        #expect(afterConcurrent?.metadata?["k"] == .string("v"))
     }
 }

@@ -1,9 +1,18 @@
 import Combine
 import Foundation
 
+public enum SubscriptionSyncState: Equatable, Sendable {
+    case idle
+    case syncing
+    case confirmed
+    case needsAttention
+}
+
 public protocol SubscriptionServiceProtocol: AnyObject, Sendable {
     var subscriptionPublisher: AnyPublisher<UserSubscription?, Never> { get }
     var currentSubscription: UserSubscription? { get }
+    var syncStatePublisher: AnyPublisher<SubscriptionSyncState, Never> { get }
+    nonisolated var currentSyncState: SubscriptionSyncState { get }
 
     func availableProducts() async throws -> [PaywallProduct]
     func purchase(productId: String) async throws

@@ -34,7 +34,7 @@
       "location" : "https://github.com/xmtplabs/convos-shared.git",
       "state" : {
         "branch" : "main",
-        "revision" : "8b5f741bb0368c1a4edea87f00c1ec0463b181bb"
+        "revision" : "da310944a7c7ec3aa40369a22951e114749e5474"
       }
     },
     {
@@ -159,8 +159,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/libxmtp.git",
       "state" : {
-        "branch" : "ios-4.11.0-nightly.20260723.35de1c0",
-        "revision" : "dd7e0dcce69027ee078a0b4c59d22da23925d16b"
+        "branch" : "ios-4.12.0-nightly.20260731.66944e2",
+        "revision" : "65c27c95d8ff29efa2ae24cf894a1b36e166a231"
       }
     },
     {

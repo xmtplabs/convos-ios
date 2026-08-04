@@ -4,7 +4,8 @@ import Foundation
 /// repository calls these and persists the result. Combines two axes:
 ///
 /// - Precedence: a higher `ProfileSource` always wins; within the same source,
-///   the newer `sentAt` wins; a lower source only fills blanks.
+///   a strictly newer `sentAt` wins (equal time wins only for the local mirror
+///   tiers on identity - see `winsOver`); a lower source only fills blanks.
 /// - Guards: an empty/absent name never clears a populated one, a verified
 ///   assistant kind is never downgraded to generic `agent`, and the avatar is
 ///   tri-state (only `set`/`explicitClear` change a slot; `silent` leaves it).
@@ -59,7 +60,12 @@ enum ProfileMerge {
         }
 
         var result = existing
-        if winsOver(existingSource: existing.profileSource, existingUpdatedAt: existing.updatedAt, source: source, sentAt: sentAt) {
+        // Equal-time wins only for the local mirror tiers (see `winsOver`):
+        // backfill and app-data stamp a constant floor, so their re-runs must
+        // adopt changes; a wire event at an equal `sentAt` is a replay and
+        // must be inert.
+        let equalTimeWins = source == .contact || source == .appData
+        if winsOver(existingSource: existing.profileSource, existingUpdatedAt: existing.updatedAt, source: source, sentAt: sentAt, equalTimeWins: equalTimeWins) {
             result.name = nonBlank(incoming.name) ?? existing.name
             result.memberKind = preserveVerifiedKind(existing.memberKind, incoming.memberKind)
             // A winning event's non-nil non-empty map replaces the stored one
@@ -123,16 +129,39 @@ enum ProfileMerge {
             // than store an unencrypted slot or downgrade an existing encrypted
             // one to plaintext.
             guard let salt, let nonce, let key else {
+                Log.debug("ProfileMerge: ignoring avatar set missing crypto fields for \(inboxId) in \(conversationId)")
                 return existing
             }
             setFields = AvatarFields(url: url, salt: salt, nonce: nonce, key: key)
         }
 
+        // Wire tiers require a strictly newer event to replace at the same
+        // source: an equal `sentAt` is the same message re-applied (history
+        // catch-up replays every launch), and replay must be inert - a `>=`
+        // here rebuilt the slot each launch, wiping the asset-renewal stamp,
+        // and re-inserted dead URLs that `ExpiredAssetRecoveryHandler` had
+        // deliberately cleared.
+        //
+        // The mirror tiers (`.contact` backfill, `.appData`) stamp a constant
+        // floor, so for them an equal-time event is a mirror re-run that must
+        // adopt a changed legacy/app-data avatar - except onto a tombstone:
+        // recovery clears a dead URL in place (keeping `updatedAt`), and the
+        // mirror re-offering its still-dirty copy of that URL must not
+        // resurrect it every sync. A tombstoned mirror slot fills again only
+        // via a higher source (a real ProfileUpdate). An unchanged re-offer is
+        // still inert: the rebuilt row carries the renewal stamp and digest,
+        // so it equals the stored one and callers skip the write.
+        let mirrorTier = source == .contact || source == .appData
+        let equalTimeWins = mirrorTier && existing?.url != nil
         let wins = existing.map {
-            winsOver(existingSource: $0.profileSource, existingUpdatedAt: $0.updatedAt, source: source, sentAt: sentAt)
+            winsOver(existingSource: $0.profileSource, existingUpdatedAt: $0.updatedAt, source: source, sentAt: sentAt, equalTimeWins: equalTimeWins)
         } ?? true
 
         if wins {
+            // A re-set of the same URL is not a new asset: carry the renewal
+            // stamp and digest so recency churn can't mark a freshly renewed
+            // URL as never-renewed and re-trigger the renewal sweep.
+            let sameURL = setFields?.url == existing?.url
             return DBProfileAvatar(
                 inboxId: inboxId,
                 conversationId: conversationId,
@@ -141,7 +170,9 @@ enum ProfileMerge {
                 nonce: setFields?.nonce,
                 encryptionKey: setFields?.key,
                 profileSource: source,
-                updatedAt: sentAt
+                contentDigest: sameURL ? existing?.contentDigest : nil,
+                updatedAt: sentAt,
+                lastRenewed: sameURL ? existing?.lastRenewed : nil
             )
         }
 
@@ -154,13 +185,27 @@ enum ProfileMerge {
         return existing
     }
 
+    /// Precedence-and-recency: a higher source always wins; the same source
+    /// wins on a strictly newer `sentAt`. What an equal `sentAt` means depends
+    /// on the caller (`equalTimeWins`):
+    ///
+    /// - Identity merges let the local mirror tiers (`.contact` backfill,
+    ///   `.appData`) win on equal time. Those writers stamp a constant floor,
+    ///   so "equal" there means "the mirror re-ran" - and the mirror must adopt
+    ///   legacy/app-data changes rather than freeze its first value.
+    /// - Wire tiers and all avatar merges treat equal time as the same message
+    ///   replayed, which must be inert (see `mergeAvatar`).
     private static func winsOver(
         existingSource: ProfileSource,
         existingUpdatedAt: Date,
         source: ProfileSource,
-        sentAt: Date
+        sentAt: Date,
+        equalTimeWins: Bool
     ) -> Bool {
-        source > existingSource || (source == existingSource && sentAt >= existingUpdatedAt)
+        if source > existingSource { return true }
+        guard source == existingSource else { return false }
+        if sentAt > existingUpdatedAt { return true }
+        return equalTimeWins && sentAt == existingUpdatedAt
     }
 
     /// The fields an avatar `set` carries, extracted so `mergeAvatar` avoids a

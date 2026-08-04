@@ -438,6 +438,10 @@ xcodebuild build -scheme "Convos (Local)" -configuration Local
 xcodebuild clean -scheme "Convos (Local)" -configuration Local
 ```
 
+### Scripted and Worktree Builds
+- Use `-configuration Dev` for xcodebuild - the Debug configuration breaks NotificationService module resolution (see issues #843 and #1019)
+- Use a concrete arm64 simulator destination (e.g. `platform=iOS Simulator,name=iPhone 17`), not `generic/platform=iOS Simulator` - libxmtp ships no x86_64 slice
+
 ### Xcode Project Settings
 - Minimum iOS version: 26.0
 - Swift language mode: 5

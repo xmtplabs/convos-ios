@@ -23,6 +23,10 @@ public protocol ConversationsRepositoryProtocol {
     /// match exists.
     func findOneToOne(with inboxId: String, excluding excludedConversationId: String?) throws -> Conversation?
 
+    /// The user's agent DM with this inbox, if one exists (conversations
+    /// carrying the agent-DM marker only).
+    func findAgentDm(with inboxId: String) throws -> Conversation?
+
     /// Conversations that contain an agent provisioned from `templateId`,
     /// split by who added that agent: `addedByCurrentUser` when the agent
     /// member's `invitedBy` is one of the current user's inboxes, otherwise
@@ -81,6 +85,21 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
         }
     }
 
+    /// The user's DM with this agent, if one exists. Unlike `findOneToOne`
+    /// this only matches conversations carrying the agent-DM marker, so an
+    /// ordinary 2-member conversation with the agent (e.g. the builder
+    /// conversation the agent was made in) never shadows the DM.
+    func findAgentDm(with inboxId: String) throws -> Conversation? {
+        try dbReader.read { [consent] db in
+            try db.composeOneToOne(
+                with: inboxId,
+                excluding: nil,
+                consent: consent,
+                onlyAgentDms: true
+            )
+        }
+    }
+
     func conversationsPublisher(withAgentTemplateId templateId: String) -> AnyPublisher<AgentTemplateConversations, Never> {
         ValueObservation
             .tracking { [consent] db in
@@ -135,10 +154,53 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
+            // Agent DMs render as a page inside their origin conversation,
+            // never as their own row in the conversations list.
+            .filter(DBConversation.Columns.isAgentDm == false)
             .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
             .detailedConversationQuery()
             .fetchAll(self)
-        return try dbConversationDetails.composeConversations(from: self)
+        let conversations = try dbConversationDetails.composeConversations(from: self)
+        // Fold each group's separate agent DM into its row so the list can
+        // render a combined preview and a DM-aware unread indicator. Only
+        // groups with a verified-agent member resolve a DM; the extra
+        // `composeOneToOne` read runs inside this same `db` transaction so
+        // GRDB's ValueObservation tracks the DM and keeps the list reactive.
+        let folded = try conversations.map { (conversation: Conversation) -> Conversation in
+            guard let agentMember = conversation.members.first(where: { $0.isVerifiedAgent }) else {
+                return conversation
+            }
+            guard let dm = try composeOneToOne(
+                with: agentMember.profile.inboxId,
+                excluding: nil,
+                consent: consent,
+                onlyAgentDms: true
+            ) else {
+                return conversation
+            }
+            var row = conversation
+            row.agentDm = Conversation.AgentDmSummary(
+                inboxId: agentMember.profile.inboxId,
+                displayName: agentMember.displayName,
+                lastMessage: dm.lastMessage,
+                isUnread: dm.isUnread
+            )
+            return row
+        }
+        // The SQL order only knows each group's own messages; a reply in the
+        // folded DM lane must float the origin conversation just like a group
+        // message would. Re-sort in memory by the newer of the two lanes,
+        // keeping the SQL order for ties so rows without a DM are unaffected.
+        guard folded.contains(where: { $0.agentDm != nil }) else { return folded }
+        return folded
+            .enumerated()
+            .sorted { (lhs: EnumeratedSequence<[Conversation]>.Element, rhs: EnumeratedSequence<[Conversation]>.Element) -> Bool in
+                let lhsDate: Date = lhs.element.lastActivityDate
+                let rhsDate: Date = rhs.element.lastActivityDate
+                guard lhsDate == rhsDate else { return lhsDate > rhsDate }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
     }
 
     func composeAgentTemplateConversations(templateId: String, consent: [Consent]) throws -> AgentTemplateConversations {
@@ -173,7 +235,8 @@ fileprivate extension Database {
     func composeOneToOne(
         with otherInboxId: String,
         excluding excludedConversationId: String?,
-        consent: [Consent]
+        consent: [Consent],
+        onlyAgentDms: Bool = false
     ) throws -> Conversation? {
         // SQL-pushed predicate so we don't hydrate every conversation
         // the user has just to find the 1:1 with one specific inbox.
@@ -217,6 +280,13 @@ fileprivate extension Database {
         if let excludedConversationId {
             request = request.filter(DBConversation.Columns.id != excludedConversationId)
         }
+        if onlyAgentDms {
+            request = request.filter(DBConversation.Columns.isAgentDm == true)
+        } else {
+            // Plain 1:1 lookups must never resolve to an agent DM (it renders
+            // inside its origin conversation, not as a standalone chat).
+            request = request.filter(DBConversation.Columns.isAgentDm == false)
+        }
         let dbConversationDetails = try request
             .detailedConversationQuery()
             .fetchOne(self)
@@ -224,6 +294,17 @@ fileprivate extension Database {
         let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
         let contactNameResolver = try ContactsRepository.contactNameResolverInTransaction(db: self)
         return details.hydrateConversation(currentInboxId: currentInboxId, contactNameResolver: contactNameResolver)
+    }
+}
+
+fileprivate extension Conversation {
+    /// The row's most recent activity across both lanes: the group's own last
+    /// message (falling back to `createdAt`, matching the SQL ordering key)
+    /// and the folded agent DM's last message.
+    var lastActivityDate: Date {
+        let groupDate: Date = lastMessage?.createdAt ?? createdAt
+        guard let dmDate = agentDm?.lastMessage?.createdAt else { return groupDate }
+        return max(groupDate, dmDate)
     }
 }
 

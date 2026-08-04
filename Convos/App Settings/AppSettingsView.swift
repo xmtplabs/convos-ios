@@ -108,6 +108,7 @@ struct AppSettingsView: View {
             .toolbar { topToolbar }
             .onReceive(CreditsServices.shared.balancePublisher) { creditBalance = $0 }
             .onReceive(SubscriptionServices.shared.subscriptionPublisher) { currentSubscription = $0 }
+            .onReceive(SubscriptionServices.shared.syncStatePublisher) { subscriptionSyncState = $0 }
             .onAppear {
                 ensureNavigator()
                 navState.markScreenAppeared()
@@ -238,7 +239,7 @@ struct AppSettingsView: View {
     private var connectionsSection: some View {
         Section {
             NavigationLink {
-                ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
+                connectionsDestination
                     .onAppear { navigator?.navigateTo(connections: ConnectionsNavigatorArgs()) }
             } label: {
                 connectionsRowLabel
@@ -246,6 +247,21 @@ struct AppSettingsView: View {
             .accessibilityIdentifier("connections-row")
         } footer: {
             Text("Apps and info agents can use")
+        }
+    }
+
+    /// The V1 connections list, or the V2 abilities list behind the
+    /// Abilities V2 feature flag (dev builds only; the flag is hard-locked
+    /// off in production). Read at push time, so flipping the flag in the
+    /// debug menu takes effect on the next visit. The V2 branch presents
+    /// `AbilitiesListScreen`, which owns its view model via `@State`, so
+    /// re-evaluations of this builder cannot replace the model mid-push.
+    @ViewBuilder
+    private var connectionsDestination: some View {
+        if FeatureFlags.shared.isAbilitiesV2Enabled {
+            AbilitiesListScreen(service: AbilitiesServices.shared)
+        } else {
+            ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
         }
     }
 
@@ -273,14 +289,22 @@ struct AppSettingsView: View {
     @State private var presentingPaywall: Bool = false
     @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
     @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
+    @State private var subscriptionSyncState: SubscriptionSyncState = SubscriptionServices.shared.currentSyncState
 
     private var membershipFooterLabel: String {
+        if subscriptionNeedsAttention { return SubscriptionCopy.syncNeedsAttentionRowLabel }
         if currentSubscription != nil { return "Plus membership" }
         return "Basic membership"
     }
 
     private var isPowerDepleted: Bool {
         creditBalance?.isDepleted == true
+    }
+
+    /// Only the dead-end state badges the row; syncing is transient and
+    /// would be noise here. The paywall the row opens carries the details.
+    private var subscriptionNeedsAttention: Bool {
+        subscriptionSyncState == .needsAttention
     }
 
     @ViewBuilder
@@ -316,7 +340,7 @@ struct AppSettingsView: View {
 
             Spacer()
 
-            if isPowerDepleted {
+            if isPowerDepleted || subscriptionNeedsAttention {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.colorLava)
             }
@@ -510,5 +534,21 @@ struct AppSettingsView: View {
             coreActions: NoOpCoreActions(),
             onAccountDeleted: {}
         )
+    }
+}
+
+#Preview("Subscription needs attention") {
+    let profileSettingsViewModel = ProfileSettingsViewModel.shared
+    NavigationStack {
+        AppSettingsView(
+            viewModel: .mock,
+            profileSettingsViewModel: profileSettingsViewModel,
+            session: MockInboxesService(),
+            coreActions: NoOpCoreActions(),
+            onDeleteAllData: {}
+        )
+        .onAppear {
+            MockSubscriptionService.shared.setSyncState(.needsAttention)
+        }
     }
 }

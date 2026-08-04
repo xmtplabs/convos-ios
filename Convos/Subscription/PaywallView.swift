@@ -344,10 +344,44 @@ struct PaywallView: View {
             switchPeriodButton
         } else if viewModel.isSubscribed {
             manageSubscriptionButton
+        } else if viewModel.showsActivatingInsteadOfCTA {
+            activatingNotice
         } else if viewModel.selectedPlan == .basic {
+            unsubscribedAttentionNotice
             basicCTA
         } else {
+            unsubscribedAttentionNotice
             upgradeButton
+        }
+    }
+
+    /// Replaces the subscribe CTA while a StoreKit entitlement awaits
+    /// backend confirmation; pitching an upgrade to someone who already
+    /// paid would be misleading.
+    @ViewBuilder
+    private var activatingNotice: some View {
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            ProgressView()
+                .controlSize(.small)
+            Text(SubscriptionCopy.syncActivatingNotice)
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .frame(maxWidth: .infinity)
+        }
+        .padding(.vertical, DesignConstants.Spacing.step3x)
+    }
+
+    /// A verify dead-end deserves a visible line even when the paywall
+    /// otherwise renders the unsubscribed pitch; the purchase and restore
+    /// affordances stay available.
+    @ViewBuilder
+    private var unsubscribedAttentionNotice: some View {
+        if viewModel.syncState == .needsAttention {
+            Text(SubscriptionCopy.syncNeedsAttentionNotice)
+                .font(.footnote)
+                .foregroundStyle(.colorLava)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, DesignConstants.Spacing.step3x)
         }
     }
 
@@ -442,7 +476,13 @@ struct PaywallView: View {
 
     @ViewBuilder
     private var subscriberFooter: some View {
-        if let sub = viewModel.currentSubscription {
+        if let notice = viewModel.syncNotice {
+            let noticeColor: Color = viewModel.syncState == .needsAttention ? .colorLava : .colorTextSecondary
+            Text(notice)
+                .font(.footnote)
+                .foregroundStyle(noticeColor)
+                .frame(maxWidth: .infinity)
+        } else if let sub = viewModel.currentSubscription {
             let tierName: String = SubscriptionCopy.displayName(for: sub.tier)
             let periodName: String = sub.period == .monthly ? "Monthly" : "Annual"
             Text("You subscribe to \(tierName) \(periodName)")
@@ -513,6 +553,27 @@ struct PaywallView: View {
 
 #Preview("Plus - Subscribed") {
     let service = MockSubscriptionService(initialPreset: .plusAmple)
+    let viewModel = PaywallViewModel(subscriptionService: service, paywallSource: .settings, coreActions: NoOpCoreActions())
+    return PaywallView(viewModel: viewModel)
+}
+
+#Preview("Plus - Activating") {
+    let service = MockSubscriptionService(initialPreset: .noSubNoTrial)
+    service.setSyncState(.syncing)
+    let viewModel = PaywallViewModel(subscriptionService: service, paywallSource: .settings, coreActions: NoOpCoreActions())
+    return PaywallView(viewModel: viewModel)
+}
+
+#Preview("Plus - Needs Attention") {
+    let service = MockSubscriptionService(initialPreset: .plusAmple)
+    service.setSyncState(.needsAttention)
+    let viewModel = PaywallViewModel(subscriptionService: service, paywallSource: .settings, coreActions: NoOpCoreActions())
+    return PaywallView(viewModel: viewModel)
+}
+
+#Preview("Needs Attention - Unsubscribed") {
+    let service = MockSubscriptionService(initialPreset: .noSubNoTrial)
+    service.setSyncState(.needsAttention)
     let viewModel = PaywallViewModel(subscriptionService: service, paywallSource: .settings, coreActions: NoOpCoreActions())
     return PaywallView(viewModel: viewModel)
 }

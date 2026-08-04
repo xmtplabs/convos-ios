@@ -25,7 +25,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var conversationId: String { get set }
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)? { get set }
     var onAgentOutOfCredits: (() -> Void)? { get set }
-    var creditsDepleted: Bool { get set }
+    var agentPowerDepletedByInboxId: [String: Bool] { get set }
     var agentBuilderSummaryProvider: ((AgentBuilderCardContent) -> AnyView)? { get set }
     var currentUserProfileImage: (() -> UIImage?)? { get set }
     var backwardsSecrecyInfoSheet: (() -> AnyView)? { get set }
