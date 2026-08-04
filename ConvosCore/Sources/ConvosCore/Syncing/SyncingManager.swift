@@ -261,6 +261,28 @@ actor SyncingManager: SyncingManagerProtocol {
 
     func pause() async {
         enqueueAction(.pause)
+        // Wait for the pause to actually take effect before returning. The
+        // backgrounding path drops the SQLCipher connection right after this
+        // call; returning early let it yank the pool out from under in-flight
+        // stream work, which then burned retries on "Pool needs to reconnect"
+        // until foreground. Waits through .starting too - a pause there only
+        // sets pauseOnComplete and lands after the startup sync finishes.
+        // Exits immediately from any other state (the pause is a no-op there).
+        let maxWaitTime = 5.0
+        let startTime = Date()
+        while true {
+            switch _state {
+            case .ready, .starting:
+                break
+            default:
+                return
+            }
+            if Date().timeIntervalSince(startTime) > maxWaitTime {
+                Log.error("Pause timeout - state: \(_state)")
+                return
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
+        }
     }
 
     func resume() async {
