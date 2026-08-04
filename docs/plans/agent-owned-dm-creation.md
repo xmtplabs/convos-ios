@@ -70,7 +70,7 @@ Creation sweep and revocation sweep are two directions of the same registry-vs-p
 Herald already holds the agent's XMTP identity and can create conversations (`src/api/conversations/join.ts:135`, `client.conversations.createDm(...)`) and publish profile+attestation on attach (`src/api/conversations/attach.ts:189-195`).
 
 - **New endpoint** `POST /v1/conversations/create-dm { peer_inbox_id, origin_conversation_id }`, registered alongside `attach`/`join` (`src/app.ts:69`, `registerConversationsRoutes`) with a matching method added to the generated `@convos/herald-api-client` (`packages/herald-api-client`): create the 2-member group (agent is admin -> structurally enforces the 2-member invariant), stamp the `agentDm` `ConversationCustomMetadata` marker with `originConversationId`, publish the agent profile+attestation (reuse the attach path, `attach.ts:189-195`), return `{ conversation_id }`. Herald already calls `client.conversations.createDm(peerInboxId)` internally (`join.ts:135`); this exposes that capability over HTTP so the worker DO can drive it. Idempotency: keyed on `(agent, peer)`; if the agent already has a 2-member group with `peer`, return it instead of creating a second.
-- **Optional** `member_added` webhook event: today only `conversation_added` (whole-group, on first appearance) carries member ids; incremental human joins to an already-attached group surface as `conversation_metadata_updated` with no ids (herald `router.ts:494`, by design). Add a `member_added` branch in `routeGroupUpdated` reading `content.addedInboxes` (mirrors the committed `member_removed` shape) so a human joining an existing group triggers ensure-DM promptly. Without it, the DO alarm sweep still covers the case, just less promptly.
+- **`member_added` webhook event (decided: include)** — this is the per-join creation trigger. Today only `conversation_added` (whole-group, on first appearance) carries member ids; incremental human joins to an already-attached group surface as `conversation_metadata_updated` with no ids (herald `router.ts:494`, by design), so a new member wouldn't get a DM until the next alarm sweep. Add a `member_added` branch in `routeGroupUpdated` reading `content.addedInboxes` (mirrors the committed `member_removed` shape at `router.ts:469-491`) and a `MemberAddedEventSchema` in `webhooks/index.ts` alongside `MemberRemovedEventSchema`. The dispatch plumbing already handles any new payload variant unchanged. The DO alarm sweep remains the backstop for missed events; `member_added` makes the common case (a human joins, gets a DM within seconds) prompt.
 - Reuses: the `conversation_added` observer + catch-up sweep (already on the CON-761 branch) as the primary-group discovery trigger; `leave` for revocation.
 
 ### 4.2 convos-assistants (worker) — the trigger + durable idempotency
@@ -78,7 +78,7 @@ Herald already holds the agent's XMTP identity and can create conversations (`sr
 The worker `AssistantDO` already owns the DM registry and, crucially, **already runs the exact sweep this rework needs — in the opposite direction**. `reconcileDmConversations` (`durable-objects/assistant/index.ts:1894`) runs on a standing DO alarm (`runPendingDmAttachesSweep`, `index.ts:1722`; 45s while pending, 6h steady-state, `constants.ts` `DM_ATTACH.RECONCILE_DELAY_SECONDS`), loads the **primary group's** live member list via `heraldListMembers` (`index.ts:1904`), and **revokes** DMs whose peer left. Agent-owned creation is the mirror added to that same pass.
 
 - **`ensureDmsForPrimaryMembers(primaryConversationId)`** (inverse of the existing revoke): from the same `heraldListMembers` roster, exclude the agent's own inbox and any non-human members, and for each human with no `active`/`pending` row in `dm_conversation`: call `reserveDmConversation` (`assistant-store.ts:349` — the atomic conditional INSERT keyed on `lower(peer_inbox_id)`, already single-DM-per-peer), then call the new Herald **create-dm** endpoint, then `promotePendingDmConversation` (`assistant-store.ts:316`, pending -> active) on success; on failure `clearPendingDmConversation` + record backoff. This replaces `attachConvosConversation` (`index.ts:1622`) as the primary path: today the DO reserves-then-**attaches** a client-made group; now it reserves-then-**creates**.
-- **Triggers**: (a) the reconcile sweep above (add the create-if-missing branch next to the revoke branch); (b) primary-group `conversation_added` / member-add — currently additions to the *primary* aren't acted on for DM creation (`router.ts:461-464`, and the primary branch of `handleMemberRemoved`, `index.ts:1778`), so wire `ensureDmsForPrimaryMembers` there for promptness.
+- **Triggers**: (a) the reconcile sweep above (add the create-if-missing branch next to the revoke branch); (b) the primary group's `conversation_added` (agent first joins a group -> ensure DMs with its existing human members); (c) the new `member_added` herald event (a human joins an already-attached primary -> ensure a DM with that joiner, within seconds). Today additions to the *primary* aren't acted on for DM creation (`router.ts:461-464`, and the primary branch of `handleMemberRemoved`, `index.ts:1778`); `ensureDmsForPrimaryMembers` is the single routine all three call.
 - **Durable backoff + dead-agent** (directly answers the deploy feedback): extend the `dm_conversation` table (append-only migration, `migrations.ts:160`) with `attempt_count` and `next_attempt_at`, and add a `dead` status after N consecutive failures. Durable in DO SQLite — survives cold launch, process restarts, everything (unlike the client's in-memory `attemptedAgents`). The sweep skips `dead` peers.
 - Note: the acceptance policy "peer must be a current member of the primary" (`index.ts:1547`, `isPeerInPrimary`) becomes inherent — the loop only ever iterates current primary members. The existing `conversation_added` *attach* path can stay during migration for any straggler client-made groups.
 - **Hermes runtime is untouched** — it holds no XMTP identity and creates no conversations (per-turn `inbox_id`/`conversation_id` context only). The DM-lane guardrails (`delivery-drain.ts` `dmLaneLabel`) are downstream of the registry and unaffected by who creates the row.
@@ -94,22 +94,29 @@ The worker `AssistantDO` already owns the DM registry and, crucially, **already 
 **Keep** (the reflector — already built):
 - Marker classification (`isAgentDm`), `DBAgentDmOrigin` + the `agentDmOriginConversationId` getter, the pager / `AgentDmPageView` rendering, the `accepts_dms` gate, and the push-notification suppression + tap routing from #1271.
 
+**Consent — auto-allow (decided)**: an agent-created DM arrives at the user's device as a welcome with `unknown` consent. The client auto-allows it because **the other member is an already-known agent contact** — a verified agent the user shares a group with (the same signal the DM marker classification already requires: exactly 2 members, the other an attested agent). So the DM never surfaces as an unknown/spam request; it appears directly as the agent's DM lane. This keeps consent a client-side reflector decision (no server consent change), gated on the existing contact/verified-agent check rather than on who created the group.
+
 **Reuse for migration**: `StrandedConversationSweeper` (#1274) as a one-time cleanup of the client-created orphans/duplicates already on Dev; after the fleet is clean it can be retired.
 
 ## 5. Migration & sequencing
 
 1. **#1274 lands first** as the stopgap (hidden shells + sweeper) — stops active Dev bleeding while the rework is built. Its `commitClaimedConversation` Bool and `awaitReadyConversationId` `.error` fixes are general and survive; its deferred-visibility rework of `AgentDmFlow.createDm` is interim (deleted here).
-2. **herald-lite**: `create-dm` primitive (+ optional `member_added`). Independently deployable.
+2. **herald-lite**: `create-dm` primitive + `member_added` event. Independently deployable.
 3. **convos-assistants**: `ensureDmsForPrimaryMembers` + triggers + backoff/dead fields, reusing the registry/reserve/revocation from the CON-761 backend work.
 4. **convos-ios**: delete client creation; keep reflector; reuse the sweeper as one-time migration.
 5. **Cleanup**: run the migration sweep once across Dev to retire the accumulated orphans.
 
 Deploy order matches direct-add: **herald-lite -> convos-assistants -> convos-ios**. Every stage is backward-compatible (old clients simply stop being the creator; the agent takes over).
 
-## 6. Open questions
+## 6. Decisions & open questions
 
-- **Non-agent-DM 1:1s.** This applies only to agent DMs; user<->user 1:1s keep client creation. The ensure loop is scoped to verified-agent members of the agent's own primary group.
-- **Consent on agent-initiated DMs.** Because peer and agent already share a group, the DM should land auto-allowed, not as an unknown/spam request. Confirm the consent state herald sets on `newGroup`-created groups and whether the client needs to auto-allow on the marker.
+Decided:
+
+- **Consent — auto-allow.** The agent-created DM lands allowed on the user's device because the other member is an already-known **agent contact** (verified agent from a shared group). Client-side reflector decision on the existing contact/verified-agent check; no server consent change. See section 4.3.
+- **`member_added` event — include it.** Add the `member_added` herald webhook so a human joining an already-attached primary gets a DM within seconds; the alarm sweep stays as the backstop. See section 4.1 / 4.2 trigger (c).
+
+Open:
+
+- **Non-agent-DM 1:1s.** This applies only to agent DMs; user<->user 1:1s keep client creation. The ensure loop is scoped to verified-agent members of the agent's own primary group. (Scoping note, not a blocker.)
 - **Pending UX.** When a user opens the agent's DM page before the agent-created DM has synced, show a brief pending state rather than creating one client-side. Define the timeout/retry.
 - **Backoff cadence + `dead` threshold** (N failures, base/max delay) — pick values; expose as registry fields so support can tune.
-- **`member_added` event vs sweep-only.** Decide whether prompt per-join creation is worth the new herald event, or the alarm sweep's latency is acceptable for v1.
