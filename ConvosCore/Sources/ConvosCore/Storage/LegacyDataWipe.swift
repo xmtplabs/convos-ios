@@ -17,6 +17,12 @@ import Security
 /// fallback. The intent is that after a generation bump every user starts in
 /// a totally fresh state — no carry-over of identity, conversation, or device
 /// registration state from any prior build.
+/// Thrown by the account-deletion sweep of historical identity keychain
+/// services when one or more services could not be deleted.
+struct LegacyKeychainSweepIncompleteError: Error {
+    let services: [String]
+}
+
 enum LegacyDataWipe {
     /// Current schema generation. Bump when a schema change requires a wipe.
     /// Historical values: "single-inbox-v1", "single-inbox-v2", "v1-single-inbox".
@@ -50,7 +56,15 @@ enum LegacyDataWipe {
         // Keychain and removes every identity's recovery backup on every
         // device on the account -- acceptable only because a generation
         // bump is a deliberate total reset.
-        "org.convos.ios.KeychainIdentityStore.v3-synced-backup",
+        "org.convos.ios.KeychainIdentityStore.v3-synced-backup"
+    ] + legacyIdentityKeychainServices
+
+    /// Historical (pre-v3, plus the abandoned v4-local experiment) identity
+    /// services. Split out because the account-deletion wipe sweeps exactly
+    /// these: the current v3 family is handled with identity-scoped deletes
+    /// there (its synced-backup service holds other identities' backups,
+    /// which a whole-service sweep would destroy).
+    static let legacyIdentityKeychainServices: [String] = [
         "org.convos.ios.KeychainIdentityStore.v4-local",
         "org.convos.ios.KeychainIdentityStore.v2",
         "org.convos.ios.KeychainIdentityStore.v1"
@@ -147,6 +161,45 @@ enum LegacyDataWipe {
     /// Same access group as the identity store; different service value.
     private static func wipeJWTKeychainItems(accessGroup: String) {
         deleteKeychainItems(service: jwtKeychainService, accessGroup: accessGroup)
+    }
+
+    /// Account-deletion wipe step: removes identity items across every
+    /// historical (pre-v3 / v4-local) keychain service, local and
+    /// iCloud-synced copies. Unlike the one-shot generation-bump sweep this
+    /// throws when a delete fails, so the deletion manifest keeps its
+    /// durable record and retries on the next launch instead of assuming.
+    ///
+    /// - Parameters:
+    ///   - accessGroup: the team-prefixed keychain access group the
+    ///     identity stores write under (`AppEnvironment.keychainAccessGroup`).
+    ///   - deleteService: seam over `SecItemDelete` so tests can verify the
+    ///     queries carry the given access group and every legacy service.
+    static func wipeLegacyIdentityKeychainServices(
+        accessGroup: String,
+        deleteService: (_ service: String, _ accessGroup: String) -> OSStatus = deleteLegacyKeychainService
+    ) throws {
+        var failedServices: [String] = []
+        for service in legacyIdentityKeychainServices {
+            let status = deleteService(service, accessGroup)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                Log.error("Account-deletion wipe: failed to remove legacy keychain service \(service), status=\(status)")
+                failedServices.append(service)
+                continue
+            }
+        }
+        if !failedServices.isEmpty {
+            throw LegacyKeychainSweepIncompleteError(services: failedServices)
+        }
+    }
+
+    private static func deleteLegacyKeychainService(_ service: String, accessGroup: String) -> OSStatus {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: accessGroup,
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
+        ]
+        return SecItemDelete(query as CFDictionary)
     }
 
     private static func deleteKeychainItems(service: String, accessGroup: String) {

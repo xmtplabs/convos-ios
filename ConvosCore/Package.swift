@@ -127,6 +127,7 @@ let package = Package(
                 .product(name: "XMTPiOS", package: "libxmtp"),
                 .product(name: "CSecp256k1", package: "CSecp256k1.swift"),
                 .product(name: "CryptoSwift", package: "CryptoSwift"),
+                .product(name: "ConvosLogging", package: "ConvosLogging"),
             ]
         ),
         .testTarget(

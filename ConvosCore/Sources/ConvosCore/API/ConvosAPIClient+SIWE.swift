@@ -206,23 +206,41 @@ extension ConvosAPIClient {
             throw APIError.invalidResponse
         }
 
-        switch httpResponse.statusCode {
-        case 200:
-            return try JSONDecoder().decode(ConvosAPI.AuthTokenResponse.self, from: data).token
+        guard httpResponse.statusCode == 200 else {
+            throw Self.siweExchangeFailure(statusCode: httpResponse.statusCode, data: data)
+        }
+        return try JSONDecoder().decode(ConvosAPI.AuthTokenResponse.self, from: data).token
+    }
+
+    /// Maps a non-200 `/v2/auth/token` response to a typed error.
+    ///
+    /// The deletion barrier's terminal response is keyed on the envelope's
+    /// machine-readable `code` (`identity_deleted`, shipped with status 410),
+    /// never on the status or the display string. It is the only mint-path
+    /// signal a client may treat as account-deletion confirmation, and it
+    /// must never be conflated with the generic 401 nonce/signature failure
+    /// (which can equally mean nonce, signature, or service problems).
+    ///
+    /// Static and pure so it can be unit-tested without a network.
+    static func siweExchangeFailure(statusCode: Int, data: Data) -> any Error {
+        if BackendErrorEnvelope.parse(from: data)?.code == BackendErrorCode.identityDeleted {
+            return SIWEAuthError.identityDeleted
+        }
+        switch statusCode {
         case 400:
-            throw APIError.badRequest(parseErrorMessage(from: data))
+            return APIError.badRequest(parseErrorMessage(from: data))
         case 401:
             // Per backend, the nonce is burned even on signature failure.
             // Signal the caller to restart from /auth/nonce.
-            throw SIWEAuthError.invalidNonceOrSignature(parseErrorMessage(from: data))
+            return SIWEAuthError.invalidNonceOrSignature(parseErrorMessage(from: data))
         case 403:
-            throw SIWEAuthError.deviceDisabled(parseErrorMessage(from: data))
+            return SIWEAuthError.deviceDisabled(parseErrorMessage(from: data))
         case 429:
             // Same here: nonce is burned. Caller decides whether to
             // sleep + retry; we just signal.
-            throw SIWEAuthError.rateLimited
+            return SIWEAuthError.rateLimited
         default:
-            throw APIError.serverError(parseErrorMessage(from: data))
+            return APIError.serverError(parseErrorMessage(from: data))
         }
     }
 
@@ -262,6 +280,11 @@ public enum SIWEAuthError: Error, CustomStringConvertible {
     case deviceDisabled(String?)
     case rateLimited
     case tokenMissingAccountId
+    /// Terminal: the deletion barrier is active for this identity. The
+    /// account was deleted; no token can ever be minted for these keys
+    /// again. Confirms an in-flight deletion whose outcome was ambiguous;
+    /// outside a deletion flow it means a paired device's account is gone.
+    case identityDeleted
 
     public var description: String {
         switch self {
@@ -279,6 +302,8 @@ public enum SIWEAuthError: Error, CustomStringConvertible {
             return "SIWE rate limited; retry from /auth/nonce"
         case .tokenMissingAccountId:
             return "Backend returned token without accountId claim"
+        case .identityDeleted:
+            return "Identity deleted: the backend's deletion barrier is active for this identity"
         }
     }
 }

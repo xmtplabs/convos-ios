@@ -83,11 +83,27 @@ public protocol ImageCacheProtocol: AnyObject, Sendable {
     /// Remove all persistent images (used for "Delete All Data")
     func removeAllPersistentImages()
 
+    /// Awaited, throwing variant for the account-deletion wipe: returns
+    /// only after the disk sweep finished and throws when any file could
+    /// not be removed, so the wipe manifest can keep its durable record and
+    /// retry instead of clearing it over surviving images.
+    func removeAllPersistentImagesAndWait() async throws
+
     // MARK: - Observation
 
     /// Publisher that emits when a specific cached image is updated and ready to display.
     /// Views should observe this to know when to refresh their image.
     var cacheUpdates: AnyPublisher<String, Never> { get }
+}
+
+/// Thrown by `removeAllPersistentImagesAndWait` when the disk sweep left
+/// files behind.
+public struct ImageCacheWipeIncompleteError: Error, Equatable {
+    public let failedFileCount: Int
+
+    public init(failedFileCount: Int) {
+        self.failedFileCount = failedFileCount
+    }
 }
 
 // MARK: - Default Parameters Extension

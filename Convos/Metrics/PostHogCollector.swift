@@ -37,6 +37,16 @@ final class PostHogCollector: CollectorDelegate {
         PostHogSDK.shared.identify(userId)
     }
 
+    /// Account-deletion wipe step: drops the identified person (the stable
+    /// pseudonymous id derived from the deleted inbox) and rotates the
+    /// anonymous id, so events from a later identity are never attached to
+    /// the deleted person. Static so the Sendable wipe hook doesn't have
+    /// to capture the (non-Sendable) collector instance.
+    static func resetIdentity() {
+        Log.info("resetting analytics identity after account deletion")
+        PostHogSDK.shared.reset()
+    }
+
     override func updateUserProperties(properties: [String: Any?]) {
         Log.info("updating user props= \(properties)")
         PostHogSDK.shared.setPersonProperties(

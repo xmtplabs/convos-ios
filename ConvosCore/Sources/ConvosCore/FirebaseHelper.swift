@@ -56,6 +56,18 @@ public enum FirebaseHelperCore {
         return result.token
     }
 
+    /// Mints a limited-use (consumable) App Check token. Required by
+    /// server routes that consume the attestation — e.g. the subscription
+    /// claim endpoint. Never reuse one across attempts: a consumed token
+    /// replays as invalid.
+    public static func getLimitedUseAppCheckToken() async throws -> String {
+        guard FirebaseApp.app() != nil else {
+            throw AppCheckTokenError.firebaseNotConfigured
+        }
+        let result = try await AppCheck.appCheck().limitedUseToken()
+        return result.token
+    }
+
     /// Mirrors this process's current App Check token into the shared app
     /// group so extension processes (which cannot App Attest) can authenticate
     /// against the backend. Called by the main app at launch and on
