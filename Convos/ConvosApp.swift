@@ -82,27 +82,7 @@ struct ConvosApp: App {
         QAEvent.emit(.app, "launched", ["environment": environment.name])
         QALaunchHooks.run(environment: environment)
 
-        // Firebase must be configured before ConvosClient is created so AppCheck is ready when auth begins
-        switch environment {
-        case .tests:
-            Log.info("Running in test environment, skipping Firebase config...")
-        default:
-            let configManager = ConfigManager.shared
-            let overrideURL: URL? = configManager.firebaseConfigOverride.flatMap {
-                Bundle.main.url(forResource: $0, withExtension: "plist")
-            }
-            if let url = overrideURL ?? configManager.currentEnvironment.firebaseConfigURL {
-                let debugToken: String? = environment.isProduction ? nil : Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN
-                FirebaseHelperCore.configure(with: url, debugToken: debugToken)
-                // Extensions can't App Attest, so the main app hands them its
-                // current App Check token via the shared app group (refreshed
-                // again on every foreground in handleScenePhaseActive).
-                let appGroupIdentifier = environment.appGroupIdentifier
-                Task { await FirebaseHelperCore.mirrorTokenToAppGroup(appGroupIdentifier) }
-            } else {
-                Log.error("Missing Firebase plist URL for current environment")
-            }
-        }
+        Self.configureFirebase(environment: environment)
 
         #if DEBUG
         let debugFallbackKey = DebugAgentKeysetOverride.parse(jwksJSON: Secrets.AGENT_DEBUG_JWKS)
@@ -216,6 +196,30 @@ struct ConvosApp: App {
                 Log.warning("Metrics identify failed: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Configures Firebase before ConvosClient is created, so AppCheck is
+    /// ready by the time auth begins.
+    private static func configureFirebase(environment: AppEnvironment) {
+        if case .tests = environment {
+            Log.info("Running in test environment, skipping Firebase config...")
+            return
+        }
+        let configManager = ConfigManager.shared
+        let overrideURL: URL? = configManager.firebaseConfigOverride.flatMap {
+            Bundle.main.url(forResource: $0, withExtension: "plist")
+        }
+        guard let url = overrideURL ?? configManager.currentEnvironment.firebaseConfigURL else {
+            Log.error("Missing Firebase plist URL for current environment")
+            return
+        }
+        let debugToken: String? = environment.isProduction ? nil : Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN
+        FirebaseHelperCore.configure(with: url, debugToken: debugToken)
+        // Extensions can't App Attest, so the main app hands them its current
+        // App Check token via the shared app group (refreshed again on every
+        // foreground in handleScenePhaseActive).
+        let appGroupIdentifier = environment.appGroupIdentifier
+        Task { await FirebaseHelperCore.mirrorTokenToAppGroup(appGroupIdentifier) }
     }
 
     /// Wires the live abilities service (mock/live selection happens per
