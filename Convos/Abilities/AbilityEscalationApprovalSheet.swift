@@ -30,14 +30,19 @@ struct AbilityEscalationApprovalSheet: View {
         var id: String { rawValue }
     }
 
+    /// Scrollable so the header is never clipped at the medium detent and
+    /// large Dynamic Type sizes scroll instead of overflowing.
     var body: some View {
-        VStack(spacing: DesignConstants.Spacing.step4x) {
-            header
-            permissionRows
-            scopePicker
-            actionButtons
+        ScrollView {
+            VStack(spacing: DesignConstants.Spacing.step4x) {
+                header
+                permissionRows
+                scopePicker
+                actionButtons
+            }
+            .padding(.vertical, DesignConstants.Spacing.step6x)
         }
-        .padding(.vertical, DesignConstants.Spacing.step6x)
+        .scrollBounceBehavior(.basedOnSize)
         .presentationDetents([.medium, .large])
         .onAppear { seedSelectionIfNeeded() }
     }
