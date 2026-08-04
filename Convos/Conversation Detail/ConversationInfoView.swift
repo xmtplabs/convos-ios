@@ -635,6 +635,11 @@ struct ConversationInfoView: View {
                 .task {
                     prepareAgentAccessViewModels()
                 }
+                // Hosted here rather than on the abilities Section: a sheet
+                // modifier attached to the Section resolves the wrong
+                // presentation context from inside this presented sheet and
+                // dismisses it instead of presenting.
+                .modifier(ConversationAbilitiesSheetsModifier(viewModel: abilitiesViewModel))
                 .alert("Restore invite tag", isPresented: $showingRestoreInviteTagAlert) {
                     TextField("Invite tag", text: $restoreInviteTagText)
                     Button("Cancel", role: .cancel) {

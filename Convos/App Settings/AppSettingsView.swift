@@ -265,20 +265,27 @@ struct AppSettingsView: View {
         }
     }
 
+    /// Row title and count follow `connectionsDestination`: "Abilities"
+    /// over the V2 list under the flag, "Connections" over the V1 list
+    /// otherwise. The count is V1 connections, so it only renders alongside
+    /// the V1 title.
     @ViewBuilder
     private var connectionsRowLabel: some View {
+        let isAbilitiesV2: Bool = FeatureFlags.shared.isAbilitiesV2Enabled
+        let title: String = isAbilitiesV2 ? "Abilities" : "Connections"
         let connectionsCount: Int = viewModel.connectionsListViewModel.connections.count
+        let showsCount: Bool = !isAbilitiesV2 && connectionsCount > 0
         HStack {
             Image(systemName: "batteryblock.fill")
                 .foregroundStyle(.colorTextPrimary)
                 .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
 
-            Text("Connections")
+            Text(title)
                 .foregroundStyle(.colorTextPrimary)
 
             Spacer()
 
-            if connectionsCount > 0 {
+            if showsCount {
                 Text("\(connectionsCount)")
                     .foregroundStyle(.colorTextSecondary)
                     .monospacedDigit()

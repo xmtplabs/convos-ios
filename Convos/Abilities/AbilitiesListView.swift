@@ -32,9 +32,12 @@ struct AbilitiesListScreen: View {
 /// Entry points (all flag-gated behind Abilities V2, all via
 /// `AbilitiesListScreen`, which owns the view model):
 /// - App Settings connections row (`AppSettingsView.connectionsDestination`)
-///   pushes it in place of the V1 `ConnectionsListView`.
-/// - The conversation abilities section presents it as a sheet when a
-///   toggle needs an entitlement (`ConversationAbilitiesSection`).
+///   pushes it in place of the V1 `ConnectionsListView`; the row is titled
+///   "Abilities" under the flag.
+///
+/// A conversation toggle that needs an entitlement no longer deep-links
+/// here: it presents the scoped `AbilityConnectSheet` instead, which reuses
+/// this screen's view model for the connect machinery.
 struct AbilitiesListView: View {
     @Bindable var viewModel: AbilitiesListViewModel
 

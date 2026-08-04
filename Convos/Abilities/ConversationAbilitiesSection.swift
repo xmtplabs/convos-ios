@@ -9,10 +9,17 @@ import SwiftUI
 /// plain toggle per ability, multi-agent conversations label each row with
 /// the agent it extends to. Rows honor the entitlement lifecycle: an
 /// opt-in backed by a non-active entitlement renders its status badge and
-/// deep-links to the abilities list instead of presenting a usable toggle.
+/// opens the inline connect sheet instead of presenting a usable toggle.
 /// Toggling on a multi-bundle ability opens the bundle picker; toggling an
-/// ability without an active entitlement opens the abilities list to
-/// connect it first.
+/// ability without an active entitlement opens the inline connect sheet
+/// (`AbilityConnectSheet`) and, once connected, continues into the
+/// extension without leaving the conversation.
+/// The section renders rows only; its bundle and connect sheets are hosted
+/// by `ConversationAbilitiesSheetsModifier`, which the presenting screen
+/// applies at its list level. Sheet modifiers attached to the `Section`
+/// itself resolve the wrong presentation context from inside the
+/// already-presented info sheet: the toggle's sheet then dismisses the
+/// info sheet instead of presenting, dead-ending the flow.
 struct ConversationAbilitiesSection: View {
     @Bindable var viewModel: ConversationAbilitiesViewModel
 
@@ -30,12 +37,6 @@ struct ConversationAbilitiesSection: View {
             Text("Abilities")
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(.colorTextSecondary)
-        }
-        .sheet(item: $viewModel.bundleSelection) { context in
-            bundleSelectionSheet(context)
-        }
-        .sheet(item: $viewModel.needsEntitlementAbility, onDismiss: handleSheetDismissed) { ability in
-            needsEntitlementSheet(ability)
         }
     }
 
@@ -65,13 +66,13 @@ struct ConversationAbilitiesSection: View {
     }
 
     /// An opt-in whose entitlement is no longer active: no usable toggle,
-    /// a badge, and the whole row deep-links to the abilities list to
+    /// a badge, and the whole row opens the inline connect sheet to
     /// reconnect.
     private func needsAttentionRow(
         _ row: ConversationAbilitiesViewModel.Row,
         status: AbilitiesAPI.EntitlementStatus?
     ) -> some View {
-        let reconnectAction = { viewModel.needsEntitlementAbility = row.ability }
+        let reconnectAction = { viewModel.presentConnect(for: row) }
         return Button(action: reconnectAction) {
             featureRow(row) {
                 attentionBadge(status: status)
@@ -138,8 +139,43 @@ struct ConversationAbilitiesSection: View {
         case .active: ""
         }
     }
+}
 
-    // MARK: - Sheets
+/// Hosts the abilities section's two sheets (bundle picker and inline
+/// connect) for a presenting screen. Applied to `ConversationInfoView`'s
+/// list, next to its other working sheet attachments -- never to the
+/// `Section` (see `ConversationAbilitiesSection`).
+struct ConversationAbilitiesSheetsModifier: ViewModifier {
+    /// Nil when the conversation renders the V1 connections section or has
+    /// no agent; both sheets then simply never present.
+    let viewModel: ConversationAbilitiesViewModel?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let viewModel {
+            content.modifier(ConversationAbilitiesActiveSheetsModifier(viewModel: viewModel))
+        } else {
+            content
+        }
+    }
+}
+
+/// The non-nil half of `ConversationAbilitiesSheetsModifier`. `@Bindable`
+/// projects the view model's sheet contexts as observation-tracked
+/// bindings; a hand-rolled `Binding(get:set:)` pair is not tracked, so the
+/// sheets would never present when the view model publishes a context.
+private struct ConversationAbilitiesActiveSheetsModifier: ViewModifier {
+    @Bindable var viewModel: ConversationAbilitiesViewModel
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(item: $viewModel.bundleSelection) { context in
+                bundleSelectionSheet(context)
+            }
+            .sheet(item: $viewModel.connectContext, onDismiss: handleConnectSheetDismissed) { context in
+                connectSheet(context)
+            }
+    }
 
     private func bundleSelectionSheet(_ context: AbilityBundleSelectionContext) -> some View {
         AbilityBundleSelectionSheet(context: context) { bundleIds in
@@ -147,79 +183,79 @@ struct ConversationAbilitiesSection: View {
         }
     }
 
-    /// The needs-entitlement deep link: the account-level abilities list on
-    /// the same service, so connecting here is reflected in the toggles
-    /// after dismissal (`handleSheetDismissed` refreshes). The screen
-    /// wrapper owns the list view model via `@State`, so re-evaluations of
-    /// this sheet-content builder cannot replace it mid-presentation.
-    private func needsEntitlementSheet(_ ability: AbilitiesAPI.Ability) -> some View {
-        NavigationStack {
-            AbilitiesListScreen(selection: viewModel.abilitiesSelection)
-                .navigationTitle("Connect \(ability.displayName.resolved())")
-                .navigationBarTitleDisplayMode(.inline)
-        }
+    /// The no-entitlement path: an inline connect flow for the tapped
+    /// ability on the same service selection as the rows, so a successful
+    /// connect continues straight into the extension
+    /// (`ConversationAbilitiesViewModel.handleConnected`). Replaces the old
+    /// abilities-list deep link, which dead-ended the toggle.
+    private func connectSheet(_ context: ConversationAbilityConnectContext) -> some View {
+        AbilityConnectSheet(
+            ability: context.ability,
+            selection: viewModel.abilitiesSelection,
+            onConnected: { viewModel.handleConnected($0) }
+        )
     }
 
-    private func handleSheetDismissed() {
-        viewModel.refreshSoon()
+    private func handleConnectSheetDismissed() {
+        viewModel.handleConnectSheetDismissed()
     }
 }
 
 // MARK: - Previews
 
 #Preview("Single agent") {
+    let viewModel = ConversationAbilitiesViewModel(
+        conversationId: "mock-conversation-1",
+        agents: [
+            ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
+        ],
+        selection: AbilitiesSelection(service: MockAbilitiesService())
+    )
     List {
-        ConversationAbilitiesSection(
-            viewModel: ConversationAbilitiesViewModel(
-                conversationId: "mock-conversation-1",
-                agents: [
-                    ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
-                ],
-                selection: AbilitiesSelection(service: MockAbilitiesService())
-            )
-        )
+        ConversationAbilitiesSection(viewModel: viewModel)
     }
+    .modifier(ConversationAbilitiesSheetsModifier(viewModel: viewModel))
 }
 
 #Preview("Two agents") {
+    let viewModel = ConversationAbilitiesViewModel(
+        conversationId: "mock-conversation-1",
+        agents: [
+            ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
+            ConversationAgentDescriptor(inboxId: "mock-agent-inbox-2", displayName: "Scout"),
+        ],
+        selection: AbilitiesSelection(service: MockAbilitiesService())
+    )
     List {
-        ConversationAbilitiesSection(
-            viewModel: ConversationAbilitiesViewModel(
-                conversationId: "mock-conversation-1",
-                agents: [
-                    ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
-                    ConversationAgentDescriptor(inboxId: "mock-agent-inbox-2", displayName: "Scout"),
-                ],
-                selection: AbilitiesSelection(service: MockAbilitiesService())
-            )
-        )
+        ConversationAbilitiesSection(viewModel: viewModel)
     }
+    .modifier(ConversationAbilitiesSheetsModifier(viewModel: viewModel))
 }
 
 #Preview("Entitlements unavailable") {
+    let viewModel = ConversationAbilitiesViewModel(
+        conversationId: "mock-conversation-1",
+        agents: [
+            ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
+        ],
+        selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailable))
+    )
     List {
-        ConversationAbilitiesSection(
-            viewModel: ConversationAbilitiesViewModel(
-                conversationId: "mock-conversation-1",
-                agents: [
-                    ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
-                ],
-                selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailable))
-            )
-        )
+        ConversationAbilitiesSection(viewModel: viewModel)
     }
+    .modifier(ConversationAbilitiesSheetsModifier(viewModel: viewModel))
 }
 
 #Preview("Cold-start outage") {
+    let viewModel = ConversationAbilitiesViewModel(
+        conversationId: "mock-conversation-1",
+        agents: [
+            ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
+        ],
+        selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart))
+    )
     List {
-        ConversationAbilitiesSection(
-            viewModel: ConversationAbilitiesViewModel(
-                conversationId: "mock-conversation-1",
-                agents: [
-                    ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
-                ],
-                selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart))
-            )
-        )
+        ConversationAbilitiesSection(viewModel: viewModel)
     }
+    .modifier(ConversationAbilitiesSheetsModifier(viewModel: viewModel))
 }
