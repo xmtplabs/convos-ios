@@ -1,11 +1,39 @@
-# Agent-owned DM creation — rework spike (CON-761)
+# Agent-owned DM creation — design + as-built (CON-761)
 
-> **Status**: Spike / design proposal (draft)
+> **Status**: Implemented across 5 PRs (below), on top of latest `dev`. Sections 1-3 are the design rationale; **section 0 (As-built) is authoritative** for what actually shipped.
 > **Author**: jarod
 > **Created**: 2026-08-04
 > **Ticket**: CON-761 (Agent DMs)
-> **Amends**: [`agent-dms.md`](./agent-dms.md) — this changes **who creates the DM** (D-level change to the flow in agent-dms.md section 4 and section 6.4.2). Everything else in that plan (2-member group transport D4, worker registry + atomic per-peer reserve section 5.2.1, revocation section 5.5, shared-brain section 5.6) is reused unchanged.
-> **Spikes**: convos-ios, convos-assistants (worker + herald-lite). Draft PRs are cut against `dev` for a clean review surface; in delivery they stack on the in-flight CON-761 backend branches (herald `conversation_added` observer, worker DM registry/reserve/revocation).
+> **Amends**: [`agent-dms.md`](./agent-dms.md) — changes **who creates the DM** (the flow in agent-dms.md section 4 and section 6.4.2). The 2-member group transport (D4), the DM registry + atomic per-peer reserve (5.2.1), revocation (5.5), and the shared-brain stance (5.6) are reused unchanged.
+
+## 0. As-built (authoritative)
+
+The rework moves agent-DM creation from the iOS client to the agent (server-side). The client stops creating and becomes a pure reflector. Built on **latest `dev`** across all repos (the stale `worker-dm-handling` line, which still used the older `isDmDeliverable` DM-delivery model, was dropped).
+
+**PRs:**
+- convos-assistants **#3191** — Herald `create-dm` + `member_added` event; worker `ensureDmsForPrimaryMembers` + durable backoff.
+- convos-cli **#116** — `agentDm` marker (field 8) added to the `ConversationCustomMetadata` codec (patch → 0.10.16 via Changesets).
+- convos-ios **#1284** — iOS reflector reduction (this PR).
+- convos-assistants **#3193** — Bug: classify Herald probe failures by HTTP status, not body substring (#3164 regression).
+- convos-assistants **#3195** — Bug: route background-delegation progress badges to the DM, not the group (#3163 follow-up).
+
+**Flow (happy path):**
+1. A human is a member of an agent's primary group (agent join, or a later member-add).
+2. The worker DO's `ensureDmsForPrimaryMembers` (runs inside the existing `reconcileDmConversations` DO-alarm sweep — the mirror of its revoke pass — and on the new `member_added` webhook) finds each current human member with no `active`/`pending` `dm_conversation` row, skipping the agent's own inbox, in-flight peers, and backed-off/dead peers.
+3. For each, guarded by an in-memory per-peer `dmCreateInFlight` set, the DO calls Herald **`POST /v1/conversations/create-dm { peer_inbox_id, origin_conversation_id }`**. Herald (which holds the agent's XMTP identity) `createGroup([peer])` — a 2-member group, agent = admin — stamps the `agentDm` marker via `updateAppData(serializeAppData({ agentDm: { originConversationId } }))` (needs convos-cli's field-8 codec), and returns the conversation id. `findExistingDm` makes it idempotent, reusing only a group that already carries the `agentDm` marker (origin-agnostic: one DM per `(agent, peer)`).
+4. The DO `reserveDmConversation(realId, peer)` then runs the **existing** `performDmAttach` (peer-in-primary check, profile/attestation publish, `promotePendingDmConversation`). On failure it clears the reservation and records durable backoff (`dm_create_backoff`: `attempt_count`/`next_attempt_at`/`dead` after N).
+5. Every user device syncs the DM, reads `agentDm.originConversationId`, and **deterministically** nests the DM page under exactly that primary group (persisted in `DBAgentDmOrigin`; also drives the #1271 push-tap routing). iOS auto-allows the DM (consent `.unknown` → `.allowed`) gated on the existing `isAgentDm` classification (marker + 2 members + attested verified agent) — a client-side reflector decision, no server consent change.
+
+**Determinism (DM → which group):** the DM group carries `agentDm.originConversationId` = the agent's *primary* conversation id, stamped by Herald at creation. One DM per `(agent, peer)`, anchored to that primary, so iOS resolves the parent group with zero inference. Before the marker syncs, iOS simply doesn't classify/place the DM yet (tolerated).
+
+**Key implementation decisions that emerged during the build:**
+- **`member_added` does not short-circuit the metadata path** (router.ts): a pure add emits `member_added`; an add that coincides with a metadata change emits `conversation_metadata_updated` (so the profile/custom-metadata snapshot is never dropped) and the added member still gets its DM via the reconcile sweep.
+- **`findExistingDm` requires the `agentDm` marker**, not just any 2-member group with the peer (would otherwise reuse an unrelated group).
+- **Concurrency**: create-side is serialized by the worker's per-peer `dmCreateInFlight` (one DO per agent, single-threaded) plus the registry reserve; the Herald endpoint is idempotent via `findExistingDm`.
+- **convos-cli is a runtime peer of node-sdk**, so consuming the field-8 codec doesn't double-load node-sdk. The field-8 build is the merge gate: convos-cli 0.10.16 must publish (Changesets) and the assistants catalog bump to it before #3191's `lint-javascript` (an `agentDm`-not-in-type typecheck) goes green.
+- **iOS** deleted `AgentDmReconciler` / `AgentDmFlow` / wiring; the two former create call sites now open the agent-created DM if present, else no-op (it arrives via sync).
+
+**Local-stack QA:** brought up non-disruptively via `ASSISTANTS_DIR`/`HERALD_DIR`/`CLI_DIR` overrides pointing at rework worktrees (main checkouts untouched). Fixed en route: a Node-25 `better-sqlite3` ABI rebuild for herald, and the Infisical/`.dev.vars` migration gap (stack tooling writes `.dev.vars`, which the worker rejects) worked around with `.env.local` + `CONVOS_INFISICAL_INJECTED=local`. Backend + herald + worker all come up running the rework code; the agent-creates-DM E2E (create an agent via `/api/assistants` + a convos-cli human, verify the agent auto-creates one marked DM) is the final validation step, run once the worker's Hermes container image finishes building.
 
 ## 1. Why
 
