@@ -38,10 +38,15 @@ public protocol UnusedConversationCacheProtocol: Actor {
     /// flips `isUnused` to `false`, refreshes `createdAt` to now (so the
     /// row sorts at the top of the chats list), and drops the in-memory
     /// claim. Idempotent for ids that aren't currently claimed.
+    /// Returns `false` when the database write failed: the row is still
+    /// hidden and the claim is retained, so callers for whom visibility is
+    /// the point of the commit can propagate the failure instead of
+    /// reporting a conversation that nothing can discover.
+    @discardableResult
     func commitClaimedConversation(
         id conversationId: String,
         databaseWriter: any DatabaseWriter
-    ) async
+    ) async -> Bool
 
     /// Drops the in-memory claim without writing to the DB. Pairs with
     /// `SessionManager.discardClaimedConversation`, which deletes the row
@@ -156,10 +161,11 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             .filter(!DBConversation.Columns.inviteTag.like("\(provisionalInviteTagPrefix)%"))
     }
 
+    @discardableResult
     public func commitClaimedConversation(
         id conversationId: String,
         databaseWriter: any DatabaseWriter
-    ) async {
+    ) async -> Bool {
         let now = Date()
         do {
             try await databaseWriter.write { db in
@@ -174,8 +180,10 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             // hand the same id out to another caller while the original
             // caller may still be using it.
             claimedConversationIds.remove(conversationId)
+            return true
         } catch {
             Log.error("Failed to commit claimed conversation \(conversationId): \(error)")
+            return false
         }
     }
 

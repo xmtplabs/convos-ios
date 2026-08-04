@@ -476,7 +476,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         return (service, conversationId)
     }
 
-    public func commitClaimedConversation(id conversationId: String) async {
+    @discardableResult
+    public func commitClaimedConversation(id conversationId: String) async -> Bool {
         await unusedConversationCache.commitClaimedConversation(
             id: conversationId,
             databaseWriter: databaseWriter

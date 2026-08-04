@@ -85,7 +85,11 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// list. Call this exactly once, when the user has confirmed intent
     /// (sent the builder bundle, generated an invite, sent the first
     /// message, etc.).
-    func commitClaimedConversation(id conversationId: String) async
+    /// Returns `false` when the underlying database write failed and the
+    /// row is still hidden; callers that report the conversation onward
+    /// should treat that as a failed commit rather than a success.
+    @discardableResult
+    func commitClaimedConversation(id conversationId: String) async -> Bool
 
     /// Drops the in-memory cache claim without touching the DB row. The
     /// row stays `isUnused = true` and remains hidden. Use this when the

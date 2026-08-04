@@ -363,7 +363,8 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.hasAnyUsedConversations()
     }
 
-    func commitClaimedConversation(id conversationId: String) async {
+    @discardableResult
+    func commitClaimedConversation(id conversationId: String) async -> Bool {
         await base.commitClaimedConversation(id: conversationId)
     }
 

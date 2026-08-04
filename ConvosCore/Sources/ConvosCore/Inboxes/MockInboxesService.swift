@@ -25,8 +25,10 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         (service: mockMessagingService, conversationId: nil)
     }
 
-    public func commitClaimedConversation(id conversationId: String) async {
+    @discardableResult
+    public func commitClaimedConversation(id conversationId: String) async -> Bool {
         committedConversationIds.append(conversationId)
+        return true
     }
 
     public func releaseClaimedConversation(id conversationId: String) async {

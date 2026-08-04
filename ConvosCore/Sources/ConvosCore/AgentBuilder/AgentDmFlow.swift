@@ -86,9 +86,22 @@ public enum AgentDmFlow {
         try await metadataWriter.markAsAgentDm(conversationId, originConversationId: originConversationId)
         // Surfacing is the last step: `findAgentDm` skips unused rows, so
         // this commit is what makes the DM discoverable to the reconciler
-        // and the DM page (and stops the reconciler minting another).
-        await session.commitClaimedConversation(id: conversationId)
+        // and the DM page (and stops the reconciler minting another). A
+        // failed commit must fail the flow: returning the id anyway would
+        // hand callers a conversation nothing can discover, while the row
+        // stays a hidden, claimed draft - the same inert state as any other
+        // die-partway outcome, so a later attempt can run cleanly.
+        guard await session.commitClaimedConversation(id: conversationId) else {
+            throw FlowError.commitFailed
+        }
         return conversationId
+    }
+
+    public enum FlowError: Error {
+        /// The DM was fully set up but the local commit that surfaces it
+        /// failed to write; the row remains hidden and the flow reports
+        /// failure so the caller can retry.
+        case commitFailed
     }
 
     private enum Constant {
