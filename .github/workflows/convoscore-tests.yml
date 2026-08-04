@@ -16,7 +16,10 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: warp-macos-26-arm64-12x
-    timeout-minutes: 15
+    # Generous enough to survive a cold SwiftPM fetch: the libxmtp clone
+    # alone has been observed at 44 minutes under GitHub throttling, and a
+    # timeout kill also skips the cache save that would spare the next run.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout code
@@ -29,20 +32,31 @@ jobs:
           swift --version
           xcodebuild -version
 
-      - name: Cache Swift Package dependencies
-        uses: actions/cache@v4
+      # Cache only SwiftPM's repository/artifact cache, not .build: the bare
+      # git mirrors (libxmtp's full clone is the expensive part, 92s-2650s
+      # observed) and downloaded binary artifacts are what make a run fast,
+      # while .build products pushed entries to 6-8GB - blowing the repo's
+      # 10GB cache quota and evicting every other cache within hours.
+      - name: Restore Swift Package cache
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ConvosCore/.build
-            ConvosAppData/.build
-            ConvosInvites/.build
-            ~/Library/Caches/org.swift.swiftpm
+          path: ~/Library/Caches/org.swift.swiftpm
           key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
 
       - name: Run unit tests
         run: ./ci/run-tests.sh --unit
+
+      # Save only from dev: caches saved during pull_request runs land on
+      # refs/pull/N/merge, which no other PR can restore - they just evict
+      # the shared entry. One dev-scoped cache is inherited by every PR.
+      - name: Save Swift Package cache
+        if: always() && github.ref == 'refs/heads/dev'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
 
       - name: Upload unit test logs
         if: always()
@@ -95,13 +109,15 @@ jobs:
           swift --version
           xcodebuild -version
 
-      - name: Cache Swift Package dependencies
-        uses: actions/cache@v4
+      # Same path and key as the unit job so both restore the one dev-saved
+      # entry (they previously hashed different Package.resolved sets, so
+      # each job stored its own multi-GB cache). Restore-only: dev's unit
+      # job owns the save.
+      - name: Restore Swift Package cache
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ConvosCore/.build
-            ~/Library/Caches/org.swift.swiftpm
-          key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved') }}
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
 
