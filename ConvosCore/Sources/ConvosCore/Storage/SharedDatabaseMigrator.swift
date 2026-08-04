@@ -199,23 +199,27 @@ extension SharedDatabaseMigrator {
         Self.registerTailMigrations(on: &migrator)
         Self.registerMemberDepartureMigrations(on: &migrator)
 
-        // Registration is append-only across releases: new migrations go here,
-        // after every already-shipped one. Inserting earlier (e.g. into a
-        // register* group above) reorders the registered list relative to
-        // databases that already applied the later migrations, which the DEBUG
-        // eraseDatabaseOnSchemaChange replay treats as a schema change and
-        // erases an upgrading user's database.
+        Self.registerAppendOnlyMigrations(on: &migrator)
+
+        return migrator
+    }
+
+    /// Registration is append-only across releases: new migrations go here, at
+    /// the bottom, after every already-shipped one. Inserting earlier (e.g. into
+    /// a register* group above) reorders the registered list relative to
+    /// databases that already applied the later migrations, which the DEBUG
+    /// eraseDatabaseOnSchemaChange replay treats as a schema change and erases
+    /// an upgrading user's database.
+    ///
+    /// Grouped into a helper to keep `createMigrator` under the function-length
+    /// budget, the same way `registerTailMigrations` is.
+    private static func registerAppendOnlyMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("addAgentTemplateGenerationJoinIdempotencyKey",
                                    migrate: Self.addAgentTemplateGenerationJoinIdempotencyKey)
         migrator.registerMigration("addProfilePublishJobProfileUpdatedAt", migrate: Self.addProfilePublishJobProfileUpdatedAt)
         migrator.registerMigration("addConversationLastMessagePointers", migrate: Self.addConversationLastMessagePointers)
-
-        // Must stay last: this migration was appended after the two above landed
-        // on dev, so existing installs applied those first. Registering it ahead
-        // of them re-triggers the erase described above.
         Self.registerAgentDmMigrations(on: &migrator)
-
-        return migrator
+        migrator.registerMigration("addConversationAddedById", migrate: Self.addConversationAddedById)
     }
 
     /// Per-conversation catch-up cursor (see DBConversationCatchUpCursor).
@@ -393,6 +397,32 @@ extension SharedDatabaseMigrator {
                 WHERE conversationId = conversation.id AND contentType = 'assistantJoinRequest'
                 ORDER BY dateNs DESC LIMIT 1
             )
+            """)
+    }
+
+    /// Records the XMTP welcome sender (`Group.addedByInboxId()`) on the
+    /// conversation row, plus how that value was arrived at.
+    ///
+    /// `creatorId` is the group's original creator, which is *not* necessarily
+    /// whoever invited the local user: anyone with add permission can pull a
+    /// new member into a group somebody else created. Consent for an inbound
+    /// welcome (`StreamProcessor`), the consent reconciler, and the
+    /// block-driven demote all keyed on `creatorId` alone, so a contact adding
+    /// you to a stranger's group left the conversation at `.unknown` -
+    /// persisted, but invisible in the `.allowed`-scoped feed, and eventually
+    /// reclaimed by the stale-stranger GC.
+    ///
+    /// `adderStatus` carries what a nullable `addedById` cannot: whether NULL
+    /// means "nobody added us" or "the lookup failed". Existing rows default to
+    /// `notRecorded`, which adjudicates on the creator alone exactly as before
+    /// this migration; they upgrade on the next write, since
+    /// `ConversationWriter` rebuilds the row from XMTP on every welcome and
+    /// message. The CHECK keeps the pair consistent.
+    static func addConversationAddedById(_ db: Database) throws {
+        try db.execute(sql: "ALTER TABLE conversation ADD COLUMN addedById TEXT")
+        try db.execute(sql: """
+            ALTER TABLE conversation ADD COLUMN adderStatus TEXT NOT NULL DEFAULT 'not_recorded'
+                CHECK ((adderStatus = 'resolved') = (addedById IS NOT NULL))
             """)
     }
 

@@ -715,10 +715,18 @@ actor StreamProcessor: StreamProcessorProtocol {
     /// reads as `.allowed` only once the local user has consented to it.
     /// As a side effect, this bumps XMTP consent `.unknown -> .allowed`
     /// when the local user has either requested to join (invite handshake)
-    /// or already has the creator as a non-blocked contact. Unsolicited
-    /// strangers stay `.unknown` (delivered but hidden from the feed) until
-    /// the creator becomes a contact, at which point `SyncingManager`'s
-    /// consent promoter flips them.
+    /// or already has a non-blocked contact vouching for the conversation.
+    /// Unsolicited strangers stay `.unknown` (delivered but hidden from the
+    /// feed) until someone involved becomes a contact, at which point
+    /// `ConversationConsentReconciler` flips them.
+    ///
+    /// "Vouching" means either of two inboxes, and both are consulted: the
+    /// **adder** (`addedByInboxId` — who actually pulled us in, i.e. the
+    /// welcome sender) and the **creator** (who originally made the group).
+    /// They differ whenever a contact adds us to a group somebody else
+    /// created, which is the common case for an established group; keying
+    /// only on the creator left those conversations at `.unknown` and so
+    /// permanently out of the feed.
     private func decideInboundConversation(
         _ conversation: XMTPiOS.Group,
         params: SyncClientParams
@@ -748,11 +756,24 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         // Bump XMTP consent to `.allowed` only when the local user has
         // consented to this conversation - either by requesting to join,
-        // or because the creator is already a non-blocked contact. Strangers
-        // are delivered but left `.unknown` so they stay out of the feed.
+        // or because a non-blocked contact (the adder or the creator)
+        // vouches for it. Strangers are delivered but left `.unknown` so
+        // they stay out of the feed.
         if decision == .deliver, consent == .unknown, creatorInboxId != clientInboxId {
-            let creatorIsContact = try await isNonBlockedContact(creatorInboxId)
-            if hasOutgoingJoinRequest || creatorIsContact {
+            // Not a `||`: the right side is async-throwing, and we want the
+            // short-circuit anyway so an invite-handshake join skips the
+            // contact lookup entirely.
+            let isConsented: Bool
+            if hasOutgoingJoinRequest {
+                isConsented = true
+            } else {
+                isConsented = try await aContactVouchesFor(
+                    conversation,
+                    creatorInboxId: creatorInboxId,
+                    clientInboxId: clientInboxId
+                )
+            }
+            if isConsented {
                 try await conversation.updateConsentState(state: .allowed)
             }
         }
@@ -760,14 +781,69 @@ actor StreamProcessor: StreamProcessorProtocol {
         return decision
     }
 
-    /// True when `inboxId` is a stored contact that is not blocked. Mirrors
-    /// the join used by the feed query and the consent promoter.
-    private func isNonBlockedContact(_ inboxId: String) async throws -> Bool {
-        try await databaseReader.read { db in
-            try DBContact
-                .filter(DBContact.Columns.inboxId == inboxId)
-                .filter(DBContact.Columns.blockedAt == nil)
-                .fetchCount(db) > 0
+    /// True when someone the local user trusts is responsible for this
+    /// conversation: the inbox that added us, or the group's creator, is a
+    /// stored non-blocked contact.
+    ///
+    /// Blocking wins in both directions - if *either* inbox is blocked this
+    /// returns false, so a contact cannot be used as a conduit to reach us
+    /// on behalf of someone we blocked, and blocking the adder keeps us out
+    /// of a group even when its creator is a contact.
+    private func aContactVouchesFor(
+        _ conversation: XMTPiOS.Group,
+        creatorInboxId: String,
+        clientInboxId: String
+    ) async throws -> Bool {
+        try await Self.contactsVouch(
+            adder: conversation.resolvedAdder(),
+            creatorInboxId: creatorInboxId,
+            clientInboxId: clientInboxId,
+            databaseReader: databaseReader
+        )
+    }
+
+    /// The trust decision itself, split out from the XMTP read so it can be
+    /// exercised without a live client.
+    ///
+    /// An `.unresolved` adder never vouches: we can't rule out that a blocked
+    /// inbox invited us, so we decline to consent on the user's behalf rather
+    /// than fall back to the creator's contact status. The conversation is
+    /// still persisted, just left at `.unknown` (hidden), and the next store
+    /// re-reads the adder - `ConversationWriter` runs on every welcome and
+    /// message - so a transient failure resolves itself.
+    static func contactsVouch(
+        adder: AdderResolution,
+        creatorInboxId: String,
+        clientInboxId: String,
+        databaseReader: any DatabaseReader
+    ) async throws -> Bool {
+        let inboxIds: [String]
+        switch adder {
+        case .unresolved:
+            return false
+        case .none:
+            // "No adder" is supposed to mean we created the group, so a foreign
+            // creator means that assumption is wrong. Logged rather than
+            // declined: unlike `.unresolved` this state is stable, so declining
+            // would hide the conversation permanently if it turns out to be
+            // reachable. Tighten only once this is known never to fire.
+            if creatorInboxId != clientInboxId {
+                Log.warning("contactsVouch: no adder on a group we did not create (creator \(creatorInboxId))")
+            }
+            inboxIds = [creatorInboxId]
+        case .notRecorded:
+            inboxIds = [creatorInboxId]
+        case let .known(addedByInboxId):
+            inboxIds = [addedByInboxId, creatorInboxId]
+        }
+
+        return try await databaseReader.read { db in
+            let contacts = try DBContact
+                .filter(inboxIds.contains(DBContact.Columns.inboxId))
+                .fetchAll(db)
+            guard !contacts.isEmpty else { return false }
+            guard contacts.allSatisfy({ $0.blockedAt == nil }) else { return false }
+            return true
         }
     }
 

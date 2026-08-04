@@ -872,6 +872,19 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         return incoming.with(isAgentDm: true)
     }
 
+    /// A resolved adder is write-once: it records who invited us, which never
+    /// changes. The invite placeholder path has no XMTP handle and a failed
+    /// libxmtp read yields `.unresolved`; neither may erase a stored adder,
+    /// since the reconciler and the block demote depend on it.
+    static func preservingResolvedAdder(incoming: DBConversation, existing: DBConversation?) -> DBConversation {
+        guard incoming.adderStatus != .resolved,
+              let existing,
+              existing.adderStatus == .resolved else {
+            return incoming
+        }
+        return incoming.with(adder: existing.adder)
+    }
+
     private func createDBConversation(
         from conversation: XMTPiOS.Group,
         metadata: ConversationMetadata,
@@ -912,7 +925,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
             hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
-            isAgentDm: metadata.isAgentDm
+            isAgentDm: metadata.isAgentDm,
+            // Shares one definition of the empty-vs-throw semantics with the
+            // consent gate (`StreamProcessor.contactsVouch`). A failed read
+            // persists as `.unresolved` rather than being flattened to "no
+            // adder", so the reconciler can fail closed on it.
+            adder: conversation.resolvedAdder()
         )
     }
 
@@ -984,6 +1002,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         if let existingConversation {
             let mergedHasAgent: Bool = existingConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
             conversationToSave = conversationToSave.with(hasHadVerifiedAgent: mergedHasAgent)
+            conversationToSave = Self.preservingResolvedAdder(
+                incoming: conversationToSave,
+                existing: existingConversation
+            )
         }
 
         let existingConversationByTag = try existingConversationMatchingInviteTag(
@@ -1050,6 +1072,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 existing: localConversation,
                 memberCount: memberCount,
                 otherMemberIsVerifiedAgent: try Self.conversationHasVerifiedAgentMember(db, conversationId: localConversation.id)
+            )
+            // Same write-once rule as the by-id branch above: the row being
+            // replaced may hold the adder this read couldn't produce.
+            conversationToSave = Self.preservingResolvedAdder(
+                incoming: conversationToSave,
+                existing: localConversation
             )
             try conversationToSave.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt

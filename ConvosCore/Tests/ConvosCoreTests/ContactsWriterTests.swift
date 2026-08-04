@@ -45,7 +45,8 @@ struct ContactsWriterTests {
         _ db: Database,
         id: String,
         creatorId: String,
-        consent: Consent
+        consent: Consent,
+        adder: AdderResolution = .notRecorded
     ) throws {
         try DBMember(inboxId: creatorId).save(db, onConflict: .ignore)
         try DBConversation(
@@ -70,7 +71,8 @@ struct ContactsWriterTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAgent: false
+            hasHadVerifiedAgent: false,
+            adder: adder
         ).insert(db)
     }
 
@@ -546,6 +548,50 @@ struct ContactsWriterTests {
         // A conversation created by someone else (e.g. a shared group the
         // local user created) stays visible - mirrors the reconciler join.
         #expect(mineConsent == .allowed)
+    }
+
+    @Test("block demotes conversations the blocked inbox added us to, not just ones it created")
+    func testBlockDemotesConversationsTheBlockedInboxAddedUsTo() async throws {
+        // A conversation can be visible because its *adder* is a contact, not
+        // only its creator, so a creator-only demote would leave the groups a
+        // blocked inbox pulled us into sitting in the feed.
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = ContactsWriter(databaseWriter: dbManager.dbWriter)
+        let blockedInboxId = "blocked-adder"
+
+        try await dbManager.dbWriter.write { db in
+            try Self.seedConversation(
+                db,
+                id: "conv-added-by-blocked",
+                creatorId: "stranger-creator",
+                consent: .allowed,
+                adder: .known(blockedInboxId)
+            )
+            // Untouched control: neither created nor added by the blocked inbox.
+            try Self.seedConversation(
+                db,
+                id: "conv-unrelated",
+                creatorId: "other-creator",
+                consent: .allowed,
+                adder: .known("other-adder")
+            )
+        }
+        try await writer.upsertContact(
+            inboxId: blockedInboxId,
+            addedViaConversationId: nil,
+            profile: ContactProfileSnapshot(displayName: "Blocked adder")
+        )
+
+        try await writer.block(inboxId: blockedInboxId)
+
+        let (addedByBlocked, unrelated) = try await dbManager.dbReader.read { db in
+            try (
+                DBConversation.fetchOne(db, key: "conv-added-by-blocked")?.consent,
+                DBConversation.fetchOne(db, key: "conv-unrelated")?.consent
+            )
+        }
+        #expect(addedByBlocked == .denied)
+        #expect(unrelated == .allowed)
     }
 
     @Test("agentVerification persists on a new contact via upsert")
