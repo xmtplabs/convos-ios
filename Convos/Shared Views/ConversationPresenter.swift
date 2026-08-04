@@ -150,6 +150,7 @@ struct ConversationPresenter<Content: View>: View {
                 onScannedCode: { code in viewModel.handleScannedCodeInCurrentConversation(code) }
             )
             .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
     }
 

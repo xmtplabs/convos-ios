@@ -717,6 +717,7 @@ struct ConversationInfoView: View {
                         }
                     )
                     .presentationDetents([.large])
+                    .presentationDragIndicator(.visible)
                 }
                 .background {
                     Color.clear
