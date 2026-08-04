@@ -5,6 +5,15 @@ import Foundation
 final class FeatureFlags {
     static let shared: FeatureFlags = FeatureFlags()
 
+    // Every flag here is a computed property over UserDefaults, and the
+    // Observable macro only instruments stored properties. Each accessor
+    // therefore registers with the observation registrar by hand --
+    // `access(keyPath:)` in get, `withMutation(keyPath:)` around the write
+    // -- so views whose bodies read a flag (for example the debug menu's
+    // dependent rows) re-evaluate as soon as it is toggled. Without the
+    // registrar calls a flip only shows up after the view is rebuilt for
+    // some other reason.
+
     // Reaching a flag in a production build takes two changes, not one, and
     // missing either looks identical from the device: the control just is not
     // there.
@@ -21,12 +30,15 @@ final class FeatureFlags {
     /// value somehow leaks in from a dev build with the same bundle id.
     var isDebugInjectorEnabled: Bool {
         get {
+            access(keyPath: \.isDebugInjectorEnabled)
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
             return UserDefaults.standard.bool(forKey: Constant.debugInjectorEnabledKey)
         }
         set {
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
-            UserDefaults.standard.set(newValue, forKey: Constant.debugInjectorEnabledKey)
+            withMutation(keyPath: \.isDebugInjectorEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.debugInjectorEnabledKey)
+            }
         }
     }
 
@@ -35,12 +47,15 @@ final class FeatureFlags {
     /// locked off in production so the selector can never surface for end users.
     var isAgentVariantSelectorEnabled: Bool {
         get {
+            access(keyPath: \.isAgentVariantSelectorEnabled)
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
             return UserDefaults.standard.bool(forKey: Constant.agentVariantSelectorEnabledKey)
         }
         set {
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
-            UserDefaults.standard.set(newValue, forKey: Constant.agentVariantSelectorEnabledKey)
+            withMutation(keyPath: \.isAgentVariantSelectorEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.agentVariantSelectorEnabledKey)
+            }
             // Clear any cached selection when the feature is turned off so a
             // stale variant can't resurface on re-enable. Reads are already
             // gated on this flag; clearing keeps the persisted state honest too.
@@ -62,13 +77,16 @@ final class FeatureFlags {
     /// remembered and wins over the default.
     var isListenParticipationEnabled: Bool {
         get {
+            access(keyPath: \.isListenParticipationEnabled)
             guard let stored = UserDefaults.standard.object(forKey: Constant.listenParticipationEnabledKey) as? Bool else {
                 return Self.listenParticipationDefault
             }
             return stored
         }
         set {
-            UserDefaults.standard.set(newValue, forKey: Constant.listenParticipationEnabledKey)
+            withMutation(keyPath: \.isListenParticipationEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.listenParticipationEnabledKey)
+            }
         }
     }
 
@@ -84,10 +102,13 @@ final class FeatureFlags {
     /// Default-off keeps everyone else on the legacy stream path.
     var isXMTPBidiStreamsEnabled: Bool {
         get {
+            access(keyPath: \.isXMTPBidiStreamsEnabled)
             return UserDefaults.standard.bool(forKey: Constant.xmtpBidiStreamsEnabledKey)
         }
         set {
-            UserDefaults.standard.set(newValue, forKey: Constant.xmtpBidiStreamsEnabledKey)
+            withMutation(keyPath: \.isXMTPBidiStreamsEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.xmtpBidiStreamsEnabledKey)
+            }
         }
     }
 
@@ -99,12 +120,15 @@ final class FeatureFlags {
     /// public enablement is a default flip in a client release.
     var isAbilitiesV2Enabled: Bool {
         get {
+            access(keyPath: \.isAbilitiesV2Enabled)
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
             return UserDefaults.standard.bool(forKey: Constant.abilitiesV2EnabledKey)
         }
         set {
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
-            UserDefaults.standard.set(newValue, forKey: Constant.abilitiesV2EnabledKey)
+            withMutation(keyPath: \.isAbilitiesV2Enabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.abilitiesV2EnabledKey)
+            }
         }
     }
 
@@ -112,12 +136,15 @@ final class FeatureFlags {
     /// in the Debug menu. Non-production only; defaults to `.plusAmple`.
     var mockCreditsPreset: CreditsStatePreset {
         get {
+            access(keyPath: \.mockCreditsPreset)
             let raw = UserDefaults.standard.string(forKey: Constant.mockCreditsPresetKey)
                 ?? CreditsStatePreset.plusAmple.rawValue
             return CreditsStatePreset(compatibleRawValue: raw) ?? .plusAmple
         }
         set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: Constant.mockCreditsPresetKey)
+            withMutation(keyPath: \.mockCreditsPreset) {
+                UserDefaults.standard.set(newValue.rawValue, forKey: Constant.mockCreditsPresetKey)
+            }
         }
     }
 
@@ -129,17 +156,20 @@ final class FeatureFlags {
     /// can never route an end user to a variant runtime.
     var selectedAgentVariant: ConvosAPI.AgentVariant? {
         get {
+            access(keyPath: \.selectedAgentVariant)
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return nil }
             guard let data = UserDefaults.standard.data(forKey: Constant.selectedAgentVariantKey) else { return nil }
             return try? JSONDecoder().decode(ConvosAPI.AgentVariant.self, from: data)
         }
         set {
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
-            guard let newValue, let data = try? JSONEncoder().encode(newValue) else {
-                UserDefaults.standard.removeObject(forKey: Constant.selectedAgentVariantKey)
-                return
+            withMutation(keyPath: \.selectedAgentVariant) {
+                guard let newValue, let data = try? JSONEncoder().encode(newValue) else {
+                    UserDefaults.standard.removeObject(forKey: Constant.selectedAgentVariantKey)
+                    return
+                }
+                UserDefaults.standard.set(data, forKey: Constant.selectedAgentVariantKey)
             }
-            UserDefaults.standard.set(data, forKey: Constant.selectedAgentVariantKey)
         }
     }
 
