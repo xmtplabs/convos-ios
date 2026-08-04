@@ -277,4 +277,38 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
         contentType: String,
         to uploadURL: String
     ) async throws {}
+
+    // Declared on the base (not left to the protocol-extension default) so
+    // abilities fixtures can `override` them (see LiveAbilitiesServiceTests).
+    func getAbilities() async throws -> AbilitiesAPI.CatalogResponse {
+        throw APIError.invalidRequest
+    }
+
+    func createAbilityEntitlement(abilityId: String, redirectUri: String?) async throws -> AbilitiesAPI.EntitlementInitiationResponse {
+        throw APIError.invalidRequest
+    }
+
+    @discardableResult
+    func completeAbilityEntitlement(abilityId: String, connectionRequestId: String) async throws -> AbilitiesAPI.EntitlementCompleteResponse {
+        throw APIError.invalidRequest
+    }
+
+    func revokeAbilityEntitlement(abilityId: String) async throws {}
+
+    func getConversationAbilities(conversationId: String) async throws -> AbilitiesAPI.ConversationAbilitiesResponse {
+        AbilitiesAPI.ConversationAbilitiesResponse(abilities: [])
+    }
+
+    @discardableResult
+    func putConversationAbility(
+        conversationId: String,
+        abilityId: String,
+        agentInboxId: String,
+        bundleIds: [String],
+        extendedByInboxId: String?
+    ) async throws -> AbilitiesAPI.ConversationAbilityEntry {
+        throw APIError.invalidRequest
+    }
+
+    func deleteConversationAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws {}
 }

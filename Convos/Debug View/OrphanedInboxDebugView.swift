@@ -76,6 +76,7 @@ struct OrphanedInboxDebugView: View {
         Task { @MainActor in
             do {
                 try await session.deleteAllInboxes()
+                AbilitiesServices.handleAccountDataWiped()
             } catch {
                 Log.error("Failed to reset account: \(error)")
             }

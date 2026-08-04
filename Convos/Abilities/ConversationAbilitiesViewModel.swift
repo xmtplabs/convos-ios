@@ -72,16 +72,20 @@ final class ConversationAbilitiesViewModel {
 
     private let conversationId: String
     private let agents: [ConversationAgentDescriptor]
-    private let service: any AbilitiesServiceProtocol
+    /// The (service, authorizer) pair latched at construction; both halves
+    /// travel together so the needs-entitlement sheet can never mix modes.
+    private let selection: AbilitiesSelection
+
+    private var service: any AbilitiesServiceProtocol { selection.service }
 
     init(
         conversationId: String,
         agents: [ConversationAgentDescriptor],
-        service: any AbilitiesServiceProtocol
+        selection: AbilitiesSelection
     ) {
         self.conversationId = conversationId
         self.agents = agents
-        self.service = service
+        self.selection = selection
         refreshSoon()
     }
 
@@ -156,15 +160,23 @@ final class ConversationAbilitiesViewModel {
         }
     }
 
-    /// The service driving this conversation's rows. The needs-entitlement
-    /// deep link hands it to `AbilitiesListScreen` so a connect there is
-    /// visible here after dismissal.
-    var abilitiesService: any AbilitiesServiceProtocol { service }
+    /// The selection driving this conversation's rows. The
+    /// needs-entitlement deep link hands the whole pair to
+    /// `AbilitiesListScreen` so a connect there is visible here after
+    /// dismissal, and the sheet's authorizer always matches this service.
+    var abilitiesSelection: AbilitiesSelection { selection }
 
     private func requestExtension(for row: Row) {
         let ability = row.ability
         guard ability.entitlement?.status == .active else {
             needsEntitlementAbility = ability
+            return
+        }
+        guard !ability.bundles.isEmpty else {
+            // The extension PUT requires a non-empty bundle selection, so
+            // a zero-bundle catalog ability cannot be extended yet: explain
+            // immediately instead of bouncing through a doomed mutation.
+            errorMessage = LiveAbilitiesServiceError.noBundlesSelected(abilityId: ability.id).localizedDescription
             return
         }
         if ability.bundles.count > 1 {

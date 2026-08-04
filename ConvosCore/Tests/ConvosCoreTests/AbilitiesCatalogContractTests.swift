@@ -546,6 +546,18 @@ struct MockAbilitiesServiceTests {
         #expect(catalog.abilities.first { $0.id == "coinbase" }?.entitlement?.status == .active)
     }
 
+    @Test("Completion without an open OAuth round is rejected")
+    func completeRequiresPendingAuth() async throws {
+        let service = makeService()
+
+        await #expect(throws: LiveAbilitiesServiceError.missingConnectionRequest(abilityId: "youtube")) {
+            try await service.completeEntitlement(abilityId: "youtube")
+        }
+        await #expect(throws: LiveAbilitiesServiceError.missingConnectionRequest(abilityId: "googlecalendar")) {
+            try await service.completeEntitlement(abilityId: "googlecalendar")
+        }
+    }
+
     @Test("Extending requires an active entitlement")
     func extendRequiresActiveEntitlement() async throws {
         let service = makeService()

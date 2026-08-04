@@ -935,6 +935,7 @@ extension ConversationsViewModel {
             },
             onDeleteExistingData: { [weak self] in
                 try await self?.session.deleteAllInboxes()
+                AbilitiesServices.handleAccountDataWiped()
             },
             checkHasExistingData: { [weak self] in
                 guard let session = self?.session else { return false }

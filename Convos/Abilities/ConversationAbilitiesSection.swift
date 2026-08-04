@@ -154,7 +154,7 @@ struct ConversationAbilitiesSection: View {
     /// this sheet-content builder cannot replace it mid-presentation.
     private func needsEntitlementSheet(_ ability: AbilitiesAPI.Ability) -> some View {
         NavigationStack {
-            AbilitiesListScreen(service: viewModel.abilitiesService)
+            AbilitiesListScreen(selection: viewModel.abilitiesSelection)
                 .navigationTitle("Connect \(ability.displayName.resolved())")
                 .navigationBarTitleDisplayMode(.inline)
         }
@@ -175,7 +175,7 @@ struct ConversationAbilitiesSection: View {
                 agents: [
                     ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
                 ],
-                service: MockAbilitiesService()
+                selection: AbilitiesSelection(service: MockAbilitiesService())
             )
         )
     }
@@ -190,7 +190,7 @@ struct ConversationAbilitiesSection: View {
                     ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
                     ConversationAgentDescriptor(inboxId: "mock-agent-inbox-2", displayName: "Scout"),
                 ],
-                service: MockAbilitiesService()
+                selection: AbilitiesSelection(service: MockAbilitiesService())
             )
         )
     }
@@ -204,7 +204,7 @@ struct ConversationAbilitiesSection: View {
                 agents: [
                     ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
                 ],
-                service: MockAbilitiesService(scenario: .entitlementsUnavailable)
+                selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailable))
             )
         )
     }
@@ -218,7 +218,7 @@ struct ConversationAbilitiesSection: View {
                 agents: [
                     ConversationAgentDescriptor(inboxId: "mock-agent-inbox-1", displayName: "Caley"),
                 ],
-                service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart)
+                selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart))
             )
         )
     }

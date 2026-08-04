@@ -136,6 +136,8 @@ struct ConvosApp: App {
             MockSubscriptionService.shared.setPreset(persistedPreset)
         }
 
+        Self.configureAbilities(session: convos.session, environment: environment)
+
         let dbWriter = convos.databaseWriter
         Task {
             await agentKeyset.prefetch()
@@ -201,6 +203,17 @@ struct ConvosApp: App {
         Self.configureTabBarItemColors()
     }
 
+    /// Wires the live abilities service (mock/live selection happens per
+    /// read via the Debug sub-toggle) and seeds the last-known catalog on
+    /// cold launch; the scene-phase handler covers later foregrounds and
+    /// the surfaces refresh again on appear.
+    private static func configureAbilities(session: any SessionManagerProtocol, environment: AppEnvironment) {
+        AbilitiesServices.configure(session: session, environment: environment)
+        if FeatureFlags.shared.isAbilitiesV2Enabled {
+            Task { await AbilitiesServices.refreshCatalogInBackground() }
+        }
+    }
+
     /// Tints the unselected tab items tertiary. The selected color is
     /// driven by SwiftUI `.tint` (primary) on the `TabView`; the unselected
     /// color is set on the existing appearance's `normal` item state (we
@@ -256,6 +269,13 @@ struct ConvosApp: App {
             await FirebaseHelperCore.mirrorTokenToAppGroup(
                 ConfigManager.shared.currentEnvironment.appGroupIdentifier
             )
+        }
+
+        // Abilities V2 foreground refresh: updates the live service's
+        // last-known catalog so the next screen-appear fetch merges against
+        // fresh state. No-op in mock mode or with the flag off.
+        if FeatureFlags.shared.isAbilitiesV2Enabled {
+            Task { await AbilitiesServices.refreshCatalogInBackground() }
         }
 
         // Messages the share extension wrote to the shared database from its

@@ -27,9 +27,13 @@ final class AbilitiesListViewModel {
     private var isCompletingAuthorization: Bool = false
 
     private let service: any AbilitiesServiceProtocol
+    /// Browser-session authorizer for the live transport. Nil (mock mode)
+    /// keeps the stub authorization sheet as the approval step.
+    private let authorizer: (any AbilityAuthorizing)?
 
-    init(service: any AbilitiesServiceProtocol) {
+    init(service: any AbilitiesServiceProtocol, authorizer: (any AbilityAuthorizing)? = nil) {
         self.service = service
+        self.authorizer = authorizer
     }
 
     var entitlementsUnavailable: Bool {
@@ -87,9 +91,10 @@ final class AbilitiesListViewModel {
 
     /// Starts (or restarts, for expired/needs-reauth/revoked states) the
     /// entitlement. A `pendingAuth` initiation with a redirect URL opens
-    /// the authorization step; completion only ever runs from
-    /// `completeAuthorization`, after the user approved it, mirroring the
-    /// browser-callback boundary the live transport has.
+    /// the authorization step: the injected browser authorizer when one is
+    /// present (live transport), the stub sheet otherwise. Either way,
+    /// completion only ever runs after the user approved it, mirroring the
+    /// browser-callback boundary.
     func connect(_ ability: AbilitiesAPI.Ability) {
         guard !isBusy(ability) else { return }
         busyAbilityIds.insert(ability.id)
@@ -97,15 +102,95 @@ final class AbilitiesListViewModel {
         Task {
             do {
                 let initiation = try await service.beginEntitlement(abilityId: ability.id)
+                // Cosmetic mid-flow refresh (the row shows Continue and
+                // Disconnect behind the authorization surface). It must
+                // never gate the authorization step: begin has already
+                // opened a backend OAuth round, and failing here would
+                // strand it behind an error message.
+                await refreshCatalogQuietly()
                 if initiation.status == .pendingAuth, let redirectUrl = initiation.redirectUrl {
-                    pendingAuthorization = AbilityAuthorizationContext(ability: ability, redirectUrl: redirectUrl)
+                    if let authorizer {
+                        await runBrowserAuthorization(for: ability, redirectUrl: redirectUrl, using: authorizer)
+                    } else {
+                        pendingAuthorization = AbilityAuthorizationContext(ability: ability, redirectUrl: redirectUrl)
+                    }
                 }
-                catalog = try await service.fetchCatalog()
             } catch {
                 errorMessage = error.localizedDescription
             }
             busyAbilityIds.remove(ability.id)
         }
+    }
+
+    /// Mid-flow catalog refresh that must never derail the surrounding
+    /// lifecycle: updates on success, quietly keeps the stale catalog
+    /// otherwise (the flow's own completion refresh retries).
+    private func refreshCatalogQuietly() async {
+        guard let fetched = try? await service.fetchCatalog() else { return }
+        catalog = fetched
+    }
+
+    /// Live-transport authorization: `ASWebAuthenticationSession` replaces
+    /// the stub sheet, then the same complete/cancel lifecycle runs. On any
+    /// failure the entitlement stays `pendingAuth` server-side, so a
+    /// refresh leaves the row offering Continue and Disconnect; only
+    /// non-cancel failures surface a message. Continue then resumes the
+    /// same attempt: the service re-serves the retained consent URL and
+    /// completion echoes the retained connection-request id -- it never
+    /// mints a new backend connection request.
+    private func runBrowserAuthorization(
+        for ability: AbilitiesAPI.Ability,
+        redirectUrl: String,
+        using authorizer: any AbilityAuthorizing
+    ) async {
+        do {
+            try await authorizer.authorize(redirectUrl: redirectUrl)
+        } catch {
+            await refresh()
+            if !Self.isAuthorizationCancellation(error) {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+        // Completion and the follow-up refresh fail independently: after a
+        // successful complete, the row update is quiet so a transient fetch
+        // hiccup can never report the finished connect as failed; after a
+        // failed complete, the mutation error wins over the refresh outcome.
+        do {
+            try await completeRetryingAuthIncomplete(abilityId: ability.id)
+        } catch {
+            await refresh()
+            errorMessage = error.localizedDescription
+            return
+        }
+        await refreshCatalogQuietly()
+    }
+
+    /// Bounded same-attempt completion retry. `auth_incomplete` means the
+    /// provider callback landed but the connection is not ACTIVE yet
+    /// (still INITIALIZING); each retry re-submits the same retained
+    /// connection-request id, which the service keeps across
+    /// `auth_incomplete` failures. If it still isn't active after the
+    /// budget, the final error surfaces its retry copy and the pending row
+    /// offers Continue -- which resumes this same attempt.
+    private func completeRetryingAuthIncomplete(abilityId: String) async throws {
+        let retryDelays: [Duration] = [.seconds(1), .seconds(2)]
+        for delay in retryDelays {
+            do {
+                try await service.completeEntitlement(abilityId: abilityId)
+                return
+            } catch AbilitiesAPI.EndpointError.authIncomplete {
+                try await Task.sleep(for: delay)
+            }
+        }
+        try await service.completeEntitlement(abilityId: abilityId)
+    }
+
+    private static func isAuthorizationCancellation(_ error: Error) -> Bool {
+        if case OAuthError.cancelled = error {
+            return true
+        }
+        return false
     }
 
     /// The authorization step succeeded (in Track A, the stub sheet's
@@ -117,8 +202,9 @@ final class AbilitiesListViewModel {
         Task {
             do {
                 try await service.completeEntitlement(abilityId: context.ability.id)
-                catalog = try await service.fetchCatalog()
+                await refreshCatalogQuietly()
             } catch {
+                await refresh()
                 errorMessage = error.localizedDescription
             }
             busyAbilityIds.remove(context.ability.id)
@@ -155,8 +241,9 @@ final class AbilitiesListViewModel {
         Task {
             do {
                 try await service.revokeEntitlement(abilityId: ability.id)
-                catalog = try await service.fetchCatalog()
+                await refreshCatalogQuietly()
             } catch {
+                await refresh()
                 errorMessage = error.localizedDescription
             }
             busyAbilityIds.remove(ability.id)

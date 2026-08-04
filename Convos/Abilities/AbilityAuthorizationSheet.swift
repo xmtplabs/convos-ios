@@ -2,11 +2,11 @@ import ConvosCore
 import SwiftUI
 
 /// Stubbed stand-in for the OAuth browser session between
-/// `beginEntitlement` and `completeEntitlement`. Track A has no live
-/// backend to bounce through, so the redirect URL is shown and approval
-/// is a tap; the live transport replaces this presentation with the
-/// `OAuthSessionProvider` machinery driving the same approve/cancel
-/// callbacks, leaving the view-model flow untouched.
+/// `beginEntitlement` and `completeEntitlement`, presented only in mock
+/// mode (no `AbilityAuthorizing` injected): the redirect URL is shown and
+/// approval is a tap. With the live transport, the same redirect URL
+/// drives `AbilityOAuthAuthorizer`'s `ASWebAuthenticationSession` instead,
+/// feeding the same approve/cancel lifecycle in the view model.
 struct AbilityAuthorizationSheet: View {
     let context: AbilityAuthorizationContext
     let onAuthorize: () -> Void

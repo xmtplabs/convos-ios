@@ -100,6 +100,7 @@ final class AppSettingsViewModel {
             // a failure mid-stream would leave settings appearing reset while the
             // underlying inboxes are still on device.
             resetLocalState()
+            AbilitiesServices.handleAccountDataWiped()
             isDeleting = false
             onComplete()
         } catch {

@@ -13,8 +13,11 @@ import SwiftUI
 struct AbilitiesListScreen: View {
     @State private var viewModel: AbilitiesListViewModel
 
-    init(service: any AbilitiesServiceProtocol) {
-        _viewModel = State(initialValue: AbilitiesListViewModel(service: service))
+    /// Takes the whole selection so the service and its authorizer are
+    /// latched together for the screen's lifetime -- the halves must never
+    /// be resolved at different times (see `AbilitiesSelection`).
+    init(selection: AbilitiesSelection) {
+        _viewModel = State(initialValue: AbilitiesListViewModel(service: selection.service, authorizer: selection.authorizer))
     }
 
     var body: some View {
@@ -299,24 +302,24 @@ struct AbilitiesListView: View {
 
 #Preview("Standard") {
     NavigationStack {
-        AbilitiesListScreen(service: MockAbilitiesService())
+        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService()))
     }
 }
 
 #Preview("Entitlements unavailable") {
     NavigationStack {
-        AbilitiesListScreen(service: MockAbilitiesService(scenario: .entitlementsUnavailable))
+        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailable)))
     }
 }
 
 #Preview("Cold-start outage") {
     NavigationStack {
-        AbilitiesListScreen(service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart))
+        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart)))
     }
 }
 
 #Preview("Device only") {
     NavigationStack {
-        AbilitiesListScreen(service: MockAbilitiesService(scenario: .deviceOnly))
+        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .deviceOnly)))
     }
 }
