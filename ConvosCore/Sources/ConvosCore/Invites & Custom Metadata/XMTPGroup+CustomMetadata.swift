@@ -215,21 +215,24 @@ extension XMTPiOS.Group {
         let needsEmoji = emojiSeed != nil && (!current.hasEmoji || current.emoji.isEmpty)
         guard needsTag || needsKey || needsEmoji else { return }
 
-        let newTag = try generateSecureRandomString(length: 10)
+        // Generate the tag only when it's actually missing so a transient
+        // SecRandomCopyBytes failure can't abort an emoji- or key-only update.
+        let newTag: String? = needsTag ? try generateSecureRandomString(length: 10) : nil
         // Key generation failure stays non-fatal, matching how callers treat
         // `ensureImageEncryptionKey`: the key is retried on first image
         // upload, while a missing invite tag breaks joins.
-        let newKey: Data?
-        do {
-            newKey = try ImageEncryption.generateGroupKey()
-        } catch {
-            Log.warning("Failed to generate image encryption key: \(error). Will retry on first image upload.")
-            newKey = nil
+        var newKey: Data?
+        if needsKey {
+            do {
+                newKey = try ImageEncryption.generateGroupKey()
+            } catch {
+                Log.warning("Failed to generate image encryption key: \(error). Will retry on first image upload.")
+            }
         }
         let newEmoji: String? = emojiSeed.map { EmojiSelector.emoji(for: $0) }
 
         try await atomicUpdateMetadata(operation: "ensureCreatorMetadata") { metadata in
-            if metadata.tag.isEmpty {
+            if let newTag, metadata.tag.isEmpty {
                 metadata.tag = newTag
             }
             if let newKey, !metadata.hasImageEncryptionKey {
