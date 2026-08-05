@@ -9,6 +9,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
     let selectedConversationId: String?
     let isFilteredResultEmpty: Bool
     let filterEmptyMessage: String
+    var hasMoreConversations: Bool = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.memberContactOverride) private var memberContactOverride: @Sendable (String) -> Contact?
 
@@ -21,6 +22,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
     var onTogglePin: ((Conversation) -> Void)?
     var onShowAllFilter: (() -> Void)?
     var onScrollOffsetChange: ((CGFloat) -> Void)?
+    var onLoadMoreConversations: (() -> Void)?
     var topChromeInset: CGFloat = 0
     var bottomChromeInset: CGFloat = 0
 
@@ -38,7 +40,8 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
             selectedConversationId: selectedConversationId,
             isFilteredResultEmpty: isFilteredResultEmpty,
             filterEmptyMessage: filterEmptyMessage,
-            horizontalSizeClass: horizontalSizeClass
+            horizontalSizeClass: horizontalSizeClass,
+            hasMoreConversations: hasMoreConversations
         )
         viewController.memberContactOverride = memberContactOverride
         viewController.updateState(state)
@@ -58,5 +61,6 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
         viewController.onTogglePin = onTogglePin
         viewController.onShowAllFilter = onShowAllFilter
         viewController.onScrollOffsetChange = onScrollOffsetChange
+        viewController.onLoadMoreConversations = onLoadMoreConversations
     }
 }

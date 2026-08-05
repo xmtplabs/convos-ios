@@ -265,6 +265,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         base.conversationsRepository(for: consent)
     }
 
+    func conversationsPager(for consent: [Consent]) -> any ConversationsPagerProtocol {
+        base.conversationsPager(for: consent)
+    }
+
     func conversationsCountRepo(for consent: [Consent], kinds: [ConversationKind]) -> any ConversationsCountRepositoryProtocol {
         base.conversationsCountRepo(for: consent, kinds: kinds)
     }
