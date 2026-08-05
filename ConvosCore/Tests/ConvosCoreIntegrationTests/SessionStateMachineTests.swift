@@ -647,8 +647,10 @@ struct SessionStateMachineTests {
         // Simulate network reconnection
         await mockNetworkMonitor.simulateConnection(type: .wifi)
 
-        // Wait for resume to take effect
-        try await Task.sleep(for: .seconds(1))
+        // Wait for resume to take effect. Reconnects are debounced (a
+        // flapping link must not restart streams per blip), so wait past
+        // the debounce interval before asserting.
+        try await Task.sleep(for: .seconds(3))
 
         // Verify sync was resumed
         let resumeCount = await mockSync.resumeCallCount
@@ -761,6 +763,15 @@ struct SessionStateMachineTests {
         let resumeCount = await mockSync.resumeCallCount
         #expect(resumeCount > 0, "SyncingManager should have been resumed after foregrounding")
         #expect(!(await mockSync.isPaused), "SyncingManager should not be paused after foregrounding")
+
+        // The cold-boot authorize already ran the batch catch-up moments ago,
+        // so this foreground lands inside the skip window: streams resume but
+        // the batch must not re-run.
+        let catchUpCount = await mockSync.runBatchCatchUpCallCount
+        #expect(
+            catchUpCount == 1,
+            "Foregrounding within the skip window must not re-run the batch catch-up (got \(catchUpCount) runs)"
+        )
 
         Log.info("App foregrounded, sync resumed successfully")
 

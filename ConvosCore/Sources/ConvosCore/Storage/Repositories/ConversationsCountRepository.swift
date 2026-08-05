@@ -19,6 +19,9 @@ class ConversationsCountRepository: ConversationsCountRepositoryProtocol {
             .tracking { db in
                 try db.composeConversationsCount(consent: consent, kinds: kinds)
             }
+            // The tracked region spans the conversation tables, so without
+            // this an unrelated write would re-emit an identical count.
+            .removeDuplicates()
             .publisher(in: databaseReader)
             .replaceError(with: 0)
             .eraseToAnyPublisher()
