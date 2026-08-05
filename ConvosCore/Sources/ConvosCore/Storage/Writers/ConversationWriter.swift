@@ -253,6 +253,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let dbConversation: DBConversation
         let dbMembers: [DBConversationMember]
         let memberProfiles: [DBMemberProfile]
+        /// The DM's parent group id, when this conversation is an agent DM that
+        /// recorded one; persisted to `agent_dm_origin` in `persist`.
+        var originConversationId: String?
     }
 
     /// Async, network-bound, transaction-free. Safe to call concurrently for
@@ -278,7 +281,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         return PreparedConversation(
             dbConversation: dbConversation,
             dbMembers: dbMembers,
-            memberProfiles: memberProfiles
+            memberProfiles: memberProfiles,
+            originConversationId: metadata.originConversationId
         )
     }
 
@@ -338,6 +342,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Save conversation (handle local conversation updates).
         // Also handles imageLastRenewed preservation inside the transaction.
         let saveResult = try saveConversation(prepared.dbConversation, memberCount: prepared.dbMembers.count, in: db)
+
+        // Mirror the DM -> parent-group link so a DM notification tap can route
+        // to the parent's DM page. No-op for non-DMs and DMs without an origin.
+        try DBAgentDmOrigin.record(
+            conversationId: prepared.dbConversation.id,
+            originConversationId: prepared.originConversationId,
+            in: db
+        )
 
         // Save local state
         let localState = ConversationLocalState(
@@ -776,7 +788,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let isLocked: Bool
         let hasHadVerifiedAgent: Bool
         let isAgentDm: Bool
-        let agentDmOriginConversationId: String?
+        /// The parent group id, for an agent DM that recorded one in its
+        /// metadata; nil for non-DMs or DMs without a recorded origin.
+        let originConversationId: String?
         let memberCount: Int
     }
 
@@ -802,9 +816,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let memberCount = members.count
         let hasVerifiedAgentMember = try await anyMemberIsVerifiedAgent(inboxIds: members.map(\.inboxId))
         let isAgentDm = hasAgentDmMarker && memberCount == 2 && hasVerifiedAgentMember
-        // The origin (primary) the marker points back to, used to gate auto-allow.
-        let agentDmOriginConversationId: String? = isAgentDm
-            ? (try? conversation.agentDmOriginConversationId)
+        // Only meaningful for a DM; read the parent link the creating device
+        // stamped. Backs both DM-notification tap routing (open the parent
+        // group's DM page) and the auto-allow gate (user still shares the
+        // origin). `try?` on a throwing optional yields String??; flatMap
+        // collapses it.
+        let originConversationId: String? = isAgentDm
+            ? (try? conversation.agentDmOriginConversationId).flatMap { $0 }
             : nil
 
         return ConversationMetadata(
@@ -821,7 +839,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isLocked: isLocked,
             hasHadVerifiedAgent: false,
             isAgentDm: isAgentDm,
-            agentDmOriginConversationId: agentDmOriginConversationId,
+            originConversationId: originConversationId,
             memberCount: memberCount
         )
     }
@@ -945,7 +963,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // surfaces as a normal request instead of silently allowed. Non-agent-DM
         // conversations keep their synced consent untouched; re-runs idempotently.
         let sharesOrigin = try await userStillSharesOrigin(
-            originConversationId: metadata.agentDmOriginConversationId,
+            originConversationId: metadata.originConversationId,
             selfInboxId: inboxId
         )
         let syncedConsent: Consent = try conversation.consentState().consent

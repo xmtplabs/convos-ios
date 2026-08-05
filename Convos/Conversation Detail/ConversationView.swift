@@ -293,6 +293,21 @@ struct ConversationView<MessagesBottomBar: View>: View {
         pagerSelectedPage = .agentDm(agentInboxId: inboxId)
     }
 
+    /// Switches to a specific agent-DM page when a DM notification is tapped while
+    /// this conversation is already on screen (a fresh open seeds the page from
+    /// `initialAgentDmInboxId`, but re-selecting the same conversation is a no-op,
+    /// so an already-open view has to be told directly). Ignores requests for a
+    /// different conversation or an agent without a DM page here.
+    private func handleSelectAgentDmPageRequest(_ note: Notification) {
+        guard let conversationId = note.userInfo?["conversationId"] as? String,
+              conversationId == viewModel.conversation.id,
+              let agentInboxId = note.userInfo?["agentInboxId"] as? String,
+              agentDmPageInboxIds.contains(agentInboxId) else {
+            return
+        }
+        pagerSelectedPage = .agentDm(agentInboxId: agentInboxId)
+    }
+
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
         // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
@@ -536,6 +551,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             navState.markScreenAppeared()
             viewModel.onConversationAppeared()
             seedInitialPageIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
+            handleSelectAgentDmPageRequest(note)
         }
         .onDisappear {
             focusCoordinator.dismissThingsSearchIfNeeded()

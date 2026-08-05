@@ -74,6 +74,12 @@ struct AgentDmPageView: View {
         .onChange(of: isActivePage) { _, active in
             handleActivePageChange(active)
         }
+        // Every pager page stays mounted, so this fires when the whole
+        // conversation closes; clear the on-screen DM lane so its pushes are no
+        // longer suppressed once the user has left.
+        .onDisappear {
+            if isActivePage { updateActiveDmLane(isActive: false) }
+        }
     }
 
     /// Transfers composer focus onto this DM page when it becomes active while a
@@ -90,10 +96,27 @@ struct AgentDmPageView: View {
             // stuck in reply mode.
             contextMenuState.cancelInFlightSwipe()
             dmViewModel?.replyingToMessage = nil
+            updateActiveDmLane(isActive: false)
             return
         }
         focusState = keyboardVisible ? .message : focusCoordinator.defaultFocus
         markDmAsRead()
+        updateActiveDmLane(isActive: true)
+    }
+
+    /// Registers (or clears) this DM lane as the on-screen conversation with the
+    /// session so a push for the DM the user is currently viewing is silenced.
+    /// The lane is its own conversation whose id never appears in the parent's
+    /// `activeConversationChanged` signal (that carries the group id), so it has
+    /// to be tracked explicitly. Cleared when the page is paged away or the
+    /// conversation closes; a nil id when no DM is bound yet is a harmless clear.
+    private func updateActiveDmLane(isActive: Bool) {
+        let conversationId: String? = isActive ? dmViewModel?.conversation.id : nil
+        NotificationCenter.default.post(
+            name: .activeDmConversationChanged,
+            object: nil,
+            userInfo: conversationId.map { ["conversationId": $0] } ?? [:]
+        )
     }
 
     /// Clears the agent-DM lane's unread flag when the user views this page.
@@ -143,9 +166,11 @@ struct AgentDmPageView: View {
         dmViewModel = dmVm
         // If the DM binds while its page is already active (the reconciler
         // created it while the user waited here), mark it read now — the
-        // on-activate hook fired before the view model existed.
+        // on-activate hook fired before the view model existed — and register
+        // it as the on-screen lane so its pushes are suppressed.
         if isActivePage {
             markDmAsRead()
+            updateActiveDmLane(isActive: true)
         }
     }
 

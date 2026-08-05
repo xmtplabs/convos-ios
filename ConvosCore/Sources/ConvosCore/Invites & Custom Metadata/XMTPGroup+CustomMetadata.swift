@@ -93,16 +93,20 @@ extension XMTPiOS.Group {
         }
     }
 
-    /// The origin (primary) conversation id the agent-DM marker points back to,
-    /// as a lowercase hex string, or nil when the conversation is unmarked or the
-    /// marker carries no origin. Auto-allow gates on the user still sharing this
-    /// primary, since the marker itself is member-writable appData.
+    /// The parent ("origin") conversation this agent DM was created from, as a
+    /// hex conversation id, or nil when not recorded. Written once in
+    /// `markAsAgentDm`; read back so a DM notification tap can route to its
+    /// parent group (the DM is only viewable as a page inside that group), and
+    /// so auto-allow can gate on the user still sharing that primary (the marker
+    /// itself is member-writable appData).
     public var agentDmOriginConversationId: String? {
         get throws {
             let metadata = try currentCustomMetadata
-            guard metadata.hasAgentDm else { return nil }
-            let originBytes = metadata.agentDm.originConversationID
-            return originBytes.isEmpty ? nil : originBytes.toHexString()
+            guard metadata.hasAgentDm, metadata.agentDm.hasOriginConversationID else {
+                return nil
+            }
+            let data = metadata.agentDm.originConversationID
+            return data.isEmpty ? nil : data.toHexString()
         }
     }
 

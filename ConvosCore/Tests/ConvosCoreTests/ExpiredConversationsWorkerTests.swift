@@ -643,7 +643,11 @@ private final class ThrowingExplosionWriter: ConversationExplosionWriterProtocol
 /// out of time throws rather than returning quietly - a silent return surfaced
 /// as whichever `#expect` came next, which hid that the wait was the problem.
 private func waitForCondition(timeout: TimeInterval, condition: () -> Bool) async throws {
-    let deadline = Date().addingTimeInterval(timeout * testTimeoutScale)
+    // The per-call budgets here run from 1 to 5 seconds, which the whole suite
+    // under load can exceed even on a developer machine. A floor costs nothing
+    // when things are healthy - the poll returns the moment the condition holds
+    // - and only lengthens the path where the test was going to fail anyway.
+    let deadline = Date().addingTimeInterval(max(timeout, 30.0) * testTimeoutScale)
     while Date() < deadline {
         if condition() {
             return

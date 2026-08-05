@@ -8,6 +8,21 @@ import os
 public extension Notification.Name {
     static let leftConversationNotification: Notification.Name = Notification.Name("LeftConversationNotification")
     static let activeConversationChanged: Notification.Name = Notification.Name("ActiveConversationChanged")
+    /// The agent-DM lane page the user is currently viewing, if any. Posted with
+    /// `userInfo["conversationId"]` = the DM lane's own conversation id when its
+    /// pager page becomes active, and with a nil/absent id when it is paged away
+    /// or the conversation closes. The DM lane is its own conversation, so its id
+    /// never appears in `activeConversationChanged` (which carries the parent
+    /// group id); tracking it separately is what lets a push for the
+    /// currently-viewed DM be suppressed.
+    static let activeDmConversationChanged: Notification.Name = Notification.Name("ActiveDmConversationChanged")
+    /// Requests that an already-open conversation switch its pager to a specific
+    /// agent-DM page. Posted (with `userInfo["conversationId"]` = the parent
+    /// group and `userInfo["agentInboxId"]` = the DM's agent) when a DM
+    /// notification is tapped while its parent group is already on screen —
+    /// selecting the group again is a no-op, so the page can't be seeded the way
+    /// a fresh open is.
+    static let selectAgentDmPageRequested: Notification.Name = Notification.Name("SelectAgentDmPageRequested")
 }
 
 public typealias AnyMessagingService = any MessagingServiceProtocol
@@ -40,6 +55,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var profileServicesTask: Task<Void, Never>?
     private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
+    private var activeDmConversationObserver: NSObjectProtocol?
     private var staleStrangerGCTask: Task<Void, Never>?
 
     /// Tracks the user's current screen context. Used by
@@ -51,6 +67,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private struct ScreenState {
         var activeConversationId: String?
+        /// The agent-DM lane conversation currently on screen, when the user is
+        /// on the DM page of a conversation. Tracked separately from
+        /// `activeConversationId` (which holds the parent group id) so a push for
+        /// the DM the user is looking at is suppressed.
+        var activeDmConversationId: String?
         var isOnConversationsList: Bool = false
     }
 
@@ -215,6 +236,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
         }
+        if let activeDmConversationObserver {
+            NotificationCenter.default.removeObserver(activeDmConversationObserver)
+        }
     }
 
     // MARK: - Private Methods
@@ -239,6 +263,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         ) { [weak self] notification in
             let conversationId = notification.userInfo?["conversationId"] as? String
             self?.updateActiveConversation(conversationId)
+        }
+
+        activeDmConversationObserver = NotificationCenter.default.addObserver(
+            forName: .activeDmConversationChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let conversationId = notification.userInfo?["conversationId"] as? String
+            self?.updateActiveDmConversation(conversationId)
         }
 
         scheduleStaleStrangerGC()
@@ -280,6 +313,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private func updateActiveConversation(_ conversationId: String?) {
         screenStateLock.withLock { state in
             state.activeConversationId = (conversationId?.isEmpty == false) ? conversationId : nil
+        }
+    }
+
+    private func updateActiveDmConversation(_ conversationId: String?) {
+        screenStateLock.withLock { state in
+            state.activeDmConversationId = (conversationId?.isEmpty == false) ? conversationId : nil
         }
     }
 
@@ -753,6 +792,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         let state = screenStateLock.withLock { $0 }
         if state.isOnConversationsList { return false }
         if state.activeConversationId == conversationId { return false }
+        if state.activeDmConversationId == conversationId { return false }
         return true
     }
 

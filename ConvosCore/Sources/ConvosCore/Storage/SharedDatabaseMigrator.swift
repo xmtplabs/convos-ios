@@ -1264,6 +1264,18 @@ extension SharedDatabaseMigrator {
                 t.add(column: "isAgentDm", .boolean).notNull().defaults(to: false)
             }
         }
+
+        // Maps an agent DM's own conversation id to its parent group, so a DM
+        // notification tap can open the parent and select the DM page. The link
+        // is authoritative in the DM's XMTP metadata; this mirrors it locally
+        // (see DBAgentDmOrigin).
+        migrator.registerMigration("createAgentDmOrigin") { db in
+            try db.create(table: "agent_dm_origin") { t in
+                t.column("conversationId", .text).notNull().primaryKey()
+                    .references("conversation", onDelete: .cascade)
+                t.column("originConversationId", .text).notNull()
+            }
+        }
     }
 
     /// The templateId-keyed agent-template contact table. Separate from the
