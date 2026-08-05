@@ -804,7 +804,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let isAgentDm = hasAgentDmMarker && memberCount == 2 && hasVerifiedAgentMember
         // The origin (primary) the marker points back to, used to gate auto-allow.
         let agentDmOriginConversationId: String? = isAgentDm
-            ? ((try? conversation.agentDmOriginConversationId) ?? nil)
+            ? (try? conversation.agentDmOriginConversationId)
             : nil
 
         return ConversationMetadata(
