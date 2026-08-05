@@ -163,6 +163,20 @@ struct ParticipationModeSyncTests {
         #expect(!ConversationUpdate.MetadataChange.Field.unknown.showsInMessagesList)
     }
 
+    // MARK: - In-memory copies
+
+    /// The optimistic copy helpers overlay one field onto a DB-emitted
+    /// conversation; dropping the mode there would revert the control to Speak
+    /// freely until the next database read.
+    @Test("copy helpers carry the mode through")
+    func copyHelpersPreserveMode() throws {
+        var conversation: ConvosCore.Conversation = .mock()
+        conversation.participationMode = .paused
+
+        #expect(conversation.withMembers([]).participationMode == .paused)
+        #expect(conversation.withLeftHostedInviteSession(true).participationMode == .paused)
+    }
+
     @Test("the update reads as who set which mode")
     func updateSummaryNamesTheModeAndSetter() throws {
         let update = ConversationUpdate(

@@ -162,6 +162,7 @@ public extension Conversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             agentDm: agentDm
         )
     }
@@ -206,6 +207,7 @@ public extension Conversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             agentDm: agentDm
         )
     }
