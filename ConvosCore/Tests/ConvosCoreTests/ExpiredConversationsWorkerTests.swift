@@ -638,12 +638,17 @@ private final class ThrowingExplosionWriter: ConversationExplosionWriterProtocol
     }
 }
 
+/// Polls until the condition holds. The deadline is scaled by
+/// `testTimeoutScale` so a loaded CI runner doesn't lose the race, and running
+/// out of time throws rather than returning quietly - a silent return surfaced
+/// as whichever `#expect` came next, which hid that the wait was the problem.
 private func waitForCondition(timeout: TimeInterval, condition: () -> Bool) async throws {
-    let deadline = Date().addingTimeInterval(timeout)
+    let deadline = Date().addingTimeInterval(timeout * testTimeoutScale)
     while Date() < deadline {
         if condition() {
             return
         }
         try await Task.sleep(for: .milliseconds(50))
     }
+    throw TimeoutError()
 }

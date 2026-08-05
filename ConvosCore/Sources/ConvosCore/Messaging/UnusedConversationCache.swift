@@ -286,13 +286,10 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             try await optimisticConversation.publish()
             published = true
             try Task.checkCancellation()
-            try await group.ensureInviteTag()
-            try Task.checkCancellation()
-            do {
-                try await group.ensureImageEncryptionKey()
-            } catch {
-                Log.warning("Failed to generate image encryption key for unused conversation: \(error). Will retry on first image upload.")
-            }
+            // One commit for invite tag + image encryption key. Key
+            // generation failure is non-fatal inside; the key is retried
+            // on first image upload.
+            try await group.ensureCreatorMetadata()
             try Task.checkCancellation()
 
             let dbConversation = try await writeUnusedConversation(

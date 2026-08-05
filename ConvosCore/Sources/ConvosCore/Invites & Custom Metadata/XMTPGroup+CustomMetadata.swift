@@ -212,6 +212,55 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// Seeds every piece of creator-authored metadata in one commit: the
+    /// invite tag, the image encryption key, and (when a seed is provided)
+    /// the conversation emoji. Each individual `ensure*` call publishes its
+    /// own MLS commit with a network round trip, so the creation path calls
+    /// this instead of chaining them. No-ops without a commit when every
+    /// field is already present.
+    ///
+    /// Only the conversation creator should call this - it authors the
+    /// invite tag (see `ensureInviteTag`).
+    public func ensureCreatorMetadata(emojiSeed: String? = nil) async throws {
+        let current = try currentCustomMetadata
+        let needsTag = current.tag.isEmpty
+        let needsKey = !current.hasImageEncryptionKey
+        let needsEmoji = emojiSeed != nil && (!current.hasEmoji || current.emoji.isEmpty)
+        guard needsTag || needsKey || needsEmoji else { return }
+
+        // Generate the tag only when it's actually missing so a transient
+        // SecRandomCopyBytes failure can't abort an emoji- or key-only update.
+        let newTag: String? = needsTag ? try generateSecureRandomString(length: 10) : nil
+        // Key generation failure stays non-fatal, matching how callers treat
+        // `ensureImageEncryptionKey`: the key is retried on first image
+        // upload, while a missing invite tag breaks joins.
+        var newKey: Data?
+        if needsKey {
+            do {
+                newKey = try ImageEncryption.generateGroupKey()
+            } catch {
+                Log.warning("Failed to generate image encryption key: \(error). Will retry on first image upload.")
+            }
+        }
+        let newEmoji: String? = emojiSeed.map { EmojiSelector.emoji(for: $0) }
+
+        try await atomicUpdateMetadata(operation: "ensureCreatorMetadata") { metadata in
+            if let newTag, metadata.tag.isEmpty {
+                metadata.tag = newTag
+            }
+            if let newKey, !metadata.hasImageEncryptionKey {
+                metadata.imageEncryptionKey = newKey
+            }
+            if let newEmoji, !metadata.hasEmoji || metadata.emoji.isEmpty {
+                metadata.emoji = newEmoji
+            }
+        } verify: { metadata in
+            guard !metadata.tag.isEmpty else { return false }
+            guard newKey == nil || metadata.hasImageEncryptionKey else { return false }
+            return newEmoji == nil || (metadata.hasEmoji && !metadata.emoji.isEmpty)
+        }
+    }
+
     // This should only be done by the conversation creator
     // Updating the invite tag effectively expires all invites generated with that tag
     // The tag is used by the invitee to verify the conversation they've been added to

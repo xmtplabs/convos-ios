@@ -50,9 +50,21 @@ private let _configureXMTPLogging: Void = {
     print("libxmtp log writer activated at \(directoryURL.path) (level=\(levelString))")
 }()
 
+/// Stretches every polled wait on CI. The timeouts callers pass are picked
+/// against a developer machine, where these conditions settle in well under a
+/// second; a loaded shared runner can take an order of magnitude longer for the
+/// same work, and the tests then fail on the clock rather than on behavior.
+/// Scaling the deadline keeps a real hang bounded while removing the race.
+let testTimeoutScale: Double = {
+    let env = ProcessInfo.processInfo.environment
+    let isCI = env["CI"] != nil || env["GITHUB_ACTIONS"] != nil
+    return isCI ? 6.0 : 1.0
+}()
+
 /// Waits until a condition becomes true, polling at a specified interval
 /// - Parameters:
-///   - timeout: Maximum time to wait (default: 10 seconds)
+///   - timeout: Maximum time to wait (default: 10 seconds), scaled by
+///     `testTimeoutScale` on CI
 ///   - interval: Polling interval (default: 50ms)
 ///   - condition: Async closure that returns true when condition is met
 /// - Throws: TimeoutError if condition not met within timeout
@@ -61,7 +73,7 @@ func waitUntil(
     interval: Duration = .milliseconds(50),
     condition: () async -> Bool
 ) async throws {
-    let deadline = ContinuousClock.now + timeout
+    let deadline = ContinuousClock.now + timeout * testTimeoutScale
     while ContinuousClock.now < deadline {
         if await condition() {
             return
