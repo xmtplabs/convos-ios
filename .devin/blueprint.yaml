@@ -1,0 +1,15 @@
+# Devin repo blueprint for convos-ios
+# Bootstraps the macOS Outpost devbox (pool: namespace-convos-ios-dev-macos)
+# so coding-run sessions build + QA the app the validated way.
+# See the outpost-ios-qa runbook for the full procedure.
+
+name: convos-ios
+
+# One-time setup on a fresh Outpost box.
+initialize: |
+  Scripts/outpost-bootstrap.sh
+  brew install ffmpeg
+
+# Refreshed at the start of each session.
+maintenance: |
+  make ensure-secrets
