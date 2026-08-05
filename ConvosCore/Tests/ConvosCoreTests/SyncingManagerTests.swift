@@ -459,7 +459,7 @@ struct SyncingManagerTests {
         interval: Duration = .milliseconds(50),
         condition: () async -> Bool
     ) async throws {
-        let deadline = ContinuousClock.now + timeout
+        let deadline = ContinuousClock.now + timeout * testTimeoutScale
         while ContinuousClock.now < deadline {
             if await condition() {
                 return

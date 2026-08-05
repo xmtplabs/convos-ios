@@ -23,7 +23,7 @@ struct NetworkMonitorTests {
         interval: Duration = .milliseconds(10),
         condition: () async -> Bool
     ) async throws {
-        let deadline = ContinuousClock.now + timeout
+        let deadline = ContinuousClock.now + timeout * testTimeoutScale
         while ContinuousClock.now < deadline {
             if await condition() {
                 return
