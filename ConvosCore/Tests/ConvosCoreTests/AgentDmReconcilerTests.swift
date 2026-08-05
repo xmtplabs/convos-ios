@@ -39,9 +39,10 @@ struct AgentDmReconcilerTests {
     }
 
     private func waitUntil(_ condition: @escaping () -> Bool) async throws {
-        for _ in 0..<200 {
+        let deadline = ContinuousClock.now + .seconds(2) * testTimeoutScale
+        while ContinuousClock.now < deadline {
             if condition() { return }
-            try await Task.sleep(nanoseconds: 10_000_000)
+            try await Task.sleep(for: .milliseconds(10))
         }
     }
 
