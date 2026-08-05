@@ -50,11 +50,17 @@ private let _configureXMTPLogging: Void = {
     print("libxmtp log writer activated at \(directoryURL.path) (level=\(levelString))")
 }()
 
-/// Stretches every polled wait on CI. The timeouts callers pass are picked
-/// against a developer machine, where these conditions settle in well under a
-/// second; a loaded shared runner can take an order of magnitude longer for the
-/// same work, and the tests then fail on the clock rather than on behavior.
-/// Scaling the deadline keeps a real hang bounded while removing the race.
+/// Stretches polled waits further on CI, on top of the floor each helper
+/// applies.
+///
+/// The budgets callers pass were picked against a single test running on a
+/// developer machine, where these conditions settle in well under a second.
+/// They are not what the same work costs inside the full suite: 248 suites
+/// running together stretch it by more than an order of magnitude, locally as
+/// much as on a shared runner. A deadline here is a guard against a genuine
+/// hang, not a performance budget - the helpers return the instant the
+/// condition holds, so a generous deadline costs nothing on the healthy path
+/// and only lengthens a run that was going to fail regardless.
 let testTimeoutScale: Double = {
     let env = ProcessInfo.processInfo.environment
     let isCI = env["CI"] != nil || env["GITHUB_ACTIONS"] != nil
@@ -73,7 +79,7 @@ func waitUntil(
     interval: Duration = .milliseconds(50),
     condition: () async -> Bool
 ) async throws {
-    let deadline = ContinuousClock.now + timeout * testTimeoutScale
+    let deadline = ContinuousClock.now + max(timeout, .seconds(30)) * testTimeoutScale
     while ContinuousClock.now < deadline {
         if await condition() {
             return

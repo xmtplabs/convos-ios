@@ -219,7 +219,7 @@ struct SyncingManagerPushReconciliationTests {
         interval: Duration = .milliseconds(50),
         condition: () async -> Bool
     ) async throws {
-        let deadline = ContinuousClock.now + timeout * testTimeoutScale
+        let deadline = ContinuousClock.now + max(timeout, .seconds(30)) * testTimeoutScale
         while ContinuousClock.now < deadline {
             if await condition() { return }
             try await Task.sleep(for: interval)
