@@ -93,6 +93,19 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// The origin (primary) conversation id the agent-DM marker points back to,
+    /// as a lowercase hex string, or nil when the conversation is unmarked or the
+    /// marker carries no origin. Auto-allow gates on the user still sharing this
+    /// primary, since the marker itself is member-writable appData.
+    public var agentDmOriginConversationId: String? {
+        get throws {
+            let metadata = try currentCustomMetadata
+            guard metadata.hasAgentDm else { return nil }
+            let originBytes = metadata.agentDm.originConversationID
+            return originBytes.isEmpty ? nil : originBytes.toHexString()
+        }
+    }
+
     /// Stamps this conversation as a private DM with an agent. Called once by
     /// the device that creates the DM conversation, before adding the agent.
     public func markAsAgentDm(originConversationId: Data? = nil) async throws {

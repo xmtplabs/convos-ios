@@ -776,6 +776,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let isLocked: Bool
         let hasHadVerifiedAgent: Bool
         let isAgentDm: Bool
+        let agentDmOriginConversationId: String?
         let memberCount: Int
     }
 
@@ -801,6 +802,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let memberCount = members.count
         let hasVerifiedAgentMember = try await anyMemberIsVerifiedAgent(inboxIds: members.map(\.inboxId))
         let isAgentDm = hasAgentDmMarker && memberCount == 2 && hasVerifiedAgentMember
+        // The origin (primary) the marker points back to, used to gate auto-allow.
+        let agentDmOriginConversationId: String? = isAgentDm
+            ? ((try? conversation.agentDmOriginConversationId) ?? nil)
+            : nil
 
         return ConversationMetadata(
             kind: .group,
@@ -816,6 +821,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isLocked: isLocked,
             hasHadVerifiedAgent: false,
             isAgentDm: isAgentDm,
+            agentDmOriginConversationId: agentDmOriginConversationId,
             memberCount: memberCount
         )
     }
@@ -844,6 +850,32 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             .fetchAll(db)
             .map(\.inboxId)
         return try containsVerifiedAgentProfile(db, inboxIds: inboxIds)
+    }
+
+    /// Whether the user still shares the agent DM's origin (primary) group: the
+    /// origin conversation is present locally (not deleted), the user is a
+    /// current member, and they have no recorded departure (didn't leave it).
+    /// Gates auto-allow -- the agentDm marker is member-writable, so this stops a
+    /// verified agent from opening an auto-allowed DM without a shared primary,
+    /// or one whose primary the user has since left or deleted. A nil/empty
+    /// origin (no marker or legacy DM) is not shared.
+    private func userStillSharesOrigin(
+        originConversationId: String?,
+        selfInboxId: String
+    ) async throws -> Bool {
+        guard let originId = originConversationId, !originId.isEmpty else { return false }
+        return try await databaseWriter.read { db in
+            guard try DBConversation.fetchOne(db, id: originId) != nil else { return false }
+            let isCurrentMember = try DBConversationMember
+                .filter(DBConversationMember.Columns.conversationId == originId)
+                .filter(DBConversationMember.Columns.inboxId == selfInboxId)
+                .fetchCount(db) > 0
+            let hasDeparted = try DBMemberDeparture
+                .filter(DBMemberDeparture.Columns.conversationId == originId)
+                .filter(DBMemberDeparture.Columns.inboxId == selfInboxId)
+                .fetchCount(db) > 0
+            return isCurrentMember && !hasDeparted
+        }
     }
 
     /// One-way agent-DM latch: concurrent custom-metadata writers at creation
@@ -902,15 +934,22 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             return inbox.clientId
         }
 
-        // Auto-allow the agent-owned DM: it arrives as a welcome with unknown
-        // consent, but the other member is a verified agent the user shares a
-        // group with (the same signal agent-DM classification requires), so the
-        // client reflects it straight into the agent's DM lane instead of an
-        // unknown/spam request. This is a client-side reflector decision on the
-        // existing verified-agent check; non-agent-DM conversations keep their
-        // synced consent untouched. Re-runs idempotently on every extraction.
+        // Auto-allow the agent-owned DM only when the user still shares the DM's
+        // origin (primary) group. It arrives as a welcome with unknown consent
+        // and the other member is a verified agent, but the agentDm marker is
+        // member-writable appData -- so also require the marker's origin to still
+        // be present locally, the user to be a current member, and no recorded
+        // departure. Without that, a verified agent could open an auto-allowed DM
+        // without a shared primary, or one whose primary the user has since left
+        // or deleted. Anything short keeps the synced (unknown) consent, so the DM
+        // surfaces as a normal request instead of silently allowed. Non-agent-DM
+        // conversations keep their synced consent untouched; re-runs idempotently.
+        let sharesOrigin = try await userStillSharesOrigin(
+            originConversationId: metadata.agentDmOriginConversationId,
+            selfInboxId: inboxId
+        )
         let syncedConsent: Consent = try conversation.consentState().consent
-        let resolvedConsent: Consent = (metadata.isAgentDm && syncedConsent == .unknown) ? .allowed : syncedConsent
+        let resolvedConsent: Consent = (metadata.isAgentDm && syncedConsent == .unknown && sharesOrigin) ? .allowed : syncedConsent
 
         return DBConversation(
             id: conversation.id,

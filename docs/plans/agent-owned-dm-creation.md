@@ -122,9 +122,12 @@ The worker `AssistantDO` already owns the DM registry and, crucially, **already 
 **Keep** (the reflector — already built):
 - Marker classification (`isAgentDm`), `DBAgentDmOrigin` + the `agentDmOriginConversationId` getter, the pager / `AgentDmPageView` rendering, the `accepts_dms` gate, and the push-notification suppression + tap routing from #1271.
 
-**Consent — auto-allow (decided)**: an agent-created DM arrives at the user's device as a welcome with `unknown` consent. The client auto-allows it on the `isAgentDm` classification — exactly 2 members, the `agentDm` marker present, and the other member an **attested/verified agent** (`ConversationWriter.swift`). So the DM appears directly as the agent's DM lane rather than an unknown/spam request, and consent stays a client-side reflector decision (no server consent change).
+**Consent — auto-allow (decided)**: an agent-created DM arrives at the user's device as a welcome with `unknown` consent. The client auto-allows it only when **both** hold (`ConversationWriter.swift`):
 
-Note (raised in review): the classification does not *independently* verify that the user is a member of the marker's `originConversationId` — the trust derives from the other member being an attested/verified agent, not from re-checking shared-primary membership. In practice the DM only reaches the user because the agent added them, and the agent is one the user already transacts with via attestation; a verified agent could still open a marked 2-member DM without a shared primary. Tightening auto-allow to also require the user be a current member of `originConversationId` is a possible follow-up if that surface is a concern; it's called out here rather than silently changed because it is a consent-policy decision.
+1. `isAgentDm` classification — exactly 2 members, the `agentDm` marker present, the other member an **attested/verified agent**; and
+2. a **shared-origin** check (`userStillSharesOrigin`) — the marker's `originConversationId` is still present locally, lists the user as a current member, and carries no recorded departure (`member_departure`).
+
+Otherwise the DM keeps its synced `unknown` consent and surfaces as a normal request rather than silently allowed. The marker is member-writable appData, so the origin check is what stops a verified agent from opening an auto-allowed DM without a shared primary — or one whose primary the user has since left or deleted. Consent stays a client-side reflector decision (no server consent change).
 
 **Reuse for migration**: `StrandedConversationSweeper` (#1274) as a one-time cleanup of the client-created orphans/duplicates already on Dev; after the fleet is clean it can be retired.
 
