@@ -23,10 +23,12 @@ struct BatchCatchUpPrepareTimeout: Error {}
 /// traffic. Replaces N writes / N observer fires / N SwiftUI re-renders
 /// with one of each (for the regular-message path).
 ///
-/// Flow:
+/// Flow (the caller runs one client-wide `syncAllConversations` first -
+/// see `SyncingManager.runGlobalSync` - so everything below reads local
+/// libxmtp state):
 /// 1. `client.conversationsProvider.listGroups(lastActivityAfterNs:)`
 ///    discovers conversations that had activity since the cursor.
-/// 2. Per conversation, in parallel:
+/// 2. Per conversation, in bounded parallel (sliding window):
 ///    - Read the local catch-up cursor (`DBConversationCatchUpCursor`,
 ///      falling back to `MAX(message.dateNs)` pre-cursor)
 ///    - `Group.messages(afterNs:)` to fetch the backlog from XMTP
@@ -77,14 +79,11 @@ struct BatchCatchUp {
     private let perConversationPrepareTimeout: TimeInterval
 
     /// `perConversationPrepareTimeout` bounds each conversation's prepare
-    /// phase (XMTP group sync + backlog fetch + message prepare). Field
-    /// logs show a single hung group sync stalling a whole batch for
-    /// 35-150s while processing nothing; the budget converts that hang
-    /// into a skip whose cursor is retried on the next catch-up. 30s is
-    /// deliberately generous: prepare runs in parallel across
-    /// conversations, so the budget caps batch wall-clock at roughly one
-    /// budget rather than serializing, and a genuinely slow-but-working
-    /// initial sync on a large group stays under it.
+    /// phase (local backlog fetch + message prepare; the network sync
+    /// happens once, client-wide, before the batch). The budget converts
+    /// a hang into a skip whose cursor is retried on the next catch-up.
+    /// 30s is deliberately generous for what is now local work; it mostly
+    /// guards against libxmtp database contention under a heavy backlog.
     init(
         conversationWriter: ConversationWriter,
         messageWriter: IncomingMessageWriter,
@@ -350,6 +349,12 @@ struct BatchCatchUp {
     /// entry is dropped (`skipped`), its cursor stays put, and the next
     /// catch-up retries it. Before this isolation, a single throwing
     /// prepare cancelled every sibling task and failed the whole batch.
+    ///
+    /// A sliding window caps concurrent prepares. Prepare is local work
+    /// (the network sync happens once, client-wide, before the batch), so
+    /// the bound exists to keep N conversations from stampeding the GRDB
+    /// reader pool and libxmtp's SQLite connections at boot; same pattern
+    /// as `ConversationConsentReconciler.reconcileBatch`.
     private func prepareAll(
         groups: [XMTPiOS.Group],
         inboxId: String,
@@ -357,42 +362,50 @@ struct BatchCatchUp {
     ) async -> (entries: [PreparedEntry], skipped: Int) {
         let timeout = perConversationPrepareTimeout
         return await withTaskGroup(of: PreparedEntry?.self) { [conversationWriter, messageWriter, databaseWriter] taskGroup in
-            for group in groups {
-                taskGroup.addTask {
-                    do {
-                        return try await Self.withTimeout(seconds: timeout) {
-                            try await Self.prepareEntry(
-                                group: group,
-                                inboxId: inboxId,
-                                fetchFromBeginning: fetchFromBeginning,
-                                conversationWriter: conversationWriter,
-                                messageWriter: messageWriter,
-                                databaseWriter: databaseWriter
-                            )
-                        }
-                    } catch is BatchCatchUpPrepareTimeout {
-                        Log.warning("[PERF] catchup.conversation.skipped: \(group.id) prepare exceeded \(Int(timeout))s; cursor not advanced, retrying next catch-up")
-                        return nil
-                    } catch is CancellationError {
-                        return nil
-                    } catch {
-                        // A conversation that fails for a non-transient reason
-                        // retries on every catch-up. That is bounded (one
-                        // prepare per batch) and the skipped counter surfaces
-                        // it; a retry-attempt cap is deliberate future work.
-                        Log.error("catchup.conversation.skipped: \(group.id) prepare failed: \(error.localizedDescription); cursor not advanced, retrying next catch-up")
-                        return nil
+            @Sendable func prepareTask(for group: XMTPiOS.Group) async -> PreparedEntry? {
+                do {
+                    return try await Self.withTimeout(seconds: timeout) {
+                        try await Self.prepareEntry(
+                            group: group,
+                            inboxId: inboxId,
+                            fetchFromBeginning: fetchFromBeginning,
+                            conversationWriter: conversationWriter,
+                            messageWriter: messageWriter,
+                            databaseWriter: databaseWriter
+                        )
                     }
+                } catch is BatchCatchUpPrepareTimeout {
+                    Log.warning("[PERF] catchup.conversation.skipped: \(group.id) prepare exceeded \(Int(timeout))s; cursor not advanced, retrying next catch-up")
+                    return nil
+                } catch is CancellationError {
+                    return nil
+                } catch {
+                    // A conversation that fails for a non-transient reason
+                    // retries on every catch-up. That is bounded (one
+                    // prepare per batch) and the skipped counter surfaces
+                    // it; a retry-attempt cap is deliberate future work.
+                    Log.error("catchup.conversation.skipped: \(group.id) prepare failed: \(error.localizedDescription); cursor not advanced, retrying next catch-up")
+                    return nil
                 }
+            }
+
+            var iterator = groups.makeIterator()
+            var inFlight = 0
+            while inFlight < Constant.maxConcurrentPrepares, let group = iterator.next() {
+                taskGroup.addTask { await prepareTask(for: group) }
+                inFlight += 1
             }
 
             var results: [PreparedEntry] = []
             var skipped = 0
-            for await entry in taskGroup {
+            while let entry = await taskGroup.next() {
                 if let entry {
                     results.append(entry)
                 } else {
                     skipped += 1
+                }
+                if let group = iterator.next() {
+                    taskGroup.addTask { await prepareTask(for: group) }
                 }
             }
             return (results, skipped)
@@ -407,9 +420,13 @@ struct BatchCatchUp {
         messageWriter: IncomingMessageWriter,
         databaseWriter: any DatabaseWriter
     ) async throws -> PreparedEntry {
+        // No per-group network sync: the caller runs a client-wide
+        // syncAllConversations before the batch (see
+        // SyncingManager.runGlobalSync), so the backlog is already local.
         let preparedConv = try await conversationWriter.prepare(
             conversation: group,
-            inboxId: inboxId
+            inboxId: inboxId,
+            syncFirst: false
         )
 
         let perConvCursorNs: Int64
@@ -544,6 +561,14 @@ struct BatchCatchUp {
             """, arguments: [conversationId])
             return value ?? 0
         }
+    }
+
+    private enum Constant {
+        /// Sliding-window width for the prepare fan-out. Prepare is
+        /// local-only (the network sync happens once, client-wide, before
+        /// the batch), so this is a database-contention bound, not a
+        /// network one; matches ConversationConsentReconciler's window.
+        static let maxConcurrentPrepares: Int = 6
     }
 }
 

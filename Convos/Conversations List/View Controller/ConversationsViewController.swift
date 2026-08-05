@@ -15,6 +15,7 @@ final class ConversationsViewController: UIViewController {
         var isFilteredResultEmpty: Bool
         var filterEmptyMessage: String
         var horizontalSizeClass: UserInterfaceSizeClass?
+        var hasMoreConversations: Bool
 
         static let empty: State = State(
             pinnedConversations: [],
@@ -22,7 +23,8 @@ final class ConversationsViewController: UIViewController {
             selectedConversationId: nil,
             isFilteredResultEmpty: false,
             filterEmptyMessage: "",
-            horizontalSizeClass: nil
+            horizontalSizeClass: nil,
+            hasMoreConversations: false
         )
     }
 
@@ -100,6 +102,9 @@ final class ConversationsViewController: UIViewController {
     /// builder bar between expanded and collapsed states based on whether
     /// the list is at the top.
     var onScrollOffsetChange: ((CGFloat) -> Void)?
+    /// Fired when the list approaches its end and `hasMoreConversations`
+    /// is set - asks the view model to grow the paged window.
+    var onLoadMoreConversations: (() -> Void)?
 
     /// Extra top inset to clear the SwiftUI top chrome (the agent builder
     /// bar that lives under the nav bar in the host's safe-area inset
@@ -657,6 +662,14 @@ extension ConversationsViewController: UICollectionViewDelegate {
         onSelectConversation?(conversation)
     }
 
+    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        guard currentState.hasMoreConversations else { return }
+        guard let item = dataSource.itemIdentifier(for: indexPath), case .conversation = item else { return }
+        let listCount = currentState.unpinnedConversations.count
+        guard listCount > 0, indexPath.item >= listCount - Constant.loadMoreThreshold else { return }
+        onLoadMoreConversations?()
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         // Report scrolled distance from the natural top — zero when the
         // list is at rest at the top, positive when scrolled down,
@@ -802,4 +815,9 @@ extension ConversationsViewController: UICollectionViewDelegate {
 
         return UIMenu(title: "", children: actions)
     }
+}
+
+private enum Constant {
+    /// How many rows before the end of the list the next page is requested.
+    static let loadMoreThreshold: Int = 10
 }

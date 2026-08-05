@@ -257,12 +257,23 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
     /// Async, network-bound, transaction-free. Safe to call concurrently for
     /// many conversations.
+    ///
+    /// `syncFirst` controls the per-group network `conversation.sync()`.
+    /// Callers with no other freshness source (the NSE message paths, the
+    /// stream processor) must leave it on: it is the only thing pulling new
+    /// commits before the group's roster and metadata are read. The batch
+    /// catch-up path passes `false` because it runs a client-wide
+    /// `syncAllConversations` first - the per-group sync would be redundant
+    /// network work multiplied by every conversation in the batch.
     func prepare(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        clientConversationId: String? = nil
+        clientConversationId: String? = nil,
+        syncFirst: Bool = true
     ) async throws -> PreparedConversation {
-        try await conversation.sync()
+        if syncFirst {
+            try await conversation.sync()
+        }
         try await denyConsentIfInviteWasLocallyDeleted(for: conversation)
         let metadata = try await extractConversationMetadata(from: conversation)
         let members = try await conversation.members

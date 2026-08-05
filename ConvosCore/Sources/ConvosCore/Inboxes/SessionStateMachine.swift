@@ -124,6 +124,20 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     private nonisolated(unsafe) var revocationObserver: (any NSObjectProtocol)?
     private var foregroundRetryCount: Int = 0
     private static let maxForegroundRetries: Int = 2
+    /// Monotonic stamp of the last completed batch catch-up. Foreground and
+    /// network-reconnect events that land inside `catchUpSkipWindow` of it
+    /// skip the batch entirely - rapid app-switching and network flaps were
+    /// each re-running the full catch-up pipeline back to back. Streams and
+    /// the resume-path sync still run on every transition, so short-window
+    /// activity arrives per-event instead of batched, which is fine at that
+    /// volume.
+    private var lastCatchUpCompletedAt: ContinuousClock.Instant?
+    private static let catchUpSkipWindow: Duration = .seconds(30)
+    /// Pending debounced resume after a network reconnect. Cancelled by a
+    /// disconnect (or a newer reconnect) arriving inside the debounce, so a
+    /// flapping link doesn't restart streams and re-sync on every blip.
+    private var pendingNetworkResumeTask: Task<Void, Never>?
+    private static let networkResumeDebounce: Duration = .seconds(2)
 
     // MARK: - Nonisolated State Cache (SessionStateManagerProtocol)
 
@@ -680,7 +694,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try Task.checkCancellation()
 
-        try await assertInstallationActive(client: client)
+        try await assertInstallationActive(inboxId: client.inboxId, installationId: client.installationId)
 
         reconcileStaleOwnInstallations()
 
@@ -971,15 +985,25 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         try await result.client.reconnectLocalDatabase()
 
+        // Run the installation-active probe concurrently with the batch
+        // catch-up instead of blocking the whole foreground path on the
+        // network round trip. Catch-up work done before a failed probe is
+        // harmless - every persist is idempotent - and the teardown below
+        // still runs before the error propagates.
+        async let installationCheck: Void = assertInstallationActive(
+            inboxId: result.client.inboxId,
+            installationId: result.client.installationId
+        )
+
+        // Drain the backlog in batched form before streams resume.
+        await runBatchCatchUp(client: result.client)
+
         do {
-            try await assertInstallationActive(client: result.client)
+            try await installationCheck
         } catch {
             try? result.client.dropLocalDatabaseConnection()
             throw error
         }
-
-        // Drain the backlog in batched form before streams resume.
-        await runBatchCatchUp(client: result.client)
 
         await startNetworkMonitoring()
         await syncingManager?.resume()
@@ -992,16 +1016,19 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     /// Probes the XMTP network for whether this device's installation is
     /// still in the inbox's active set. Throws `DeviceReplacedError`
     /// (terminal) if it isn't — typically meaning another paired device
-    /// revoked us from its `Devices` screen.
-    private func assertInstallationActive(client: any XMTPClientProvider) async throws {
+    /// revoked us from its `Devices` screen. Takes plain identifiers (not
+    /// the client) so the foreground path can run it as a child task
+    /// concurrently with the catch-up without moving the non-Sendable
+    /// client across the task boundary.
+    private func assertInstallationActive(inboxId: String, installationId: String) async throws {
         if await XMTPInstallationStateChecker.isInstallationActive(
-            inboxId: client.inboxId,
-            installationId: client.installationId,
+            inboxId: inboxId,
+            installationId: installationId,
             environment: environment
         ) {
             return
         }
-        Log.warning("SessionStateMachine: installation \(client.installationId) not in active set — DeviceReplacedError")
+        Log.warning("SessionStateMachine: installation \(installationId) not in active set — DeviceReplacedError")
         throw DeviceReplacedError()
     }
 
@@ -1051,6 +1078,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     /// reason). `syncingManager` is captured locally so we don't need
     /// to hop the actor for it either.
     private nonisolated func runBatchCatchUp(client: any XMTPClientProvider) async {
+        guard await shouldRunCatchUp() else {
+            Log.info("[catchup] skipped - last catch-up completed within \(Self.catchUpSkipWindow)")
+            return
+        }
         let inboxId = client.inboxId
         let cursor = Self.readLastCatchUpCursor(for: inboxId)
         Log.info("[catchup] running batch since=\(cursor.map { "\($0)" } ?? "nil") for inbox=\(inboxId.prefix(8))")
@@ -1065,6 +1096,16 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         }
         await syncingManager.runBatchCatchUp(client: client, since: cursor)
         Self.writeLastCatchUpCursor(Date(), for: inboxId)
+        await markCatchUpCompleted()
+    }
+
+    private func shouldRunCatchUp() -> Bool {
+        guard let lastCatchUpCompletedAt else { return true }
+        return ContinuousClock.now - lastCatchUpCompletedAt >= Self.catchUpSkipWindow
+    }
+
+    private func markCatchUpCompleted() {
+        lastCatchUpCompletedAt = ContinuousClock.now
     }
 
     /// Persisted catch-up cursor shared with `MessagingService+PushNotifications`.
@@ -1466,6 +1507,8 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     // MARK: - Network Monitoring
 
     private func stopNetworkMonitoring() async {
+        pendingNetworkResumeTask?.cancel()
+        pendingNetworkResumeTask = nil
         networkMonitorTask?.cancel()
         networkMonitorTask = nil
         await networkMonitor.stop()
@@ -1490,14 +1533,28 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
 
         switch status {
         case .connected(let type):
-            Log.debug("Network connected (\(type)) - resuming sync")
-            await syncingManager?.resume()
+            Log.debug("Network connected (\(type)) - scheduling debounced resume")
+            pendingNetworkResumeTask?.cancel()
+            pendingNetworkResumeTask = Task { [weak self] in
+                guard (try? await Task.sleep(for: Self.networkResumeDebounce)) != nil else { return }
+                guard let self, !Task.isCancelled else { return }
+                await self.resumeAfterNetworkDebounce()
+            }
         case .disconnected:
             Log.debug("Network disconnected - pausing sync")
+            pendingNetworkResumeTask?.cancel()
+            pendingNetworkResumeTask = nil
             await syncingManager?.pause()
         case .connecting, .unknown:
             break
         }
+    }
+
+    private func resumeAfterNetworkDebounce() async {
+        pendingNetworkResumeTask = nil
+        guard case .ready = _state else { return }
+        Log.debug("Network still connected after debounce - resuming sync")
+        await syncingManager?.resume()
     }
 }
 

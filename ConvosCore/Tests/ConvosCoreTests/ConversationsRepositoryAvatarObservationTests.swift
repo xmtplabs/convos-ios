@@ -92,7 +92,7 @@ struct ConversationsRepositoryAvatarObservationTests {
         try await writer.write { db in try self.seedGroup(db) }
 
         let counter = EmissionCounter()
-        let repo = ConversationsRepository(dbReader: writer, consent: [.allowed])
+        let repo = ConversationsRepository(dbReader: writer, consent: [.allowed], throttleInterval: 0)
         let cancellable = repo.conversationsPublisher.sink { _ in counter.increment() }
         defer { cancellable.cancel() }
 
@@ -124,7 +124,7 @@ struct ConversationsRepositoryAvatarObservationTests {
         try await writer.write { db in try self.seedGroup(db) }
 
         let counter = EmissionCounter()
-        let repo = ConversationsRepository(dbReader: writer, consent: [.allowed])
+        let repo = ConversationsRepository(dbReader: writer, consent: [.allowed], throttleInterval: 0)
         let cancellable = repo.conversationsPublisher.sink { _ in counter.increment() }
         defer { cancellable.cancel() }
 
@@ -141,6 +141,36 @@ struct ConversationsRepositoryAvatarObservationTests {
         #expect(
             counter.count > afterInitial,
             "Control failed: the observation did not re-emit even for a direct conversation change"
+        )
+    }
+
+    @Test("does not re-emit when a write leaves the composed value unchanged")
+    func suppressesIdenticalRecompose() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = dbManager.dbWriter
+        try await writer.write { db in try self.seedGroup(db) }
+
+        let counter = EmissionCounter()
+        let repo = ConversationsRepository(dbReader: writer, consent: [.allowed], throttleInterval: 0)
+        let cancellable = repo.conversationsPublisher.sink { _ in counter.increment() }
+        defer { cancellable.cancel() }
+
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let afterInitial = counter.count
+        #expect(afterInitial >= 1, "Observation should deliver an initial value")
+
+        // Re-save the row unchanged: the UPDATE touches the tracked region
+        // (the observation refetches) but the composed value is identical,
+        // so removeDuplicates must swallow the emission.
+        try await writer.write { db in
+            guard let conversation = try DBConversation.fetchOne(db, key: "c1") else { return }
+            try conversation.save(db)
+        }
+
+        try await Task.sleep(nanoseconds: 800_000_000)
+        #expect(
+            counter.count == afterInitial,
+            "A value-identical recompose must not reach subscribers (removeDuplicates)"
         )
     }
 }

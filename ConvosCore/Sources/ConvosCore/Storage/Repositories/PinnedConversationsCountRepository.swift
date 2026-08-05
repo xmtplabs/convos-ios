@@ -15,6 +15,9 @@ class PinnedConversationsCountRepository: PinnedConversationsCountRepositoryProt
             .tracking { db in
                 try db.composePinnedConversationsCount()
             }
+            // Unrelated localState writes (unread, mute) would otherwise
+            // re-emit an identical count.
+            .removeDuplicates()
             .publisher(in: databaseReader)
             .replaceError(with: 0)
             .eraseToAnyPublisher()
