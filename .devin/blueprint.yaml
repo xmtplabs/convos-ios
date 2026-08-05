@@ -3,8 +3,6 @@
 # so coding-run sessions build + QA the app the validated way.
 # See the outpost-ios-qa runbook for the full procedure.
 
-name: convos-ios
-
 # One-time setup on a fresh Outpost box.
 initialize: |
   Scripts/outpost-bootstrap.sh
