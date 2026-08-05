@@ -515,22 +515,24 @@ struct ContactDetailView: View {
         guard let session else { return }
         Task {
             do {
-                let conversationId = try await AgentDmFlow.startOrFindDm(
-                    agentInboxId: contact.inboxId,
-                    originConversationId: mode.conversationId,
-                    session: session
-                )
+                // The agent owns DM creation now; open the agent-created DM if
+                // it has synced, otherwise no-op (it arrives via sync).
+                guard let conversation = try session
+                    .conversationsRepository(for: [.allowed, .unknown])
+                    .findAgentDm(with: contact.inboxId) else {
+                    return
+                }
                 await MainActor.run {
                     presentingNewConvo = NewConversationViewModel(
                         session: session,
-                        mode: .existingConversation(conversationId: conversationId),
+                        mode: .existingConversation(conversationId: conversation.id),
                         coreActions: coreActions
                     )
                 }
             } catch {
-                Log.error("Failed to start agent DM: \(error.localizedDescription)")
+                Log.error("Failed to open agent DM: \(error.localizedDescription)")
                 await MainActor.run {
-                    sendMessageErrorMessage = "We couldn't start a DM with this agent. Please try again."
+                    sendMessageErrorMessage = "We couldn't open a DM with this agent. Please try again."
                     presentingSendMessageError = true
                 }
             }

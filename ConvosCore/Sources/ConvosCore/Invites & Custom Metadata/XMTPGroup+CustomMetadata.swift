@@ -96,7 +96,9 @@ extension XMTPiOS.Group {
     /// The parent ("origin") conversation this agent DM was created from, as a
     /// hex conversation id, or nil when not recorded. Written once in
     /// `markAsAgentDm`; read back so a DM notification tap can route to its
-    /// parent group (the DM is only viewable as a page inside that group).
+    /// parent group (the DM is only viewable as a page inside that group), and
+    /// so auto-allow can gate on the user still sharing that primary (the marker
+    /// itself is member-writable appData).
     public var agentDmOriginConversationId: String? {
         get throws {
             let metadata = try currentCustomMetadata

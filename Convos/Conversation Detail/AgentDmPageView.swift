@@ -8,9 +8,10 @@ import SwiftUI
 ///
 /// Once the DM exists this page hosts a full `ConversationViewModel` for it
 /// and renders the same `MessagesView` the chat page uses, so list layout,
-/// filtering, composer, and interactions behave identically. Before the DM
-/// exists it shows the disclosure empty state with a lightweight composer;
-/// the first send creates the DM and swaps the full chat in.
+/// filtering, composer, and interactions behave identically. The agent owns
+/// DM creation, so before the DM syncs in this page shows the disclosure
+/// empty state with a disabled "setting up" composer; the composer enables
+/// automatically the moment the agent-created DM arrives.
 struct AgentDmPageView: View {
     @Bindable var viewModel: ConversationViewModel
     let agentInboxId: String
@@ -40,8 +41,6 @@ struct AgentDmPageView: View {
     /// focus value would fight with the chat page's text field.
     @FocusState private var focusState: MessagesViewInputFocus?
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
-    @State private var draftText: String = ""
-    @State private var isCreatingDm: Bool = false
     @State private var draftPhotoPickerPresented: Bool = false
 
     private var agent: ConversationMember? {
@@ -164,15 +163,6 @@ struct AgentDmPageView: View {
             return
         }
         let dmVm = makeDmViewModel(for: existing)
-        // The reconciler or another device can bind the DM while the user is
-        // still typing in the pre-creation composer. Carry the entered text
-        // into the full view model rather than dropping it, the same way
-        // `handleDraftSend` moves it over. Only when there is text to carry and
-        // the new view model has none, so an existing draft is never clobbered.
-        if !draftText.isEmpty, dmVm.messageText.isEmpty {
-            dmVm.messageText = draftText
-            draftText = ""
-        }
         dmViewModel = dmVm
         // If the DM binds while its page is already active (the reconciler
         // created it while the user waited here), mark it read now — the
@@ -233,28 +223,30 @@ struct AgentDmPageView: View {
         return items
     }
 
-    private var draftSendEnabled: Bool {
-        !isReadOnly && !draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isCreatingDm
-    }
-
-    /// Minimal composer for the not-yet-created DM; the first send creates
-    /// the conversation and hands the text to the full view model.
+    /// Disabled composer for the not-yet-created DM. The agent owns DM
+    /// creation, so the client cannot send until the agent-created DM syncs in;
+    /// the field and send button stay disabled until `rebindWhenDmAppears` binds
+    /// the real conversation and swaps in the full chat (normally within a second
+    /// or two of the agent joining). Enabling it here would let a send silently
+    /// no-op, since there is no DM to send into yet. The `+` stays visible (inert)
+    /// so the composer keeps its normal shape rather than dropping the
+    /// attachments affordance.
     private var draftComposer: some View {
         MessagesInputView(
             displayName: .constant(""),
             emptyDisplayNamePlaceholder: "",
             messagePlaceholder: "Chat with \(agentName)",
-            messageText: $draftText,
+            messageText: .constant(""),
             pendingInviteConvoName: .constant(""),
             pendingInviteImage: .constant(nil),
-            sendButtonEnabled: draftSendEnabled,
+            sendButtonEnabled: false,
             focusState: $focusState,
-            messagesTextFieldEnabled: !isReadOnly && !isCreatingDm,
-            onSendMessage: handleDraftSend,
+            messagesTextFieldEnabled: false,
+            onSendMessage: {},
             onClearInvite: {},
             fileAttachmentPreview: { _ in EmptyView() },
             agentShareChip: { EmptyView() },
-            attachmentsButton: { EmptyView() }
+            attachmentsButton: { draftAttachmentsGlyph }
         )
         .fixedSize(horizontal: false, vertical: true)
         .clipShape(.rect(cornerRadius: 26.0))
@@ -263,40 +255,16 @@ struct AgentDmPageView: View {
         .padding(.bottom, DesignConstants.Spacing.step3x)
     }
 
-    private func handleDraftSend() {
-        let text = draftText
-        draftText = ""
-        isCreatingDm = true
-        Task {
-            defer { isCreatingDm = false }
-            do {
-                let conversationId = try await AgentDmFlow.startOrFindDm(
-                    agentInboxId: agentInboxId,
-                    originConversationId: viewModel.conversation.id,
-                    session: viewModel.session
-                )
-                _ = conversationId
-                // Bind to whatever DM now exists for this agent, not only the
-                // one this send created: the eager reconciler can win the
-                // create race, and converging on the surviving DM both keeps
-                // the message and avoids stranding it in a conversation the
-                // backend's dedup will make the agent leave.
-                guard let conversation = try viewModel.session
-                    .conversationsRepository(for: [.allowed, .unknown])
-                    .findAgentDm(with: agentInboxId) else {
-                    Log.error("Agent DM created but not found for binding")
-                    await MainActor.run { draftText = text }
-                    return
-                }
-                let dmVm = makeDmViewModel(for: conversation)
-                dmViewModel = dmVm
-                dmVm.messageText = text
-                dmVm.onSendMessage(focusCoordinator: focusCoordinator)
-            } catch {
-                Log.error("Failed to start agent DM: \(error.localizedDescription)")
-                await MainActor.run { draftText = text }
-            }
-        }
+    /// The `+` glyph in the pre-creation composer: kept visible so the bar holds
+    /// its normal shape, but inert and dimmed (no conversation to attach to yet)
+    /// to read as disabled alongside the field and send button. Mirrors
+    /// `MessagesBottomBar.attachmentsGlyph`.
+    private var draftAttachmentsGlyph: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 18.0, weight: .medium))
+            .foregroundStyle(Color.colorTextPrimary)
+            .frame(width: 32, height: 32)
+            .opacity(0.4)
     }
 
     // MARK: - Full chat (mirrors ConversationView.messagesView with the DM VM)
