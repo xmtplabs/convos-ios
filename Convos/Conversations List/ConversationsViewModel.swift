@@ -305,6 +305,12 @@ final class ConversationsViewModel {
     /// Resolved to a selection once the row appears.
     @ObservationIgnored
     private var pendingScanNavigationConversationId: String?
+    /// A notification tap whose destination conversation (or a DM's parent
+    /// group) wasn't in the list yet — e.g. a cold launch from the banner.
+    /// Replayed by `resolvePendingConversationTapIfPossible` once conversations
+    /// load. Mirrors `pendingScanNavigationConversationId`.
+    @ObservationIgnored
+    private var pendingConversationTapId: String?
     /// A connection-grant deep link that arrived before its conversation was
     /// in the list (cold launch races the initial load). Resolved once the
     /// conversation appears; mirrors `pendingScanNavigationConversationId`.
@@ -654,6 +660,7 @@ final class ConversationsViewModel {
 
                 resolvePendingScanNavigationIfPossible()
                 resolvePendingConnectionGrantIfPossible()
+                resolvePendingConversationTapIfPossible()
 
                 if !conversations.contains(where: { !$0.isPinned && $0.kind == .group }) {
                     activeFilter = .all
@@ -673,26 +680,6 @@ final class ConversationsViewModel {
                 }
             }
             .store(in: &cancellables)
-    }
-
-    private func handleConversationNotificationTap(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let inboxId = userInfo["inboxId"] as? String,
-              let conversationId = userInfo["conversationId"] as? String else {
-            Log.warning("Conversation notification tapped but missing required userInfo")
-            return
-        }
-
-        Log.info(
-            "Handling conversation notification tap for inboxId: \(inboxId), conversationId: \(conversationId)"
-        )
-
-        if let conversation = conversations.first(where: { $0.id == conversationId }) {
-            Log.info("Found conversation, selecting it")
-            selectedConversation = conversation
-        } else {
-            Log.warning("Conversation \(conversationId) not found in current conversation list")
-        }
     }
 
     func toggleMute(conversation: Conversation) {
@@ -1520,5 +1507,78 @@ extension ConversationsViewModel {
               conversations.contains(where: { $0.id == link.conversationId }) else { return }
         pendingConnectionGrantLink = nil
         openConnectionGrant(serviceId: link.serviceId, conversationId: link.conversationId)
+    }
+}
+
+// MARK: - Notification tap routing
+
+extension ConversationsViewModel {
+    func handleConversationNotificationTap(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let inboxId = userInfo["inboxId"] as? String,
+              let conversationId = userInfo["conversationId"] as? String else {
+            Log.warning("Conversation notification tapped but missing required userInfo")
+            return
+        }
+
+        Log.info(
+            "Handling conversation notification tap for inboxId: \(inboxId), conversationId: \(conversationId)"
+        )
+
+        if !routeToTappedConversation(conversationId) {
+            // The destination isn't in the loaded list yet (cold launch from the
+            // banner, before conversations have streamed in). Park it and replay
+            // once the conversations publisher emits.
+            Log.info("Conversation \(conversationId) not loaded yet; parking tap for replay")
+            pendingConversationTapId = conversationId
+        }
+    }
+
+    /// Routes a tapped notification's conversation id to the right destination:
+    /// a message in an agent DM opens that DM's parent group on the DM page; a
+    /// group message opens the group on the group page. Returns false when the
+    /// destination isn't in the loaded conversation list yet, so the caller can
+    /// defer it (see `pendingConversationTapId`).
+    @discardableResult
+    func routeToTappedConversation(_ conversationId: String) -> Bool {
+        // An agent DM's own id is never in the list (DMs are folded into their
+        // parent group's row), so map it to the parent + agent page first.
+        if let routing = try? conversationsRepository.agentDmTapRouting(forConversationId: conversationId) {
+            guard conversations.contains(where: { $0.id == routing.originConversationId }) else {
+                return false
+            }
+            // Seeds the DM page when the parent opens fresh (or from a different
+            // conversation)...
+            selectedInitialAgentDmInboxId = routing.agentInboxId
+            selectedConversationId = routing.originConversationId
+            // ...and switches the page when the parent is already on screen (where
+            // re-selecting the same id is a no-op).
+            NotificationCenter.default.post(
+                name: .selectAgentDmPageRequested,
+                object: nil,
+                userInfo: [
+                    "conversationId": routing.originConversationId,
+                    "agentInboxId": routing.agentInboxId
+                ]
+            )
+            return true
+        }
+
+        // A group (or any listed conversation): open it on the group page.
+        guard let conversation = conversations.first(where: { $0.id == conversationId }) else {
+            return false
+        }
+        selectedInitialAgentDmInboxId = nil
+        selectedConversation = conversation
+        return true
+    }
+
+    /// Replays a notification tap that was parked because its destination hadn't
+    /// loaded yet. Called when the conversations publisher emits.
+    func resolvePendingConversationTapIfPossible() {
+        guard let pendingId = pendingConversationTapId else { return }
+        if routeToTappedConversation(pendingId) {
+            pendingConversationTapId = nil
+        }
     }
 }

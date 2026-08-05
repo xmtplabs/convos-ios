@@ -432,13 +432,23 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             let updated = try DBConversation
                 .filter(key: conversationId)
                 .updateAll(db, DBConversation.Columns.isAgentDm.set(to: true))
-            if updated == 0 {
+            guard updated > 0 else {
                 // The local row may not exist yet (marker written before the
-                // first store). Not fatal -- extraction re-derives the flag
-                // from the on-wire marker on the next save -- but log it so a
-                // persistently missing row is visible.
+                // first store). Not fatal -- extraction re-derives the flag and
+                // the DM -> parent link from the on-wire marker on the next save.
+                // Recording the link now would violate agent_dm_origin's foreign
+                // key to conversation, so defer it and just log the miss.
                 Log.warning("markAsAgentDm updated no local rows for \(conversationId)")
+                return
             }
+            // Mirror the DM -> parent link locally on the creating device too, so
+            // a tap routes correctly before the next full save re-extracts it.
+            // Safe only now that the conversation row is known to exist.
+            try DBAgentDmOrigin.record(
+                conversationId: conversationId,
+                originConversationId: originConversationId,
+                in: db
+            )
         }
     }
 
