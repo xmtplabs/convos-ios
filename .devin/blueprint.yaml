@@ -5,11 +5,13 @@
 
 # One-time setup on a fresh Outpost box.
 initialize: |
-  Scripts/outpost-bootstrap.sh
-  # bare run only PRINTS the exports; persist them so every later session
-  # shell gets DEVELOPER_DIR + PATH (incl. the idb venv), not just this subshell.
-  Scripts/outpost-bootstrap.sh --env >> ~/.bashrc
-  brew install ffmpeg
+  if [ "$(uname)" = "Darwin" ]; then
+    Scripts/outpost-bootstrap.sh
+    Scripts/outpost-bootstrap.sh --env >> ~/.bashrc
+    brew install ffmpeg
+  else
+    echo "skipping macOS-only QA bootstrap (snapshot build host is Linux)"
+  fi
 
 # Refreshed at the start of each session.
 maintenance: |
