@@ -23,6 +23,23 @@ message ConversationCustomMetadata {
     // now live on each sender's ConversationProfile.connections (field 5).
     reserved 7;
     optional AgentDmInfo agentDm = 8;  // Present when this conversation is a DM with an agent
+    optional ParticipationMode participationMode = 9;  // How much the conversation's agents may speak
+}
+
+// ParticipationMode governs how much the agents in a conversation speak. The
+// mode belongs to the conversation, not to one agent: a room holding several
+// agents has a single mode that governs all of them, and an agent that joins
+// later inherits it from the synced group state.
+//
+// Carried in appData rather than a message so it rides the group-metadata
+// rails: new members read the current mode on join, and MLS metadata's
+// last-writer-wins resolution settles two members changing it at once.
+enum ParticipationMode {
+    PARTICIPATION_MODE_UNSPECIFIED = 0;  // Never written; an unset mode is the product default
+    PARTICIPATION_MODE_SPEAK_FREELY = 1;
+    PARTICIPATION_MODE_MENTIONS_ONLY = 2;
+    PARTICIPATION_MODE_LISTEN_ONLY = 3;
+    PARTICIPATION_MODE_PAUSED = 4;
 }
 
 // AgentDmInfo marks a 2-member conversation as a private DM with an agent.

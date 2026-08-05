@@ -393,6 +393,62 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
+    /// The transcript row an `app_data` commit should leave behind.
+    ///
+    /// Most appData writes are bookkeeping nobody needs told about (invite tag,
+    /// member profiles), and an expiration change is rendered from the
+    /// `ExplodeSettings` content type instead - both map to a row that renders
+    /// nothing. A participation-mode change is the exception: it changes how the
+    /// room's agents behave for everyone, so every member sees who set it.
+    static func appDataMetadataChange(
+        oldValue: String?,
+        newValue: String?
+    ) -> DBMessage.Update.MetadataChange {
+        let oldCustomValue = oldValue.flatMap { decodeCustomMetadata($0, label: "old") }
+        let newCustomValue = newValue.flatMap { decodeCustomMetadata($0, label: "new") }
+
+        let oldMode = oldCustomValue?.conversationParticipationMode
+        let newMode = newCustomValue?.conversationParticipationMode
+        if let newMode, newMode != oldMode {
+            return .init(
+                field: ConversationUpdate.MetadataChange.Field.participationMode.rawValue,
+                oldValue: oldMode?.rawValue,
+                newValue: newMode.rawValue
+            )
+        }
+
+        let oldExpiresAt: Date? = oldCustomValue.flatMap(expiresAtDate)
+        let newExpiresAt: Date? = newCustomValue.flatMap(expiresAtDate)
+        if oldExpiresAt != newExpiresAt {
+            return .init(
+                field: ConversationUpdate.MetadataChange.Field.unknown.rawValue,
+                oldValue: nil,
+                newValue: nil
+            )
+        }
+
+        // Some other custom field changed (tag, profiles, ...).
+        return .init(
+            field: ConversationUpdate.MetadataChange.Field.metadata.rawValue,
+            oldValue: nil,
+            newValue: nil
+        )
+    }
+
+    private static func expiresAtDate(_ metadata: ConversationCustomMetadata) -> Date? {
+        guard metadata.hasExpiresAtUnix else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(metadata.expiresAtUnix))
+    }
+
+    private static func decodeCustomMetadata(_ compact: String, label: String) -> ConversationCustomMetadata? {
+        do {
+            return try ConversationCustomMetadata.fromCompactString(compact)
+        } catch {
+            Log.error("Failed to decode \(label) custom metadata: \(error)")
+            return nil
+        }
+    }
+
     private func handleGroupUpdatedContent() throws -> DBMessageComponents {
         let content = try content() as Any
         guard let groupUpdated = content as? GroupUpdated else {
@@ -416,61 +472,10 @@ extension XMTPiOS.DecodedMessage {
                         )
                     }
                 } else if $0.fieldName == ConversationUpdate.MetadataChange.Field.metadata.rawValue {
-                    let oldCustomValue: ConversationCustomMetadata?
-                    if $0.hasOldValue {
-                        do {
-                            oldCustomValue = try ConversationCustomMetadata.fromCompactString($0.oldValue)
-                        } catch {
-                            Log.error("Failed to decode old custom metadata: \(error)")
-                            oldCustomValue = nil
-                        }
-                    } else {
-                        oldCustomValue = nil
-                    }
-
-                    let newCustomValue: ConversationCustomMetadata?
-                    if $0.hasNewValue {
-                        do {
-                            newCustomValue = try ConversationCustomMetadata.fromCompactString($0.newValue)
-                        } catch {
-                            Log.error("Failed to decode new custom metadata: \(error)")
-                            newCustomValue = nil
-                        }
-                    } else {
-                        newCustomValue = nil
-                    }
-
-                    // Extract expiresAt values (only if explicitly set)
-                    let oldExpiresAt: Date?
-                    if let oldCustomValue, oldCustomValue.hasExpiresAtUnix {
-                        oldExpiresAt = Date(timeIntervalSince1970: TimeInterval(oldCustomValue.expiresAtUnix))
-                    } else {
-                        oldExpiresAt = nil
-                    }
-
-                    let newExpiresAt: Date?
-                    if let newCustomValue, newCustomValue.hasExpiresAtUnix {
-                        newExpiresAt = Date(timeIntervalSince1970: TimeInterval(newCustomValue.expiresAtUnix))
-                    } else {
-                        newExpiresAt = nil
-                    }
-
-                    let expiresAtChanged = oldExpiresAt != newExpiresAt
-                    // Skip expiresAt changes - these are handled by ExplodeSettings content type
-                    if expiresAtChanged {
-                        return .init(
-                            field: ConversationUpdate.MetadataChange.Field.unknown.rawValue,
-                            oldValue: nil,
-                            newValue: nil
-                        )
-                    } else {
-                        // some other custom field changed (tag, profiles, etc.)
-                        return .init(
-                            field: ConversationUpdate.MetadataChange.Field.metadata.rawValue,
-                            oldValue: nil,
-                            newValue: nil
-                        )
-                    }
+                    return Self.appDataMetadataChange(
+                        oldValue: $0.hasOldValue ? $0.oldValue : nil,
+                        newValue: $0.hasNewValue ? $0.newValue : nil
+                    )
                 } else {
                     return .init(
                         field: $0.fieldName,

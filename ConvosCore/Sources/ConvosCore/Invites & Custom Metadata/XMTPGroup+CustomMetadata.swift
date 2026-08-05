@@ -83,6 +83,27 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// The conversation's agent participation mode, or nil while no member has
+    /// set one. Read from synced group state, so a member who just joined sees
+    /// the mode the conversation is already in without asking a server.
+    public var participationMode: ConversationParticipationMode? {
+        get throws {
+            try currentCustomMetadata.conversationParticipationMode
+        }
+    }
+
+    /// Sets the mode for every agent in the conversation. Any member may call
+    /// this - the mode is conversation state, not an owner-only setting - and
+    /// MLS metadata's last-writer-wins resolution settles two members changing
+    /// it at once.
+    public func updateParticipationMode(_ mode: ConversationParticipationMode) async throws {
+        try await atomicUpdateMetadata(operation: "updateParticipationMode") { metadata in
+            metadata.participationMode = mode.proto
+        } verify: { metadata in
+            metadata.conversationParticipationMode == mode
+        }
+    }
+
     /// Whether this conversation carries the agent-DM marker. The agent's
     /// identity comes from the membership itself (member kind plus
     /// attestation), not from the marker; callers gating UI should also

@@ -84,7 +84,8 @@ extension DBConversationDetails {
             agentJoinStatus: agentJoinStatus,
             hasHadVerifiedAgent: conversation.hasHadVerifiedAgent,
             wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil,
-            isAgentDm: conversation.isAgentDm
+            isAgentDm: conversation.isAgentDm,
+            participationMode: conversation.participationMode ?? .default
         )
     }
 

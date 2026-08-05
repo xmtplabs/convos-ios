@@ -19,6 +19,7 @@ public protocol ConversationMetadataWriterProtocol: Sendable {
     func demoteFromSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func updateImage(_ image: ImageType, for conversation: Conversation) async throws
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws
+    func updateParticipationMode(_ mode: ConversationParticipationMode, for conversationId: String) async throws
     func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws
     func lockConversation(for conversationId: String) async throws
     func unlockConversation(for conversationId: String) async throws
@@ -132,6 +133,33 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         try await syncInvitePreview(for: updatedConversation)
 
         Log.info("Updated conversation expiresAt for \(conversationId): \(expiresAt)")
+    }
+
+    /// Writes the conversation's participation mode to the group's appData, the
+    /// same rail `updateName` / `updateExpiresAt` ride. The commit is what other
+    /// members receive: their `ConversationWriter` re-reads appData on the
+    /// resulting update message and their composer follows. The local row is
+    /// written here too so the setter's own control does not wait a round trip
+    /// for state their device already knows.
+    func updateParticipationMode(_ mode: ConversationParticipationMode, for conversationId: String) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+
+        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
+              case .group(let group) = conversation else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+
+        try await group.updateParticipationMode(mode)
+
+        try await databaseWriter.write { db in
+            guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
+                throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+            }
+            try localConversation.with(participationMode: mode).save(db)
+        }
+
+        Log.info("Updated conversation participation mode for \(conversationId): \(mode.rawValue)")
+        QAEvent.emit(.conversation, "participation_mode_updated", ["id": conversationId, "mode": mode.rawValue])
     }
 
     func updateDescription(_ description: String, for conversationId: String) async throws {

@@ -220,6 +220,21 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConversationLastMessagePointers", migrate: Self.addConversationLastMessagePointers)
         Self.registerAgentDmMigrations(on: &migrator)
         migrator.registerMigration("addConversationAddedById", migrate: Self.addConversationAddedById)
+        migrator.registerMigration("addConversationParticipationMode", migrate: Self.addConversationParticipationMode)
+    }
+
+    /// The conversation's agent participation mode, mirrored from the group's
+    /// appData so the composer control and the transcript observe one synced
+    /// value instead of re-reading it per surface. Nullable with no default: a
+    /// null column is a conversation no member has set a mode on, which readers
+    /// resolve to `ConversationParticipationMode.default` - distinct from an
+    /// explicit Speak freely only in that nobody authored it. Extracted as an
+    /// internal static helper so the migration test can drive the real upgrade
+    /// path without tripping the DEBUG `eraseDatabaseOnSchemaChange`.
+    static func addConversationParticipationMode(_ db: Database) throws {
+        try db.alter(table: "conversation") { t in
+            t.add(column: "participationMode", .text)
+        }
     }
 
     /// Per-conversation catch-up cursor (see DBConversationCatchUpCursor).

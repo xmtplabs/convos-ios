@@ -61,6 +61,13 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// marker: a private 2-member conversation with an agent. Drives DM
     /// presentation and hides group affordances (add member, invite QR).
     public var isAgentDm: Bool = false
+    /// How much this conversation's agents may speak. Synced state, carried in
+    /// the group's appData and mirrored on the `conversation` row, so every
+    /// member's device converges on one mode and a member who joins sees the
+    /// mode the room is already in. A conversation nobody has set a mode on
+    /// reads as `ConversationParticipationMode.default` - the unset room and an
+    /// explicit Speak freely behave identically.
+    public var participationMode: ConversationParticipationMode = .default
     /// Summary of the separate agent-DM conversation (self + this group's
     /// verified agent) that folds into this group's row. Populated by the
     /// conversations list composer for group rows that have a verified

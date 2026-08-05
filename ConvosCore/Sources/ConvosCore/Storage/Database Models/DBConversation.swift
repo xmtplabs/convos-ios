@@ -51,6 +51,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let isUnused: Column = Column(CodingKeys.isUnused)
         static let hasHadVerifiedAgent: Column = Column(CodingKeys.hasHadVerifiedAgent)
         static let isAgentDm: Column = Column(CodingKeys.isAgentDm)
+        static let participationMode: Column = Column(CodingKeys.participationMode)
         static let addedById: Column = Column(CodingKeys.addedById)
         static let adderStatus: Column = Column(CodingKeys.adderStatus)
     }
@@ -78,6 +79,11 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let isUnused: Bool
     let hasHadVerifiedAgent: Bool
     let isAgentDm: Bool
+    /// The conversation's agent participation mode, carried in the group's
+    /// appData and mirrored here so the composer control and the transcript can
+    /// observe it. Nil while no member has set one, which reads as
+    /// `ConversationParticipationMode.default`.
+    let participationMode: ConversationParticipationMode?
     /// Storage for `adder` - read that instead, and set it through `init`.
     /// The pair is kept consistent by a CHECK constraint: `addedById` is
     /// non-null exactly when `adderStatus` is `resolved`.
@@ -118,6 +124,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         isUnused: Bool,
         hasHadVerifiedAgent: Bool,
         isAgentDm: Bool = false,
+        participationMode: ConversationParticipationMode? = nil,
         adder: AdderResolution = .notRecorded
     ) {
         self.id = id
@@ -143,6 +150,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.isUnused = isUnused
         self.hasHadVerifiedAgent = hasHadVerifiedAgent
         self.isAgentDm = isAgentDm
+        self.participationMode = participationMode
         self.addedById = adder.knownInboxId
         self.adderStatus = adder.status
     }
@@ -330,6 +338,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -359,6 +368,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -388,6 +398,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -417,6 +428,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -446,6 +458,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -477,6 +490,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -506,6 +520,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -535,6 +550,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -564,6 +580,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -593,6 +610,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -622,6 +640,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -651,6 +670,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -680,6 +700,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -709,6 +730,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -738,6 +760,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -767,6 +790,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -795,7 +819,38 @@ extension DBConversation {
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            isAgentDm: isAgentDm
+            isAgentDm: isAgentDm,
+            participationMode: participationMode
+        )
+    }
+
+    func with(participationMode: ConversationParticipationMode?) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            adder: adder
         )
     }
 
@@ -824,6 +879,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -853,6 +909,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }
@@ -882,6 +939,7 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
+            participationMode: participationMode,
             adder: adder
         )
     }

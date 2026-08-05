@@ -259,6 +259,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
         // flag is on. Absent, the composer draws no bubble at all.
         .environment(\.agentParticipation, participationContext)
         .task(id: participationTaskKey) { await prepareParticipation() }
+        // The mode rides the group's appData, so another member's change lands
+        // as a change to this conversation's synced row and the bubble follows
+        // it - nothing here polls.
+        .onChange(of: viewModel.conversation.participationMode) { _, mode in
+            participation?.apply(syncedLevel: AgentParticipationLevel(mode: mode))
+        }
         .alert(
             "Participation not updated",
             isPresented: Binding(
@@ -1046,20 +1052,25 @@ private extension ConversationView {
         return "\(viewModel.conversation.id)-\(hasAgent)"
     }
 
-    /// Builds the store for this conversation and reads its current level.
-    /// Skipped where the control would be meaningless, so a conversation
-    /// without agents never spends a request on it.
+    /// Builds the store for this conversation, seeded with the mode the synced
+    /// conversation already carries. Skipped where the control would be
+    /// meaningless, so a conversation without agents never draws it.
     func prepareParticipation() async {
         guard FeatureFlags.shared.isListenParticipationEnabled,
               viewModel.conversation.members.contains(where: \.isAgent) else {
             participation = nil
             return
         }
+        let mode = viewModel.conversation.participationMode
         let store = AgentParticipationStore(
             conversationId: viewModel.conversation.id,
-            variantId: FeatureFlags.shared.selectedAgentVariant?.slug
+            variantId: FeatureFlags.shared.selectedAgentVariant?.slug,
+            service: ConversationAppDataParticipationService(
+                metadataWriter: viewModel.conversationMetadataWriter,
+                mode: mode
+            )
         )
+        store.apply(syncedLevel: AgentParticipationLevel(mode: mode))
         participation = store
-        await store.load()
     }
 }

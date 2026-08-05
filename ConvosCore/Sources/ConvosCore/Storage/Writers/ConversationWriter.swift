@@ -791,6 +791,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         /// The parent group id, for an agent DM that recorded one in its
         /// metadata; nil for non-DMs or DMs without a recorded origin.
         let originConversationId: String?
+        let participationMode: ConversationParticipationMode?
         let memberCount: Int
     }
 
@@ -840,6 +841,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             hasHadVerifiedAgent: false,
             isAgentDm: isAgentDm,
             originConversationId: originConversationId,
+            participationMode: try? conversation.participationMode,
             memberCount: memberCount
         )
     }
@@ -993,6 +995,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isUnused: false,
             hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
             isAgentDm: metadata.isAgentDm,
+            participationMode: metadata.participationMode,
             // Shares one definition of the empty-vs-throw semantics with the
             // consent gate (`StreamProcessor.contactsVouch`). A failed read
             // persists as `.unresolved` rather than being flattened to "no
