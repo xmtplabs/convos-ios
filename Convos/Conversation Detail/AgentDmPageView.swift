@@ -200,15 +200,17 @@ struct AgentDmPageView: View {
 
     /// Disabled composer for the not-yet-created DM. The agent owns DM
     /// creation, so the client cannot send until the agent-created DM syncs in;
-    /// the field and send button stay disabled with a "setting up" placeholder
-    /// until `rebindWhenDmAppears` binds the real conversation and swaps in the
-    /// full chat. Enabling it here would let a send silently no-op, since there
-    /// is no DM to send into yet.
+    /// the field and send button stay disabled until `rebindWhenDmAppears` binds
+    /// the real conversation and swaps in the full chat (normally within a second
+    /// or two of the agent joining). Enabling it here would let a send silently
+    /// no-op, since there is no DM to send into yet. The `+` stays visible (inert)
+    /// so the composer keeps its normal shape rather than dropping the
+    /// attachments affordance.
     private var draftComposer: some View {
         MessagesInputView(
             displayName: .constant(""),
             emptyDisplayNamePlaceholder: "",
-            messagePlaceholder: "Setting up your chat with \(agentName)\u{2026}",
+            messagePlaceholder: "Chat with \(agentName)",
             messageText: .constant(""),
             pendingInviteConvoName: .constant(""),
             pendingInviteImage: .constant(nil),
@@ -219,13 +221,25 @@ struct AgentDmPageView: View {
             onClearInvite: {},
             fileAttachmentPreview: { _ in EmptyView() },
             agentShareChip: { EmptyView() },
-            attachmentsButton: { EmptyView() }
+            attachmentsButton: { draftAttachmentsGlyph }
         )
         .fixedSize(horizontal: false, vertical: true)
         .clipShape(.rect(cornerRadius: 26.0))
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.bottom, DesignConstants.Spacing.step3x)
+    }
+
+    /// The `+` glyph in the pre-creation composer: kept visible so the bar holds
+    /// its normal shape, but inert and dimmed (no conversation to attach to yet)
+    /// to read as disabled alongside the field and send button. Mirrors
+    /// `MessagesBottomBar.attachmentsGlyph`.
+    private var draftAttachmentsGlyph: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 18.0, weight: .medium))
+            .foregroundStyle(Color.colorTextPrimary)
+            .frame(width: 32, height: 32)
+            .opacity(0.4)
     }
 
     // MARK: - Full chat (mirrors ConversationView.messagesView with the DM VM)
