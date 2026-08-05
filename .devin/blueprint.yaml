@@ -8,6 +8,9 @@ name: convos-ios
 # One-time setup on a fresh Outpost box.
 initialize: |
   Scripts/outpost-bootstrap.sh
+  # bare run only PRINTS the exports; persist them so every later session
+  # shell gets DEVELOPER_DIR + PATH (incl. the idb venv), not just this subshell.
+  Scripts/outpost-bootstrap.sh --env >> ~/.zshrc
   brew install ffmpeg
 
 # Refreshed at the start of each session.
