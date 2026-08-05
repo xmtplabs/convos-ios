@@ -5,8 +5,7 @@
 
 # One-time setup on a fresh Outpost box.
 initialize: |
-+  set -e
-  if [ "$(uname)" = "Darwin" ]; then
+  set -e
   if [ "$(uname)" = "Darwin" ]; then
     Scripts/outpost-bootstrap.sh
     Scripts/outpost-bootstrap.sh --env >> ~/.bashrc
