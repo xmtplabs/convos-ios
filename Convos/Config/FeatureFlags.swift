@@ -66,7 +66,7 @@ final class FeatureFlags {
     }
 
     /// Gates the per-conversation agent participation control ("Listen"):
-    /// Speak freely / Mentions only / Paused. Toggle from App Settings -> Debug
+    /// Speak freely / Listen mode / Paused. Toggle from App Settings -> Debug
     /// in non-production builds, or from the curated prod debug menu in
     /// production. Deliberately not prod-locked like the flags above: the
     /// control is reachable everywhere so Listen can be dogfooded in TestFlight.

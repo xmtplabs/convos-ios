@@ -477,22 +477,36 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             let label: String = isLoading
                 ? "Agent participation, loading"
                 : "Agent participation: \(participation.level.title)"
-            ParticipationMenuControl(
-                level: participation.level,
-                isLoading: isLoading,
-                onSelect: participation.onSelect
-            )
-            .equatable()
-            .disabled(isLoading)
-            .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
-            .frame(width: bubbleSize, height: bubbleSize)
-            .clipShape(.circle)
-            .glassEffect(.regular.interactive(), in: .circle)
-            .transition(.scale.combined(with: .opacity))
-            .animation(.easeInOut(duration: 0.2), value: isLoading)
-            .accessibilityLabel(label)
-            .accessibilityHint("Change how much the agents speak here")
-            .accessibilityIdentifier("agent-participation-button")
+            // The glyph is drawn inert on the glass, with an invisible menu
+            // hit-target over it - the same split the attachments `+` uses.
+            // iOS opens a menu by morphing the glass that holds its label, so a
+            // label that is the glyph gets lifted into that morph. On its own
+            // that is invisible; it shows when this menu and the attachments
+            // menu are worked in quick succession, because the second morph
+            // starts while the first is still unwinding and the glyph jumps
+            // between them. Leaving a beat between the two hid it, which is
+            // what identified the overlap. Out of the menu, the glyph takes
+            // part in neither morph and overlapping presentations can't move
+            // it.
+            ParticipationGlyph(level: participation.level, isLoading: isLoading)
+                .frame(width: bubbleSize, height: bubbleSize)
+                .clipShape(.circle)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .overlay {
+                    ParticipationMenuControl(
+                        level: participation.level,
+                        isLoading: isLoading,
+                        onSelect: participation.onSelect
+                    )
+                    .equatable()
+                }
+                .disabled(isLoading)
+                .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
+                .transition(.scale.combined(with: .opacity))
+                .animation(.easeInOut(duration: 0.2), value: isLoading)
+                .accessibilityLabel(label)
+                .accessibilityHint("Change how much the agents speak here")
+                .accessibilityIdentifier("agent-participation-button")
         }
     }
 
@@ -693,7 +707,9 @@ private struct ParticipationMenuControl: View, Equatable {
                 }
             }
         } label: {
-            glyph
+            Color.clear
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
         }
         .menuOrder(.fixed)
     }
@@ -716,13 +732,20 @@ private struct ParticipationMenuControl: View, Equatable {
         }
         .accessibilityIdentifier("participation-\(option.rawValue)-row")
     }
+}
 
-    /// The icon, or the resting dot that stands in for it. The level starts at a
-    /// product default the conversation may not actually be in, so showing an
-    /// icon before the read lands would state something that can change a moment
-    /// later — the dot says "not known yet" instead.
+/// The icon, or the resting dot that stands in for it. The level starts at a
+/// product default the conversation may not actually be in, so showing an
+/// icon before the read lands would state something that can change a moment
+/// later - the dot says "not known yet" instead.
+///
+/// Drawn outside the menu so opening the menu never lifts it into the morph.
+private struct ParticipationGlyph: View {
+    let level: AgentParticipationLevel
+    let isLoading: Bool
+
     @ViewBuilder
-    private var glyph: some View {
+    var body: some View {
         if isLoading {
             ParticipationLoadingDot()
                 .frame(width: 32, height: 32)
@@ -731,8 +754,8 @@ private struct ParticipationMenuControl: View, Equatable {
                 .font(.system(size: 16.0, weight: .medium))
                 .foregroundStyle(Color.colorTextPrimary)
                 .frame(width: 32, height: 32)
-                .contentShape(.circle)
-                .transition(.opacity)
+                .contentTransition(.symbolEffect(.replace))
+                .animation(.easeInOut(duration: 0.2), value: level)
         }
     }
 }
