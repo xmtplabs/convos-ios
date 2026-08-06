@@ -71,10 +71,10 @@ final class FeatureFlags {
     /// production. Deliberately not prod-locked like the flags above: the
     /// control is reachable everywhere so Listen can be dogfooded in TestFlight.
     ///
-    /// The default follows the build: on for the internal Dev/local builds that
-    /// ship to TestFlight, off for production, so end users still have to opt in
-    /// from the prod debug menu. An explicit toggle in either direction is
-    /// remembered and wins over the default.
+    /// On by default in every build, production included, so the control is
+    /// there without anyone having to find a debug menu first. An explicit
+    /// toggle in either direction is remembered and wins over the default, so
+    /// turning it off from the prod debug menu still sticks.
     var isListenParticipationEnabled: Bool {
         get {
             access(keyPath: \.isListenParticipationEnabled)
@@ -90,9 +90,7 @@ final class FeatureFlags {
         }
     }
 
-    private static var listenParticipationDefault: Bool {
-        !ConfigManager.shared.currentEnvironment.isProduction
-    }
+    private static let listenParticipationDefault: Bool = true
 
     /// Off by default -- opts libxmtp streams onto the shared bidi wire by
     /// exporting `XMTP_BIDI_STREAMS_ENABLED` at launch (see `ConvosApp.init`;
