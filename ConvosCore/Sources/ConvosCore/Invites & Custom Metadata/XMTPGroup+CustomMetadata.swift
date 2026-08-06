@@ -145,6 +145,25 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// Whether this conversation carries the human-DM provenance marker.
+    /// Written once by the creating device (desktop mode only). Callers gating
+    /// UI should also require exactly 2 members and no verified agent member.
+    public var isHumanDm: Bool {
+        get throws {
+            try currentCustomMetadata.hasHumanDm
+        }
+    }
+
+    /// Stamps this conversation as a human 1:1 DM. Called once by the creating
+    /// device (desktop mode only), before the other member is added.
+    public func markAsHumanDm() async throws {
+        try await atomicUpdateMetadata(operation: "markAsHumanDm") { metadata in
+            metadata.humanDm = HumanDmInfo()
+        } verify: { metadata in
+            metadata.hasHumanDm
+        }
+    }
+
     // MARK: - Connections (per-sender-profile)
 
     /// Returns the JSON grants payload stored on a specific sender's profile.

@@ -88,6 +88,33 @@ struct SerializationTests {
         #expect(ConversationCustomMetadata.isEncodedMetadata("Hello World!") == false)
         #expect(ConversationCustomMetadata.isEncodedMetadata("") == false)
     }
+
+    @Test("Human DM marker round-trips")
+    func humanDmMarkerRoundTrip() throws {
+        var metadata = ConversationCustomMetadata()
+        #expect(metadata.hasHumanDm == false)
+        metadata.humanDm = HumanDmInfo()
+
+        let encoded = try metadata.toCompactString()
+        let decoded = try ConversationCustomMetadata.fromCompactString(encoded)
+
+        #expect(decoded.hasHumanDm == true)
+    }
+
+    @Test("Human DM marker survives an unrelated read-modify-write")
+    func humanDmMarkerSurvivesReadModifyWrite() throws {
+        var metadata = ConversationCustomMetadata()
+        metadata.humanDm = HumanDmInfo()
+
+        // Simulate a different device reading, editing an unrelated field, and
+        // re-serializing: the marker must survive.
+        var reloaded = try ConversationCustomMetadata.fromCompactString(metadata.toCompactString())
+        reloaded.emoji = "🎉"
+        let decoded = try ConversationCustomMetadata.fromCompactString(reloaded.toCompactString())
+
+        #expect(decoded.hasHumanDm == true)
+        #expect(decoded.emoji == "🎉")
+    }
 }
 
 @Suite("ConversationProfile Tests")

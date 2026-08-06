@@ -546,7 +546,7 @@ class NewConversationViewModel: Identifiable, Hashable {
                     existingConversationId: existingConversationId
                 )
 
-            case .newConversationWithMembers(let initialMemberInboxIds, _):
+            case let .newConversationWithMembers(initialMemberInboxIds, agentTemplateIds):
                 let (messagingService, existingConversationId) = await session.prepareNewConversation()
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
@@ -555,10 +555,14 @@ class NewConversationViewModel: Identifiable, Hashable {
                 if let existingConversationId {
                     await session.commitClaimedConversation(id: existingConversationId)
                 }
+                // A deliberate one-human, no-agent creation in desktop mode is a
+                // 1:1 DM by intent -- stamp the provenance marker so it presents
+                // as a DM and routes member/agent adds through a fork.
                 configureWithMessagingService(
                     messagingService,
                     existingConversationId: existingConversationId,
-                    initialMemberInboxIds: initialMemberInboxIds
+                    initialMemberInboxIds: initialMemberInboxIds,
+                    createsHumanDm: createsHumanDm(memberInboxIds: initialMemberInboxIds, agentTemplateIds: agentTemplateIds)
                 )
 
             case .existingConversation(let conversationId):
@@ -605,7 +609,8 @@ class NewConversationViewModel: Identifiable, Hashable {
     private func configureWithMessagingService(
         _ messagingService: AnyMessagingService,
         existingConversationId: String?,
-        initialMemberInboxIds: [String] = []
+        initialMemberInboxIds: [String] = [],
+        createsHumanDm: Bool = false
     ) {
         // Warm-cache id preservation. When `prepareNewConversation()`
         // hands back an `existingConversationId` (a warm-cached, already-
@@ -617,14 +622,9 @@ class NewConversationViewModel: Identifiable, Hashable {
         // this.
         let stateManager: any ConversationStateManagerProtocol
         if let existingConversationId {
-            stateManager = messagingService.conversationStateManager(
-                for: existingConversationId,
-                initialMemberInboxIds: initialMemberInboxIds
-            )
+            stateManager = messagingService.conversationStateManager(for: existingConversationId, initialMemberInboxIds: initialMemberInboxIds, createsHumanDm: createsHumanDm)
         } else {
-            stateManager = messagingService.conversationStateManager(
-                initialMemberInboxIds: initialMemberInboxIds
-            )
+            stateManager = messagingService.conversationStateManager(initialMemberInboxIds: initialMemberInboxIds, createsHumanDm: createsHumanDm)
         }
         self.conversationStateManager = stateManager
         self.acquiredMessagingService = messagingService
@@ -1605,5 +1605,14 @@ private extension NewConversationViewModel {
             )
         }
         return .draft(id: id, seededMembers: members)
+    }
+}
+
+private extension NewConversationViewModel {
+    /// Whether a `.newConversationWithMembers` creation is a human 1:1 DM by
+    /// intent: desktop mode on, exactly one human, no agent templates. In an
+    /// extension so it stays out of the main type-body length budget.
+    func createsHumanDm(memberInboxIds: [String], agentTemplateIds: [String]) -> Bool {
+        FeatureFlags.shared.isDesktopModeEnabled && memberInboxIds.count == 1 && agentTemplateIds.isEmpty
     }
 }

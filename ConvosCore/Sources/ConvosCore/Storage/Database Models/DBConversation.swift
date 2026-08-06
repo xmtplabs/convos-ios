@@ -52,6 +52,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let hasHadVerifiedAgent: Column = Column(CodingKeys.hasHadVerifiedAgent)
         static let isAgentDm: Column = Column(CodingKeys.isAgentDm)
         static let participationMode: Column = Column(CodingKeys.participationMode)
+        static let isHumanDm: Column = Column(CodingKeys.isHumanDm)
         static let addedById: Column = Column(CodingKeys.addedById)
         static let adderStatus: Column = Column(CodingKeys.adderStatus)
     }
@@ -84,6 +85,10 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     /// observe it. Nil while no member has set one, which reads as
     /// `ConversationParticipationMode.default`.
     let participationMode: ConversationParticipationMode?
+    /// Whether this conversation was created as a human 1:1 DM (provenance
+    /// marker written at creation, desktop mode only). Presentation-only;
+    /// re-evaluated on every store against the marker plus current shape.
+    let isHumanDm: Bool
     /// Storage for `adder` - read that instead, and set it through `init`.
     /// The pair is kept consistent by a CHECK constraint: `addedById` is
     /// non-null exactly when `adderStatus` is `resolved`.
@@ -125,6 +130,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         hasHadVerifiedAgent: Bool,
         isAgentDm: Bool = false,
         participationMode: ConversationParticipationMode? = nil,
+        isHumanDm: Bool = false,
         adder: AdderResolution = .notRecorded
     ) {
         self.id = id
@@ -151,6 +157,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.hasHadVerifiedAgent = hasHadVerifiedAgent
         self.isAgentDm = isAgentDm
         self.participationMode = participationMode
+        self.isHumanDm = isHumanDm
         self.addedById = adder.knownInboxId
         self.adderStatus = adder.status
     }
@@ -339,6 +346,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -369,6 +377,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -399,6 +408,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -429,6 +439,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -459,6 +470,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -491,6 +503,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -521,6 +534,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -551,6 +565,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -581,6 +596,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -611,6 +627,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -641,6 +658,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -671,6 +689,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -701,6 +720,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -731,6 +751,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -761,6 +782,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -791,6 +813,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -820,7 +843,8 @@ extension DBConversation {
             isUnused: isUnused,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
-            participationMode: participationMode
+            participationMode: participationMode,
+            isHumanDm: isHumanDm
         )
     }
 
@@ -850,6 +874,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -880,6 +905,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -910,6 +936,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }
@@ -940,6 +967,7 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             adder: adder
         )
     }

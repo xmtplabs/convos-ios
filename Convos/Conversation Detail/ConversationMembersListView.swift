@@ -116,6 +116,8 @@ struct ConversationMembersListView: View {
                 AddToConversationMenu(
                     isFull: viewModel.isFull,
                     isEnabled: true,
+                    showsConvoCode: !viewModel.upgradesOnAdd,
+                    showsNewAgent: !viewModel.upgradesOnAdd,
                     onConvoCode: {
                         viewModel.presentingShareView = true
                     },

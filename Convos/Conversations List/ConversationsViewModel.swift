@@ -685,6 +685,22 @@ final class ConversationsViewModel {
             }
             .store(in: &cancellables)
 
+        NotificationCenter.default
+            .publisher(for: .openConversationRequested)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let self,
+                      let conversationId = notification.userInfo?["conversationId"] as? String else { return }
+                // Reuse the notification-tap routing + park-and-replay so a
+                // freshly forked group that hasn't reached the list observation
+                // yet is opened once it streams in. Setting the selection to a
+                // new id swaps the pushed ConversationView in place.
+                if !self.routeToTappedConversation(conversationId) {
+                    self.pendingConversationTapId = conversationId
+                }
+            }
+            .store(in: &cancellables)
+
         conversationsCountRepository.conversationsCount
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversationsCount in

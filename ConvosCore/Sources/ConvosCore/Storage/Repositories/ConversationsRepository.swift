@@ -476,13 +476,25 @@ extension Database {
             // inside its origin conversation, not as a standalone chat).
             request = request.filter(DBConversation.Columns.isAgentDm == false)
         }
-        let dbConversationDetails = try request
+        // Fetch the most-recent matches rather than a single row so a plain
+        // lookup can prefer the marked human DM over a newer unmarked 2-member
+        // group with the same person (e.g. a just-created fork that briefly has
+        // exactly two humans before its agent joins). `detailedConversationQuery`
+        // orders by recency, so the small cap keeps this cheap.
+        let dbConversationDetailsList = try request
             .detailedConversationQuery()
-            .fetchOne(self)
-        guard let details = dbConversationDetails else { return nil }
+            .limit(8)
+            .fetchAll(self)
+        guard !dbConversationDetailsList.isEmpty else { return nil }
         let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
         let contactNameResolver = try ContactsRepository.contactNameResolverInTransaction(db: self)
-        return details.hydrateConversation(currentInboxId: currentInboxId, contactNameResolver: contactNameResolver)
+        let conversations = dbConversationDetailsList.map {
+            $0.hydrateConversation(currentInboxId: currentInboxId, contactNameResolver: contactNameResolver)
+        }
+        if !onlyAgentDms, let markedDm = conversations.first(where: { $0.isHumanDm }) {
+            return markedDm
+        }
+        return conversations.first
     }
 }
 

@@ -24,6 +24,7 @@ message ConversationCustomMetadata {
     reserved 7;
     optional AgentDmInfo agentDm = 8;  // Present when this conversation is a DM with an agent
     optional ParticipationMode participationMode = 9;  // How much the conversation's agents may speak
+    optional HumanDmInfo humanDm = 10;  // Present when created as a 1:1 human DM (desktop mode)
 }
 
 // ParticipationMode governs how much the agents in a conversation speak. The
@@ -44,6 +45,11 @@ enum ParticipationMode {
     reserved 3;
     PARTICIPATION_MODE_PAUSED = 4;
 }
+
+// HumanDmInfo marks a conversation created via the contact/member "Chat" flow
+// as a human 1:1 DM. Presence-only provenance marker; clients only honor it
+// while the conversation has exactly 2 members and no verified agent member.
+message HumanDmInfo {}
 
 // AgentDmInfo marks a 2-member conversation as a private DM with an agent.
 // The agent's identity comes from the membership itself (member_kind plus

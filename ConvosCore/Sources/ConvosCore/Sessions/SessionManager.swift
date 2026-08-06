@@ -23,6 +23,13 @@ public extension Notification.Name {
     /// selecting the group again is a no-op, so the page can't be seeded the way
     /// a fresh open is.
     static let selectAgentDmPageRequested: Notification.Name = Notification.Name("SelectAgentDmPageRequested")
+    /// Requests that the conversations list select/open a conversation,
+    /// replacing whatever is currently pushed. Posted with
+    /// `userInfo["conversationId"]` = the target conversation id. Parked and
+    /// replayed if the conversation hasn't reached the list observation yet
+    /// (see `ConversationsViewModel.routeToTappedConversation`). Used by the
+    /// DM-to-group upgrade to swap the open screen to the newly forked group.
+    static let openConversationRequested: Notification.Name = Notification.Name("OpenConversationRequested")
 }
 
 public typealias AnyMessagingService = any MessagingServiceProtocol

@@ -68,6 +68,12 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// reads as `ConversationParticipationMode.default` - the unset room and an
     /// explicit Speak freely behave identically.
     public var participationMode: ConversationParticipationMode = .default
+
+    /// True when this conversation was created as a human 1:1 DM (contact/member
+    /// "Chat" flow, desktop mode only): marker present with exactly 2 members
+    /// and no verified agent. Drives standard DM presentation instead of the
+    /// desktop group layout, and routes member/agent adds through a fork.
+    public var isHumanDm: Bool = false
     /// Summary of the separate agent-DM conversation (self + this group's
     /// verified agent) that folds into this group's row. Populated by the
     /// conversations list composer for group rows that have a verified
@@ -163,6 +169,7 @@ public extension Conversation {
             wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             agentDm: agentDm
         )
     }
@@ -208,6 +215,7 @@ public extension Conversation {
             wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
+            isHumanDm: isHumanDm,
             agentDm: agentDm
         )
     }

@@ -90,6 +90,14 @@ private struct AddFromContactsPickerModifier: ViewModifier {
     @ViewBuilder
     private var pickerSheet: some View {
         let alreadyInChat: Set<String> = Set(viewModel.conversation.members.map(\.profile.inboxId))
+        // A desktop-mode human DM grows only by forking (contacts or agent
+        // templates), so the invite-code / send-invite / scan / make-agent
+        // rows are hidden -- passing nil closures suppresses them.
+        let hidesInviteRows: Bool = viewModel.upgradesOnAdd
+        let showInviteCodeAction: (() -> Void)? = hidesInviteRows ? nil : { handleShowInviteCode() }
+        let sendInviteAction: (() -> Void)? = hidesInviteRows ? nil : { handleSendInvite() }
+        let makeAgentAction: (() -> Void)? = hidesInviteRows ? nil : { handleMakeAgent() }
+        let scanInviteAction: (() -> Void)? = hidesInviteRows ? nil : { handleScanInvite() }
         ContactsPickerView(
             mode: .addToConversation(
                 conversationId: viewModel.conversation.id,
@@ -98,10 +106,10 @@ private struct AddFromContactsPickerModifier: ViewModifier {
             contactsRepository: viewModel.messagingService.contactsRepository(),
             alreadyInChatInboxIds: alreadyInChat,
             title: "Invite",
-            onShowInviteCode: handleShowInviteCode,
-            onSendInvite: handleSendInvite,
-            onMakeAgent: handleMakeAgent,
-            onScanInvite: handleScanInvite,
+            onShowInviteCode: showInviteCodeAction,
+            onSendInvite: sendInviteAction,
+            onMakeAgent: makeAgentAction,
+            onScanInvite: scanInviteAction,
             onConfirm: handleConfirm
         )
         // Hosted inside the picker sheet so "Send an invite" presents the share
@@ -180,6 +188,25 @@ private struct AddFromContactsPickerModifier: ViewModifier {
     }
 
     private func handleConfirm(_ inboxIds: Set<String>, _ agentTemplateIds: [String]) {
+        // In desktop mode a human DM never grows in place: adding anyone (or an
+        // agent) forks it into a new group with the same two users plus the
+        // selection, and swaps the open screen to that group.
+        if viewModel.upgradesOnAdd {
+            Task {
+                do {
+                    try await viewModel.upgradeDmToGroup(
+                        addingMembers: Array(inboxIds),
+                        agentTemplateIds: agentTemplateIds
+                    )
+                } catch {
+                    Log.error("Upgrade DM to group failed: \(error.localizedDescription)")
+                    errorMessage = "We couldn't create the group. Please try again."
+                    presentingError = true
+                }
+            }
+            return
+        }
+
         // Selecting agents spawns a fresh instance of each template into
         // this conversation (the picker already showed the "one agent, many
         // convos" confirmation). Humans are added as members; both can be

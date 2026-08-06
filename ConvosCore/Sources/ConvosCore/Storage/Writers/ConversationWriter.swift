@@ -799,11 +799,21 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let isLocked: Bool
         let hasHadVerifiedAgent: Bool
         let isAgentDm: Bool
+        let isHumanDm: Bool
         /// The parent group id, for an agent DM that recorded one in its
         /// metadata; nil for non-DMs or DMs without a recorded origin.
         let originConversationId: String?
         let participationMode: ConversationParticipationMode?
         let memberCount: Int
+    }
+
+    /// Human-DM classification: the provenance marker plus the current shape.
+    /// Unlike `isAgentDm`, this is re-evaluated live on every store (no latch)
+    /// and only affects presentation -- a 1:1 that gains a third member or an
+    /// agent demotes to a group, and returns to a DM if it shrinks back to two
+    /// (the marker persists in appData and is re-read here each time).
+    static func resolveHumanDm(hasMarker: Bool, memberCount: Int, hasVerifiedAgentMember: Bool) -> Bool {
+        hasMarker && memberCount == 2 && !hasVerifiedAgentMember
     }
 
     private func extractConversationMetadata(from conversation: XMTPiOS.Group) async throws -> ConversationMetadata {
@@ -823,11 +833,18 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // filters key on this flag). Verified-agent status is read from the
         // per-inbox identity table, where the inbound seam stores the resolved
         // (attested) member kind -- a value a human peer cannot forge.
-        let hasAgentDmMarker = (try? conversation.currentCustomMetadata.hasAgentDm) ?? false
+        let customMetadata = try? conversation.currentCustomMetadata
+        let hasAgentDmMarker = customMetadata?.hasAgentDm ?? false
+        let hasHumanDmMarker = customMetadata?.hasHumanDm ?? false
         let members = (try? await conversation.members) ?? []
         let memberCount = members.count
         let hasVerifiedAgentMember = try await anyMemberIsVerifiedAgent(inboxIds: members.map(\.inboxId))
         let isAgentDm = hasAgentDmMarker && memberCount == 2 && hasVerifiedAgentMember
+        let isHumanDm = Self.resolveHumanDm(
+            hasMarker: hasHumanDmMarker,
+            memberCount: memberCount,
+            hasVerifiedAgentMember: hasVerifiedAgentMember
+        )
         // Only meaningful for a DM; read the parent link the creating device
         // stamped. Backs both DM-notification tap routing (open the parent
         // group's DM page) and the auto-allow gate (user still shares the
@@ -851,6 +868,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isLocked: isLocked,
             hasHadVerifiedAgent: false,
             isAgentDm: isAgentDm,
+            isHumanDm: isHumanDm,
             originConversationId: originConversationId,
             participationMode: try? conversation.participationMode,
             memberCount: memberCount
@@ -1007,6 +1025,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
             isAgentDm: metadata.isAgentDm,
             participationMode: metadata.participationMode,
+            isHumanDm: metadata.isHumanDm,
             // Shares one definition of the empty-vs-throw semantics with the
             // consent gate (`StreamProcessor.contactsVouch`). A failed read
             // persists as `.unresolved` rather than being flattened to "no

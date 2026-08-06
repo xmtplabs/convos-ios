@@ -55,14 +55,17 @@ public actor ConversationStateMachine {
         /// `SessionManagerProtocol.commitClaimedConversation`). Used by the
         /// agent builder so its auto-created draft never surfaces as a
         /// visible row before the user taps Make.
-        case create(initialMemberInboxIds: [String], startsUnused: Bool)
+        /// `markAsHumanDm`: when true, the created group is stamped with the
+        /// human-DM provenance marker (before adding members) so it presents
+        /// as a 1:1 DM. Set by the contact/member "Chat" flow in desktop mode.
+        case create(initialMemberInboxIds: [String], startsUnused: Bool, markAsHumanDm: Bool)
         /// `initialMemberInboxIds`: same semantics as `.create`, but for
         /// the warm-cached / resume-existing path. Required so the
         /// contacts picker flow can route a pre-warmed conversation
         /// through `useExisting` (instead of re-publishing) while still
         /// adding members atomically before `.ready`. Empty preserves
         /// the existing draft / invite-resume behavior.
-        case useExisting(conversationId: String, initialMemberInboxIds: [String])
+        case useExisting(conversationId: String, initialMemberInboxIds: [String], markAsHumanDm: Bool)
         case validate(inviteCode: String)
         case join
         case stop
@@ -289,12 +292,12 @@ public actor ConversationStateMachine {
 
     // MARK: - Public Actions
 
-    func create(initialMemberInboxIds: [String] = [], startsUnused: Bool = false) {
-        enqueueAction(.create(initialMemberInboxIds: initialMemberInboxIds, startsUnused: startsUnused))
+    func create(initialMemberInboxIds: [String] = [], startsUnused: Bool = false, markAsHumanDm: Bool = false) {
+        enqueueAction(.create(initialMemberInboxIds: initialMemberInboxIds, startsUnused: startsUnused, markAsHumanDm: markAsHumanDm))
     }
 
-    func useExisting(conversationId: String, initialMemberInboxIds: [String] = []) {
-        enqueueAction(.useExisting(conversationId: conversationId, initialMemberInboxIds: initialMemberInboxIds))
+    func useExisting(conversationId: String, initialMemberInboxIds: [String] = [], markAsHumanDm: Bool = false) {
+        enqueueAction(.useExisting(conversationId: conversationId, initialMemberInboxIds: initialMemberInboxIds, markAsHumanDm: markAsHumanDm))
     }
 
     func join(inviteCode: String) {
@@ -360,19 +363,19 @@ public actor ConversationStateMachine {
     private func processAction(_ action: Action) async {
         do {
             switch (_state, action) {
-            case (.uninitialized, let .create(initialMemberInboxIds, startsUnused)),
-                 (.error, let .create(initialMemberInboxIds, startsUnused)):
+            case (.uninitialized, let .create(initialMemberInboxIds, startsUnused, markAsHumanDm)),
+                 (.error, let .create(initialMemberInboxIds, startsUnused, markAsHumanDm)):
                 if case .error = _state {
                     await handleStop()
                 }
-                try await handleCreate(initialMemberInboxIds: initialMemberInboxIds, startsUnused: startsUnused)
+                try await handleCreate(initialMemberInboxIds: initialMemberInboxIds, startsUnused: startsUnused, markAsHumanDm: markAsHumanDm)
 
-            case (.uninitialized, let .useExisting(conversationId, initialMemberInboxIds)),
-                 (.error, let .useExisting(conversationId, initialMemberInboxIds)):
+            case (.uninitialized, let .useExisting(conversationId, initialMemberInboxIds, markAsHumanDm)),
+                 (.error, let .useExisting(conversationId, initialMemberInboxIds, markAsHumanDm)):
                 if case .error = _state {
                     await handleStop()
                 }
-                try await handleUseExisting(conversationId: conversationId, initialMemberInboxIds: initialMemberInboxIds)
+                try await handleUseExisting(conversationId: conversationId, initialMemberInboxIds: initialMemberInboxIds, markAsHumanDm: markAsHumanDm)
 
             case (.uninitialized, let .validate(inviteCode)), (.error, let .validate(inviteCode)):
                 if case .error = _state {
@@ -416,7 +419,11 @@ public actor ConversationStateMachine {
 
     // MARK: - Action Handlers
 
-    private func handleCreate(initialMemberInboxIds: [String], startsUnused: Bool = false) async throws {
+    private func handleCreate(
+        initialMemberInboxIds: [String],
+        startsUnused: Bool = false,
+        markAsHumanDm: Bool = false
+    ) async throws {
         emitStateChange(.creating)
 
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
@@ -461,6 +468,11 @@ public actor ConversationStateMachine {
         // Publish the conversation
         try await optimisticConversation.publish()
 
+        // Stamp the human-DM provenance marker before members are added and
+        // before the first extraction runs, so the row classifies as a DM the
+        // moment its second member lands.
+        await markAsHumanDmIfNeeded(markAsHumanDm, group: optimisticConversation as? XMTPiOS.Group)
+
         // The emoji is seeded by processConversation below, which passes
         // clientConversationId as the emoji seed into the creator-metadata
         // commit - one commit for emoji + invite tag + image encryption key
@@ -495,7 +507,11 @@ public actor ConversationStateMachine {
         )))
     }
 
-    private func handleUseExisting(conversationId: String, initialMemberInboxIds: [String]) async throws {
+    private func handleUseExisting(
+        conversationId: String,
+        initialMemberInboxIds: [String],
+        markAsHumanDm: Bool = false
+    ) async throws {
         Log.info("Using existing conversation: \(conversationId)")
 
         do {
@@ -504,6 +520,9 @@ public actor ConversationStateMachine {
                 conversationId: conversationId
             ), case let .group(group) = conversation {
                 _ = try await group.ensureConversationEmoji(seed: clientConversationId)
+                // Stamp the human-DM marker on the warm-cached group before its
+                // members are added.
+                await markAsHumanDmIfNeeded(markAsHumanDm, group: group)
             }
         } catch {
             Log.warning("Failed to seed conversation emoji for existing conversation: \(error)")
@@ -526,6 +545,17 @@ public actor ConversationStateMachine {
 
         if DBConversation.isDraft(id: conversationId) {
             startPendingInviteObservationIfNeeded(draftConversationId: conversationId)
+        }
+    }
+
+    /// Stamps the human-DM provenance marker on the given group when requested.
+    /// Soft-fail: a DM that can't be marked simply presents as a group.
+    private func markAsHumanDmIfNeeded(_ markAsHumanDm: Bool, group: XMTPiOS.Group?) async {
+        guard markAsHumanDm, let group else { return }
+        do {
+            try await group.markAsHumanDm()
+        } catch {
+            Log.warning("Failed to mark conversation as human DM: \(error.localizedDescription)")
         }
     }
 

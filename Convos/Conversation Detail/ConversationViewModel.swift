@@ -964,6 +964,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var expandedMessageIds: Set<String> = []
     var replyingToMessage: AnyMessage?
     var presentingShareView: Bool = false
+    /// Set while a DM-to-group upgrade is creating the new group, so the view
+    /// can show a progress overlay and disable the composer. The open screen
+    /// swaps to the new group once creation completes.
+    var isUpgradingDmToGroup: Bool = false
     /// Segment the share overlay opens on when `presentingShareView` flips true.
     /// The Invite sheet's "Show an invite code" row leaves this `.invite`; its
     /// `viewfinder` button sets `.scan` so the overlay opens straight to the
@@ -3872,6 +3876,78 @@ extension ConversationViewModel {
         try await metadataWriter.addMembers(inboxIds, to: conversation.id)
     }
 
+    // MARK: - DM to group upgrade (fork)
+
+    /// True when this conversation is a human DM in desktop mode: adds must
+    /// fork it into a new group rather than growing the 1:1 in place. Also
+    /// the presentation predicate for DM-specific UI (hidden invite/agent
+    /// affordances).
+    var upgradesOnAdd: Bool {
+        conversation.isHumanDm && FeatureFlags.shared.isDesktopModeEnabled
+    }
+
+    /// Forks this human DM into a new group containing the same two users plus
+    /// the supplied members and agent templates, then swaps the open screen to
+    /// the new group. The DM itself is left untouched (no message history is
+    /// copied). Returns the new conversation's id.
+    @discardableResult
+    func upgradeDmToGroup(addingMembers newInboxIds: [String], agentTemplateIds: [String]) async throws -> String {
+        isUpgradingDmToGroup = true
+        defer { isUpgradingDmToGroup = false }
+
+        let existingOthers = conversation.membersWithoutCurrent.map { $0.profile.inboxId }
+        let memberIds = Array(Set(existingOthers + newInboxIds))
+
+        // Plain create on this inbox (no DM marker: the fork is a group).
+        let stateManager = messagingService.conversationStateManager(initialMemberInboxIds: memberIds)
+        let newConversationId = try await Self.createConversationAndWaitForReady(using: stateManager)
+
+        // Agent joins target the newly forked group. Fire-and-forget: the joins
+        // are durable backend triggers and the new group renders their status
+        // bubbles once it opens.
+        if !agentTemplateIds.isEmpty {
+            requestAgentJoins(templateIds: agentTemplateIds, conversationId: newConversationId)
+        }
+
+        // Swap the open screen to the new group. Parked and replayed by
+        // ConversationsViewModel if the group hasn't reached the list yet.
+        NotificationCenter.default.post(
+            name: .openConversationRequested,
+            object: nil,
+            userInfo: ["conversationId": newConversationId]
+        )
+        return newConversationId
+    }
+
+    /// Drives a fresh state manager through `create` and returns the new
+    /// conversation id once it reaches `.ready`. Subscribes before creating so
+    /// a fast `.ready` can't be missed, and checks `currentState` first in case
+    /// it already resolved. Static so it doesn't retain `self`.
+    private static func createConversationAndWaitForReady(
+        using stateManager: any ConversationStateManagerProtocol
+    ) async throws -> String {
+        let states = stateManager.stateSequence
+        if case .ready(let result) = stateManager.currentState {
+            return result.conversationId
+        }
+        try await stateManager.createConversation()
+        for await state in states {
+            switch state {
+            case .ready(let result):
+                return result.conversationId
+            case .error(let error):
+                throw error
+            default:
+                continue
+            }
+        }
+        throw UpgradeError.creationDidNotComplete
+    }
+
+    private enum UpgradeError: Error {
+        case creationDidNotComplete
+    }
+
     /// Requests an agent join into this conversation. `templateId == nil`
     /// is a bare join (the backend provisions its default agent); a
     /// non-nil id provisions a fresh instance of that template. The
@@ -3972,14 +4048,17 @@ extension ConversationViewModel {
     /// libxmtp + URLSession shared-connection-pool interaction or a
     /// transient `SessionStateError.clientIdInboxInconsistency` in the
     /// session state machine under concurrent waiters).
-    func requestAgentJoins(templateIds: [String]) {
+    /// `conversationId` defaults to this conversation, but the DM-to-group
+    /// upgrade passes the newly forked group's id so the agent joins the new
+    /// group rather than the DM being replaced.
+    func requestAgentJoins(templateIds: [String], conversationId: String? = nil) {
         guard !templateIds.isEmpty else { return }
         Log.info("requestAgentJoins called with \(templateIds.count) templates (sequential): \(templateIds)")
         let joins = templateIds.map { AgentJoinAttempt(templateId: $0, requestId: UUID().uuidString) }
-        runSequentialAgentJoins(joins)
+        runSequentialAgentJoins(joins, conversationId: conversationId)
     }
 
-    private func runSequentialAgentJoins(_ joins: [AgentJoinAttempt]) {
+    private func runSequentialAgentJoins(_ joins: [AgentJoinAttempt], conversationId targetConversationId: String? = nil) {
         guard !joins.isEmpty else { return }
 
         // Batch adds return to the chat, so the join progress shows as
@@ -3989,7 +4068,7 @@ extension ConversationViewModel {
         beginAssistantJoinWait(source: .addToConversation)
 
         let forceErrorCode = agentJoinForceErrorCode
-        let conversationId = conversation.id
+        let conversationId = targetConversationId ?? conversation.id
         let session = self.session
         let variantId = Self.selectedAgentVariantSlug()
         Task { [weak self] in

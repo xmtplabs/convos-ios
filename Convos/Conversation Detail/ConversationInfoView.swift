@@ -483,7 +483,9 @@ struct ConversationInfoView: View {
 
             agentSection
 
-            convoCodeSection
+            if !viewModel.upgradesOnAdd {
+                convoCodeSection
+            }
 
             if viewModel.canRemoveMembers {
                 Section {
@@ -611,6 +613,8 @@ struct ConversationInfoView: View {
                     AddToConversationMenu(
                         isFull: viewModel.isFull,
                         isEnabled: true,
+                        showsConvoCode: !viewModel.upgradesOnAdd,
+                        showsNewAgent: !viewModel.upgradesOnAdd,
                         onConvoCode: {
                             if viewModel.isFull {
                                 showingFullInfo = true

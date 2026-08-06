@@ -1041,7 +1041,8 @@ private extension LightweightConversationDetails {
             hasHadVerifiedAgent: conversation.hasHadVerifiedAgent,
             wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil,
             isAgentDm: conversation.isAgentDm,
-            participationMode: conversation.participationMode ?? .default
+            participationMode: conversation.participationMode ?? .default,
+            isHumanDm: conversation.isHumanDm
         )
     }
 }

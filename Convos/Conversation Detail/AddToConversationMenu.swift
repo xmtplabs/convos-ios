@@ -5,6 +5,10 @@ struct AddToConversationMenu: View {
     let isFull: Bool
     var isAgentJoinPending: Bool = false
     let isEnabled: Bool
+    /// Hidden in a desktop-mode human DM, where growth happens only through
+    /// the contacts picker (which forks the DM into a group).
+    var showsConvoCode: Bool = true
+    var showsNewAgent: Bool = true
     let onConvoCode: () -> Void
     let onInviteAgent: () -> Void
     /// Opens the contacts picker scoped to the destination conversation.
@@ -37,21 +41,25 @@ struct AddToConversationMenu: View {
             }
             .accessibilityIdentifier("context-menu-add-from-contacts")
 
-            Button(action: onInviteAgent) {
-                Text("New agent")
-                Text(agentSubtitle)
-                Image("addAgentIcon")
-                    .renderingMode(.template)
+            if showsNewAgent {
+                Button(action: onInviteAgent) {
+                    Text("New agent")
+                    Text(agentSubtitle)
+                    Image("addAgentIcon")
+                        .renderingMode(.template)
+                }
+                .disabled(isAgentActionDisabled)
+                .accessibilityIdentifier("context-menu-add-agent")
             }
-            .disabled(isAgentActionDisabled)
-            .accessibilityIdentifier("context-menu-add-agent")
 
-            Button(action: onConvoCode) {
-                Text("Invite friends")
-                Text("Link, Airdrop or QR Code")
-                Image(systemName: "square.and.arrow.up")
+            if showsConvoCode {
+                Button(action: onConvoCode) {
+                    Text("Invite friends")
+                    Text("Link, Airdrop or QR Code")
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityIdentifier("context-menu-convo-code")
             }
-            .accessibilityIdentifier("context-menu-convo-code")
         } label: {
             Image(systemName: "person.crop.circle.badge.plus")
                 .foregroundStyle(labelColor)

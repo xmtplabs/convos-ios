@@ -85,6 +85,12 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     /// existing "+" button / invite-resume behavior.
     private let initialMemberInboxIds: [String]
 
+    /// When true, the created (or warm-cache resumed) conversation is stamped
+    /// with the human-DM provenance marker so it presents as a 1:1 DM. Set by
+    /// the contact/member "Chat" flow in desktop mode. Rides the same
+    /// create / useExisting action as `initialMemberInboxIds`.
+    private let createsHumanDm: Bool
+
     private var stateObservationTask: Task<Void, Never>?
     private var initializationTask: Task<Void, Never>?
 
@@ -109,12 +115,14 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         environment: AppEnvironment,
         conversationId: String? = nil,
         initialMemberInboxIds: [String] = [],
+        createsHumanDm: Bool = false,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager(),
         coreActions: any CoreActions = NoOpCoreActions(),
         profileConversationSeeder: @escaping @Sendable (String) async -> Void = { _ in }
     ) {
         self.sessionStateManager = sessionStateManager
         self.initialMemberInboxIds = initialMemberInboxIds
+        self.createsHumanDm = createsHumanDm
         self.profileConversationSeeder = profileConversationSeeder
 
         let initialConversationId = conversationId ?? DBConversation.generateDraftConversationId()
@@ -181,10 +189,12 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
         if let conversationId {
             let memberInboxIds = initialMemberInboxIds
+            let marksHumanDm = createsHumanDm
             initializationTask = Task { [stateMachine] in
                 await stateMachine.useExisting(
                     conversationId: conversationId,
-                    initialMemberInboxIds: memberInboxIds
+                    initialMemberInboxIds: memberInboxIds,
+                    markAsHumanDm: marksHumanDm
                 )
             }
         }
@@ -249,7 +259,8 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     public func createConversation(startsUnused: Bool) async throws {
         await stateMachine.create(
             initialMemberInboxIds: initialMemberInboxIds,
-            startsUnused: startsUnused
+            startsUnused: startsUnused,
+            markAsHumanDm: createsHumanDm
         )
     }
 

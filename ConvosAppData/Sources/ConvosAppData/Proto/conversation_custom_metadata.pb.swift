@@ -155,6 +155,16 @@ public nonisolated struct ConversationCustomMetadata: Sendable {
   /// Clears the value of `participationMode`. Subsequent reads from it will return its default value.
   public mutating func clearParticipationMode() {self._participationMode = nil}
 
+  /// Present when created as a 1:1 human DM (desktop mode)
+  public var humanDm: HumanDmInfo {
+    get {_humanDm ?? HumanDmInfo()}
+    set {_humanDm = newValue}
+  }
+  /// Returns true if `humanDm` has been explicitly set.
+  public var hasHumanDm: Bool {self._humanDm != nil}
+  /// Clears the value of `humanDm`. Subsequent reads from it will return its default value.
+  public mutating func clearHumanDm() {self._humanDm = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -165,6 +175,20 @@ public nonisolated struct ConversationCustomMetadata: Sendable {
   fileprivate var _emoji: String? = nil
   fileprivate var _agentDm: AgentDmInfo? = nil
   fileprivate var _participationMode: ParticipationMode? = nil
+  fileprivate var _humanDm: HumanDmInfo? = nil
+}
+
+/// HumanDmInfo marks a conversation created via the contact/member "Chat" flow
+/// as a human 1:1 DM. Presence-only provenance marker; clients only honor it
+/// while the conversation has exactly 2 members and no verified agent member.
+public nonisolated struct HumanDmInfo: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 /// AgentDmInfo marks a 2-member conversation as a private DM with an agent.
@@ -280,7 +304,7 @@ nonisolated extension ParticipationMode: SwiftProtobuf._ProtoNameProviding {
 
 nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationCustomMetadata"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0\u{2}\u{2}agentDm\0\u{1}participationMode\0\u{c}\u{7}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0\u{2}\u{2}agentDm\0\u{1}participationMode\0\u{1}humanDm\0\u{c}\u{7}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -296,6 +320,7 @@ nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftPr
       case 6: try { try decoder.decodeSingularStringField(value: &self._emoji) }()
       case 8: try { try decoder.decodeSingularMessageField(value: &self._agentDm) }()
       case 9: try { try decoder.decodeSingularEnumField(value: &self._participationMode) }()
+      case 10: try { try decoder.decodeSingularMessageField(value: &self._humanDm) }()
       default: break
       }
     }
@@ -330,6 +355,9 @@ nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftPr
     try { if let v = self._participationMode {
       try visitor.visitSingularEnumField(value: v, fieldNumber: 9)
     } }()
+    try { if let v = self._humanDm {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -342,6 +370,26 @@ nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftPr
     if lhs._emoji != rhs._emoji {return false}
     if lhs._agentDm != rhs._agentDm {return false}
     if lhs._participationMode != rhs._participationMode {return false}
+    if lhs._humanDm != rhs._humanDm {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension HumanDmInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "HumanDmInfo"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: HumanDmInfo, rhs: HumanDmInfo) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

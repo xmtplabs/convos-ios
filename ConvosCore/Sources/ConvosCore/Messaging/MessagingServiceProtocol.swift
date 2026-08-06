@@ -33,6 +33,24 @@ extension MessagingServiceProtocol {
     ) -> any ConversationStateManagerProtocol {
         conversationStateManager(for: conversationId)
     }
+
+    /// Default drops `createsHumanDm` and forwards to the members-only
+    /// factory, so existing conformers (mocks, tests) keep working. Concrete
+    /// services thread the flag into `ConversationStateManager.init`.
+    public func conversationStateManager(
+        initialMemberInboxIds: [String],
+        createsHumanDm: Bool
+    ) -> any ConversationStateManagerProtocol {
+        conversationStateManager(initialMemberInboxIds: initialMemberInboxIds)
+    }
+
+    public func conversationStateManager(
+        for conversationId: String,
+        initialMemberInboxIds: [String],
+        createsHumanDm: Bool
+    ) -> any ConversationStateManagerProtocol {
+        conversationStateManager(for: conversationId, initialMemberInboxIds: initialMemberInboxIds)
+    }
 }
 
 public protocol MessagingServiceProtocol: AnyObject, Sendable, PostPairBroadcastMessaging {
@@ -68,6 +86,19 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable, PostPairBroadcast
     func conversationStateManager(
         for conversationId: String,
         initialMemberInboxIds: [String]
+    ) -> any ConversationStateManagerProtocol
+    /// Same as the members-seeded factories above, but also stamps the
+    /// created (or warm-cache resumed) conversation with the human-DM
+    /// provenance marker. Used by the contact/member "Chat" flow in desktop
+    /// mode. Defaulted on the extension above so existing conformers compile.
+    func conversationStateManager(
+        initialMemberInboxIds: [String],
+        createsHumanDm: Bool
+    ) -> any ConversationStateManagerProtocol
+    func conversationStateManager(
+        for conversationId: String,
+        initialMemberInboxIds: [String],
+        createsHumanDm: Bool
     ) -> any ConversationStateManagerProtocol
 
     func conversationConsentWriter() -> any ConversationConsentWriterProtocol

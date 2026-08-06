@@ -258,6 +258,13 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     func conversationStateManager(
         initialMemberInboxIds: [String]
     ) -> any ConversationStateManagerProtocol {
+        conversationStateManager(initialMemberInboxIds: initialMemberInboxIds, createsHumanDm: false)
+    }
+
+    func conversationStateManager(
+        initialMemberInboxIds: [String],
+        createsHumanDm: Bool
+    ) -> any ConversationStateManagerProtocol {
         ConversationStateManager(
             sessionStateManager: sessionStateManager,
             identityStore: identityStore,
@@ -265,6 +272,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             databaseWriter: databaseWriter,
             environment: environment,
             initialMemberInboxIds: initialMemberInboxIds,
+            createsHumanDm: createsHumanDm,
             backgroundUploadManager: backgroundUploadManager,
             coreActions: coreActions,
             profileConversationSeeder: profileConversationSeeder
@@ -281,6 +289,18 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         for conversationId: String,
         initialMemberInboxIds: [String]
     ) -> any ConversationStateManagerProtocol {
+        conversationStateManager(
+            for: conversationId,
+            initialMemberInboxIds: initialMemberInboxIds,
+            createsHumanDm: false
+        )
+    }
+
+    func conversationStateManager(
+        for conversationId: String,
+        initialMemberInboxIds: [String],
+        createsHumanDm: Bool
+    ) -> any ConversationStateManagerProtocol {
         ConversationStateManager(
             sessionStateManager: sessionStateManager,
             identityStore: identityStore,
@@ -289,6 +309,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             environment: environment,
             conversationId: conversationId,
             initialMemberInboxIds: initialMemberInboxIds,
+            createsHumanDm: createsHumanDm,
             backgroundUploadManager: backgroundUploadManager,
             coreActions: coreActions,
             profileConversationSeeder: profileConversationSeeder

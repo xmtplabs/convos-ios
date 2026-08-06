@@ -578,11 +578,32 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     @ViewBuilder
     private var layoutRoot: some View {
-        if isDesktopActive {
-            desktopLayout
-        } else {
-            conversationPager
+        Group {
+            if isDesktopActive {
+                desktopLayout
+            } else {
+                conversationPager
+            }
         }
+        .overlay {
+            if viewModel.isUpgradingDmToGroup {
+                upgradeInProgressOverlay
+            }
+        }
+    }
+
+    /// Shown while a human DM is being forked into a new group. The screen
+    /// swaps to the new group once creation completes (see
+    /// `ConversationViewModel.upgradeDmToGroup`).
+    private var upgradeInProgressOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.2)
+                .ignoresSafeArea()
+            ProgressView("Creating group…")
+                .padding(24)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        }
+        .transition(.opacity)
     }
 
     var body: some View {
@@ -796,15 +817,22 @@ private extension ConversationView {
     /// are protocol-level groups, so `kind` alone can't exclude them).
     var isDesktopActive: Bool {
         let conversation = viewModel.conversation
-        let isGroup: Bool = conversation.kind == .group && !conversation.isAgentDm
+        // Human DMs keep the standard conversation UX (no desktop surface, no
+        // drawer); only real groups get the desktop layout.
+        let isGroup: Bool = conversation.kind == .group && !conversation.isAgentDm && !conversation.isHumanDm
         return allowsDesktopMode && isGroup && FeatureFlags.shared.isDesktopModeEnabled
     }
 
     /// Whether the single Agent tab (the `.agent` page + switcher pill) is
     /// offered: mirrors the agent-DM prototype's non-production gate and
-    /// never inside an agent DM itself.
+    /// never inside an agent DM itself. Also hidden in a desktop-mode human
+    /// DM: a DM has no agents, so the tab could only show its empty state,
+    /// whose CTA can't operate in place (every agent path out of a DM forks
+    /// into a new group). The agent-add path is the picker's template rows.
     var agentTabAvailable: Bool {
-        !ConfigManager.shared.currentEnvironment.isProduction && !viewModel.conversation.isAgentDm
+        !ConfigManager.shared.currentEnvironment.isProduction
+            && !viewModel.conversation.isAgentDm
+            && !viewModel.upgradesOnAdd
     }
 
     var pagerPages: [ConversationPagerPage] {

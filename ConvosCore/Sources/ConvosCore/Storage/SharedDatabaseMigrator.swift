@@ -222,6 +222,11 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConversationAddedById", migrate: Self.addConversationAddedById)
         migrator.registerMigration("addConversationParticipationMode", migrate: Self.addConversationParticipationMode)
         migrator.registerMigration("clearCutListenParticipationMode", migrate: Self.clearCutListenParticipationMode)
+        migrator.registerMigration("addConversationIsHumanDm") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "isHumanDm", .boolean).notNull().defaults(to: false)
+            }
+        }
     }
 
     /// The conversation's agent participation mode, mirrored from the group's
