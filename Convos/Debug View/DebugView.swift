@@ -81,6 +81,8 @@ struct DebugViewSection: View {
             Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
             Toggle("Listen (agent participation)", isOn: Bindable(FeatureFlags.shared).isListenParticipationEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
+            Toggle("New composer (Group/Agent switcher)", isOn: Bindable(FeatureFlags.shared).isNewComposerEnabled)
+            Toggle("Desktop mode (implies new composer)", isOn: Bindable(FeatureFlags.shared).isDesktopModeEnabled)
             abilitiesFeatureToggles
 
             let showInfoAction = { showingAgentsInfoSheet = true }

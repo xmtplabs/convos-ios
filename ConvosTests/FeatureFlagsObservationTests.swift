@@ -43,4 +43,58 @@ final class FeatureFlagsObservationTests: XCTestCase {
         wait(for: [changed], timeout: 1.0)
         XCTAssertEqual(flags.isXMTPBidiStreamsEnabled, !initial)
     }
+
+    func testTogglingNewComposerNotifiesObservers() {
+        let flags = FeatureFlags.shared
+        let initial = flags.isNewComposerEnabled
+        defer { flags.isNewComposerEnabled = initial }
+
+        let changed = expectation(description: "new composer flag observation fired")
+        withObservationTracking {
+            _ = flags.isNewComposerEnabled
+        } onChange: {
+            changed.fulfill()
+        }
+
+        flags.isNewComposerEnabled = !initial
+        wait(for: [changed], timeout: 1.0)
+        XCTAssertEqual(flags.isNewComposerEnabled, !initial)
+    }
+
+    func testTogglingDesktopModeNotifiesObservers() {
+        let flags = FeatureFlags.shared
+        let initial = flags.isDesktopModeEnabled
+        defer { flags.isDesktopModeEnabled = initial }
+
+        let changed = expectation(description: "desktop mode flag observation fired")
+        withObservationTracking {
+            _ = flags.isDesktopModeEnabled
+        } onChange: {
+            changed.fulfill()
+        }
+
+        flags.isDesktopModeEnabled = !initial
+        wait(for: [changed], timeout: 1.0)
+        XCTAssertEqual(flags.isDesktopModeEnabled, !initial)
+    }
+
+    func testDesktopModeActivatesNewComposer() {
+        let flags = FeatureFlags.shared
+        let initialDesktop = flags.isDesktopModeEnabled
+        let initialComposer = flags.isNewComposerEnabled
+        defer {
+            flags.isDesktopModeEnabled = initialDesktop
+            flags.isNewComposerEnabled = initialComposer
+        }
+
+        flags.isNewComposerEnabled = false
+        flags.isDesktopModeEnabled = true
+        XCTAssertTrue(flags.isNewComposerActive)
+
+        flags.isDesktopModeEnabled = false
+        XCTAssertFalse(flags.isNewComposerActive)
+
+        flags.isNewComposerEnabled = true
+        XCTAssertTrue(flags.isNewComposerActive)
+    }
 }

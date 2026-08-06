@@ -132,6 +132,51 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default -- gates the redesigned conversation composer: the pager
+    /// dots are replaced by a Group/Agent switcher anchored below the input.
+    /// Toggle from App Settings -> Debug. Hard-locked off in production while
+    /// the redesign is scaffolding.
+    var isNewComposerEnabled: Bool {
+        get {
+            access(keyPath: \.isNewComposerEnabled)
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            return UserDefaults.standard.bool(forKey: Constant.newComposerEnabledKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            withMutation(keyPath: \.isNewComposerEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.newComposerEnabledKey)
+            }
+        }
+    }
+
+    /// Off by default -- gates the desktop conversation layout: a fullscreen
+    /// web "desktop" surface with the chat in a collapsible bottom drawer, no
+    /// Things page. Implies the new composer (see `isNewComposerActive`).
+    /// Toggle from App Settings -> Debug. Hard-locked off in production while
+    /// the redesign is scaffolding.
+    var isDesktopModeEnabled: Bool {
+        get {
+            access(keyPath: \.isDesktopModeEnabled)
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            return UserDefaults.standard.bool(forKey: Constant.desktopModeEnabledKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            withMutation(keyPath: \.isDesktopModeEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.desktopModeEnabledKey)
+            }
+        }
+    }
+
+    /// The read-site resolution for the new composer layout: desktop mode
+    /// always uses the new composer, so either flag activates it. Reads two
+    /// instrumented getters, so observation flows through without registrar
+    /// calls of its own.
+    var isNewComposerActive: Bool {
+        isNewComposerEnabled || isDesktopModeEnabled
+    }
+
     /// Mock credits/subscription state used by the in-app paywall preview surface
     /// in the Debug menu. Non-production only; defaults to `.plusAmple`.
     var mockCreditsPreset: CreditsStatePreset {
@@ -181,5 +226,7 @@ final class FeatureFlags {
         static let listenParticipationEnabledKey: String = "featureFlags.listenParticipationEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
         static let abilitiesV2EnabledKey: String = "featureFlags.abilitiesV2Enabled"
+        static let newComposerEnabledKey: String = "featureFlags.newComposerEnabled"
+        static let desktopModeEnabledKey: String = "featureFlags.desktopModeEnabled"
     }
 }

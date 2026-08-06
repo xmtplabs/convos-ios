@@ -137,6 +137,7 @@ struct ConversationsView: View {
                 messagesTextFieldEnabled: !convoVM.conversation.isPendingInvite,
                 isReadOnly: isReadOnly,
                 initialAgentDmInboxId: viewModel.selectedInitialAgentDmInboxId,
+                allowsDesktopMode: true,
                 bottomBarContent: { EmptyView() }
             )
         }

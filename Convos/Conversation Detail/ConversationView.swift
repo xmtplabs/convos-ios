@@ -50,6 +50,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Set by `AgentBuilderView` so its composer card and the in-stream
     /// summary cell can match-geometry into each other via `glassEffectID`.
     var agentBuilderTransitionNamespace: Namespace.ID?
+    /// Opt-in for the desktop-mode layout (webview desktop + chat drawer)
+    /// behind the desktop feature flag. Only the normal pushed conversation
+    /// passes true; the Agent Builder and new-convo hosts never get it.
+    var allowsDesktopMode: Bool = false
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
@@ -69,6 +73,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// against horizontal swipes while the long-press context menu is
     /// presented.
     @State private var contextMenuState: MessageContextMenuState = .init()
+    @State private var drawerDetent: ConversationDrawerDetent = .partial
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -469,7 +474,24 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     private var pagerDotsInset: CGFloat {
-        isKeyboardVisible ? 0.0 : 24.0
+        if isNewComposerActive {
+            // The switcher stays mounted with the keyboard up, so the
+            // transcript keeps clearing it in both states.
+            return Constant.switcherBottomInset
+        }
+        return isKeyboardVisible ? 0.0 : 24.0
+    }
+
+    /// Whether the redesigned composer layout (Group/Agent switcher in place
+    /// of the pager dots) is active. Desktop mode implies it.
+    private var isNewComposerActive: Bool {
+        FeatureFlags.shared.isNewComposerActive
+    }
+
+    /// Whether the desktop layout (webview desktop + chat drawer) is active:
+    /// the host opted in and the flag is on.
+    private var isDesktopActive: Bool {
+        allowsDesktopMode && FeatureFlags.shared.isDesktopModeEnabled
     }
 
     /// Inboxes of the conversation's DM-able agents, one per verified agent
@@ -493,15 +515,17 @@ struct ConversationView<MessagesBottomBar: View>: View {
         for agentInboxId in agentDmPageInboxIds {
             pages.append(.agentDm(agentInboxId: agentInboxId))
         }
-        pages.append(.things)
+        if !isDesktopActive {
+            pages.append(.things)
+        }
         return pages
     }
 
-    var body: some View {
+    private var conversationPager: some View {
         ConversationPager(
             selectedPage: $pagerSelectedPage,
             pages: pagerPages,
-            showsPageDots: !isKeyboardVisible,
+            showsPageDots: !isKeyboardVisible && !isNewComposerActive,
             dotsHidden: contextMenuState.isPresented,
             scrollingDisabled: contextMenuState.isPresented,
             messagesPage: { messagesView },
@@ -518,8 +542,50 @@ struct ConversationView<MessagesBottomBar: View>: View {
             },
             thingsPage: { thingsPage }
         )
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            switcherBar
+        }
+    }
+
+    /// The Group/Agent switcher pinned in the slot the pager dots occupy,
+    /// mounted only when the new-composer layout is active. Pinned outside
+    /// the pager so it stays fixed while pages swipe horizontally.
+    @ViewBuilder
+    private var switcherBar: some View {
+        if isNewComposerActive {
+            GroupAgentSwitcher(
+                selectedPage: $pagerSelectedPage,
+                agentInboxId: agentDmPageInboxIds.first
+            )
+            .padding(.bottom, DesignConstants.Spacing.step2x)
+        }
+    }
+
+    /// The desktop-mode layout: the webview desktop fills the screen with the
+    /// chat pager (composer included) inside a collapsible bottom drawer.
+    private var desktopLayout: some View {
+        ZStack {
+            DesktopWebView()
+                .ignoresSafeArea()
+            ConversationDrawer(detent: $drawerDetent) {
+                conversationPager
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var layoutRoot: some View {
+        if isDesktopActive {
+            desktopLayout
+        } else {
+            conversationPager
+        }
+    }
+
+    var body: some View {
+        layoutRoot
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            isKeyboardVisible = true
+            handleKeyboardWillShow()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             isKeyboardVisible = false
@@ -704,6 +770,27 @@ struct ConversationView<MessagesBottomBar: View>: View {
             viewModel.voiceMemoRecorder.cancelRecording()
         }
     }
+
+    /// The only keyboard-driven writer of the drawer detent: focusing the
+    /// input in the collapsed drawer raises it to partial so the last few
+    /// messages appear above the keyboard.
+    private func handleKeyboardWillShow() {
+        isKeyboardVisible = true
+        if isDesktopActive && drawerDetent == .collapsed {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                drawerDetent = .partial
+            }
+        }
+    }
+}
+
+// File scope because static stored properties aren't supported inside the
+// generic conversation view type.
+private enum Constant {
+    /// Extra transcript inset clearing the Group/Agent switcher below the
+    /// composer; taller than the dots' 24pt because the switcher carries
+    /// labeled pills. Tuned in the simulator.
+    static let switcherBottomInset: CGFloat = 64.0
 }
 
 // The sheet/navigation onChange handlers: each maps a viewModel
