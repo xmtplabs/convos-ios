@@ -1,0 +1,300 @@
+id: "47"
+name: "Join a New Group (key-package regression repro)"
+description: >
+  Reproduction scenario for the reported symptom "some iOS clients can no
+  longer join new groups". A second party creates a brand new group and adds
+  this client to it; the client must land in the group effectively
+  immediately and see the group's first message. The failure mode being
+  reproduced is the client never joining and never receiving the group.
+
+  Suspected root cause is upstream in libxmtp (xmtp/libxmtp#3814, key-package
+  maintenance moved to recurring TaskRunner tasks): if KpRotation stalls, the
+  published key package expires and KpDeletion sweeps the local private
+  key-package material, so a Welcome built against that key package cannot be
+  decrypted and the join never completes. This scenario only observes the
+  app-layer symptom - it does not fix anything.
+tags: [conversations, invites, groups, regression, key-packages]
+depends_on: ["01"]
+estimated_duration_s: 300
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  two_simulators: true
+  screen: conversations_list
+  note: >
+    Device A and Device B both run the app (see "Multi-Simulator Tests" in
+    qa/RULES.md). Device A is the branch simulator; Device B is a disposable
+    second simulator on an iOS runtime >= the app deployment target. The
+    convos CLI is used only to discover Device B's inbox id and for the
+    optional CLI-added-member variant in the last step - the primary path is
+    app-to-app.
+
+state:
+  invite_url: null
+  device_b_udid: null
+  device_b_inbox_id: null
+  first_message_text: "First message in the new group"
+  post_join_text: "Post join message from A"
+  cli_conversation_id: null
+  cli_offline_conversation_id: null
+
+setup:
+  - action: create_second_simulator
+    save:
+      device_b_udid: udid
+    note: >
+      Boot Device B, install the same Convos.app build artifact used on
+      Device A, and launch it with the App Check debug token bound through
+      the launch environment (SIMCTL_CHILD_FIRAAppCheckDebugToken). Complete
+      onboarding on Device B so it has an inbox before the group is created.
+  - action: cli_reset
+  - action: log_marker
+    args: { udid: "$device_b_udid" }
+  - action: log_marker
+    note: Device A marker.
+
+steps:
+  - id: create_group_on_a
+    name: "Device A creates a brand new group"
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 15 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: group_created_on_a
+    expect_events:
+      - "conversation.created"
+    note: >
+      The group must be newly created in this run. A pre-existing group that
+      the client already belongs to does not exercise the Welcome path where
+      the failure occurs.
+
+  - id: first_message_from_a
+    name: "Device A sends the group's first message"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "$first_message_text" }
+      # The composer auto-capitalizes the first letter, so match the
+      # capitalized form (or compare case-insensitively).
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "$first_message_text", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "$first_message_text" }
+    criteria: first_message_sent_on_a
+    expect_events:
+      - "message.sent"
+
+  - id: copy_invite_on_a
+    name: "Device A copies the group invite URL"
+    actions:
+      - clear_clipboard: {}
+      - tap: { id: "add-to-conversation-button" }
+      - wait_for_element: { id: "picker-action-send-invite", timeout: 10 }
+      - tap: { id: "picker-action-send-invite" }
+      - wait_for_element: { label: "Copy", timeout: 10 }
+      - tap: { label: "Copy" }
+      - read_clipboard: {}
+    save:
+      invite_url: clipboard
+    verify:
+      - clipboard_contains: "dev.convos.org"
+    criteria: invite_url_copied
+    note: >
+      Always read the URL from the simulator pasteboard, never retype it.
+      There is no context-menu-copy-link in the current build: the + button
+      opens a contacts picker whose "Send an invite" row
+      (picker-action-send-invite) presents the system share sheet, and Copy
+      lives in that sheet's bottom action row. The share sheet is a system
+      surface - if a coordinate tap is needed, scale screenshot pixels by
+      (screenshot width / device point width) rather than assuming 2x, or
+      Reminders gets tapped instead of Copy.
+
+  - id: b_requests_join
+    name: "Device B opens the invite and sends a join request"
+    actions:
+      - sim_open_url: { url: "$invite_url", udid: "$device_b_udid" }
+      - wait_for_event:
+          udid: "$device_b_udid"
+          event: "invite.join_request_sent"
+          timeout: 20
+    verify:
+      - event_fired: { udid: "$device_b_udid", event: "invite.join_request_sent" }
+    criteria: join_request_sent_from_b
+
+  - id: a_accepts_b
+    name: "Device A processes the join request as group creator"
+    actions:
+      - wait_for_event: { event: "invite.member_accepted", timeout: 30 }
+      - find_elements: { label_contains: "2 members" }
+    verify:
+      - event_fired: { event: "invite.member_accepted" }
+      - element_exists: { label_contains: "2 members" }
+    criteria: member_accepted_on_a
+    note: >
+      Device A auto-processes join requests for groups it created, so no CLI
+      process-join-requests step is needed on this path.
+
+  - id: b_joins_new_group
+    name: "Device B actually joins the new group (near-instant)"
+    actions:
+      - wait_for_event:
+          udid: "$device_b_udid"
+          event: "conversation.joined"
+          timeout: 10
+      - wait_for_element:
+          udid: "$device_b_udid"
+          label_contains: "You joined as"
+          timeout: 10
+    verify:
+      - event_fired: { udid: "$device_b_udid", event: "conversation.joined" }
+      - element_exists: { udid: "$device_b_udid", label_contains: "You joined as" }
+    on_failure:
+      - screenshot: { udid: "$device_b_udid", name: "47-b-never-joined" }
+      - screenshot: { name: "47-a-after-add" }
+      - log_tail: { udid: "$device_b_udid", level: "all", lines: 200 }
+    criteria: b_joined_new_group
+    note: >
+      This is the repro criterion. Both apps are foregrounded, so a healthy
+      join lands effectively immediately - the 10s bound is slack, not a
+      grace window. If Device B never emits conversation.joined and the group
+      never appears, the reported failure has reproduced. Do not extend the
+      timeout to make this pass.
+
+      Device B does not see the group's pre-join first message - the group
+      view shows "Earlier messages are hidden for privacy". That is MLS
+      forward secrecy working as designed, not the bug, so the visible-message
+      assertion belongs to the next step (a post-join message).
+
+  - id: b_receives_post_join_message
+    name: "Device B receives a message sent after it joined"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "$post_join_text" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element:
+          udid: "$device_b_udid"
+          label_contains: "$post_join_text"
+          timeout: 15
+    verify:
+      - element_exists: { udid: "$device_b_udid", label_contains: "$post_join_text" }
+    on_failure:
+      - screenshot: { udid: "$device_b_udid", name: "47-b-no-post-join-message" }
+    criteria: b_sees_post_join_message
+    depends_on_criteria: b_joined_new_group
+
+  - id: b_can_reply
+    name: "Device B can send into the new group and Device A receives it"
+    actions:
+      - tap: { udid: "$device_b_udid", label_contains: "$post_join_text" }
+      - type_in_field:
+          udid: "$device_b_udid"
+          id: "message-text-field"
+          text: "device B is in the group"
+      - tap: { udid: "$device_b_udid", id: "send-message-button" }
+      - wait_for_element: { label_contains: "device B is in the group", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "device B is in the group" }
+    criteria: b_message_reaches_a
+    depends_on_criteria: b_joined_new_group
+
+  - id: cli_added_member_variant
+    name: "Second party adds this client to a new group directly (CLI variant)"
+    actions:
+      - cli_create_conversation: { name: "Repro New Group (CLI)" }
+      - cli_add_members: { conversation: "$cli_conversation_id", inbox_ids: ["$device_b_inbox_id"] }
+      - cli_send_text:
+          conversation: "$cli_conversation_id"
+          text: "first message from the CLI group"
+      - wait_for_event:
+          udid: "$device_b_udid"
+          event: "message.received"
+          timeout: 10
+    save:
+      cli_conversation_id: "conversationId from create JSON response"
+    verify:
+      - element_exists: { udid: "$device_b_udid", label_contains: "first message from the CLI group" }
+    on_failure:
+      - screenshot: { udid: "$device_b_udid", name: "47-b-never-received-cli-group" }
+    criteria: client_joins_cli_created_group
+    note: >
+      Complements the app-to-app path: here the second party adds the client's
+      inbox id directly (add-members), which is the exact Welcome-against-a-
+      published-key-package path implicated in xmtp/libxmtp#3814. Discover the
+      inbox id from the members list of any group the client already belongs
+      to (convos conversation members <id>).
+
+  - id: cli_added_while_client_terminated
+    name: "Client added to a new group while it was terminated joins on relaunch"
+    actions:
+      - terminate_app: { udid: "$device_b_udid" }
+      - cli_create_conversation: { name: "Repro Offline Add" }
+      - cli_add_members:
+          conversation: "$cli_offline_conversation_id"
+          inbox_ids: ["$device_b_inbox_id"]
+      - cli_send_text:
+          conversation: "$cli_offline_conversation_id"
+          text: "message while the client was terminated"
+      - launch_app: { udid: "$device_b_udid" }
+      - wait_for_event:
+          udid: "$device_b_udid"
+          event: "message.received"
+          timeout: 30
+    save:
+      cli_offline_conversation_id: "conversationId from create JSON response"
+    verify:
+      - element_exists:
+          udid: "$device_b_udid"
+          label_contains: "message while the client was terminated"
+    on_failure:
+      - screenshot: { udid: "$device_b_udid", name: "47-b-offline-add-not-joined" }
+    criteria: client_joins_group_added_while_offline
+    note: >
+      A client that is not running when it is added has no chance to run a
+      key-package rotation nudge before the Welcome is built, which is the
+      closest black-box approximation of the stalled-rotation state. Launch
+      with the App Check debug token bound through the launch environment.
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$cli_conversation_id" }
+    optional: true
+  - action: explode_conversation
+    args: { id: "$cli_offline_conversation_id" }
+    optional: true
+  - action: cli_reset
+    note: Tear down every CLI-created conversation and identity.
+  - action: delete_second_simulator
+    args: { udid: "$device_b_udid" }
+  - action: verify_session_terminal
+    note: >
+      Confirm Device B is shut down and deleted, no convos CLI watcher is
+      still streaming, and the CLI has no residual identities.
+
+criteria:
+  group_created_on_a:
+    description: "Device A creates a brand new group"
+  first_message_sent_on_a:
+    description: "Device A's first message is published to the new group"
+  invite_url_copied:
+    description: "The new group's invite URL is copied from Device A"
+  join_request_sent_from_b:
+    description: "Device B sends a join request after opening the invite"
+  member_accepted_on_a:
+    description: "Device A accepts Device B into the new group"
+  b_joined_new_group:
+    description: >
+      Device B joins the new group effectively immediately and sees its first
+      message. Failing this criterion is the reported bug reproducing.
+  b_sees_post_join_message:
+    description: >
+      Device B receives a message Device A sends after Device B joined. The
+      pre-join first message is intentionally not visible to Device B.
+  b_message_reaches_a:
+    description: "Device B can send into the new group and Device A receives it"
+  client_joins_cli_created_group:
+    description: >
+      A client added by inbox id to a newly created second-party group joins
+      it and receives its first message.
+  client_joins_group_added_while_offline:
+    description: >
+      A client added to a newly created group while it was terminated joins
+      the group and receives its messages on the next launch.
