@@ -142,10 +142,14 @@ public enum ProfileSnapshotBuilder {
         }
     }
 
+    /// Returns `true` when a snapshot was actually sent, `false` when there was
+    /// nothing to advertise (empty profile set) so the caller can skip stamping
+    /// any "sent" marker and retry on a later trigger.
+    @discardableResult
     public static func sendSnapshot(
         group: XMTPiOS.Group,
         databaseReader: (any DatabaseReader)? = nil
-    ) async throws {
+    ) async throws -> Bool {
         // Sync first, then read the member list, so a just-added joiner (for
         // example on the already-member re-publish path, where this
         // installation may not have synced the group yet) is in the roster
@@ -162,7 +166,7 @@ public enum ProfileSnapshotBuilder {
             memberInboxIds: memberInboxIds,
             dbProfiles: dbProfiles
         )
-        guard !snapshot.profiles.isEmpty else { return }
+        guard !snapshot.profiles.isEmpty else { return false }
 
         let codec = ProfileSnapshotCodec()
         let encoded = try codec.encode(content: snapshot)
@@ -170,6 +174,7 @@ public enum ProfileSnapshotBuilder {
             Log.warning("Large ProfileSnapshot: \(encoded.content.count) bytes, \(snapshot.profiles.count) profiles")
         }
         _ = try await group.send(encodedContent: encoded)
+        return true
     }
 
     /// Internal (not private) so the self-union behavior can be exercised in a

@@ -227,6 +227,15 @@ extension SharedDatabaseMigrator {
                 t.add(column: "isHumanDm", .boolean).notNull().defaults(to: false)
             }
         }
+        migrator.registerMigration("createConversationInitialSnapshot") { db in
+            try db.create(table: "conversation_initial_snapshot") { t in
+                t.column("conversationId", .text)
+                    .notNull()
+                    .primaryKey()
+                    .references("conversation", onDelete: .cascade)
+                t.column("sentAt", .datetime).notNull()
+            }
+        }
     }
 
     /// The conversation's agent participation mode, mirrored from the group's

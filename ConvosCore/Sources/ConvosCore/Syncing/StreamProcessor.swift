@@ -243,9 +243,13 @@ actor StreamProcessor: StreamProcessorProtocol {
             return
         }
 
-        if creatorInboxId == params.client.inboxId {
-            await sendInitialProfileSnapshot(group: conversation)
-        }
+        // Advertise our own identity into the group so peers resolve us to a
+        // name, not "Somebody". The creator seeded this on create; joiners
+        // never had an in-group snapshot before (their join-request profile
+        // rides the invite DM, which can fail to decrypt). Both the live
+        // stream and cold-launch catch-up land here and can redeliver, so a
+        // persisted marker keeps it to one first send per conversation.
+        await sendInitialProfileSnapshotIfNeeded(group: conversation)
 
         // Subscribe to push notifications
         await pushTopicSubscriptionManager.subscribeToGroupAndWelcome(
@@ -578,18 +582,6 @@ actor StreamProcessor: StreamProcessorProtocol {
             Log.debug("Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
         } catch {
             Log.error("Failed to process ProfileSnapshot: \(error.localizedDescription)")
-        }
-    }
-
-    private func sendInitialProfileSnapshot(group: XMTPiOS.Group) async {
-        do {
-            try await ProfileSnapshotBuilder.sendSnapshot(
-                group: group,
-                databaseReader: databaseReader
-            )
-            Log.debug("Sent initial ProfileSnapshot for \(group.id)")
-        } catch {
-            Log.warning("Failed to send initial ProfileSnapshot: \(error.localizedDescription)")
         }
     }
 
@@ -1044,5 +1036,82 @@ extension StreamProcessor {
             ]
         )
         return true
+    }
+}
+
+// MARK: - Initial ProfileSnapshot broadcast
+
+extension StreamProcessor {
+    /// Sends this installation's `ProfileSnapshot` into `group` the first time
+    /// the conversation is persisted, then re-sends once after a short delay.
+    ///
+    /// The delayed re-send is the safety valve for the join case: membership
+    /// commits churn MLS epochs right as a member joins, and a snapshot that
+    /// rides a superseded epoch is pruned before peers process it ("the
+    /// requested secret was deleted to preserve forward secrecy"). The delayed
+    /// copy lands after the epoch settles -- `sendSnapshot` re-syncs the group
+    /// first, so it always uses the current epoch.
+    func sendInitialProfileSnapshotIfNeeded(group: XMTPiOS.Group) async {
+        let conversationId = group.id
+
+        let alreadySent: Bool
+        do {
+            alreadySent = try await databaseReader.read { db in
+                try DBConversationInitialSnapshot
+                    .filter(DBConversationInitialSnapshot.Columns.conversationId == conversationId)
+                    .fetchCount(db) > 0
+            }
+        } catch {
+            Log.warning("Initial ProfileSnapshot marker read failed for \(conversationId): \(error.localizedDescription)")
+            return
+        }
+        guard !alreadySent else { return }
+
+        // Only stamp the marker once a snapshot actually went out. `sendSnapshot`
+        // no-ops (returns false) when the local profile has no name yet; leaving
+        // the marker absent lets the next delivery retry once the name loads.
+        guard await sendInitialProfileSnapshot(group: group) else { return }
+
+        do {
+            try await databaseWriter.write { db in
+                try DBConversationInitialSnapshot(conversationId: conversationId, sentAt: Date())
+                    .save(db)
+            }
+        } catch {
+            Log.warning("Initial ProfileSnapshot marker write failed for \(conversationId): \(error.localizedDescription)")
+        }
+
+        scheduleDelayedProfileSnapshot(group: group)
+    }
+
+    /// In-process 3s re-send. Deliberately not persisted: if the app is killed
+    /// inside the window the delayed copy is skipped, which is acceptable --
+    /// the immediate send already went out and the marker prevents a duplicate
+    /// first send on the next launch.
+    private func scheduleDelayedProfileSnapshot(group: XMTPiOS.Group) {
+        // XMTP `Group` is not Sendable; only this fire-and-forget task touches
+        // the handle after we hand it off.
+        nonisolated(unsafe) let group = group
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            _ = await self?.sendInitialProfileSnapshot(group: group)
+        }
+    }
+
+    @discardableResult
+    private func sendInitialProfileSnapshot(group: XMTPiOS.Group) async -> Bool {
+        do {
+            let sent = try await ProfileSnapshotBuilder.sendSnapshot(
+                group: group,
+                databaseReader: databaseReader
+            )
+            if sent {
+                Log.debug("Sent initial ProfileSnapshot for \(group.id)")
+            }
+            return sent
+        } catch {
+            Log.warning("Failed to send initial ProfileSnapshot: \(error.localizedDescription)")
+            return false
+        }
     }
 }
