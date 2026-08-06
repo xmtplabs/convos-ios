@@ -220,6 +220,14 @@ struct MainTabView: View {
         activeTab == .contacts && !contactsPath.isEmpty
     }
 
+    /// Whether the Things tab is shown. Desktop mode replaces the Things
+    /// surface, so the tab is hidden while the flag is on. Read inside
+    /// `body` (via `tabView`) so Observation registers and the shell
+    /// live-updates when the debug toggle flips.
+    private var showsThingsTab: Bool {
+        !FeatureFlags.shared.isDesktopModeEnabled
+    }
+
     /// Scroll offset for whichever tab is currently active.
     private var activeTabScrollOffset: CGFloat {
         switch activeTab {
@@ -283,6 +291,10 @@ struct MainTabView: View {
             }
             .onAppear {
                 ensureNavigators()
+                // Defensive: if the view appears with the Things tab hidden
+                // while Things is still selected, fall back to Chats before
+                // the navigator lifecycle reads the active tab.
+                handleShowsThingsTabChanged(showsThingsTab)
                 tabRootNavState.markScreenAppeared()
                 navStateForTab(activeTab).markScreenAppeared()
                 conversationsViewModel.bringChatsTabToFront = { activeTab = .chats }
@@ -314,20 +326,22 @@ struct MainTabView: View {
                 }
             }
 
-            Tab(ConvosTab.things.title, systemImage: ConvosTab.things.symbol, value: ConvosTab.things) {
-                tabContainer(for: .things) {
-                    ThingsTabView(
-                        appIndicatorContext: appIndicatorContext,
-                        conversationsViewModel: conversationsViewModel,
-                        pushedItems: $thingsPushedItems,
-                        onScrollOffsetChange: { offset in
-                            thingsScrollOffset = offset
-                            if activeTab == .things {
-                                updateBuilderBarReveal(forOffset: offset)
-                            }
-                        },
-                        onSeeSuggestedAgents: showSuggestedAgents
-                    )
+            if showsThingsTab {
+                Tab(ConvosTab.things.title, systemImage: ConvosTab.things.symbol, value: ConvosTab.things) {
+                    tabContainer(for: .things) {
+                        ThingsTabView(
+                            appIndicatorContext: appIndicatorContext,
+                            conversationsViewModel: conversationsViewModel,
+                            pushedItems: $thingsPushedItems,
+                            onScrollOffsetChange: { offset in
+                                thingsScrollOffset = offset
+                                if activeTab == .things {
+                                    updateBuilderBarReveal(forOffset: offset)
+                                }
+                            },
+                            onSeeSuggestedAgents: showSuggestedAgents
+                        )
+                    }
                 }
             }
 
@@ -344,6 +358,21 @@ struct MainTabView: View {
             // scan navigation gated on the Chats tab consumes only once the
             // switch has actually committed.
             conversationsViewModel.isChatsTabActive = newTab == .chats
+        }
+        .onChange(of: showsThingsTab) { _, shows in
+            handleShowsThingsTabChanged(shows)
+        }
+    }
+
+    /// Kicks the shell off the Things tab when desktop mode hides it.
+    /// Clears any pushed Things detail and falls back to Chats; setting
+    /// `activeTab` rides the existing tab-change observer, which handles
+    /// the navigator close/appear lifecycle.
+    private func handleShowsThingsTabChanged(_ shows: Bool) {
+        guard !shows else { return }
+        thingsPushedItems = []
+        if activeTab == .things {
+            activeTab = .chats
         }
     }
 

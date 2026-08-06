@@ -64,8 +64,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// the conversation; the composer only draws the control.
     @State private var participation: AgentParticipationStore?
     @State private var pagerSelectedPage: ConversationPagerPage = .messages
+    /// Which agent DM the single `.agent` page shows; nil falls back to the
+    /// first agent (see `AgentPageView`). New-composer path only.
+    @State private var selectedAgentInboxId: String?
     /// Guards the one-time seed of `pagerSelectedPage` from `initialAgentDmInboxId`.
     @State private var didSeedInitialPage: Bool = false
+    /// Measured height of the nag-bar slot (capability toast / onboarding),
+    /// consumed by the desktop drawer's collapsed resting height so the bar
+    /// stays visible above the fold.
+    @State private var nagBarHeight: CGFloat = 0
     /// Tracks keyboard visibility so the pager dots hide and the pager-dots
     /// inset collapses while the keyboard is up.
     @State private var isKeyboardVisible: Bool = false
@@ -110,6 +117,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private var messagesView: some View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
+        // Desktop mode relocates the Scan/Invite card onto the desktop
+        // surface, so the transcript's inline card is suppressed there.
+        let showsInlineInviteScanCard: Bool = showsTopOfConvoInvite && !isDesktopActive
         return MessagesView(
             contextMenuState: contextMenuState,
             conversation: viewModel.conversation,
@@ -229,7 +239,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
             extraBottomInset: pagerDotsInset,
-            showsInviteScanCard: showsTopOfConvoInvite,
+            showsInviteScanCard: showsInlineInviteScanCard,
+            suppressesInviteCell: isDesktopActive,
             inviteScanMode: inviteScanMode,
             inviteScanInitialSegment: embeddedInviteInitialSegment,
             onScannedInviteCode: inviteScanScannedHandler,
@@ -238,24 +249,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
 
-                    // Capability requests no longer auto-present a card here:
-                    // the transcript's connect pill is the single entry point
-                    // and opens the approval sheet. The slot keeps the
-                    // post-approval toast and the onboarding view.
-                    Group {
-                        if viewModel.showsCapabilityApprovedToast {
-                            CapabilityApprovedToastView()
-                                .transition(.blurReplace)
-                        } else {
-                            ConversationOnboardingView(
-                                coordinator: onboardingCoordinator,
-                                focusCoordinator: focusCoordinator,
-                                coreActions: viewModel.coreActions
-                            )
-                            .transition(.blurReplace)
-                        }
-                    }
-                    .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
+                    conversationNagBar(onboardingCoordinator: onboardingCoordinator)
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
@@ -288,7 +282,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// there.
     private var isAgentDmPageActive: Bool {
         if case .agentDm = pagerSelectedPage { return true }
-        return false
+        return pagerSelectedPage == .agent
     }
 
     /// Opens the pager on the requested agent-DM page once, when the view was
@@ -301,7 +295,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
               agentDmPageInboxIds.contains(inboxId) else {
             return
         }
-        pagerSelectedPage = .agentDm(agentInboxId: inboxId)
+        if isNewComposerActive {
+            selectedAgentInboxId = inboxId
+            pagerSelectedPage = .agent
+        } else {
+            pagerSelectedPage = .agentDm(agentInboxId: inboxId)
+        }
     }
 
     /// Switches to a specific agent-DM page when a DM notification is tapped while
@@ -316,7 +315,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
               agentDmPageInboxIds.contains(agentInboxId) else {
             return
         }
-        pagerSelectedPage = .agentDm(agentInboxId: agentInboxId)
+        if isNewComposerActive {
+            // A selection write alone switches the mounted DM when the user
+            // is already on the agent page.
+            selectedAgentInboxId = agentInboxId
+            pagerSelectedPage = .agent
+        } else {
+            pagerSelectedPage = .agentDm(agentInboxId: agentInboxId)
+        }
     }
 
     @ToolbarContentBuilder
@@ -379,6 +385,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// so it stays a single builder expression.
     private func startAgentDmAction(for member: ConversationMember) -> ((String) -> Void)? {
         guard agentDmPageInboxIds.contains(member.profile.inboxId) else { return nil }
+        if isNewComposerActive {
+            return { agentInboxId in
+                viewModel.presentingProfileForMember = nil
+                selectedAgentInboxId = agentInboxId
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    pagerSelectedPage = .agent
+                }
+            }
+        }
         return { agentInboxId in
             viewModel.presentingProfileForMember = nil
             withAnimation(.easeInOut(duration: 0.25)) {
@@ -488,12 +503,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         FeatureFlags.shared.isNewComposerActive
     }
 
-    /// Whether the desktop layout (webview desktop + chat drawer) is active:
-    /// the host opted in and the flag is on.
-    private var isDesktopActive: Bool {
-        allowsDesktopMode && FeatureFlags.shared.isDesktopModeEnabled
-    }
-
     /// Inboxes of the conversation's DM-able agents, one per verified agent
     /// member, when the agent-DM prototype should offer DM pages: not already
     /// inside a DM, non-production only (matches ContactDetailView's gate).
@@ -508,17 +517,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         return viewModel.conversation.members
             .filter { $0.isVerifiedAgent }
             .map { $0.profile.inboxId }
-    }
-
-    private var pagerPages: [ConversationPagerPage] {
-        var pages: [ConversationPagerPage] = [.messages]
-        for agentInboxId in agentDmPageInboxIds {
-            pages.append(.agentDm(agentInboxId: agentInboxId))
-        }
-        if !isDesktopActive {
-            pages.append(.things)
-        }
-        return pages
     }
 
     private var conversationPager: some View {
@@ -540,6 +538,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     keyboardVisible: isKeyboardVisible
                 )
             },
+            agentPage: {
+                let isActive: Bool = pagerSelectedPage == .agent
+                AgentPageView(
+                    viewModel: viewModel,
+                    agentInboxIds: agentDmPageInboxIds,
+                    selectedAgentInboxId: $selectedAgentInboxId,
+                    extraBottomInset: pagerDotsInset,
+                    isReadOnly: effectiveReadOnly,
+                    isActivePage: isActive,
+                    keyboardVisible: isKeyboardVisible
+                )
+            },
             thingsPage: { thingsPage }
         )
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -555,21 +565,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
         if isNewComposerActive {
             GroupAgentSwitcher(
                 selectedPage: $pagerSelectedPage,
-                agentInboxId: agentDmPageInboxIds.first
+                showsAgentPill: agentTabAvailable
             )
             .padding(.bottom, DesignConstants.Spacing.step2x)
-        }
-    }
-
-    /// The desktop-mode layout: the webview desktop fills the screen with the
-    /// chat pager (composer included) inside a collapsible bottom drawer.
-    private var desktopLayout: some View {
-        ZStack {
-            DesktopWebView()
-                .ignoresSafeArea()
-            ConversationDrawer(detent: $drawerDetent) {
-                conversationPager
-            }
         }
     }
 
@@ -616,6 +614,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             viewModel.checkForAgentShareURL()
             viewModel.checkForPastedLink()
         }
+        .modifier(agentPagesObservers)
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear {
@@ -781,6 +780,115 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 drawerDetent = .partial
             }
         }
+    }
+}
+
+// The desktop-mode layout and the Group/Agent tab support, in an extension
+// so the main struct stays within the type-body-length budget.
+private extension ConversationView {
+    /// Whether the desktop layout (webview desktop + chat drawer) is active:
+    /// the host opted in, the flag is on, and this is a real group (agent DMs
+    /// are protocol-level groups, so `kind` alone can't exclude them).
+    var isDesktopActive: Bool {
+        let conversation = viewModel.conversation
+        let isGroup: Bool = conversation.kind == .group && !conversation.isAgentDm
+        return allowsDesktopMode && isGroup && FeatureFlags.shared.isDesktopModeEnabled
+    }
+
+    /// Whether the single Agent tab (the `.agent` page + switcher pill) is
+    /// offered: mirrors the agent-DM prototype's non-production gate and
+    /// never inside an agent DM itself.
+    var agentTabAvailable: Bool {
+        !ConfigManager.shared.currentEnvironment.isProduction && !viewModel.conversation.isAgentDm
+    }
+
+    var pagerPages: [ConversationPagerPage] {
+        if isNewComposerActive {
+            // The switcher path collapses every agent DM into the single
+            // `.agent` page; the Things page is folded into the desktop
+            // surface when that layout is active.
+            var pages: [ConversationPagerPage] = [.messages]
+            if agentTabAvailable {
+                pages.append(.agent)
+            }
+            if !isDesktopActive {
+                pages.append(.things)
+            }
+            return pages
+        }
+        var pages: [ConversationPagerPage] = [.messages]
+        for agentInboxId in agentDmPageInboxIds {
+            pages.append(.agentDm(agentInboxId: agentInboxId))
+        }
+        if !isDesktopActive {
+            pages.append(.things)
+        }
+        return pages
+    }
+
+    /// The desktop-mode layout: the sectioned desktop surface fills the
+    /// screen with the chat pager (composer included) inside a collapsible
+    /// bottom drawer.
+    var desktopLayout: some View {
+        ZStack {
+            DesktopLayoutView(inviteConfiguration: desktopInviteConfiguration)
+                .ignoresSafeArea(edges: .bottom)
+            ConversationDrawer(detent: $drawerDetent, extraCollapsedHeight: nagBarExtraHeight) {
+                conversationPager
+            }
+        }
+    }
+
+    /// Extra collapsed-drawer height reserving room for the nag bar
+    /// (capability toast / onboarding) above the composer; zero when the bar
+    /// is empty. The spacing term matches the bottom-bar VStack's spacing.
+    var nagBarExtraHeight: CGFloat {
+        guard nagBarHeight > 0 else { return 0 }
+        return nagBarHeight + DesignConstants.Spacing.step3x
+    }
+
+    /// The nag-bar slot below the composer. Capability requests no longer
+    /// auto-present a card here: the transcript's connect pill is the single
+    /// entry point and opens the approval sheet. The slot keeps the
+    /// post-approval toast and the onboarding view. Its height is measured so
+    /// the desktop drawer's collapsed detent can reserve room for it.
+    @ViewBuilder
+    func conversationNagBar(onboardingCoordinator: ConversationOnboardingCoordinator) -> some View {
+        Group {
+            if viewModel.showsCapabilityApprovedToast {
+                CapabilityApprovedToastView()
+                    .transition(.blurReplace)
+            } else {
+                ConversationOnboardingView(
+                    coordinator: onboardingCoordinator,
+                    focusCoordinator: focusCoordinator,
+                    coreActions: viewModel.coreActions
+                )
+                .transition(.blurReplace)
+            }
+        }
+        .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: handleNagBarHeightChanged)
+    }
+
+    func handleNagBarHeightChanged(_ height: CGFloat) {
+        nagBarHeight = height
+    }
+
+    /// Clears the agent-page selection when the selected agent leaves the
+    /// conversation, letting `AgentPageView` fall back to the first agent.
+    func handleAgentDmInboxIdsChanged(_ inboxIds: [String]) {
+        guard let selected = selectedAgentInboxId, !inboxIds.contains(selected) else { return }
+        selectedAgentInboxId = nil
+    }
+
+    /// Returns the pager to the group when the selected page vanishes from
+    /// the page set (e.g. desktop mode flipping on while the user is on
+    /// Things). Scoped to the new-composer path so legacy behavior is
+    /// unchanged.
+    func handlePagerPagesChanged(_ pages: [ConversationPagerPage]) {
+        guard isNewComposerActive, !pages.contains(pagerSelectedPage) else { return }
+        pagerSelectedPage = .messages
     }
 }
 
@@ -1032,6 +1140,21 @@ extension ConversationView {
         return conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull && !conversation.leftHostedInviteSession
     }
 
+    /// Non-nil only when the desktop layout should carry the scan/invite
+    /// section; eligibility mirrors the inline card (`showsTopOfConvoInvite`)
+    /// and the inputs mirror the transcript's index-0 invite cell.
+    private var desktopInviteConfiguration: DesktopInviteSectionConfiguration? {
+        guard showsTopOfConvoInvite else { return nil }
+        return DesktopInviteSectionConfiguration(
+            conversation: viewModel.conversation,
+            invite: viewModel.invite,
+            mode: inviteScanMode,
+            initialSegment: embeddedInviteInitialSegment,
+            onScannedCode: inviteScanScannedHandler,
+            onShareCompleted: onInviteShareCompletedHandler
+        )
+    }
+
     /// Read-only surfaces suppress every leading affordance. The inline
     /// Invite/Scan card now lives in the index-0 `.invite` cell (branched on
     /// `showsInviteScanCard`), so the header no longer forces `.hidden` to
@@ -1096,6 +1219,15 @@ extension ConversationView {
             onAgentShareContactChanged: handleAgentShareContactChanged(from:to:),
             onReactionsChanged: handleReactionsChanged(from:to:),
             onThinkingDetailChanged: handleThinkingDetailChanged(from:to:)
+        )
+    }
+
+    private var agentPagesObservers: AgentPagesObserversModifier {
+        AgentPagesObserversModifier(
+            agentDmInboxIds: agentDmPageInboxIds,
+            pagerPages: pagerPages,
+            onAgentDmInboxIdsChanged: handleAgentDmInboxIdsChanged(_:),
+            onPagerPagesChanged: handlePagerPagesChanged(_:)
         )
     }
 

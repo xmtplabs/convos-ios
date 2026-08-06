@@ -42,6 +42,23 @@ extension ConversationView {
         }
     }
 
+    /// Carries the agent-page observers (agent membership and pager page-set
+    /// changes) out of the main body chain, which sits at the type-check
+    /// threshold.
+    struct AgentPagesObserversModifier: ViewModifier {
+        let agentDmInboxIds: [String]
+        let pagerPages: [ConversationPagerPage]
+
+        let onAgentDmInboxIdsChanged: ([String]) -> Void
+        let onPagerPagesChanged: ([ConversationPagerPage]) -> Void
+
+        func body(content: Content) -> some View {
+            content
+                .onChange(of: agentDmInboxIds) { _, n in onAgentDmInboxIdsChanged(n) }
+                .onChange(of: pagerPages) { _, n in onPagerPagesChanged(n) }
+        }
+    }
+
     struct MetricsObserversPart2: ViewModifier {
         let showingFullInfo: Bool
         let presentingPhotosInfo: Bool

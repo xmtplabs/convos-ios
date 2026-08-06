@@ -2,15 +2,15 @@ import SwiftUI
 
 /// The composer-anchored page switcher shown when the new-composer flag is
 /// active: "Group" and "Agent" pills that drive the conversation pager's
-/// selected page in place of `ConversationPagerDots`. Single-agent for now --
-/// the first DM-able agent gets the Agent pill; without one only the Group
-/// pill renders. The Things page stays swipe-reachable and shows as neither
-/// pill selected.
+/// selected page in place of `ConversationPagerDots`. Both pills render
+/// wherever the agent tab is available (the Agent pill targets the single
+/// `.agent` page, which hosts its own agent selection and empty state);
+/// otherwise only the Group pill renders. The Things page stays
+/// swipe-reachable and shows as neither pill selected.
 struct GroupAgentSwitcher: View {
     @Binding var selectedPage: ConversationPagerPage
-    /// Inbox id of the conversation's first DM-able agent; nil hides the
-    /// Agent pill.
-    let agentInboxId: String?
+    /// Whether the Agent pill renders; false leaves the Group pill alone.
+    let showsAgentPill: Bool
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
@@ -23,10 +23,10 @@ struct GroupAgentSwitcher: View {
                     .font(.system(size: 15.0, weight: .semibold))
                     .foregroundStyle(color)
             }
-            if let agentInboxId {
+            if showsAgentPill {
                 pill(
                     title: "Agent",
-                    page: .agentDm(agentInboxId: agentInboxId),
+                    page: .agent,
                     identifier: "switcher-agent-pill"
                 ) { color in
                     agentGlyph(color: color)

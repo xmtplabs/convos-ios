@@ -499,6 +499,10 @@ public final class MessagesViewController: UIViewController {
     var showsInviteScanCard: Bool = false {
         didSet { dataSource.showsInviteScanCard = showsInviteScanCard }
     }
+    /// Drops the index-0 `.invite` cell entirely, including the inviter
+    /// QR + menu fallback. Set by hosts that relocate the invite surface
+    /// elsewhere (the desktop layout renders its own scan/invite section).
+    var suppressesInviteCell: Bool = false
     var inviteScanMode: InviteCodeMode = .inConvo {
         didSet { dataSource.inviteScanMode = inviteScanMode }
     }
@@ -1024,7 +1028,7 @@ extension MessagesViewController {
         // the camera mid-flow.
         if hasLoadedAllMessages, summaryAllowsInvite, headerMode != .suppressed {
             let hostsInviteHeader = !conversation.isDraft && conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull
-            if showsInviteScanCard || hostsInviteHeader {
+            if !suppressesInviteCell, showsInviteScanCard || hostsInviteHeader {
                 cells.insert(.invite(invite), at: 0)
             } else if !conversation.isDraft, headerMode == .standard, !hasVerifiedConvosAgent {
                 cells.insert(.conversationInfo(conversation), at: 0)

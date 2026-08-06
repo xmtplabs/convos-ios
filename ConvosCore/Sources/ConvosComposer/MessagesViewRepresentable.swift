@@ -62,6 +62,10 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// Invite/Scan card (`InviteCodeBody`) for an active hosted session,
     /// instead of the regular inviter QR + menu.
     var showsInviteScanCard: Bool = false
+    /// Drops the index-0 `.invite` cell entirely (full card and inviter
+    /// QR + menu fallback alike); for hosts that relocate the invite
+    /// surface, e.g. the desktop layout's scan/invite section.
+    var suppressesInviteCell: Bool = false
     var inviteScanMode: InviteCodeMode = .inConvo
     var inviteScanInitialSegment: ScanInviteSegment = .invite
     var onScannedInviteCode: ((String) -> Void)?
@@ -133,6 +137,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onPresentHTMLAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)? = nil,
         onPresentFileAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)? = nil,
         showsInviteScanCard: Bool = false,
+        suppressesInviteCell: Bool = false,
         inviteScanMode: InviteCodeMode = .inConvo,
         inviteScanInitialSegment: ScanInviteSegment = .invite,
         onScannedInviteCode: ((String) -> Void)? = nil,
@@ -190,6 +195,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.expandedMessageIds = expandedMessageIds
         self.onToggleMessageExpanded = onToggleMessageExpanded
         self.showsInviteScanCard = showsInviteScanCard
+        self.suppressesInviteCell = suppressesInviteCell
         self.inviteScanMode = inviteScanMode
         self.inviteScanInitialSegment = inviteScanInitialSegment
         self.onScannedInviteCode = onScannedInviteCode
@@ -284,6 +290,7 @@ let menuPresented = contextMenuState.isPresented
         messagesViewController.onPresentHTMLAttachmentPreview = onPresentHTMLAttachmentPreview
         messagesViewController.onPresentFileAttachmentPreview = onPresentFileAttachmentPreview
         messagesViewController.showsInviteScanCard = showsInviteScanCard
+        messagesViewController.suppressesInviteCell = suppressesInviteCell
         messagesViewController.inviteScanMode = inviteScanMode
         messagesViewController.inviteScanInitialSegment = inviteScanInitialSegment
         messagesViewController.onScannedInviteCode = onScannedInviteCode

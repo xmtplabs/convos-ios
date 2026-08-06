@@ -7,6 +7,9 @@ import WebKit
 struct DesktopWebView: UIViewRepresentable {
     /// Future real destination; nil loads the inline placeholder.
     var url: URL?
+    /// False when an outer scroll view (the desktop layout) owns the
+    /// vertical gesture.
+    var isScrollEnabled: Bool = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -17,10 +20,12 @@ struct DesktopWebView: UIViewRepresentable {
         webView.isOpaque = false
         webView.backgroundColor = .systemBackground
         webView.scrollView.backgroundColor = .systemBackground
+        webView.scrollView.isScrollEnabled = isScrollEnabled
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        webView.scrollView.isScrollEnabled = isScrollEnabled
         // Reload only when the destination actually changes; SwiftUI calls
         // this on unrelated state churn.
         guard context.coordinator.loadedURL != url || !context.coordinator.hasLoaded else { return }

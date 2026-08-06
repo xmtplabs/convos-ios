@@ -7,18 +7,23 @@ enum ConversationPagerPage: Hashable, Identifiable {
     /// The user's private DM with the conversation's agent, rendered as a
     /// page of the origin conversation rather than a separate chat.
     case agentDm(agentInboxId: String)
+    /// The single Agent tab used by the Group/Agent switcher: one page that
+    /// hosts whichever agent DM is selected (see `AgentPageView`), rather
+    /// than one `.agentDm` page per agent.
+    case agent
     case things
 
     var id: String {
         switch self {
         case .messages: return "messages"
         case .agentDm(let agentInboxId): return "agent-dm-\(agentInboxId)"
+        case .agent: return "agent"
         case .things: return "things"
         }
     }
 }
 
-struct ConversationPager<MessagesPage: View, AgentDmPage: View, ThingsPage: View>: View {
+struct ConversationPager<MessagesPage: View, AgentDmPage: View, AgentPage: View, ThingsPage: View>: View {
     @Binding var selectedPage: ConversationPagerPage
     /// Ordered pages to render: `.messages` first, an `.agentDm` page when
     /// the conversation has a DM-able agent, `.things` last. Built by
@@ -42,6 +47,7 @@ struct ConversationPager<MessagesPage: View, AgentDmPage: View, ThingsPage: View
     var scrollingDisabled: Bool = false
     @ViewBuilder let messagesPage: () -> MessagesPage
     @ViewBuilder let agentDmPage: (String) -> AgentDmPage
+    @ViewBuilder let agentPage: () -> AgentPage
     @ViewBuilder let thingsPage: () -> ThingsPage
 
     var body: some View {
@@ -86,6 +92,8 @@ struct ConversationPager<MessagesPage: View, AgentDmPage: View, ThingsPage: View
             messagesPage()
         case .agentDm(let agentInboxId):
             agentDmPage(agentInboxId)
+        case .agent:
+            agentPage()
         case .things:
             thingsPage()
         }
@@ -131,7 +139,7 @@ private struct ConversationPagerDots: View {
         let selectedColor: Color = colorScheme == .dark ? .white : .colorFillSecondary
         let color: Color = isSelected ? selectedColor : .colorFillTertiary
         switch page {
-        case .agentDm:
+        case .agentDm, .agent:
             // SF Pro Bold 11pt in an 11pt box, per Figma (node 6905-10624).
             Text("A")
                 .font(.system(size: 11.0, weight: .bold))
@@ -153,7 +161,7 @@ private struct ConversationPagerDots: View {
                 bottomTrailing: 8.0,
                 topTrailing: 8.0
             ))
-        case .agentDm:
+        case .agentDm, .agent:
             return UnevenRoundedRectangle(cornerRadii: .init(
                 topLeading: 8.0,
                 bottomLeading: 8.0,
@@ -173,7 +181,7 @@ private struct ConversationPagerDots: View {
     private func label(for page: ConversationPagerPage) -> String {
         switch page {
         case .messages: return "Messages"
-        case .agentDm: return "Agent chat"
+        case .agentDm, .agent: return "Agent chat"
         case .things: return "Things"
         }
     }

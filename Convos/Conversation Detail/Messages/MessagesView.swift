@@ -109,6 +109,10 @@ struct MessagesView<BottomBarContent: View>: View {
     /// Invite/Scan card (`InviteCodeBody`) for an active hosted session.
     /// Mirrors `ConversationView.showsTopOfConvoInvite`.
     var showsInviteScanCard: Bool = false
+    /// Drops the index-0 `.invite` cell entirely, including the inviter
+    /// QR + menu fallback; set when the invite surface lives elsewhere
+    /// (the desktop layout's scan/invite section).
+    var suppressesInviteCell: Bool = false
     var inviteScanMode: InviteCodeMode = .inConvo
     var inviteScanInitialSegment: ScanInviteSegment = .invite
     var onScannedInviteCode: ((String) -> Void)?
@@ -230,6 +234,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 )
             },
             showsInviteScanCard: showsInviteScanCard,
+            suppressesInviteCell: suppressesInviteCell,
             inviteScanMode: inviteScanMode,
             inviteScanInitialSegment: inviteScanInitialSegment,
             onScannedInviteCode: onScannedInviteCode,

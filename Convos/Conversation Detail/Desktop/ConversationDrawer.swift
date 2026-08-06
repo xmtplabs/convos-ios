@@ -10,6 +10,15 @@ enum ConversationDrawerDetent: CaseIterable {
     case full
 }
 
+/// Drawer metrics shared with `DesktopLayoutView`, which sizes its web
+/// section and bottom scroll margin against the collapsed resting height so
+/// the desktop content clears the resting drawer.
+enum ConversationDrawerMetrics {
+    /// Roughly the input capsule + switcher + grabber; a measured height
+    /// can replace this later.
+    static let collapsedHeight: CGFloat = 148.0
+}
+
 /// Custom bottom drawer hosting the chat in desktop mode. Deliberately not a
 /// `.sheet`: the conversation screen presents many sheets from its root (a
 /// persistent detent sheet would occupy the presentation slot), and the
@@ -18,6 +27,10 @@ enum ConversationDrawerDetent: CaseIterable {
 /// vertical scroll or the pager's horizontal swipe.
 struct ConversationDrawer<Content: View>: View {
     @Binding var detent: ConversationDrawerDetent
+    /// Extra height added to the `.collapsed` resting position, letting the
+    /// host reserve room above the composer (e.g. for transient chrome).
+    /// Changes animate while the drawer rests at `.collapsed`.
+    var extraCollapsedHeight: CGFloat = 0
     @ViewBuilder let content: () -> Content
 
     @State private var dragOffset: CGFloat = 0
@@ -26,7 +39,7 @@ struct ConversationDrawer<Content: View>: View {
         GeometryReader { proxy in
             let availableHeight: CGFloat = proxy.size.height
             let restingHeight: CGFloat = height(for: detent, in: availableHeight)
-            let minHeight: CGFloat = Constant.collapsedHeight
+            let minHeight: CGFloat = ConversationDrawerMetrics.collapsedHeight + extraCollapsedHeight
             let maxHeight: CGFloat = height(for: .full, in: availableHeight)
             let currentHeight: CGFloat = min(max(restingHeight - dragOffset, minHeight), maxHeight)
             drawerBody(height: currentHeight, availableHeight: availableHeight)
@@ -50,6 +63,7 @@ struct ConversationDrawer<Content: View>: View {
                 grabber(availableHeight: availableHeight)
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: detent)
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: extraCollapsedHeight)
     }
 
     private func grabber(availableHeight: CGFloat) -> some View {
@@ -79,13 +93,14 @@ struct ConversationDrawer<Content: View>: View {
     }
 
     private func height(for detent: ConversationDrawerDetent, in availableHeight: CGFloat) -> CGFloat {
+        let collapsedHeight: CGFloat = ConversationDrawerMetrics.collapsedHeight + extraCollapsedHeight
         switch detent {
         case .collapsed:
-            return Constant.collapsedHeight
+            return collapsedHeight
         case .partial:
             return availableHeight * Constant.partialFraction
         case .full:
-            return max(availableHeight - Constant.topClearance, Constant.collapsedHeight)
+            return max(availableHeight - Constant.topClearance, collapsedHeight)
         }
     }
 
@@ -106,9 +121,6 @@ struct ConversationDrawer<Content: View>: View {
 // File scope because static stored properties aren't supported inside the
 // generic drawer type.
 private enum Constant {
-    /// Roughly the input capsule + switcher + grabber; a measured height
-    /// can replace this later.
-    static let collapsedHeight: CGFloat = 148.0
     static let partialFraction: CGFloat = 0.45
     /// Clears the centered conversation title pill drawn above everything.
     static let topClearance: CGFloat = 64.0
