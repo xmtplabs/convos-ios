@@ -86,6 +86,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var navState: ConversationNavigatorImpl = .init()
     @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
+    /// The ambient scheme the desktop drawer returns to when the Agent tab
+    /// is not selected (desktop mode scopes the agent dark treatment to the
+    /// drawer instead of flipping the whole window).
+    @Environment(\.colorScheme) private var systemColorScheme: ColorScheme
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -547,7 +551,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     extraBottomInset: pagerDotsInset,
                     isReadOnly: effectiveReadOnly,
                     isActivePage: isActive,
-                    keyboardVisible: isKeyboardVisible
+                    keyboardVisible: isKeyboardVisible,
+                    drivesWindowColorScheme: !isDesktopActive
                 )
             },
             thingsPage: { thingsPage }
@@ -828,14 +833,18 @@ private extension ConversationView {
 
     /// The desktop-mode layout: the sectioned desktop surface fills the
     /// screen with the chat pager (composer included) inside a collapsible
-    /// bottom drawer.
+    /// bottom drawer. Selecting the Agent tab darkens only the drawer (chat
+    /// and composer); the desktop surface behind keeps the ambient scheme,
+    /// unlike the non-desktop path where the whole window flips dark.
     var desktopLayout: some View {
-        ZStack {
+        let drawerColorScheme: ColorScheme = pagerSelectedPage == .agent ? .dark : systemColorScheme
+        return ZStack {
             DesktopLayoutView(inviteConfiguration: desktopInviteConfiguration)
                 .ignoresSafeArea(edges: .bottom)
             ConversationDrawer(detent: $drawerDetent, extraCollapsedHeight: nagBarExtraHeight) {
                 conversationPager
             }
+            .environment(\.colorScheme, drawerColorScheme)
         }
     }
 

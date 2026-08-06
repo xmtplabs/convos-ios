@@ -33,6 +33,11 @@ struct AgentDmPageView: View {
     /// transfer the keyboard onto the DM composer when the user pages in mid-edit,
     /// while a keyboard-down glance at the DM leaves the keyboard down.
     let keyboardVisible: Bool
+    /// Whether the active page drives the window-wide dark flip via
+    /// `.preferredColorScheme`. Desktop mode passes false: there the host
+    /// darkens only the chat drawer (transcript, switcher, and composer), so
+    /// the rest of the app keeps the ambient scheme.
+    var drivesWindowColorScheme: Bool = true
 
     @State private var dmViewModel: ConversationViewModel?
     @State private var contextMenuState: MessageContextMenuState = .init()
@@ -45,6 +50,13 @@ struct AgentDmPageView: View {
 
     private var agent: ConversationMember? {
         viewModel.conversation.members.first { $0.profile.inboxId == agentInboxId }
+    }
+
+    /// `.dark` while this page is active and window-driving is enabled; nil
+    /// otherwise so the rest of the app keeps the ambient scheme.
+    private var windowColorScheme: ColorScheme? {
+        guard drivesWindowColorScheme && isActivePage else { return nil }
+        return .dark
     }
 
     private var agentName: String {
@@ -63,8 +75,9 @@ struct AgentDmPageView: View {
         // `.environment(colorScheme)` only flips SwiftUI semantic colors; the
         // composer's materials/background resolve against the UIKit trait
         // collection, so drive the window trait to dark while this page is the
-        // active one to force the whole hierarchy dark.
-        .preferredColorScheme(isActivePage ? .dark : nil)
+        // active one to force the whole hierarchy dark. Skipped in desktop
+        // mode, where the dark treatment is scoped to the chat drawer.
+        .preferredColorScheme(windowColorScheme)
         // The agent-participation ("listen") control governs how much agents
         // speak in the group room; it has no meaning in a 1:1 agent DM, so clear
         // the inherited participation context to hide the control here.

@@ -27,6 +27,11 @@ struct AgentPageView: View {
     let isReadOnly: Bool
     let isActivePage: Bool
     let keyboardVisible: Bool
+    /// Whether the active page drives the window-wide dark flip via
+    /// `.preferredColorScheme`. Desktop mode passes false: there the host
+    /// darkens only the chat drawer (transcript, switcher, and composer), so
+    /// the rest of the app keeps the ambient scheme.
+    var drivesWindowColorScheme: Bool = true
 
     /// The bound selection when it still names a current agent, else the
     /// first agent, else nil (empty state).
@@ -35,6 +40,13 @@ struct AgentPageView: View {
             return agentInboxIds.first
         }
         return selected
+    }
+
+    /// `.dark` while this page is active and window-driving is enabled; nil
+    /// otherwise so the rest of the app keeps the ambient scheme.
+    private var windowColorScheme: ColorScheme? {
+        guard drivesWindowColorScheme && isActivePage else { return nil }
+        return .dark
     }
 
     var body: some View {
@@ -54,7 +66,7 @@ struct AgentPageView: View {
         // case; hoisting identical values here is idempotent there and brings
         // the empty state and picker header into the same dark treatment.
         .environment(\.colorScheme, .dark)
-        .preferredColorScheme(isActivePage ? .dark : nil)
+        .preferredColorScheme(windowColorScheme)
     }
 
     private func inviteAgent() {
@@ -70,7 +82,8 @@ struct AgentPageView: View {
             extraBottomInset: extraBottomInset,
             isReadOnly: isReadOnly,
             isActivePage: isActivePage,
-            keyboardVisible: keyboardVisible
+            keyboardVisible: keyboardVisible,
+            drivesWindowColorScheme: drivesWindowColorScheme
         )
         .id(agentInboxId)
     }
