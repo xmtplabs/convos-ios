@@ -30,7 +30,7 @@ public enum AgentParticipationLevel: String, CaseIterable, Identifiable, Sendabl
     public var title: String {
         switch self {
         case .speakFreely: "Speak freely"
-        case .mentionsOnly: "Mentions only"
+        case .mentionsOnly: "Listen mode"
         case .listenOnly: "Listen only"
         case .paused: "Pause"
         }
@@ -39,7 +39,7 @@ public enum AgentParticipationLevel: String, CaseIterable, Identifiable, Sendabl
     public var caption: String {
         switch self {
         case .speakFreely: "Chime in any time"
-        case .mentionsOnly: "Speak when you see your name"
+        case .mentionsOnly: "Only speaks if you @mention or say name"
         case .listenOnly: "Stay on, stay quiet"
         case .paused: "Go offline, use no credits"
         }

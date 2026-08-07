@@ -42,7 +42,7 @@ public enum ConversationParticipationMode: String, CaseIterable, Codable, Sendab
     public var title: String {
         switch self {
         case .speakFreely: "Speak freely"
-        case .mentionsOnly: "Mentions only"
+        case .mentionsOnly: "Listen mode"
         case .listenOnly: "Listen only"
         case .paused: "Pause"
         }
