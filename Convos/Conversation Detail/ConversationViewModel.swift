@@ -292,6 +292,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
     var myProfileViewModel: MyProfileViewModel
 
+    /// The metadata writer the participation control writes through. Exposed
+    /// because the control's store lives on the view (the level belongs to the
+    /// conversation, not to the composer) while the writer is resolved here.
+    var conversationMetadataWriter: any ConversationMetadataWriterProtocol {
+        metadataWriter
+    }
+
     var showsInfoView: Bool = true
     private(set) var conversation: Conversation {
         didSet {

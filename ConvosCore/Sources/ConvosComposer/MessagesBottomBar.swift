@@ -702,7 +702,7 @@ private struct ParticipationMenuControl: View, Equatable {
     var body: some View {
         Menu {
             Section("Agent participation") {
-                ForEach(AgentParticipationLevel.allCases) { option in
+                ForEach(AgentParticipationLevel.selectableCases) { option in
                     row(for: option)
                 }
             }

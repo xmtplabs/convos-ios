@@ -412,6 +412,10 @@ private func summaryFromFirstMetadataChange(
             return "\(creatorDisplayName) set this convo to explode in \(duration)"
         }
         return "\(creatorDisplayName) set this convo to explode"
+    case .participationMode:
+        guard let newValue = metadataChange.newValue,
+              let mode = ConversationParticipationMode(rawValue: newValue) else { return nil }
+        return "\(creatorDisplayName) set the participation mode to \"\(mode.title)\""
     case .metadata, .unknown:
         return nil
     }

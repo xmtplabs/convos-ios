@@ -344,6 +344,7 @@ private final class RecordingMetadataWriter: ConversationMetadataWriterProtocol,
         updatedExpiresAt.append((expiresAt: expiresAt, conversationId: conversationId))
     }
 
+    func updateParticipationMode(_ mode: ConversationParticipationMode, for conversationId: String) async throws {}
     func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws {}
     func lockConversation(for conversationId: String) async throws {}
     func unlockConversation(for conversationId: String) async throws {}

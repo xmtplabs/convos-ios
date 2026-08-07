@@ -10,30 +10,63 @@ public protocol AgentParticipationServing: Sendable {
     func writeMode(_ mode: String, conversationId: String, variantId: String?) async throws
 }
 
-/// The real service, talking to the participation endpoints.
-public struct APIAgentParticipationService: AgentParticipationServing {
-    public init() {}
+/// The real service. The mode lives in the conversation's XMTP group appData, so
+/// a read is a read of already-synced group state - no request, and current the
+/// moment the member opens the conversation, including a member who just joined.
+///
+/// The write goes out as a group-metadata commit, which is also what tells the
+/// other members: their `ConversationWriter` re-reads appData off the commit and
+/// their control follows. It is mirrored to the participation endpoint on a best
+/// effort basis so the agent runtime's server-side wake gate stays current until
+/// it reads the mode off the group itself; a failed mirror does not fail the
+/// write, because appData is the authoritative copy.
+public struct ConversationAppDataParticipationService: AgentParticipationServing {
+    private let metadataWriter: any ConversationMetadataWriterProtocol
+
+    /// The mode the conversation carried when this service was built. The host
+    /// observes the conversation and pushes later modes into the store with
+    /// `apply(syncedLevel:)`, so this is a starting point, not the live value.
+    private let mode: ConversationParticipationMode
+
+    public init(
+        metadataWriter: any ConversationMetadataWriterProtocol,
+        mode: ConversationParticipationMode
+    ) {
+        self.metadataWriter = metadataWriter
+        self.mode = mode
+    }
 
     public func readMode(conversationId: String, variantId: String?) async throws -> String {
-        try await client().getAgentParticipation(
-            conversationId: conversationId,
-            variantId: variantId
-        ).mode
+        mode.rawValue
     }
 
     public func writeMode(_ mode: String, conversationId: String, variantId: String?) async throws {
-        _ = try await client().setAgentParticipation(
-            conversationId: conversationId,
-            mode: mode,
-            variantId: variantId
-        )
+        guard let participationMode = ConversationParticipationMode(rawValue: mode) else {
+            throw AgentParticipationServiceError.unknownMode(mode)
+        }
+        try await metadataWriter.updateParticipationMode(participationMode, for: conversationId)
+        await mirrorToControlPlane(mode, conversationId: conversationId, variantId: variantId)
     }
 
-    private func client() -> any ConvosAPIClientProtocol {
-        ConvosAPIClientFactory.client(
-            environment: ConfigManager.shared.currentEnvironment
-        )
+    private func mirrorToControlPlane(_ mode: String, conversationId: String, variantId: String?) async {
+        do {
+            _ = try await ConvosAPIClientFactory
+                .client(environment: ConfigManager.shared.currentEnvironment)
+                .setAgentParticipation(
+                    conversationId: conversationId,
+                    mode: mode,
+                    variantId: variantId
+                )
+        } catch {
+            Log.warning("participation control-plane mirror failed: \(error)")
+        }
     }
+}
+
+public enum AgentParticipationServiceError: Error {
+    /// A mode this build does not recognize. Reachable only from a caller that
+    /// invented a wire value; the menu can only produce known ones.
+    case unknownMode(String)
 }
 
 /// Owns one conversation's participation level for the views that show it.
@@ -98,7 +131,7 @@ public final class AgentParticipationStore {
     public init(
         conversationId: String,
         variantId: String? = nil,
-        service: any AgentParticipationServing = APIAgentParticipationService()
+        service: any AgentParticipationServing
     ) {
         self.conversationId = conversationId
         self.variantId = variantId
@@ -107,6 +140,19 @@ public final class AgentParticipationStore {
 
     public func dismissError() {
         errorMessage = nil
+    }
+
+    /// Adopts a level that arrived over the network - another member changed the
+    /// mode and the synced conversation carries their value now.
+    ///
+    /// Ignored while this device has a write outstanding: that member's tap is
+    /// newer than any state the sync could be carrying, and their own commit
+    /// arrives back here as a synced change a moment later anyway.
+    public func apply(syncedLevel: AgentParticipationLevel) {
+        hasLoaded = true
+        guard writesInFlight == 0 else { return }
+        confirmedLevel = syncedLevel
+        level = syncedLevel
     }
 
     /// Reads the level the conversation is in. Any member may have set it, so

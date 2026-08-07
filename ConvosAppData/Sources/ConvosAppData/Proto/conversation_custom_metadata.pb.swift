@@ -21,6 +21,62 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
   typealias Version = _2
 }
 
+/// ParticipationMode governs how much the agents in a conversation speak. The
+/// mode belongs to the conversation, not to one agent: a room holding several
+/// agents has a single mode that governs all of them, and an agent that joins
+/// later inherits it from the synced group state.
+///
+/// Carried in appData rather than a message so it rides the group-metadata
+/// rails: new members read the current mode on join, and MLS metadata's
+/// last-writer-wins resolution settles two members changing it at once.
+public enum ParticipationMode: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+
+  /// Never written; an unset mode is the product default
+  case unspecified // = 0
+  case speakFreely // = 1
+  case mentionsOnly // = 2
+  case listenOnly // = 3
+  case paused // = 4
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .speakFreely
+    case 2: self = .mentionsOnly
+    case 3: self = .listenOnly
+    case 4: self = .paused
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .speakFreely: return 1
+    case .mentionsOnly: return 2
+    case .listenOnly: return 3
+    case .paused: return 4
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [ParticipationMode] = [
+    .unspecified,
+    .speakFreely,
+    .mentionsOnly,
+    .listenOnly,
+    .paused,
+  ]
+
+}
+
 /// ConversationCustomMetadata stores custom metadata for XMTP conversations
 ///
 /// Encoding optimizations for compact storage:
@@ -42,52 +98,62 @@ public struct ConversationCustomMetadata: Sendable {
   public var profiles: [ConversationProfile] = []
 
   public var expiresAtUnix: Int64 {
-    get {return _expiresAtUnix ?? 0}
+    get {_expiresAtUnix ?? 0}
     set {_expiresAtUnix = newValue}
   }
   /// Returns true if `expiresAtUnix` has been explicitly set.
-  public var hasExpiresAtUnix: Bool {return self._expiresAtUnix != nil}
+  public var hasExpiresAtUnix: Bool {self._expiresAtUnix != nil}
   /// Clears the value of `expiresAtUnix`. Subsequent reads from it will return its default value.
   public mutating func clearExpiresAtUnix() {self._expiresAtUnix = nil}
 
   /// 32-byte AES-256 key for encrypting all images
   public var imageEncryptionKey: Data {
-    get {return _imageEncryptionKey ?? Data()}
+    get {_imageEncryptionKey ?? Data()}
     set {_imageEncryptionKey = newValue}
   }
   /// Returns true if `imageEncryptionKey` has been explicitly set.
-  public var hasImageEncryptionKey: Bool {return self._imageEncryptionKey != nil}
+  public var hasImageEncryptionKey: Bool {self._imageEncryptionKey != nil}
   /// Clears the value of `imageEncryptionKey`. Subsequent reads from it will return its default value.
   public mutating func clearImageEncryptionKey() {self._imageEncryptionKey = nil}
 
   /// Encrypted group avatar
   public var encryptedGroupImage: EncryptedImageRef {
-    get {return _encryptedGroupImage ?? EncryptedImageRef()}
+    get {_encryptedGroupImage ?? EncryptedImageRef()}
     set {_encryptedGroupImage = newValue}
   }
   /// Returns true if `encryptedGroupImage` has been explicitly set.
-  public var hasEncryptedGroupImage: Bool {return self._encryptedGroupImage != nil}
+  public var hasEncryptedGroupImage: Bool {self._encryptedGroupImage != nil}
   /// Clears the value of `encryptedGroupImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedGroupImage() {self._encryptedGroupImage = nil}
 
   public var emoji: String {
-    get {return _emoji ?? String()}
+    get {_emoji ?? String()}
     set {_emoji = newValue}
   }
   /// Returns true if `emoji` has been explicitly set.
-  public var hasEmoji: Bool {return self._emoji != nil}
+  public var hasEmoji: Bool {self._emoji != nil}
   /// Clears the value of `emoji`. Subsequent reads from it will return its default value.
   public mutating func clearEmoji() {self._emoji = nil}
 
   /// Present when this conversation is a DM with an agent
   public var agentDm: AgentDmInfo {
-    get {return _agentDm ?? AgentDmInfo()}
+    get {_agentDm ?? AgentDmInfo()}
     set {_agentDm = newValue}
   }
   /// Returns true if `agentDm` has been explicitly set.
-  public var hasAgentDm: Bool {return self._agentDm != nil}
+  public var hasAgentDm: Bool {self._agentDm != nil}
   /// Clears the value of `agentDm`. Subsequent reads from it will return its default value.
   public mutating func clearAgentDm() {self._agentDm = nil}
+
+  /// How much the conversation's agents may speak
+  public var participationMode: ParticipationMode {
+    get {_participationMode ?? .unspecified}
+    set {_participationMode = newValue}
+  }
+  /// Returns true if `participationMode` has been explicitly set.
+  public var hasParticipationMode: Bool {self._participationMode != nil}
+  /// Clears the value of `participationMode`. Subsequent reads from it will return its default value.
+  public mutating func clearParticipationMode() {self._participationMode = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -98,6 +164,7 @@ public struct ConversationCustomMetadata: Sendable {
   fileprivate var _encryptedGroupImage: EncryptedImageRef? = nil
   fileprivate var _emoji: String? = nil
   fileprivate var _agentDm: AgentDmInfo? = nil
+  fileprivate var _participationMode: ParticipationMode? = nil
 }
 
 /// AgentDmInfo marks a 2-member conversation as a private DM with an agent.
@@ -111,11 +178,11 @@ public struct AgentDmInfo: Sendable {
 
   /// The primary group this DM was started from
   public var originConversationID: Data {
-    get {return _originConversationID ?? Data()}
+    get {_originConversationID ?? Data()}
     set {_originConversationID = newValue}
   }
   /// Returns true if `originConversationID` has been explicitly set.
-  public var hasOriginConversationID: Bool {return self._originConversationID != nil}
+  public var hasOriginConversationID: Bool {self._originConversationID != nil}
   /// Clears the value of `originConversationID`. Subsequent reads from it will return its default value.
   public mutating func clearOriginConversationID() {self._originConversationID = nil}
 
@@ -157,41 +224,41 @@ public struct ConversationProfile: Sendable {
   public var inboxID: Data = Data()
 
   public var name: String {
-    get {return _name ?? String()}
+    get {_name ?? String()}
     set {_name = newValue}
   }
   /// Returns true if `name` has been explicitly set.
-  public var hasName: Bool {return self._name != nil}
+  public var hasName: Bool {self._name != nil}
   /// Clears the value of `name`. Subsequent reads from it will return its default value.
   public mutating func clearName() {self._name = nil}
 
   /// Legacy: plain URL (backward compatibility)
   public var image: String {
-    get {return _image ?? String()}
+    get {_image ?? String()}
     set {_image = newValue}
   }
   /// Returns true if `image` has been explicitly set.
-  public var hasImage: Bool {return self._image != nil}
+  public var hasImage: Bool {self._image != nil}
   /// Clears the value of `image`. Subsequent reads from it will return its default value.
   public mutating func clearImage() {self._image = nil}
 
   /// New: encrypted image reference
   public var encryptedImage: EncryptedImageRef {
-    get {return _encryptedImage ?? EncryptedImageRef()}
+    get {_encryptedImage ?? EncryptedImageRef()}
     set {_encryptedImage = newValue}
   }
   /// Returns true if `encryptedImage` has been explicitly set.
-  public var hasEncryptedImage: Bool {return self._encryptedImage != nil}
+  public var hasEncryptedImage: Bool {self._encryptedImage != nil}
   /// Clears the value of `encryptedImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedImage() {self._encryptedImage = nil}
 
   /// JSON grants payload for this sender's connections (see connections.mjs)
   public var connections: String {
-    get {return _connections ?? String()}
+    get {_connections ?? String()}
     set {_connections = newValue}
   }
   /// Returns true if `connections` has been explicitly set.
-  public var hasConnections: Bool {return self._connections != nil}
+  public var hasConnections: Bool {self._connections != nil}
   /// Clears the value of `connections`. Subsequent reads from it will return its default value.
   public mutating func clearConnections() {self._connections = nil}
 
@@ -207,9 +274,13 @@ public struct ConversationProfile: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
+extension ParticipationMode: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0PARTICIPATION_MODE_UNSPECIFIED\0\u{1}PARTICIPATION_MODE_SPEAK_FREELY\0\u{1}PARTICIPATION_MODE_MENTIONS_ONLY\0\u{1}PARTICIPATION_MODE_LISTEN_ONLY\0\u{1}PARTICIPATION_MODE_PAUSED\0")
+}
+
 extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationCustomMetadata"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0\u{2}\u{2}agentDm\0\u{c}\u{7}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0\u{2}\u{2}agentDm\0\u{1}participationMode\0\u{c}\u{7}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -224,6 +295,7 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
       case 5: try { try decoder.decodeSingularMessageField(value: &self._encryptedGroupImage) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self._emoji) }()
       case 8: try { try decoder.decodeSingularMessageField(value: &self._agentDm) }()
+      case 9: try { try decoder.decodeSingularEnumField(value: &self._participationMode) }()
       default: break
       }
     }
@@ -255,6 +327,9 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     try { if let v = self._agentDm {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
     } }()
+    try { if let v = self._participationMode {
+      try visitor.visitSingularEnumField(value: v, fieldNumber: 9)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -266,6 +341,7 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     if lhs._encryptedGroupImage != rhs._encryptedGroupImage {return false}
     if lhs._emoji != rhs._emoji {return false}
     if lhs._agentDm != rhs._agentDm {return false}
+    if lhs._participationMode != rhs._participationMode {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
