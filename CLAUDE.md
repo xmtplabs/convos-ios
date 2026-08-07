@@ -437,9 +437,15 @@ XMTP_CUSTOM_HOST=USE_CONFIG
 GATEWAY_URL=USE_CONFIG
 ```
 
-Then build **`Convos (Dev)`**. ngrok is what makes a physical device work: it
-gives the backend an HTTPS URL reachable off-machine. A LAN IP only ever works
-for the simulator, and `localhost` only for the simulator too.
+Then build **`Convos (Dev)`**. ngrok is what makes a physical device work on
+this scheme: it gives the backend an HTTPS URL, and `Info.Dev.plist` carries no
+ATS exception, so plain HTTP to a LAN IP is refused.
+
+`Convos (Local)` is the other route, and it needs no tunnel at all: its plist
+sets `NSAllowsLocalNetworking`, and a blank `CONVOS_API_BASE_URL` auto-detects
+the Mac's LAN IP — reachable from a simulator and from a device on the same
+network. It costs an App Check token registered for `org.convos.ios-local`,
+which is the trade-off against the scheme you already use.
 
 **Build the scheme whose App Check token you already have.** Debug tokens are
 registered per bundle id — `Convos (Dev)` is `org.convos.ios-preview`,
