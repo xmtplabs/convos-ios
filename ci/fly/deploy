@@ -104,34 +104,47 @@ fi
 
 # Wait for the gRPC service to answer. Port 443 fronts internal 5556 with
 # ALPN h2 (see machine-config.json), so an HTTP/2 POST reaches the gRPC
-# server directly; it answers a malformed request with a real HTTP status
-# plus a grpc-status trailer. Any status at all therefore means "the proxy is
-# routing and the backend is up" - which is the thing being waited on. The
-# previous check demanded exactly 200 and, in every run sampled, got `000`
-# (curl transport failure) for all 30 attempts before giving up and
-# continuing anyway: a hard 150s cost on every run for a signal never
-# obtained.
+# server directly.
 #
-# `|| echo "000"` used to run *in addition to* curl's own `000` output,
-# concatenating into the nonsense `HTTP 000000` seen in those logs. The
-# subshell exit is swallowed instead so the code is reported as-is.
-MAX_GRPC_ATTEMPTS=45
+# The request has to carry a well-formed gRPC message or the server will sit
+# waiting for one and never respond. A gRPC frame is a 1-byte compression
+# flag followed by a 4-byte big-endian length, so five zero bytes is a valid
+# empty message. The previous probe sent no body at all, so every attempt hung
+# until curl's own timeout and reported `000` (exit 28) - not a TLS or routing
+# failure, just a request the server was still waiting to finish. That read as
+# "not ready" for all 30 attempts of every run sampled, a hard 150s cost for a
+# signal that could never arrive, after which the deploy continued anyway.
+#
+# With the frame the server replies `HTTP/2 200` plus `grpc-status: 0`, so
+# this now exits as soon as the node is genuinely serving. The bytes go via a
+# file because a NUL cannot survive in a bash variable.
+#
+# `|| echo "000"` also used to run *in addition to* curl's own `000` output,
+# concatenating into the nonsense `HTTP 000000` in those logs; the subshell
+# exit is swallowed instead so the real code is reported.
+MAX_GRPC_ATTEMPTS=60
 GRPC_INTERVAL=2
 GRPC_ATTEMPT=0
 GRPC_READY=0
+
+GRPC_FRAME="$(mktemp)"
+trap 'rm -f "$GRPC_FRAME"' EXIT
+printf '\x00\x00\x00\x00\x00' > "$GRPC_FRAME"
 
 echo "Waiting for gRPC service to be ready..." >&2
 while [[ $GRPC_ATTEMPT -lt $MAX_GRPC_ATTEMPTS ]]; do
     HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" \
         --http2 \
         -H "Content-Type: application/grpc" \
+        -H "TE: trailers" \
+        --data-binary "@$GRPC_FRAME" \
         -X POST \
         "https://${APP_HOSTNAME}:443/xmtp.identity.api.v1.IdentityApi/GetInboxIds" \
         --max-time 5 2>/dev/null)" || true
     HTTP_CODE="${HTTP_CODE:-000}"
 
-    if [[ "$HTTP_CODE" != "000" ]]; then
-        echo "gRPC service is ready! (HTTP $HTTP_CODE after ${GRPC_ATTEMPT} retries)" >&2
+    if [[ "$HTTP_CODE" == "200" ]]; then
+        echo "gRPC service is ready! (HTTP 200 after $GRPC_ATTEMPT retries)" >&2
         GRPC_READY=1
         break
     fi
@@ -142,7 +155,7 @@ while [[ $GRPC_ATTEMPT -lt $MAX_GRPC_ATTEMPTS ]]; do
 done
 
 if [[ $GRPC_READY -ne 1 ]]; then
-    echo "Warning: gRPC readiness check never got a response, proceeding anyway" >&2
+    echo "Warning: gRPC readiness check never got HTTP 200, proceeding anyway" >&2
 fi
 
 XMTP_URL="https://${APP_HOSTNAME}:443"
