@@ -160,7 +160,12 @@ jobs:
           fi
           grep '^xmtp_node_address=' "$FLY_DIR/deploy.out" >> "$GITHUB_OUTPUT"
 
+      # The suite runs in ~2 minutes and ~8 with a retry. A hang against a
+      # half-started backend otherwise sits here until the 60 minute job
+      # timeout, reporting nothing; this fails it while the logs still say
+      # something useful.
       - name: Run integration tests
+        timeout-minutes: 20
         env:
           XMTP_NODE_ADDRESS: ${{ steps.backend.outputs.xmtp_node_address }}
           CONVOS_TEST_XMTP_LOG_LEVEL: debug
