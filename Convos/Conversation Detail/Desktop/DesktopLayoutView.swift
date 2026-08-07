@@ -11,10 +11,10 @@ import UIKit
 // upcoming sections (Activity, Files).
 //
 // The `ConversationDrawer` floats above this view; its collapsed resting
-// height is shared via `ConversationDrawerMetrics.collapsedHeight`. The web
-// section is sized so it fills the space above the collapsed drawer, and the
-// scroll content reserves a matching bottom margin so the last section can
-// scroll clear of the resting drawer.
+// height is shared via `ConversationDrawerMetrics.collapsedRestingHeight`.
+// The web section is sized so it fills the space above the collapsed compose
+// card, and the scroll content reserves a matching bottom margin so the last
+// section can scroll clear of the resting card.
 
 /// Everything the invite section needs to render `InviteCodeBody`. Mirrors
 /// the arguments the message-list invite cell passes; the host builds one of
@@ -38,7 +38,7 @@ struct DesktopLayoutView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let availableWebHeight: CGFloat = proxy.size.height - ConversationDrawerMetrics.collapsedHeight - Constant.sectionSpacing
+            let availableWebHeight: CGFloat = proxy.size.height - ConversationDrawerMetrics.collapsedRestingHeight - Constant.sectionSpacing
             let webSectionHeight: CGFloat = max(availableWebHeight, Constant.minimumWebSectionHeight)
             ScrollView {
                 VStack(spacing: Constant.sectionSpacing) {
@@ -51,7 +51,7 @@ struct DesktopLayoutView: View {
                 }
                 .padding(.horizontal, Constant.horizontalPadding)
             }
-            .contentMargins(.bottom, ConversationDrawerMetrics.collapsedHeight, for: .scrollContent)
+            .contentMargins(.bottom, ConversationDrawerMetrics.collapsedRestingHeight, for: .scrollContent)
             .scrollIndicators(.hidden)
         }
         .background {

@@ -45,6 +45,10 @@ struct ConversationPager<MessagesPage: View, AgentDmPage: View, AgentPage: View,
     /// the message long-press context menu is presented - without it the
     /// user can drag past the menu into another page mid-interaction.
     var scrollingDisabled: Bool = false
+    /// Desktop drawers change width while their collapsed edge inset morphs
+    /// away. Keep all pages mounted in a stationary stack there so that width
+    /// changes cannot strand a horizontal pager between two pages.
+    var usesStationaryPages: Bool = false
     @ViewBuilder let messagesPage: () -> MessagesPage
     @ViewBuilder let agentDmPage: (String) -> AgentDmPage
     @ViewBuilder let agentPage: () -> AgentPage
@@ -52,26 +56,42 @@ struct ConversationPager<MessagesPage: View, AgentDmPage: View, AgentPage: View,
 
     var body: some View {
         GeometryReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 0) {
-                    ForEach(pages) { page in
-                        pageContent(for: page)
-                            .frame(width: proxy.size.width, height: proxy.size.height)
-                            .id(page)
+            Group {
+                if usesStationaryPages {
+                    ZStack {
+                        ForEach(pages) { page in
+                            let isSelected: Bool = page == selectedPage
+                            pageContent(for: page)
+                                .frame(width: proxy.size.width, height: proxy.size.height)
+                                .opacity(isSelected ? 1 : 0)
+                                .allowsHitTesting(isSelected)
+                                .accessibilityHidden(!isSelected)
+                                .zIndex(isSelected ? 1 : 0)
+                        }
+                    }
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 0) {
+                            ForEach(pages) { page in
+                                pageContent(for: page)
+                                    .frame(width: proxy.size.width, height: proxy.size.height)
+                                    .id(page)
+                            }
+                        }
+                        .scrollTargetLayout()
+                    }
+                    .scrollTargetBehavior(.paging)
+                    .scrollPosition(id: Binding(
+                        get: { selectedPage },
+                        set: { newValue in
+                            if let newValue { selectedPage = newValue }
+                        }
+                    ))
+                    .scrollDisabled(scrollingDisabled)
+                    .introspect(.scrollView, on: .iOS(.v26)) { (scrollView: UIScrollView) in
+                        scrollView.bounces = false
                     }
                 }
-                .scrollTargetLayout()
-            }
-            .scrollTargetBehavior(.paging)
-            .scrollPosition(id: Binding(
-                get: { selectedPage },
-                set: { newValue in
-                    if let newValue { selectedPage = newValue }
-                }
-            ))
-            .scrollDisabled(scrollingDisabled)
-            .introspect(.scrollView, on: .iOS(.v26)) { (scrollView: UIScrollView) in
-                scrollView.bounces = false
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {

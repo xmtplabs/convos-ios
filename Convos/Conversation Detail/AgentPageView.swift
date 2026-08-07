@@ -19,6 +19,7 @@ import SwiftUI
 ///   has two or more, attached outside the `.id` remount boundary so it
 ///   survives agent switches.
 struct AgentPageView: View {
+    @Environment(\.desktopTranscriptOpacity) private var desktopTranscriptOpacity: Double
     @Bindable var viewModel: ConversationViewModel
     /// Join-ordered inbox ids of the conversation's verified agents.
     let agentInboxIds: [String]
@@ -32,6 +33,14 @@ struct AgentPageView: View {
     /// darkens only the chat drawer (transcript, switcher, and composer), so
     /// the rest of the app keeps the ambient scheme.
     var drivesWindowColorScheme: Bool = true
+    /// Forwarded to the DM page's transcript (and applied to the empty state
+    /// and picker header) so the desktop drawer's collapsed compose card
+    /// shows the composer alone. 1 outside desktop mode.
+    var transcriptOpacity: Double = 1.0
+
+    private var effectiveTranscriptOpacity: Double {
+        transcriptOpacity * desktopTranscriptOpacity
+    }
 
     /// The bound selection when it still names a current agent, else the
     /// first agent, else nil (empty state).
@@ -54,12 +63,13 @@ struct AgentPageView: View {
             if let resolvedAgentInboxId {
                 dmContent(agentInboxId: resolvedAgentInboxId)
             } else {
-                AgentPageEmptyState(isReadOnly: isReadOnly, inviteAction: inviteAgent)
+                emptyStateWithComposer
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             if agentInboxIds.count > 1 {
                 agentPickerHeader
+                    .opacity(effectiveTranscriptOpacity)
             }
         }
         // AgentDmPageView applies these same modifiers internally for the DM
@@ -73,6 +83,18 @@ struct AgentPageView: View {
         viewModel.presentAgentBuilder()
     }
 
+    /// The no-agent state with the inert "Agent" composer pinned beneath it.
+    /// Only the empty-state content fades with `transcriptOpacity`; the
+    /// composer bar always renders, so the desktop drawer's collapsed
+    /// compose card wraps a visible bar even before any agent exists.
+    private var emptyStateWithComposer: some View {
+        AgentPageEmptyState(isReadOnly: isReadOnly, inviteAction: inviteAgent)
+            .opacity(effectiveTranscriptOpacity)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                AgentInertComposerBar(placeholder: "Agent")
+            }
+    }
+
     /// The per-agent DM page, keyed so an agent switch remounts it.
     @ViewBuilder
     private func dmContent(agentInboxId: String) -> some View {
@@ -83,7 +105,8 @@ struct AgentPageView: View {
             isReadOnly: isReadOnly,
             isActivePage: isActivePage,
             keyboardVisible: keyboardVisible,
-            drivesWindowColorScheme: drivesWindowColorScheme
+            drivesWindowColorScheme: drivesWindowColorScheme,
+            transcriptOpacity: transcriptOpacity
         )
         .id(agentInboxId)
     }

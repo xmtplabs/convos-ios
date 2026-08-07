@@ -11,6 +11,9 @@ struct GroupAgentSwitcher: View {
     @Binding var selectedPage: ConversationPagerPage
     /// Whether the Agent pill renders; false leaves the Group pill alone.
     let showsAgentPill: Bool
+    /// The desktop conversation adopts the selected-pill treatment used by
+    /// the home control. The default preserves the non-desktop presentation.
+    var usesHomeStyle: Bool = false
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
@@ -19,7 +22,7 @@ struct GroupAgentSwitcher: View {
                 page: .messages,
                 identifier: "switcher-group-pill"
             ) { color in
-                Image(systemName: "bubble.left.fill")
+                Image(systemName: usesHomeStyle ? ConvosTab.chats.symbol : "bubble.left.fill")
                     .font(.system(size: 15.0, weight: .semibold))
                     .foregroundStyle(color)
             }
@@ -60,9 +63,16 @@ struct GroupAgentSwitcher: View {
                     .font(.caption2)
                     .fontWeight(isSelected ? .semibold : .regular)
                     .foregroundStyle(color)
+                    .fixedSize(horizontal: usesHomeStyle, vertical: usesHomeStyle)
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.vertical, DesignConstants.Spacing.stepX)
+            .background {
+                if usesHomeStyle && isSelected {
+                    Capsule()
+                        .fill(Color.primary.opacity(Constant.selectedFillOpacity))
+                }
+            }
             .contentShape(.capsule)
             .animation(.easeInOut(duration: 0.2), value: isSelected)
         }
@@ -78,5 +88,12 @@ struct GroupAgentSwitcher: View {
             .foregroundStyle(.background)
             .frame(width: 18.0, height: 18.0)
             .background(color, in: .circle)
+    }
+
+    private enum Constant {
+        /// Fill of the selected pill's capsule highlight; `Color.primary`
+        /// based so it lightens the pill inside the dark agent drawer and
+        /// tints it in the light group surface.
+        static let selectedFillOpacity: Double = 0.08
     }
 }

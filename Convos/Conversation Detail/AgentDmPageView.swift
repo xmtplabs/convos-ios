@@ -13,6 +13,7 @@ import SwiftUI
 /// empty state with a disabled "setting up" composer; the composer enables
 /// automatically the moment the agent-created DM arrives.
 struct AgentDmPageView: View {
+    @Environment(\.desktopTranscriptOpacity) private var desktopTranscriptOpacity: Double
     @Bindable var viewModel: ConversationViewModel
     let agentInboxId: String
     /// Clearance for the pager dots floating under the composer. Owned by
@@ -38,6 +39,14 @@ struct AgentDmPageView: View {
     /// darkens only the chat drawer (transcript, switcher, and composer), so
     /// the rest of the app keeps the ambient scheme.
     var drivesWindowColorScheme: Bool = true
+    /// Forwarded to `MessagesView.transcriptOpacity` (and the pre-creation
+    /// empty state) so the desktop drawer's collapsed compose card shows no
+    /// chat at all. 1 outside desktop mode.
+    var transcriptOpacity: Double = 1.0
+
+    private var effectiveTranscriptOpacity: Double {
+        transcriptOpacity * desktopTranscriptOpacity
+    }
 
     @State private var dmViewModel: ConversationViewModel?
     @State private var contextMenuState: MessageContextMenuState = .init()
@@ -206,6 +215,8 @@ struct AgentDmPageView: View {
             AgentDmInfoCellView(agentProfile: agent?.profile, agentVerification: agent?.agentVerification ?? .unverified, agentName: agentName)
                 .padding(.top, DesignConstants.Spacing.step16x)
         }
+        .opacity(effectiveTranscriptOpacity)
+        .animation(.easeInOut(duration: 0.25), value: effectiveTranscriptOpacity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.colorBackgroundSurfaceless)
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -241,43 +252,9 @@ struct AgentDmPageView: View {
     /// the field and send button stay disabled until `rebindWhenDmAppears` binds
     /// the real conversation and swaps in the full chat (normally within a second
     /// or two of the agent joining). Enabling it here would let a send silently
-    /// no-op, since there is no DM to send into yet. The `+` stays visible (inert)
-    /// so the composer keeps its normal shape rather than dropping the
-    /// attachments affordance.
+    /// no-op, since there is no DM to send into yet.
     private var draftComposer: some View {
-        MessagesInputView(
-            displayName: .constant(""),
-            emptyDisplayNamePlaceholder: "",
-            messagePlaceholder: "Chat with \(agentName)",
-            messageText: .constant(""),
-            pendingInviteConvoName: .constant(""),
-            pendingInviteImage: .constant(nil),
-            sendButtonEnabled: false,
-            focusState: $focusState,
-            messagesTextFieldEnabled: false,
-            onSendMessage: {},
-            onClearInvite: {},
-            fileAttachmentPreview: { _ in EmptyView() },
-            agentShareChip: { EmptyView() },
-            attachmentsButton: { draftAttachmentsGlyph }
-        )
-        .fixedSize(horizontal: false, vertical: true)
-        .clipShape(.rect(cornerRadius: 26.0))
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.bottom, DesignConstants.Spacing.step3x)
-    }
-
-    /// The `+` glyph in the pre-creation composer: kept visible so the bar holds
-    /// its normal shape, but inert and dimmed (no conversation to attach to yet)
-    /// to read as disabled alongside the field and send button. Mirrors
-    /// `MessagesBottomBar.attachmentsGlyph`.
-    private var draftAttachmentsGlyph: some View {
-        Image(systemName: "plus")
-            .font(.system(size: 18.0, weight: .medium))
-            .foregroundStyle(Color.colorTextPrimary)
-            .frame(width: 32, height: 32)
-            .opacity(0.4)
+        AgentInertComposerBar(placeholder: "Chat with \(agentName)")
     }
 
     // MARK: - Full chat (mirrors ConversationView.messagesView with the DM VM)
@@ -388,6 +365,7 @@ struct AgentDmPageView: View {
             voiceMemoRecorder: dmVm.voiceMemoRecorder,
             onSendVoiceMemo: { dmVm.sendVoiceMemo() },
             extraBottomInset: extraBottomInset,
+            transcriptOpacity: transcriptOpacity,
             bottomBarContent: { EmptyView() }
         )
     }
@@ -470,5 +448,52 @@ struct AgentDmPageView: View {
                 focusCoordinator.moveFocus(to: .message)
             }
         )
+    }
+}
+
+/// Inert, disabled composer bar for agent surfaces that have no sendable
+/// conversation yet: the pre-creation DM (placeholder "Chat with X") and the
+/// Agent tab's no-agent state (placeholder "Agent"). Keeps the compose bar
+/// rendered so the desktop drawer's collapsed compose card always wraps a
+/// visible composer. The `+` stays visible (inert, dimmed) so the bar holds
+/// its normal shape rather than dropping the attachments affordance;
+/// mirrors `MessagesBottomBar.attachmentsGlyph`.
+struct AgentInertComposerBar: View {
+    let placeholder: String
+
+    /// Local and never focusable; the field is disabled, the binding just
+    /// satisfies `MessagesInputView`.
+    @FocusState private var focusState: MessagesViewInputFocus?
+
+    var body: some View {
+        MessagesInputView(
+            displayName: .constant(""),
+            emptyDisplayNamePlaceholder: "",
+            messagePlaceholder: placeholder,
+            messageText: .constant(""),
+            pendingInviteConvoName: .constant(""),
+            pendingInviteImage: .constant(nil),
+            sendButtonEnabled: false,
+            focusState: $focusState,
+            messagesTextFieldEnabled: false,
+            onSendMessage: {},
+            onClearInvite: {},
+            fileAttachmentPreview: { _ in EmptyView() },
+            agentShareChip: { EmptyView() },
+            attachmentsButton: { attachmentsGlyph }
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .clipShape(.rect(cornerRadius: 26.0))
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.bottom, DesignConstants.Spacing.step3x)
+    }
+
+    private var attachmentsGlyph: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 18.0, weight: .medium))
+            .foregroundStyle(Color.colorTextPrimary)
+            .frame(width: 32, height: 32)
+            .opacity(0.4)
     }
 }

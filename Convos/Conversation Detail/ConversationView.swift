@@ -76,11 +76,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Tracks keyboard visibility so the pager dots hide and the pager-dots
     /// inset collapses while the keyboard is up.
     @State private var isKeyboardVisible: Bool = false
+    /// Exact height of the desktop switcher slot. The transcript uses this
+    /// instead of a tuned constant so its last row clears both the switcher
+    /// and the keyboard at every content-size category.
+    @State private var desktopSwitcherHeight: CGFloat = 0
     /// Lifted out of `MessagesView` so this view can gate the pager
     /// against horizontal swipes while the long-press context menu is
     /// presented.
     @State private var contextMenuState: MessageContextMenuState = .init()
-    @State private var drawerDetent: ConversationDrawerDetent = .partial
+    /// Resting position of the desktop-mode chat drawer. Collapsed is the
+    /// entry state: the drawer rests as the compose card with the chat
+    /// concealed entirely.
+    @State private var drawerDetent: ConversationDrawerDetent = .collapsed
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -492,21 +499,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .background(.colorBackgroundSurfaceless)
     }
 
-    private var pagerDotsInset: CGFloat {
-        if isNewComposerActive {
-            // The switcher stays mounted with the keyboard up, so the
-            // transcript keeps clearing it in both states.
-            return Constant.switcherBottomInset
-        }
-        return isKeyboardVisible ? 0.0 : 24.0
-    }
-
-    /// Whether the redesigned composer layout (Group/Agent switcher in place
-    /// of the pager dots) is active. Desktop mode implies it.
-    private var isNewComposerActive: Bool {
-        FeatureFlags.shared.isNewComposerActive
-    }
-
     /// Inboxes of the conversation's DM-able agents, one per verified agent
     /// member, when the agent-DM prototype should offer DM pages: not already
     /// inside a DM, non-production only (matches ContactDetailView's gate).
@@ -530,6 +522,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             showsPageDots: !isKeyboardVisible && !isNewComposerActive,
             dotsHidden: contextMenuState.isPresented,
             scrollingDisabled: contextMenuState.isPresented,
+            usesStationaryPages: isDesktopActive,
             messagesPage: { messagesView },
             agentDmPage: { agentInboxId in
                 let isActive: Bool = pagerSelectedPage == .agentDm(agentInboxId: agentInboxId)
@@ -570,9 +563,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
         if isNewComposerActive {
             GroupAgentSwitcher(
                 selectedPage: $pagerSelectedPage,
-                showsAgentPill: agentTabAvailable
+                showsAgentPill: agentTabAvailable,
+                usesHomeStyle: isDesktopActive
             )
             .padding(.bottom, DesignConstants.Spacing.step2x)
+            .onGeometryChange(
+                for: CGFloat.self,
+                of: { $0.size.height },
+                action: { height in
+                    guard isDesktopActive, height != desktopSwitcherHeight else { return }
+                    desktopSwitcherHeight = height
+                }
+            )
         }
     }
 
@@ -613,6 +615,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             isKeyboardVisible = false
+        }
+        .onChange(of: focusState) { oldFocus, newFocus in
+            handleComposerFocusChanged(from: oldFocus, to: newFocus)
         }
         .onChange(of: pagerSelectedPage) { _, newPage in
             let keyboardWasUp: Bool = isKeyboardVisible
@@ -795,23 +800,57 @@ struct ConversationView<MessagesBottomBar: View>: View {
             viewModel.voiceMemoRecorder.cancelRecording()
         }
     }
-
-    /// The only keyboard-driven writer of the drawer detent: focusing the
-    /// input in the collapsed drawer raises it to partial so the last few
-    /// messages appear above the keyboard.
-    private func handleKeyboardWillShow() {
-        isKeyboardVisible = true
-        if isDesktopActive && drawerDetent == .collapsed {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                drawerDetent = .partial
-            }
-        }
-    }
 }
 
 // The desktop-mode layout and the Group/Agent tab support, in an extension
 // so the main struct stays within the type-body-length budget.
 private extension ConversationView {
+    var pagerDotsInset: CGFloat {
+        if isDesktopActive {
+            return desktopSwitcherHeight > 0 ? desktopSwitcherHeight : Constant.switcherBottomInset
+        }
+        if isNewComposerActive {
+            // The switcher stays mounted with the keyboard up, so the
+            // transcript keeps clearing it in both states.
+            return Constant.switcherBottomInset
+        }
+        return isKeyboardVisible ? 0.0 : 24.0
+    }
+
+    /// Whether the redesigned composer layout (Group/Agent switcher in place
+    /// of the pager dots) is active. Desktop mode implies it.
+    var isNewComposerActive: Bool {
+        FeatureFlags.shared.isNewComposerActive
+    }
+
+    /// Focusing first opens the collapsed card; keyboard presentation then
+    /// promotes it to full height below.
+    func handleComposerFocusChanged(
+        from oldFocus: MessagesViewInputFocus?,
+        to newFocus: MessagesViewInputFocus?
+    ) {
+        guard isDesktopActive,
+              oldFocus != .message,
+              newFocus == .message,
+              drawerDetent == .collapsed else {
+            return
+        }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            drawerDetent = .partial
+        }
+    }
+
+    /// A visible keyboard always owns the full desktop drawer. This also
+    /// handles agent-page composers, whose focus state is local to that page.
+    func handleKeyboardWillShow() {
+        isKeyboardVisible = true
+        if isDesktopActive && drawerDetent != .full {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                drawerDetent = .full
+            }
+        }
+    }
+
     /// Whether the desktop layout (webview desktop + chat drawer) is active:
     /// the host opted in, the flag is on, and this is a real group (agent DMs
     /// are protocol-level groups, so `kind` alone can't exclude them).
@@ -859,19 +898,28 @@ private extension ConversationView {
         return pages
     }
 
-    /// The desktop-mode layout: the sectioned desktop surface fills the
-    /// screen with the chat pager (composer included) inside a collapsible
-    /// bottom drawer. Selecting the Agent tab darkens only the drawer (chat
-    /// and composer); the desktop surface behind keeps the ambient scheme,
-    /// unlike the non-desktop path where the whole window flips dark.
+    /// The desktop-mode layout: the sectioned desktop surface always fills
+    /// the screen, in both tabs, with the chat pager (composer included)
+    /// inside the collapsible bottom drawer. The switcher only changes what
+    /// the drawer shows. The drawer rests collapsed as a compose card with
+    /// the chat concealed; on the Group tab it shares the desktop's light
+    /// surface so no container reads around the composer, while the Agent
+    /// tab darkens the drawer (chat and composer) into the visible floating
+    /// card. The desktop behind keeps the ambient scheme either way.
     var desktopLayout: some View {
         let drawerColorScheme: ColorScheme = pagerSelectedPage == .agent ? .dark : systemColorScheme
         return ZStack {
             DesktopLayoutView(inviteConfiguration: desktopInviteConfiguration)
                 .ignoresSafeArea(edges: .bottom)
-            ConversationDrawer(detent: $drawerDetent, extraCollapsedHeight: nagBarExtraHeight) {
-                conversationPager
-            }
+            ConversationDrawer(
+                detent: $drawerDetent,
+                extraCollapsedHeight: nagBarExtraHeight,
+                allowsDragging: !isKeyboardVisible,
+                content: { expansion in
+                    conversationPager
+                        .environment(\.desktopTranscriptOpacity, Double(expansion))
+                }
+            )
             .environment(\.colorScheme, drawerColorScheme)
         }
     }

@@ -80,6 +80,15 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// `MessagesViewController.topContentInset`. Default 0 keeps the chat
     /// path on its existing layout.
     var topContentInset: CGFloat = 0.0
+    /// Alpha applied to the transcript collection view only; the composer
+    /// and every other part of the controller are untouched. Desktop mode
+    /// drives this from the chat drawer's expansion so the collapsed
+    /// compose card wraps the composer with no chat visible at all.
+    var transcriptAlpha: CGFloat = 1.0
+    /// Keeps an already-scrolled transcript at its current offset while its
+    /// host changes size. Used by the desktop drawer's continuous drag only;
+    /// other conversation layouts retain bottom-relative resize anchoring.
+    var preservesScrollPositionOnBoundsChange: Bool = false
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
     let messageInputFocusTrigger: (@escaping () -> Void) -> Void
 
@@ -148,6 +157,8 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         bottomBarHeight: CGFloat,
         hasBottomBar: Bool = true,
         topContentInset: CGFloat = 0.0,
+        transcriptAlpha: CGFloat = 1.0,
+        preservesScrollPositionOnBoundsChange: Bool = false,
         scrollToBottomTrigger: @escaping (@escaping () -> Void) -> Void,
         messageInputFocusTrigger: @escaping (@escaping () -> Void) -> Void
     ) {
@@ -206,12 +217,17 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.bottomBarHeight = bottomBarHeight
         self.hasBottomBar = hasBottomBar
         self.topContentInset = topContentInset
+        self.transcriptAlpha = transcriptAlpha
+        self.preservesScrollPositionOnBoundsChange = preservesScrollPositionOnBoundsChange
         self.scrollToBottomTrigger = scrollToBottomTrigger
         self.messageInputFocusTrigger = messageInputFocusTrigger
     }
 
     public func makeUIViewController(context: Context) -> MessagesViewController {
         let viewController = MessagesViewController()
+        viewController.loadViewIfNeeded()
+        viewController.collectionView.alpha = transcriptAlpha
+        viewController.preservesScrollPositionOnBoundsChange = preservesScrollPositionOnBoundsChange
         viewController.contextMenuState = contextMenuState
         context.coordinator.scrollToBottomFunction = { [weak viewController] in
             viewController?.scrollToBottomForSend()
@@ -229,6 +245,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onUserInteraction = onUserInteraction
         messagesViewController.hasBottomBar = hasBottomBar
         messagesViewController.topContentInset = topContentInset
+        messagesViewController.preservesScrollPositionOnBoundsChange = preservesScrollPositionOnBoundsChange
         // Assign bottomBarHeight before state: its deferred inset update must be
         // enqueued ahead of the initial load's scroll-to-bottom completion.
         messagesViewController.bottomBarHeight = bottomBarHeight
@@ -286,6 +303,18 @@ let menuPresented = contextMenuState.isPresented
         }
         if wasMenuPresented, !menuPresented {
             messagesViewController.restoreBottomInsetAfterContextMenu()
+        }
+        // The transcript-only fade for the desktop drawer's compose card.
+        // Mid-drag values stream continuously and apply directly; a detent
+        // snap arrives as a jump, which animates so the chat fades rather
+        // than pops while the drawer springs.
+        let currentAlpha = messagesViewController.collectionView.alpha
+        if abs(currentAlpha - transcriptAlpha) > 0.5 {
+            UIView.animate(withDuration: 0.25) {
+                messagesViewController.collectionView.alpha = transcriptAlpha
+            }
+        } else if currentAlpha != transcriptAlpha {
+            messagesViewController.collectionView.alpha = transcriptAlpha
         }
         messagesViewController.onPresentHTMLAttachmentPreview = onPresentHTMLAttachmentPreview
         messagesViewController.onPresentFileAttachmentPreview = onPresentFileAttachmentPreview

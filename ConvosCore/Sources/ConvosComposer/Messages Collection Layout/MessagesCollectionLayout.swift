@@ -19,6 +19,10 @@ open class MessagesCollectionLayout: UICollectionViewLayout {
     }
 
     var keepContentOffsetAtBottomOnBatchUpdates: Bool = false
+    /// When true, animated host bounds changes do not apply the default
+    /// bottom-relative offset compensation. The desktop drawer enables this
+    /// so dragging its card-to-sheet resize leaves a scrolled transcript alone.
+    var preservesScrollPositionOnBoundsChange: Bool = false
     var processOnlyVisibleItemsOnAnimatedBatchUpdates: Bool = true
 
     var supportSelfSizingInvalidation: Bool {
@@ -427,6 +431,7 @@ open class MessagesCollectionLayout: UICollectionViewLayout {
         prepareActions.remove(.switchStates)
         guard let collectionView,
               oldBounds.width != collectionView.bounds.width,
+              !preservesScrollPositionOnBoundsChange,
               keepContentOffsetAtBottomOnBatchUpdates,
               controller.isLayoutBiggerThanVisibleBounds(at: state) else {
             return

@@ -93,6 +93,15 @@ public final class MessagesViewController: UIViewController {
     internal let collectionView: UICollectionView
     private var messagesLayout: MessagesCollectionLayout = MessagesCollectionLayout()
 
+    /// Desktop drawer drags continuously resize the transcript. In that
+    /// layout, an already-scrolled list stays at its current offset instead
+    /// of receiving the layout's usual bottom-relative resize compensation.
+    var preservesScrollPositionOnBoundsChange: Bool = false {
+        didSet {
+            messagesLayout.preservesScrollPositionOnBoundsChange = preservesScrollPositionOnBoundsChange
+        }
+    }
+
     private let dataSource: MessagesCollectionDataSource
 
     private var animator: ManualAnimator?

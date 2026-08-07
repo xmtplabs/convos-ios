@@ -9,6 +9,8 @@ enum MessagesViewTopBarTrailingItem {
 }
 
 struct MessagesView<BottomBarContent: View>: View {
+    @Environment(\.desktopTranscriptOpacity) private var desktopTranscriptOpacity: Double
+    @Environment(\.isDesktopDrawerResizing) private var isDesktopDrawerResizing: Bool
     /// Owned by the parent (`ConversationView`) so it can react to the
     /// long-press context menu being presented — currently used to lock
     /// the conversation/things pager so a swipe mid-press doesn't drag the
@@ -105,6 +107,17 @@ struct MessagesView<BottomBarContent: View>: View {
     /// in production); the testtube button stays hidden in any other case.
     var onDebugAttachmentTap: (() -> Void)?
     var extraBottomInset: CGFloat = 0.0
+    /// Opacity applied to the transcript only, never the composer. Applied
+    /// inside the representable (the composer is hosted in the
+    /// representable's own tree, so a SwiftUI opacity here would take the
+    /// composer down with it). Desktop mode drives this from the chat
+    /// drawer's expansion progress so the collapsed compose card shows no
+    /// chat at all; everywhere else it stays 1.
+    var transcriptOpacity: Double = 1.0
+
+    private var transcriptAlphaValue: CGFloat {
+        CGFloat(transcriptOpacity * desktopTranscriptOpacity)
+    }
     /// When true the index-0 `.invite` cell renders the full inline
     /// Invite/Scan card (`InviteCodeBody`) for an active hosted session.
     /// Mirrors `ConversationView.showsTopOfConvoInvite`.
@@ -248,6 +261,8 @@ struct MessagesView<BottomBarContent: View>: View {
             // bottom-bar measurement before applying its initial state and
             // revealing the list.
             hasBottomBar: !isReadOnly,
+            transcriptAlpha: transcriptAlphaValue,
+            preservesScrollPositionOnBoundsChange: isDesktopDrawerResizing,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn
             },
