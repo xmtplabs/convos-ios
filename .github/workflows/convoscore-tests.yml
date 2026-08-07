@@ -67,35 +67,9 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  deploy-backend:
-    name: Deploy XMTP Backend
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      xmtp_node_address: ${{ steps.deploy.outputs.xmtp_node_address }}
-      app_name: ${{ steps.deploy.outputs.app_name }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup flyctl
-        uses: superfly/flyctl-actions/setup-flyctl@master
-        with:
-          version: 0.4.60
-
-      - name: Deploy ephemeral backend
-        id: deploy
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          APP_NAME="convos-ios-test-${{ github.run_id }}-${{ github.run_attempt }}"
-          ./ci/fly/deploy "$APP_NAME"
-
   integration-tests:
     name: Integration Tests
     runs-on: warp-macos-26-arm64-12x
-    needs: deploy-backend
     timeout-minutes: 60
 
     steps:
@@ -109,6 +83,41 @@ jobs:
           swift --version
           xcodebuild -version
 
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+        with:
+          version: 0.4.60
+
+      # The ephemeral backend takes ~5.4 minutes to become reachable and the
+      # test build takes ~6, and neither needs the other. Running the deploy as
+      # its own job (with the build gated behind `needs:`) serialized the two
+      # and put the whole deploy on the critical path. Backgrounding it here
+      # overlaps it with the build instead, so the deploy is effectively free.
+      #
+      # The app name is derived from the run id rather than passed between
+      # jobs, so `cleanup` can reconstruct it without an output - which also
+      # means a cancelled or crashed job still gets its app destroyed.
+      - name: Start ephemeral backend (background)
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          APP_NAME="convos-ios-test-${{ github.run_id }}-${{ github.run_attempt }}"
+          FLY_DIR="$RUNNER_TEMP/fly"
+          mkdir -p "$FLY_DIR"
+          # A step's shell exits before the next one starts, so `wait` cannot
+          # reach this process later. The wrapper records the exit status in a
+          # sentinel file that the wait step polls for instead.
+          #
+          # GITHUB_OUTPUT is cleared for the child: the deploy script appends to
+          # it when set, and this step's output file is collected the moment the
+          # step ends - long before the background deploy would write. The wait
+          # step publishes the address instead.
+          nohup env -u GITHUB_OUTPUT bash -c '
+            "$1"/ci/fly/deploy "$2" > "$3/deploy.out" 2> "$3/deploy.err"
+            echo $? > "$3/deploy.status"
+          ' _ "$GITHUB_WORKSPACE" "$APP_NAME" "$FLY_DIR" > /dev/null 2>&1 &
+          echo "Deploy started in background for $APP_NAME"
+
       # Same path and key as the unit job so both restore the one dev-saved
       # entry (they previously hashed different Package.resolved sets, so
       # each job stored its own multi-GB cache). Restore-only: dev's unit
@@ -121,12 +130,42 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-spm-
 
+      - name: Build tests
+        run: ./ci/run-tests.sh --build
+
+      # By the time the build finishes the deploy has usually already
+      # succeeded, so this is normally a no-op wait.
+      - name: Wait for ephemeral backend
+        id: backend
+        run: |
+          FLY_DIR="$RUNNER_TEMP/fly"
+          # The deploy script's own readiness loops cap out around 7 minutes;
+          # this is the outer guard for the process dying without writing a
+          # status at all.
+          DEADLINE=$(( SECONDS + 900 ))
+          while [[ ! -f "$FLY_DIR/deploy.status" ]]; do
+            if (( SECONDS > DEADLINE )); then
+              echo "::error::Timed out waiting for the ephemeral backend deploy"
+              cat "$FLY_DIR/deploy.err" >&2 || true
+              exit 1
+            fi
+            sleep 5
+          done
+
+          cat "$FLY_DIR/deploy.err" || true
+          STATUS="$(cat "$FLY_DIR/deploy.status")"
+          if [[ "$STATUS" != "0" ]]; then
+            echo "::error::Ephemeral backend deploy failed (exit $STATUS)"
+            exit 1
+          fi
+          grep '^xmtp_node_address=' "$FLY_DIR/deploy.out" >> "$GITHUB_OUTPUT"
+
       - name: Run integration tests
         env:
-          XMTP_NODE_ADDRESS: ${{ needs.deploy-backend.outputs.xmtp_node_address }}
+          XMTP_NODE_ADDRESS: ${{ steps.backend.outputs.xmtp_node_address }}
           CONVOS_TEST_XMTP_LOG_LEVEL: debug
           CONVOS_TEST_XMTP_LOG_DIR: ${{ github.workspace }}/xmtp-test-logs
-        run: ./ci/run-tests.sh --integration
+        run: ./ci/run-tests.sh --integration --skip-build
 
       - name: Upload test logs
         if: always()
@@ -143,7 +182,7 @@ jobs:
   cleanup:
     name: Cleanup Backend
     runs-on: ubuntu-latest
-    needs: [deploy-backend, integration-tests]
+    needs: [integration-tests]
     if: always()
     timeout-minutes: 5
 
@@ -156,14 +195,13 @@ jobs:
         with:
           version: 0.4.60
 
+      # Derived, not passed through an output: the integration job may have
+      # been cancelled or killed before it could report anything, and the app
+      # still needs destroying.
       - name: Destroy ephemeral app
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
-          APP_NAME="${{ needs.deploy-backend.outputs.app_name }}"
-          if [[ -n "$APP_NAME" ]]; then
-            echo "Destroying app: $APP_NAME"
-            flyctl apps destroy "$APP_NAME" --yes || echo "Warning: Failed to destroy app (may already be deleted)"
-          else
-            echo "No app name found, skipping cleanup"
-          fi
+          APP_NAME="convos-ios-test-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "Destroying app: $APP_NAME"
+          flyctl apps destroy "$APP_NAME" --yes || echo "Warning: Failed to destroy app (may already be deleted or never created)"

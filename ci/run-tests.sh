@@ -2,9 +2,11 @@
 set -euo pipefail
 
 # CI test runner for ConvosCore
-# Usage: ./run-tests.sh [--unit|--integration]
+# Usage: ./run-tests.sh [--unit|--build|--integration [--skip-build]]
 #   --unit        Run only unit tests (no backend required)
+#   --build       Build the test bundle only, run nothing
 #   --integration Run only integration tests (requires XMTP backend)
+#   --skip-build  With --integration, assume --build already ran
 #   (none)        Run all tests
 #
 # Output design:
@@ -17,6 +19,12 @@ set -euo pipefail
 #     panel ($GITHUB_STEP_SUMMARY). No more hunting through thousands of lines.
 
 TEST_TYPE="${1:-all}"
+SKIP_BUILD=0
+for arg in "$@"; do
+    if [[ "$arg" == "--skip-build" ]]; then
+        SKIP_BUILD=1
+    fi
+done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -192,6 +200,19 @@ case "$TEST_TYPE" in
         fi
         emit_success_summary "Unit tests"
         ;;
+    --build)
+        # Split out so CI can compile while the ephemeral backend deploys in
+        # parallel; the build needs no backend. A compile failure here is a
+        # common cause of "the job failed but there is no test summary" -- so
+        # summarize the build log before exiting.
+        echo "==> Building test bundle"
+        BUILD_LOG="$CI_LOG_DIR/integration-build.log"
+        if ! run_capture "$BUILD_LOG" "Build tests" swift build --build-tests; then
+            emit_failure_summary "$BUILD_LOG" "Build"
+            exit 1
+        fi
+        emit_success_summary "Build"
+        ;;
     --integration)
         echo "==> Running integration tests"
         echo "  XMTP_NODE_ADDRESS=${XMTP_NODE_ADDRESS:-not set}"
@@ -201,13 +222,12 @@ case "$TEST_TYPE" in
             exit 1
         fi
 
-        # Build first to avoid parallel build issues. A compile failure here is a
-        # common cause of "the job failed but there is no test summary" -- so
-        # summarize the build log before exiting.
-        BUILD_LOG="$CI_LOG_DIR/integration-build.log"
-        if ! run_capture "$BUILD_LOG" "Build tests" swift build --build-tests; then
-            emit_failure_summary "$BUILD_LOG" "Build"
-            exit 1
+        if [[ "$SKIP_BUILD" -eq 0 ]]; then
+            BUILD_LOG="$CI_LOG_DIR/integration-build.log"
+            if ! run_capture "$BUILD_LOG" "Build tests" swift build --build-tests; then
+                emit_failure_summary "$BUILD_LOG" "Build"
+                exit 1
+            fi
         fi
 
         # Integration tests depend on an ephemeral XMTP backend where operations
@@ -250,7 +270,7 @@ case "$TEST_TYPE" in
         ;;
     *)
         echo "Unknown option: $TEST_TYPE"
-        echo "Usage: $0 [--unit|--integration]"
+        echo "Usage: $0 [--unit|--build|--integration [--skip-build]]"
         exit 1
         ;;
 esac

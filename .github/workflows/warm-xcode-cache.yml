@@ -20,6 +20,10 @@ on:
     paths:
       - .github/workflows/warm-xcode-cache.yml
       - .github/workflows/firebase-pr.yml
+      # A dependency bump changes the SwiftPM cache key, so the entry has to be
+      # rebuilt immediately rather than at the next daily run - otherwise every
+      # PR opened in between pays the cold libxmtp clone.
+      - '**/Package.resolved'
   workflow_dispatch:
 
 concurrency:
@@ -49,3 +53,46 @@ jobs:
         with:
           xcode-path: /Applications/Xcode_26.3.app
           xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+
+  # The ConvosCore test jobs restore the SwiftPM repository cache but only ever
+  # save it from a dev push. When that entry is absent - evicted by the repo's
+  # 10GB quota, aged out, or simply not yet written after a dependency bump -
+  # both the exact key and the `macOS-spm-` fallback miss, and SwiftPM clones
+  # libxmtp's ~165k-object repository from scratch. That has been measured at
+  # 2493s (41 minutes) in a single run, and is the sole cause of every 40-60
+  # minute Integration Tests job, including one that hit the 60 minute timeout.
+  #
+  # Resolving dependencies daily on dev keeps the entry present and recent, so
+  # the cold clone never lands on someone's PR.
+  warm-swiftpm:
+    name: Seed SwiftPM repository cache
+    runs-on: warp-macos-26-arm64-12x
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Restore Swift Package cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Resolve dependencies
+        run: |
+          for pkg in ConvosCore ConvosAppData ConvosInvites; do
+            echo "==> Resolving $pkg"
+            swift package --package-path "$pkg" resolve
+          done
+
+      # A same-key entry already existing is the healthy steady state, and
+      # `cache/save` treats that as a failure. Nothing to do about it here.
+      - name: Save Swift Package cache
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}

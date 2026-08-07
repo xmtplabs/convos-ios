@@ -1149,10 +1149,11 @@ struct SyncingManagerTests {
         let readyDuringStart = await syncingManager.isSyncReady
         #expect(!readyDuringStart, "Should not be ready while starting (sync in progress)")
 
-        // Wait for sync to complete
-        try await Task.sleep(for: .milliseconds(600))
+        // Poll rather than sleeping a fixed 600ms against the mock's 500ms
+        // delay: 100ms of margin does not survive the whole suite running
+        // concurrently, and this was the single most frequent CI failure.
+        try await waitUntil { await syncingManager.isSyncReady }
 
-        // Now should be ready
         let readyAfterSync = await syncingManager.isSyncReady
         #expect(readyAfterSync, "Should be ready after sync completes")
 
