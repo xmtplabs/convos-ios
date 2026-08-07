@@ -79,15 +79,22 @@ MAX_TLS_ATTEMPTS=60
 TLS_ATTEMPT=0
 
 echo "Waiting for TLS to be ready..." >&2
+# `CONNECTED` is printed by s_client the moment the TCP socket opens, before
+# the handshake is attempted, so matching on it reported success against a
+# port that had merely started accepting connections. `New, TLS...` is only
+# printed once a handshake actually completes - verified against both a live
+# TLS host and a plain-HTTP port, where `Verify return code:` still appears
+# and so is no good either.
 while [[ $TLS_ATTEMPT -lt $MAX_TLS_ATTEMPTS ]]; do
-    if openssl s_client -connect "$APP_HOSTNAME:443" -servername "$APP_HOSTNAME" </dev/null 2>/dev/null | grep -q "CONNECTED"; then
+    if openssl s_client -connect "$APP_HOSTNAME:443" -servername "$APP_HOSTNAME" -alpn h2 \
+        </dev/null 2>/dev/null | grep -q "^New, TLS"; then
         echo "TLS is ready!" >&2
         break
     fi
 
     TLS_ATTEMPT=$((TLS_ATTEMPT + 1))
     echo "  Attempt $TLS_ATTEMPT/$MAX_TLS_ATTEMPTS - waiting for TLS..." >&2
-    sleep 5
+    sleep 2
 done
 
 if [[ $TLS_ATTEMPT -ge $MAX_TLS_ATTEMPTS ]]; then
@@ -95,34 +102,47 @@ if [[ $TLS_ATTEMPT -ge $MAX_TLS_ATTEMPTS ]]; then
     exit 1
 fi
 
-# Wait for the gRPC service to be fully ready (not just TLS)
-# Probe the XMTP identity API endpoint with an HTTP/2 POST.
-# A working gRPC service returns a response (even an error); a not-ready
-# service returns a connection error or HTTP 503.
-MAX_GRPC_ATTEMPTS=30
+# Wait for the gRPC service to answer. Port 443 fronts internal 5556 with
+# ALPN h2 (see machine-config.json), so an HTTP/2 POST reaches the gRPC
+# server directly; it answers a malformed request with a real HTTP status
+# plus a grpc-status trailer. Any status at all therefore means "the proxy is
+# routing and the backend is up" - which is the thing being waited on. The
+# previous check demanded exactly 200 and, in every run sampled, got `000`
+# (curl transport failure) for all 30 attempts before giving up and
+# continuing anyway: a hard 150s cost on every run for a signal never
+# obtained.
+#
+# `|| echo "000"` used to run *in addition to* curl's own `000` output,
+# concatenating into the nonsense `HTTP 000000` seen in those logs. The
+# subshell exit is swallowed instead so the code is reported as-is.
+MAX_GRPC_ATTEMPTS=45
+GRPC_INTERVAL=2
 GRPC_ATTEMPT=0
+GRPC_READY=0
 
 echo "Waiting for gRPC service to be ready..." >&2
 while [[ $GRPC_ATTEMPT -lt $MAX_GRPC_ATTEMPTS ]]; do
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+    HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" \
         --http2 \
         -H "Content-Type: application/grpc" \
         -X POST \
         "https://${APP_HOSTNAME}:443/xmtp.identity.api.v1.IdentityApi/GetInboxIds" \
-        --max-time 5 2>/dev/null || echo "000")
+        --max-time 5 2>/dev/null)" || true
+    HTTP_CODE="${HTTP_CODE:-000}"
 
-    if [[ "$HTTP_CODE" == "200" ]]; then
-        echo "gRPC service is ready!" >&2
+    if [[ "$HTTP_CODE" != "000" ]]; then
+        echo "gRPC service is ready! (HTTP $HTTP_CODE after ${GRPC_ATTEMPT} retries)" >&2
+        GRPC_READY=1
         break
     fi
 
     GRPC_ATTEMPT=$((GRPC_ATTEMPT + 1))
     echo "  Attempt $GRPC_ATTEMPT/$MAX_GRPC_ATTEMPTS - HTTP $HTTP_CODE, waiting..." >&2
-    sleep 5
+    sleep "$GRPC_INTERVAL"
 done
 
-if [[ $GRPC_ATTEMPT -ge $MAX_GRPC_ATTEMPTS ]]; then
-    echo "Warning: gRPC readiness check did not get HTTP 200, proceeding anyway" >&2
+if [[ $GRPC_READY -ne 1 ]]; then
+    echo "Warning: gRPC readiness check never got a response, proceeding anyway" >&2
 fi
 
 XMTP_URL="https://${APP_HOSTNAME}:443"

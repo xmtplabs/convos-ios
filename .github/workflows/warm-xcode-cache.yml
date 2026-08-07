@@ -68,6 +68,9 @@ jobs:
     name: Seed SwiftPM repository cache
     runs-on: warp-macos-26-arm64-12x
     timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -96,3 +99,31 @@ jobs:
         with:
           path: ~/Library/Caches/org.swift.swiftpm
           key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
+
+      # Each of these entries is ~3GB and nothing ever deleted the stale ones.
+      # Three had accumulated against the repo's 10GB quota (8.85GB of a
+      # measured 9.52GB total, against 0.66GB for every other cache in the
+      # repo), so writing a new one evicts a live entry by LRU - which is what
+      # produces the total cache miss and the 41 minute libxmtp clone behind
+      # it. Keeping exactly one keeps the quota clear for everything else.
+      - name: Prune superseded SwiftPM caches
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
+        run: |
+          echo "Keeping: $KEEP"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" --paginate \
+            -q '.actions_caches[] | [.key, .size_in_bytes] | @tsv' \
+          | while IFS=$'\t' read -r key size; do
+              case "$key" in
+                "${RUNNER_OS}-spm-"*)
+                  if [[ "$key" != "$KEEP" ]]; then
+                    echo "Deleting $key ($(( size / 1000000 ))MB)"
+                    gh api -X DELETE \
+                      "repos/${GITHUB_REPOSITORY}/actions/caches?key=${key}" >/dev/null \
+                      || echo "  (delete failed, continuing)"
+                  fi
+                  ;;
+              esac
+            done
