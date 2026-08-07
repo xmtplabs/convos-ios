@@ -59,19 +59,65 @@ if ! CREATE_OUT="$(flyctl apps create "$APP_NAME" --org "$FLY_ORG" 2>&1)"; then
     fi
 fi
 
+# `apps create` returns before the app is visible to every Fly API replica, so
+# acting on it immediately can fail with "app not found". Wait for it to read
+# back before doing anything else.
+echo "Waiting for app to be visible..." >&2
+APP_VISIBLE=0
+for _ in $(seq 1 30); do
+    if flyctl apps list 2>/dev/null | awk -v name="$APP_NAME" '$1 == name { found = 1 } END { exit !found }'; then
+        APP_VISIBLE=1
+        break
+    fi
+    sleep 2
+done
+if [[ $APP_VISIBLE -ne 1 ]]; then
+    echo "Error: app $APP_NAME did not become visible after creation" >&2
+    exit 1
+fi
+
 # Allocate IP addresses for the app (ignore if already allocated)
 echo "Allocating IP addresses..." >&2
 flyctl ips allocate-v4 --shared --app "$APP_NAME" 2>/dev/null || true
 flyctl ips allocate-v6 --app "$APP_NAME" 2>/dev/null || true
 
-# Deploy multi-container machine
+# Deploy multi-container machine. Even after the app reads back from `apps
+# list`, `machine run` can still land on a replica that has not caught up and
+# fail with "app not found" - observed on 3 of 7 consecutive runs once the
+# deploy moved onto the macOS runner, which egresses from a different region
+# than the ubuntu job that used to do this. The call is not idempotent in any
+# harmful way here (a machine that did get created is torn down with the app),
+# so retry the transient case.
 echo "Deploying multi-container machine..." >&2
-flyctl machine run \
-    --app "$APP_NAME" \
-    --region "$FLY_REGION" \
-    --rm \
-    --restart no \
-    --machine-config "$MACHINE_CONFIG"
+MACHINE_ATTEMPTS=5
+MACHINE_ATTEMPT=1
+while true; do
+    if MACHINE_OUT="$(flyctl machine run \
+            --app "$APP_NAME" \
+            --region "$FLY_REGION" \
+            --rm \
+            --restart no \
+            --machine-config "$MACHINE_CONFIG" 2>&1)"; then
+        echo "$MACHINE_OUT" >&2
+        break
+    fi
+
+    echo "$MACHINE_OUT" >&2
+
+    if ! grep -qiE 'app not found|could not find app' <<<"$MACHINE_OUT"; then
+        echo "Error: machine launch failed with a non-transient error" >&2
+        exit 1
+    fi
+
+    if [[ $MACHINE_ATTEMPT -ge $MACHINE_ATTEMPTS ]]; then
+        echo "Error: failed to launch machine after $MACHINE_ATTEMPTS attempts" >&2
+        exit 1
+    fi
+
+    echo "  Attempt $MACHINE_ATTEMPT/$MACHINE_ATTEMPTS hit a propagation error, retrying..." >&2
+    MACHINE_ATTEMPT=$((MACHINE_ATTEMPT + 1))
+    sleep 5
+done
 
 # Wait for TLS to be ready
 APP_HOSTNAME="${APP_NAME}.fly.dev"
