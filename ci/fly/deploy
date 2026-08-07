@@ -204,46 +204,12 @@ if [[ $GRPC_READY -ne 1 ]]; then
     echo "Warning: gRPC readiness check never got HTTP 200, proceeding anyway" >&2
 fi
 
-# The machine runs five containers (db, mlsdb, validation, history-server,
-# node) and until now only the node behind :443 was ever checked. The machine
-# is launched with `--restart no`, so a container that fails to come up stays
-# down for the life of the app - and the history sync tests then block on a
-# service that will never answer. That is what a 50 minute hang turned out to
-# be: :443 healthy and serving while :5558 returned 502 the entire time, the
-# fly proxy up with nothing behind it.
-#
-# 502 means the proxy is routing but the container is not listening yet, so it
-# is the signal to keep waiting on; anything else (the history server answers
-# 404 at the root) means it is up. Failing here turns a silent hang that
-# consumes the full 60 minute job timeout into a deploy failure that says what
-# broke. This costs nothing on the healthy path, and the deploy overlaps the
-# build anyway.
-MAX_HISTORY_ATTEMPTS=60
-HISTORY_ATTEMPT=0
-HISTORY_READY=0
-
-echo "Waiting for history server (:5558) to be ready..." >&2
-while [[ $HISTORY_ATTEMPT -lt $MAX_HISTORY_ATTEMPTS ]]; do
-    HISTORY_CODE="$(curl -s -o /dev/null -w "%{http_code}" \
-        "https://${APP_HOSTNAME}:5558/" --max-time 5 2>/dev/null)" || true
-    HISTORY_CODE="${HISTORY_CODE:-000}"
-
-    if [[ "$HISTORY_CODE" != "000" && "$HISTORY_CODE" != "502" ]]; then
-        echo "History server is ready! (HTTP $HISTORY_CODE after $HISTORY_ATTEMPT retries)" >&2
-        HISTORY_READY=1
-        break
-    fi
-
-    HISTORY_ATTEMPT=$((HISTORY_ATTEMPT + 1))
-    echo "  Attempt $HISTORY_ATTEMPT/$MAX_HISTORY_ATTEMPTS - HTTP $HISTORY_CODE, waiting..." >&2
-    sleep 2
-done
-
-if [[ $HISTORY_READY -ne 1 ]]; then
-    echo "Error: history server on :5558 never became ready (last HTTP $HISTORY_CODE)." >&2
-    echo "The container failed to start; with --restart no it will not recover." >&2
-    exit 1
-fi
+# Note on :5558 (history-server): the fly proxy answers 502 there even on a
+# healthy app, so it is not a usable readiness signal and must not be gated
+# on - doing so failed a deploy whose node was serving normally. A 502 was
+# observed alongside a 50 minute test hang and looked causal, but a fresh,
+# working run returns 502 there too, so the two are unrelated. The hang is
+# covered by the timeout on the test step instead.
 
 XMTP_URL="https://${APP_HOSTNAME}:443"
 
