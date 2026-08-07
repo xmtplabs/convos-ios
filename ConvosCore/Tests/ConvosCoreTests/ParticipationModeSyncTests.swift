@@ -192,6 +192,6 @@ struct ParticipationModeSyncTests {
             ]
         )
 
-        #expect(update.summary == "Shane set the participation mode to \"Mentions only\"")
+        #expect(update.summary == "Shane set the participation mode to \"Listen mode\"")
     }
 }

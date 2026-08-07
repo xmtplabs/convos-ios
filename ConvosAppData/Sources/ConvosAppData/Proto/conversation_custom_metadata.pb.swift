@@ -8,7 +8,11 @@
 // For information on using the generated types, please see the documentation:
 //   https://github.com/apple/swift-protobuf/
 
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import SwiftProtobuf
 
 // If the compiler emits an error on this type, it is because this file
@@ -16,7 +20,7 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
@@ -29,14 +33,13 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
 /// Carried in appData rather than a message so it rides the group-metadata
 /// rails: new members read the current mode on join, and MLS metadata's
 /// last-writer-wins resolution settles two members changing it at once.
-public enum ParticipationMode: SwiftProtobuf.Enum, Swift.CaseIterable {
+public nonisolated enum ParticipationMode: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
 
   /// Never written; an unset mode is the product default
   case unspecified // = 0
   case speakFreely // = 1
   case mentionsOnly // = 2
-  case listenOnly // = 3
   case paused // = 4
   case UNRECOGNIZED(Int)
 
@@ -49,7 +52,6 @@ public enum ParticipationMode: SwiftProtobuf.Enum, Swift.CaseIterable {
     case 0: self = .unspecified
     case 1: self = .speakFreely
     case 2: self = .mentionsOnly
-    case 3: self = .listenOnly
     case 4: self = .paused
     default: self = .UNRECOGNIZED(rawValue)
     }
@@ -60,7 +62,6 @@ public enum ParticipationMode: SwiftProtobuf.Enum, Swift.CaseIterable {
     case .unspecified: return 0
     case .speakFreely: return 1
     case .mentionsOnly: return 2
-    case .listenOnly: return 3
     case .paused: return 4
     case .UNRECOGNIZED(let i): return i
     }
@@ -71,7 +72,6 @@ public enum ParticipationMode: SwiftProtobuf.Enum, Swift.CaseIterable {
     .unspecified,
     .speakFreely,
     .mentionsOnly,
-    .listenOnly,
     .paused,
   ]
 
@@ -88,7 +88,7 @@ public enum ParticipationMode: SwiftProtobuf.Enum, Swift.CaseIterable {
 /// - One 32-byte AES-256 key per group (imageEncryptionKey)
 /// - Per-image: URL + salt + nonce (no digest - AES-GCM auth tag provides integrity)
 /// - ~48 bytes overhead per image
-public struct ConversationCustomMetadata: Sendable {
+public nonisolated struct ConversationCustomMetadata: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -171,7 +171,7 @@ public struct ConversationCustomMetadata: Sendable {
 /// The agent's identity comes from the membership itself (member_kind plus
 /// attestation), not from this marker; clients only honor the marker when the
 /// conversation has exactly 2 members and the other member is an agent.
-public struct AgentDmInfo: Sendable {
+public nonisolated struct AgentDmInfo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -195,7 +195,7 @@ public struct AgentDmInfo: Sendable {
 
 /// EncryptedImageRef stores encrypted image metadata
 /// AES-GCM auth tag (16 bytes) is appended to ciphertext, providing integrity verification
-public struct EncryptedImageRef: Sendable {
+public nonisolated struct EncryptedImageRef: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -215,7 +215,7 @@ public struct EncryptedImageRef: Sendable {
 }
 
 /// ConversationProfile represents a participant in the conversation
-public struct ConversationProfile: Sendable {
+public nonisolated struct ConversationProfile: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -274,11 +274,11 @@ public struct ConversationProfile: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-extension ParticipationMode: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0PARTICIPATION_MODE_UNSPECIFIED\0\u{1}PARTICIPATION_MODE_SPEAK_FREELY\0\u{1}PARTICIPATION_MODE_MENTIONS_ONLY\0\u{1}PARTICIPATION_MODE_LISTEN_ONLY\0\u{1}PARTICIPATION_MODE_PAUSED\0")
+nonisolated extension ParticipationMode: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0PARTICIPATION_MODE_UNSPECIFIED\0\u{1}PARTICIPATION_MODE_SPEAK_FREELY\0\u{1}PARTICIPATION_MODE_MENTIONS_ONLY\0\u{2}\u{2}PARTICIPATION_MODE_PAUSED\0")
 }
 
-extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationCustomMetadata"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0\u{2}\u{2}agentDm\0\u{1}participationMode\0\u{c}\u{7}\u{1}")
 
@@ -347,7 +347,7 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
   }
 }
 
-extension AgentDmInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension AgentDmInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "AgentDmInfo"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}originConversationId\0")
 
@@ -381,7 +381,7 @@ extension AgentDmInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementati
   }
 }
 
-extension EncryptedImageRef: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension EncryptedImageRef: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "EncryptedImageRef"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}url\0\u{1}salt\0\u{1}nonce\0")
 
@@ -421,7 +421,7 @@ extension EncryptedImageRef: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
   }
 }
 
-extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+nonisolated extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationProfile"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}inboxId\0\u{1}name\0\u{1}image\0\u{1}encryptedImage\0\u{1}connections\0")
 
