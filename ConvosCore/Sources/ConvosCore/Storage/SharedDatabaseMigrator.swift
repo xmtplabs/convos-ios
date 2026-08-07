@@ -221,6 +221,7 @@ extension SharedDatabaseMigrator {
         Self.registerAgentDmMigrations(on: &migrator)
         migrator.registerMigration("addConversationAddedById", migrate: Self.addConversationAddedById)
         migrator.registerMigration("addConversationParticipationMode", migrate: Self.addConversationParticipationMode)
+        migrator.registerMigration("clearCutListenParticipationMode", migrate: Self.clearCutListenParticipationMode)
     }
 
     /// The conversation's agent participation mode, mirrored from the group's
@@ -235,6 +236,23 @@ extension SharedDatabaseMigrator {
         try db.alter(table: "conversation") { t in
             t.add(column: "participationMode", .text)
         }
+    }
+
+    /// Clears the `listen` mode that shipped briefly before the level was cut.
+    ///
+    /// The enum no longer has a case for it, and GRDB throws rather than
+    /// shrugging at a raw value it cannot map — so a single stale row would
+    /// fail the whole `DBConversation` fetch and take the conversation with it.
+    /// Null is the honest replacement: the column is nullable exactly so "no
+    /// mode set" is representable, and that is what a level this build no
+    /// longer understands amounts to. Readers resolve null to the product
+    /// default, which is also what the control plane now does with a
+    /// `LISTEN_ONLY` still arriving on the wire.
+    static func clearCutListenParticipationMode(_ db: Database) throws {
+        try db.execute(
+            sql: "UPDATE conversation SET participationMode = NULL WHERE participationMode = ?",
+            arguments: ["listen"]
+        )
     }
 
     /// Per-conversation catch-up cursor (see DBConversationCatchUpCursor).

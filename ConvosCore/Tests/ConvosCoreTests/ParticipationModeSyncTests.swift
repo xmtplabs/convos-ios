@@ -39,6 +39,50 @@ struct ParticipationModeSyncTests {
         }
     }
 
+    @Test("the cut listen mode is cleared, so a stale row cannot fail the fetch")
+    func migrationClearsCutListenMode() throws {
+        // `listen` shipped briefly before the level was cut. The enum has no
+        // case for it now and GRDB throws rather than shrugging, so one stale
+        // row would fail the whole DBConversation fetch and take the
+        // conversation with it.
+        let dbQueue = try DatabaseQueue()
+        try dbQueue.write { db in
+            try db.create(table: "conversation") { t in
+                t.column("id", .text).notNull().primaryKey()
+            }
+            try db.execute(sql: "INSERT INTO conversation (id) VALUES (?)", arguments: ["convo-listen"])
+            try db.execute(sql: "INSERT INTO conversation (id) VALUES (?)", arguments: ["convo-paused"])
+            try SharedDatabaseMigrator.addConversationParticipationMode(db)
+            try db.execute(
+                sql: "UPDATE conversation SET participationMode = ? WHERE id = ?",
+                arguments: ["listen", "convo-listen"]
+            )
+            try db.execute(
+                sql: "UPDATE conversation SET participationMode = ? WHERE id = ?",
+                arguments: ["paused", "convo-paused"]
+            )
+
+            try SharedDatabaseMigrator.clearCutListenParticipationMode(db)
+        }
+
+        try dbQueue.read { db in
+            let cleared = try String.fetchOne(
+                db,
+                sql: "SELECT participationMode FROM conversation WHERE id = ?",
+                arguments: ["convo-listen"]
+            )
+            #expect(cleared == nil)
+
+            // A level this build still has is left exactly where it was.
+            let kept = try String.fetchOne(
+                db,
+                sql: "SELECT participationMode FROM conversation WHERE id = ?",
+                arguments: ["convo-paused"]
+            )
+            #expect(kept == "paused")
+        }
+    }
+
     @Test("a stored mode round-trips through the column")
     func storedModeRoundTrips() throws {
         let dbQueue = try DatabaseQueue()
@@ -192,6 +236,6 @@ struct ParticipationModeSyncTests {
             ]
         )
 
-        #expect(update.summary == "Shane set the participation mode to \"Mentions only\"")
+        #expect(update.summary == "Shane set the participation mode to \"Listen mode\"")
     }
 }
