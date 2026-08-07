@@ -415,6 +415,54 @@ Or Force Quit it from Activity Monitor. The Memory Pressure bar should return to
 
 The leak has no permanent fix on Apple's end — `killall` is the workaround. If you find yourself doing it every couple of hours, alias it: `alias xclean='killall lldb-rpc-server'`.
 
+## End-to-End Local Testing
+
+Running this app against a locally-running backend works, but nearly every
+failure points somewhere other than its cause. The setup that works:
+
+```
+app ──► ngrok (https) ──► convos-backend :4000 ──► assistants worker ──► herald
+```
+
+The app only ever talks to the backend. The agent is what lives on Cloudflare,
+so "point the app at my local stack" means pointing it at a local *backend* and
+nothing else.
+
+Configure through `.env` at the repo root — not `Convos/Config/config.*.json`:
+
+```
+FIREBASE_APP_CHECK_DEBUG_TOKEN=<the token registered for this bundle id>
+CONVOS_API_BASE_URL=https://<ngrok-id>.ngrok.app/api
+XMTP_CUSTOM_HOST=USE_CONFIG
+GATEWAY_URL=USE_CONFIG
+```
+
+Then build **`Convos (Dev)`**. ngrok is what makes a physical device work: it
+gives the backend an HTTPS URL reachable off-machine. A LAN IP only ever works
+for the simulator, and `localhost` only for the simulator too.
+
+**Build the scheme whose App Check token you already have.** Debug tokens are
+registered per bundle id — `Convos (Dev)` is `org.convos.ios-preview`,
+`Convos (Local)` is `org.convos.ios-local`. Building a scheme you have never
+used produces a bundle Firebase does not recognise: the client never obtains a
+token, every authenticated call 401s, and the app shows a generic "Something
+went wrong" with no auth error anywhere. `ENVIRONMENTS.md` covers this; it is
+worth reading before concluding the backend is down.
+
+**A worktree has no `.env`.** It is gitignored, so a build from a fresh
+worktree silently ships without an App Check token or a backend override.
+Nothing warns — the build succeeds and the app fails at runtime. Copy `.env`
+from the canonical checkout first.
+
+The backend side needs `SIWE_DOMAIN=dev.convos.org`, `SIWE_URI=https://dev.convos.org`,
+`SIWE_ALLOWED_CHAIN_IDS=1` and a `NONCE_HMAC_SECRET`. The `.env.example`
+defaults are not these, and what they produce is `/auth/nonce` 200 followed by
+`/auth/token` 401 "Invalid nonce".
+
+Compiling is not installing. `xcodebuild` succeeding changes nothing on the
+device — install and launch, and target simulators by UDID rather than
+`booted` when several are running.
+
 ## Build & Release
 
 ### Build Commands
