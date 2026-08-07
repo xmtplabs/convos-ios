@@ -45,6 +45,21 @@ final class FocusCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.currentFocus, .sideConvoName)
     }
 
+    func testSizeClassChangeDoesNotInterruptMessageFocus() {
+        coordinator.moveFocus(to: .message)
+        coordinator.syncFocusState(.message)
+
+        coordinator.horizontalSizeClass = .regular
+
+        XCTAssertEqual(coordinator.currentFocus, .message)
+    }
+
+    func testTransientNilSizeClassDoesNotEraseResolvedSizeClass() {
+        coordinator.horizontalSizeClass = nil
+
+        XCTAssertEqual(coordinator.horizontalSizeClass, .compact)
+    }
+
     func testNilSyncWhileEditingSideConvoNameIsIgnored() {
         coordinator.moveFocus(to: .sideConvoName)
         coordinator.syncFocusState(.sideConvoName)

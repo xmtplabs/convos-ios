@@ -39,14 +39,20 @@ public final class FocusCoordinator {
     /// The type of keyboard currently detected
     public private(set) var keyboardType: KeyboardType = .unknown
 
+    /// The last concrete size class supplied by SwiftUI. A mounted hierarchy
+    /// can transiently publish `nil` while it relays out; treating that as a
+    /// real transition makes the next concrete value look like another size
+    /// class change and creates a focus-update loop during live resizing.
     public var horizontalSizeClass: UserInterfaceSizeClass? {
-        didSet {
-            // When size class changes, update current focus to match new default if appropriate
-            if oldValue != horizontalSizeClass {
-                updateFocusForSizeClassChange()
-            }
+        get { resolvedHorizontalSizeClass }
+        set {
+            guard let newValue, newValue != resolvedHorizontalSizeClass else { return }
+            resolvedHorizontalSizeClass = newValue
+            updateFocusForSizeClassChange()
         }
     }
+
+    private var resolvedHorizontalSizeClass: UserInterfaceSizeClass?
 
     // MARK: - Private Properties
 
@@ -71,7 +77,7 @@ public final class FocusCoordinator {
     // MARK: - Initialization
 
     public init(horizontalSizeClass: UserInterfaceSizeClass?) {
-        self.horizontalSizeClass = horizontalSizeClass
+        resolvedHorizontalSizeClass = horizontalSizeClass
         setupKeyboardObservation()
     }
 
@@ -372,20 +378,17 @@ public final class FocusCoordinator {
     }
 
     private func updateFocusForSizeClassChange() {
-        // Only auto-adjust if we're currently at nil, .message, or .voiceMemoRecording
-        // Don't interrupt active editing of displayName, conversationName, or sideConvoName
-        guard currentFocus == nil || currentFocus == .message || currentFocus == .voiceMemoRecording else {
-            return
-        }
+        // A geometry/trait update must never dismiss a field the user is
+        // actively editing (including the composer and voice recording).
+        // Auto-focus is only useful when nothing currently owns focus.
+        guard currentFocus == nil else { return }
+
+        let newDefault = defaultFocus
+        guard currentFocus != newDefault else { return }
 
         Log.info("Updating focus for size class change: \(String(describing: horizontalSizeClass))")
-
-        // Update to the new default based on new size class
-        let newDefault = defaultFocus
-        if currentFocus != newDefault {
-            beginProgrammaticTransition(to: newDefault)
-            currentFocus = newDefault
-        }
+        beginProgrammaticTransition(to: newDefault)
+        currentFocus = newDefault
     }
 
     private func beginProgrammaticTransition(to target: MessagesViewInputFocus?) {
