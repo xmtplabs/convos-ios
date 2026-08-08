@@ -1,5 +1,5 @@
-import SwiftUI
 import BezelKit
+import SwiftUI
 
 private struct DesktopTranscriptOpacityKey: EnvironmentKey {
     static let defaultValue: Double = 1.0
@@ -7,6 +7,17 @@ private struct DesktopTranscriptOpacityKey: EnvironmentKey {
 
 private struct IsDesktopDrawerResizingKey: EnvironmentKey {
     static let defaultValue: Bool = false
+}
+
+/// The drawer's live occupied height, measured from the bottom of the screen
+/// to the top of its surface (keyboard offset included). The desktop layout
+/// reads this so its scroll content always insets by however much the drawer
+/// currently covers, tracking every detent, drag, and keyboard change.
+struct ConversationDrawerHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = ConversationDrawerMetrics.collapsedRestingHeight
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
 }
 
 extension EnvironmentValues {
@@ -78,9 +89,20 @@ struct ConversationDrawer<Content: View>: View {
     /// host reserve room above the composer (e.g. for transient chrome).
     /// Changes animate while the drawer rests at `.collapsed`.
     var extraCollapsedHeight: CGFloat = 0
-    /// The keyboard pins the drawer at full height; while it is present the
-    /// grabber remains visible but does not accept a conflicting drag.
+    /// Gates the grabber's drag entirely; the host leaves it on and the drag
+    /// logic itself adapts to the keyboard.
     var allowsDragging: Bool = true
+    /// Measured height of the docked keyboard (0 when hidden). The drawer
+    /// ignores the keyboard safe-area region and drives its own bottom offset
+    /// from this value instead, so SwiftUI neither shifts the whole drawer up
+    /// nor lets the hosted bar double-avoid the keyboard: the compose bar ends
+    /// offset by the keyboard height alone while the drawer keeps its room
+    /// above. While it is up the drawer is pinned full and a downward grabber
+    /// swipe dismisses the keyboard and collapses (see `dragGesture`).
+    var keyboardHeight: CGFloat = 0
+    /// Called when a downward grabber swipe collapses the drawer while the
+    /// keyboard is up, so the host can drop the composer's first responder.
+    var onDismissKeyboard: () -> Void = {}
     /// Supplies live card-to-sheet expansion directly to the content without
     /// writing it back through the parent on every drag sample.
     @ViewBuilder let content: (CGFloat) -> Content
@@ -94,17 +116,27 @@ struct ConversationDrawer<Content: View>: View {
         // hosted content keeps its safe-area-bound frame (padded back below),
         // so only the drawer surface extends under the home indicator.
         GeometryReader { proxy in
-            let bottomInset: CGFloat = proxy.safeAreaInsets.bottom
+            // The `.keyboard` region is ignored below, so `safeAreaInsets.bottom`
+            // stays the home-indicator inset even while typing. When the keyboard
+            // is up its measured height drives the bottom offset instead: the
+            // content is lifted above the keyboard and the available height
+            // shrinks by the same amount, so the drawer keeps its room above.
+            let bottomInset: CGFloat = keyboardHeight > 0 ? keyboardHeight : proxy.safeAreaInsets.bottom
             let availableHeight: CGFloat = proxy.size.height - bottomInset
             let restingHeight: CGFloat = height(for: detent, in: availableHeight)
             let minHeight: CGFloat = collapsedHeight
             let maxHeight: CGFloat = height(for: .full, in: availableHeight)
             let currentHeight: CGFloat = min(max(restingHeight - dragOffset, minHeight), maxHeight)
+            // Height from the screen bottom to the drawer's top edge: the
+            // content height plus the offset lifting it above the home indicator
+            // or keyboard. Published so the desktop scroll can inset by it.
+            let occupiedHeight: CGFloat = currentHeight + bottomInset
             drawerBody(height: currentHeight, availableHeight: availableHeight, bottomInset: bottomInset)
                 .padding(.bottom, bottomInset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .preference(key: ConversationDrawerHeightPreferenceKey.self, value: occupiedHeight)
         }
-        .ignoresSafeArea(.container, edges: .bottom)
+        .ignoresSafeArea([.container, .keyboard], edges: .bottom)
     }
 
     private func drawerBody(height: CGFloat, availableHeight: CGFloat, bottomInset: CGFloat) -> some View {
@@ -118,10 +150,10 @@ struct ConversationDrawer<Content: View>: View {
         // and grows past the safe area until it is flush with the screen edge.
         let surfaceBottomPadding: CGFloat = edgeInset - bottomInset * expansion
         let shape = UnevenRoundedRectangle(cornerRadii: .init(
-            topLeading: Constant.cardCornerRadius,
+            topLeading: Constant.topCardCornerRadius,
             bottomLeading: bottomRadius,
             bottomTrailing: bottomRadius,
-            topTrailing: Constant.cardCornerRadius
+            topTrailing: Constant.topCardCornerRadius
         ))
         return content(expansion)
             .environment(\.isDesktopDrawerResizing, isResizing)
@@ -172,10 +204,24 @@ struct ConversationDrawer<Content: View>: View {
         // (visible as high-frequency height jitter during the drag).
         DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
+                // The keyboard pins the drawer full; don't interactively resize
+                // against that pinned height. A downward swipe is resolved on
+                // release below.
+                guard keyboardHeight == 0 else { return }
                 isResizing = true
                 dragOffset = value.translation.height
             }
             .onEnded { value in
+                // While the keyboard is up, a downward grabber swipe dismisses
+                // it and collapses the drawer; anything else leaves it pinned.
+                guard keyboardHeight == 0 else {
+                    guard value.translation.height > Constant.keyboardDismissDragDistance else { return }
+                    onDismissKeyboard()
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        detent = .collapsed
+                    }
+                    return
+                }
                 let restingHeight: CGFloat = height(for: detent, in: availableHeight)
                 let currentHeight: CGFloat = clampedHeight(
                     restingHeight - value.translation.height,
@@ -296,6 +342,9 @@ private enum Constant {
     static let topClearance: CGFloat = 16.0
     @MainActor
     static let cardCornerRadius: CGFloat = ConversationDrawerMetrics.collapsedCornerRadius
+    /// The top corners keep a fixed radius rather than tracking the device
+    /// bezel, so the card's shoulders read consistently across devices.
+    static let topCardCornerRadius: CGFloat = DesignConstants.CornerRadius.mediumLarger
     static let grabberWidth: CGFloat = 36.0
     static let grabberHeight: CGFloat = 5.0
     static let grabberHitAreaHeight: CGFloat = 28.0
@@ -305,4 +354,7 @@ private enum Constant {
     /// Keeps a directional flick from re-selecting the detent the drawer is
     /// already effectively resting at.
     static let detentSlack: CGFloat = 1.0
+    /// Downward grabber travel that dismisses the keyboard and collapses the
+    /// drawer while the keyboard is up.
+    static let keyboardDismissDragDistance: CGFloat = 24.0
 }

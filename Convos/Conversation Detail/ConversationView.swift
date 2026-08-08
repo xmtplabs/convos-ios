@@ -69,6 +69,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var selectedAgentInboxId: String?
     /// Guards the one-time seed of `pagerSelectedPage` from `initialAgentDmInboxId`.
     @State private var didSeedInitialPage: Bool = false
+    /// Guards the one-time seed of the desktop drawer's opening detent from the
+    /// conversation's unread state.
+    @State private var didSeedDrawerDetent: Bool = false
     /// Measured height of the nag-bar slot (capability toast / onboarding),
     /// consumed by the desktop drawer's collapsed resting height so the bar
     /// stays visible above the fold.
@@ -76,6 +79,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Tracks keyboard visibility so the pager dots hide and the pager-dots
     /// inset collapses while the keyboard is up.
     @State private var isKeyboardVisible: Bool = false
+    /// Measured height of the docked keyboard (0 when hidden). The desktop
+    /// scroll surface reserves this below its content so the last section
+    /// clears the keyboard-raised compose card; the drawer uses only the
+    /// visibility flag.
+    @State private var keyboardHeight: CGFloat = 0
     /// Exact height of the desktop switcher slot. The transcript uses this
     /// instead of a tuned constant so its last row clears both the switcher
     /// and the keyboard at every content-size category.
@@ -88,6 +96,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// entry state: the drawer rests as the compose card with the chat
     /// concealed entirely.
     @State private var drawerDetent: ConversationDrawerDetent = .collapsed
+    /// The drawer's live occupied height (keyboard included), reported by the
+    /// drawer and fed to the desktop scroll surface so its content insets by
+    /// however much the drawer currently covers.
+    @State private var drawerHeight: CGFloat = ConversationDrawerMetrics.collapsedRestingHeight
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -610,11 +622,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     var body: some View {
         layoutRoot
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            handleKeyboardWillShow()
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+            handleKeyboardWillShow(notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             isKeyboardVisible = false
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                keyboardHeight = 0
+            }
         }
         .onChange(of: focusState) { oldFocus, newFocus in
             handleComposerFocusChanged(from: oldFocus, to: newFocus)
@@ -653,6 +668,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             navState.markScreenAppeared()
             viewModel.onConversationAppeared()
             seedInitialPageIfNeeded()
+            seedInitialDrawerDetentIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
             handleSelectAgentDmPageRequest(note)
@@ -840,12 +856,36 @@ private extension ConversationView {
         }
     }
 
+    /// Opens the desktop drawer to the medium (partial) detent when the
+    /// conversation has unread messages, so they are visible on arrival, and
+    /// leaves it collapsed otherwise. Seeded once, only in desktop mode.
+    func seedInitialDrawerDetentIfNeeded() {
+        guard isDesktopActive, !didSeedDrawerDetent else { return }
+        didSeedDrawerDetent = true
+        drawerDetent = viewModel.conversation.isUnread ? .partial : .collapsed
+    }
+
+    /// Drops the composer keyboard: clears the coordinator's focus and resigns
+    /// the first responder directly, since the agent-DM pages own a local focus
+    /// state the coordinator can't reach.
+    func dismissComposerKeyboard() {
+        focusCoordinator.moveFocus(to: nil)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     /// A visible keyboard always owns the full desktop drawer. This also
     /// handles agent-page composers, whose focus state is local to that page.
-    func handleKeyboardWillShow() {
+    /// The docked keyboard height is captured so the desktop scroll surface can
+    /// reserve room for it below the raised compose card.
+    func handleKeyboardWillShow(_ notification: Notification) {
         isKeyboardVisible = true
-        if isDesktopActive && drawerDetent != .full {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+        let frameHeight: CGFloat? = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height
+        let shouldPromoteDrawer: Bool = isDesktopActive && drawerDetent != .full
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            if let frameHeight {
+                keyboardHeight = frameHeight
+            }
+            if shouldPromoteDrawer {
                 drawerDetent = .full
             }
         }
@@ -909,18 +949,25 @@ private extension ConversationView {
     var desktopLayout: some View {
         let drawerColorScheme: ColorScheme = pagerSelectedPage == .agent ? .dark : systemColorScheme
         return ZStack {
-            DesktopLayoutView(inviteConfiguration: desktopInviteConfiguration)
-                .ignoresSafeArea(edges: .bottom)
+            DesktopLayoutView(
+                inviteConfiguration: desktopInviteConfiguration,
+                drawerHeight: drawerHeight
+            )
+            .ignoresSafeArea(edges: .bottom)
             ConversationDrawer(
                 detent: $drawerDetent,
                 extraCollapsedHeight: nagBarExtraHeight,
-                allowsDragging: !isKeyboardVisible,
+                keyboardHeight: keyboardHeight,
+                onDismissKeyboard: dismissComposerKeyboard,
                 content: { expansion in
                     conversationPager
                         .environment(\.desktopTranscriptOpacity, Double(expansion))
                 }
             )
             .environment(\.colorScheme, drawerColorScheme)
+            .onPreferenceChange(ConversationDrawerHeightPreferenceKey.self) { height in
+                drawerHeight = height
+            }
         }
     }
 

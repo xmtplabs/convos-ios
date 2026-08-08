@@ -1,3 +1,4 @@
+import ConvosComposer
 import ConvosCore
 import SwiftUI
 
@@ -15,9 +16,9 @@ import SwiftUI
 /// - Shows an "invite an agent" empty state when the group has no agents,
 ///   opening the agent builder via the conversation view model's existing
 ///   sheet.
-/// - Renders a dropdown header for picking between agents when the group
-///   has two or more, attached outside the `.id` remount boundary so it
-///   survives agent switches.
+/// - Feeds an `AgentSwitcherContext` into the composer when the group has
+///   two or more agents, so the compose bar shows the switcher bubble that
+///   moves between agents.
 struct AgentPageView: View {
     @Environment(\.desktopTranscriptOpacity) private var desktopTranscriptOpacity: Double
     @Bindable var viewModel: ConversationViewModel
@@ -66,12 +67,6 @@ struct AgentPageView: View {
                 emptyStateWithComposer
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if agentInboxIds.count > 1 {
-                agentPickerHeader
-                    .opacity(effectiveTranscriptOpacity)
-            }
-        }
         // AgentDmPageView applies these same modifiers internally for the DM
         // case; hoisting identical values here is idempotent there and brings
         // the empty state and picker header into the same dark treatment.
@@ -95,7 +90,10 @@ struct AgentPageView: View {
             }
     }
 
-    /// The per-agent DM page, keyed so an agent switch remounts it.
+    /// The per-agent DM page, keyed so an agent switch remounts it. The switcher
+    /// context is injected outside the `.id` boundary's effect (the environment
+    /// flows into the remounted page) so the composer's switcher bubble always
+    /// reflects the current agent and the other agents to move to.
     @ViewBuilder
     private func dmContent(agentInboxId: String) -> some View {
         AgentDmPageView(
@@ -109,70 +107,52 @@ struct AgentPageView: View {
             transcriptOpacity: transcriptOpacity
         )
         .id(agentInboxId)
+        .environment(\.agentSwitcher, agentSwitcherContext(for: agentInboxId))
     }
 
-    // MARK: - Agent picker header (2+ agents)
-
-    /// Bridges the optional bound selection to the picker's non-optional
-    /// selection, animating agent switches.
-    private var pickerBinding: Binding<String> {
-        Binding(
-            get: { resolvedAgentInboxId ?? "" },
-            set: { newValue in
-                withAnimation(.easeInOut(duration: Constant.selectionAnimationDuration)) {
-                    selectedAgentInboxId = newValue
-                }
-            }
-        )
-    }
+    // MARK: - Agent switcher (2+ agents)
 
     private func displayName(for inboxId: String) -> String {
         let member = viewModel.conversation.members.first { $0.profile.inboxId == inboxId }
         return member?.profile.displayName ?? "Assistant"
     }
 
-    private var selectedAgentName: String {
-        guard let inboxId = resolvedAgentInboxId else { return "Assistant" }
-        return displayName(for: inboxId)
-    }
-
-    private var agentPickerHeader: some View {
-        Menu {
-            Picker("Agent", selection: pickerBinding) {
-                ForEach(agentInboxIds, id: \.self) { inboxId in
-                    Text(displayName(for: inboxId))
-                        .tag(inboxId)
+    /// The switcher context handed to the composer for the given agent: the
+    /// selected agent's avatar and the other agents to move to. `nil` when the
+    /// conversation has a single agent (nothing to switch between) or the
+    /// selected member is momentarily missing, so the bubble simply isn't drawn.
+    private func agentSwitcherContext(for agentInboxId: String) -> AgentSwitcherContext? {
+        guard agentInboxIds.count > 1,
+              let selected = viewModel.conversation.members.first(where: { $0.profile.inboxId == agentInboxId }) else {
+            return nil
+        }
+        let others: [AgentSwitcherOption] = agentInboxIds
+            .filter { $0 != agentInboxId }
+            .compactMap { inboxId in
+                guard let member = viewModel.conversation.members.first(where: { $0.profile.inboxId == inboxId }) else {
+                    return nil
+                }
+                return AgentSwitcherOption(
+                    inboxId: inboxId,
+                    profile: member.profile,
+                    displayName: displayName(for: inboxId)
+                )
+            }
+        guard !others.isEmpty else { return nil }
+        return AgentSwitcherContext(
+            selectedProfile: selected.profile,
+            selectedVerification: selected.agentVerification,
+            otherAgents: others,
+            onSelect: { newInboxId in
+                withAnimation(.easeInOut(duration: Constant.selectionAnimationDuration)) {
+                    selectedAgentInboxId = newInboxId
                 }
             }
-        } label: {
-            agentPickerLabel
-        }
-        .accessibilityIdentifier("agent-page-agent-picker")
-    }
-
-    private var agentPickerLabel: some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            AgentPageGlyph(
-                diameter: Constant.pickerGlyphDiameter,
-                fontSize: Constant.pickerGlyphFontSize
-            )
-            Text(selectedAgentName)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.colorTextPrimary)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.caption)
-                .foregroundStyle(.colorTextSecondary)
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
-        .glassEffect(.regular.interactive(), in: .capsule)
-        .padding(.top, DesignConstants.Spacing.step2x)
+        )
     }
 
     private enum Constant {
         static let selectionAnimationDuration: TimeInterval = 0.2
-        static let pickerGlyphDiameter: CGFloat = 18.0
-        static let pickerGlyphFontSize: CGFloat = 11.0
     }
 }
 

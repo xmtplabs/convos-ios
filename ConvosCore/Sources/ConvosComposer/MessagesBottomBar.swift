@@ -3,6 +3,7 @@ import ConvosCore
 import ConvosCoreiOS
 import PhotosUI
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 private let maxFileAttachmentSizeBytes: Int = 20 * 1024 * 1024
@@ -121,6 +122,9 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     // Injected by the host on conversations that hold an agent; nil elsewhere,
     // and the bubble simply isn't drawn.
     @Environment(\.agentParticipation) private var agentParticipation: AgentParticipationContext?
+    // Injected by the host on the agent tab of a multi-agent conversation; nil
+    // elsewhere, and the switcher bubble isn't drawn.
+    @Environment(\.agentSwitcher) private var agentSwitcher: AgentSwitcherContext?
 
     public init(
         profile: Profile,
@@ -510,6 +514,45 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         }
     }
 
+    /// The agent switcher: on the agent tab of a multi-agent conversation, the
+    /// selected agent's avatar on the same leading glass circle the
+    /// participation bubble takes on the group tab. Tapping it opens a menu of
+    /// the other agents; picking one swaps the agent DM shown in the tab. Only
+    /// one of this and `participationBubble` is ever set, so they share the slot
+    /// without colliding.
+    @ViewBuilder
+    private var agentSwitcherBubble: some View {
+        if let switcher = agentSwitcher, !switcher.otherAgents.isEmpty {
+            let bubbleSize: CGFloat = DesignConstants.Spacing.step12x
+            // Same split as `participationBubble`: the avatar is drawn inert on
+            // the glass, with an invisible menu hit-target over it, so the
+            // system grows the menu card from the circle rather than lifting the
+            // avatar into the morph.
+            ProfileAvatarView(
+                profile: switcher.selectedProfile,
+                profileImage: nil,
+                useSystemPlaceholder: false,
+                agentVerification: switcher.selectedVerification,
+                size: bubbleSize
+            )
+            .frame(width: bubbleSize, height: bubbleSize)
+            .clipShape(.circle)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .overlay {
+                AgentSwitcherMenuControl(
+                    otherAgents: switcher.otherAgents,
+                    onSelect: switcher.onSelect
+                )
+                .equatable()
+            }
+            .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
+            .transition(.scale.combined(with: .opacity))
+            .accessibilityLabel("Switch agent")
+            .accessibilityHint("Switch to another agent in this conversation")
+            .accessibilityIdentifier("agent-switcher-button")
+        }
+    }
+
     /// The rows the menu draws. The debug injector joins them only where the
     /// host handed one over, which it does behind `isDebugInjectorEnabled` -
     /// hard-locked off in production, so no member ever sees the row.
@@ -582,6 +625,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     private var normalInputView: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
             participationBubble
+            agentSwitcherBubble
 
             MessagesInputView(
                 displayName: $displayName,
@@ -731,6 +775,70 @@ private struct ParticipationMenuControl: View, Equatable {
             Image(systemName: option.iconSystemName)
         }
         .accessibilityIdentifier("participation-\(option.rawValue)-row")
+    }
+}
+
+/// The agent switcher's menu: the other agents as a system menu, each row a
+/// name plus the agent's avatar. `Equatable` for the same reason as
+/// `AttachmentsMenuControl` - the bar's re-renders must not push a rebuilt menu
+/// into one that is already presented.
+private struct AgentSwitcherMenuControl: View, Equatable {
+    let otherAgents: [AgentSwitcherOption]
+    let onSelect: (String) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.otherAgents == rhs.otherAgents
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(otherAgents) { option in
+                row(for: option)
+            }
+        } label: {
+            Color.clear
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+        }
+        .menuOrder(.fixed)
+        .accessibilityLabel("Switch agent")
+        .accessibilityIdentifier("agent-switcher-menu")
+    }
+
+    private func row(for option: AgentSwitcherOption) -> some View {
+        let select = { onSelect(option.inboxId) }
+        return Button(action: select) {
+            Text(option.displayName)
+            rowIcon(for: option)
+        }
+        .accessibilityIdentifier("agent-switcher-\(option.inboxId)-row")
+    }
+
+    /// The row's leading icon: the agent's cached avatar, circle-cropped so it
+    /// reads as an avatar rather than a square photo, or a system glyph while
+    /// the avatar is still loading. A system `Menu` flattens custom views to
+    /// text plus an `Image`, so the avatar has to arrive as a `UIImage`.
+    @ViewBuilder
+    private func rowIcon(for option: AgentSwitcherOption) -> some View {
+        if let icon = Self.circularIcon(for: option.profile) {
+            Image(uiImage: icon)
+                .renderingMode(.original)
+        } else {
+            Image(systemName: "person.crop.circle")
+        }
+    }
+
+    private static func circularIcon(for profile: Profile) -> UIImage? {
+        guard let image = ImageCache.shared.image(for: profile) else { return nil }
+        let side: CGFloat = 30.0
+        let size = CGSize(width: side, height: side)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let cropped = renderer.image { _ in
+            let rect = CGRect(origin: .zero, size: size)
+            UIBezierPath(ovalIn: rect).addClip()
+            image.draw(in: rect)
+        }
+        return cropped.withRenderingMode(.alwaysOriginal)
     }
 }
 

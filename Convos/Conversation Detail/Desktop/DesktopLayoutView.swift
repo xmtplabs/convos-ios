@@ -35,11 +35,17 @@ struct DesktopInviteSectionConfiguration {
 struct DesktopLayoutView: View {
     var webURL: URL?
     var inviteConfiguration: DesktopInviteSectionConfiguration?
+    /// The drawer's live occupied height (keyboard included). The scroll content
+    /// insets by it so the last section always clears whatever the drawer
+    /// currently covers, at any detent and while typing. Defaults to the
+    /// collapsed resting height for the first frame before the drawer reports.
+    var drawerHeight: CGFloat = ConversationDrawerMetrics.collapsedRestingHeight
 
     var body: some View {
         GeometryReader { proxy in
             let availableWebHeight: CGFloat = proxy.size.height - ConversationDrawerMetrics.collapsedRestingHeight - Constant.sectionSpacing
             let webSectionHeight: CGFloat = max(availableWebHeight, Constant.minimumWebSectionHeight)
+            let bottomInset: CGFloat = drawerHeight
             ScrollView {
                 VStack(spacing: Constant.sectionSpacing) {
                     DesktopWebSection(url: webURL, height: webSectionHeight)
@@ -51,7 +57,7 @@ struct DesktopLayoutView: View {
                 }
                 .padding(.horizontal, Constant.horizontalPadding)
             }
-            .contentMargins(.bottom, ConversationDrawerMetrics.collapsedRestingHeight, for: .scrollContent)
+            .contentMargins(.bottom, bottomInset, for: .scrollContent)
             .scrollIndicators(.hidden)
         }
         .background {
