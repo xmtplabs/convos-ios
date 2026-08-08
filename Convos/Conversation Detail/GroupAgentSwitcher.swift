@@ -37,7 +37,8 @@ struct GroupAgentSwitcher: View {
             }
         }
         .padding(.horizontal, DesignConstants.Spacing.step2x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .padding(.top, Constant.togglePaddingTop)
+        .padding(.bottom, Constant.togglePaddingBottom)
         .glassEffect(.regular.interactive(), in: .capsule)
         .accessibilityIdentifier("group-agent-switcher")
     }
@@ -95,5 +96,9 @@ struct GroupAgentSwitcher: View {
         /// based so it lightens the pill inside the dark agent drawer and
         /// tints it in the light group surface.
         static let selectedFillOpacity: Double = 0.08
+        /// Space above and below the switcher capsule, tuning its distance
+        /// from the composer above and the drawer edge below.
+        static let togglePaddingTop: CGFloat = DesignConstants.Spacing.step2x
+        static let togglePaddingBottom: CGFloat = DesignConstants.Spacing.step2x
     }
 }

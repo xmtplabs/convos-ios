@@ -274,7 +274,8 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                     }
                 }
             }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.leading, Constant.composerPaddingLeading)
+            .padding(.trailing, Constant.composerPaddingTrailing)
             .padding(.top, DesignConstants.Spacing.step2x)
             .padding(.bottom, DesignConstants.Spacing.step4x)
         }
@@ -677,6 +678,13 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 40.0))
             .glassEffectID("profileEditor", in: namespace)
             .glassEffectTransition(.matchedGeometry)
+    }
+
+    private enum Constant {
+        /// Leading and trailing inset around the draft box and its surrounding
+        /// buttons (the composer's glass container).
+        static let composerPaddingLeading: CGFloat = DesignConstants.Spacing.step4x
+        static let composerPaddingTrailing: CGFloat = DesignConstants.Spacing.step4x
     }
 }
 

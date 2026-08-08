@@ -194,6 +194,8 @@ struct ConversationDrawer<Content: View>: View {
                 dragGesture(availableHeight: availableHeight),
                 including: allowsDragging ? .all : .none
             )
+            .padding(.top, Constant.grabberPaddingTop)
+            .padding(.bottom, Constant.grabberPaddingBottom)
             .accessibilityIdentifier("conversation-drawer-grabber")
     }
 
@@ -348,6 +350,10 @@ private enum Constant {
     static let grabberWidth: CGFloat = 36.0
     static let grabberHeight: CGFloat = 5.0
     static let grabberHitAreaHeight: CGFloat = 28.0
+    /// Space added above and below the grabber's hit area, insetting the drag
+    /// handle from the drawer's top edge and the composer below it.
+    static let grabberPaddingTop: CGFloat = 0.0
+    static let grabberPaddingBottom: CGFloat = 0.0
     /// Vertical flick speed (points per second) past which the release
     /// commits one detent in the flick's direction.
     static let velocityThreshold: CGFloat = 250.0
