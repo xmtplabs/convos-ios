@@ -218,7 +218,7 @@ struct ComposeFlowView: View {
     private func handleProceed(_ memberInboxIds: Set<String>, _ agentTemplateIds: [String]) {
         guard !memberInboxIds.isEmpty || !agentTemplateIds.isEmpty else { return }
         discardUnenteredInviteConversation()
-        pushedConversation = NewConversationViewModel(
+        let viewModel = NewConversationViewModel(
             session: conversationsViewModel.session,
             mode: .newConversationWithMembers(
                 initialMemberInboxIds: Array(memberInboxIds),
@@ -226,5 +226,14 @@ struct ComposeFlowView: View {
             ),
             coreActions: conversationsViewModel.coreActions
         )
+        // Desktop mode never shows a conversation inside this compose sheet:
+        // route the new group onto the Chats root stack once it's ready and
+        // tear the flow down instead of pushing it here.
+        if FeatureFlags.shared.isDesktopModeEnabled {
+            conversationsViewModel.routeNewConversationToRootOnReady(viewModel)
+            conversationsViewModel.presentingComposeFlow = false
+            return
+        }
+        pushedConversation = viewModel
     }
 }

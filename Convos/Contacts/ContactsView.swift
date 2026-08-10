@@ -10,6 +10,10 @@ struct ContactsView: View {
     /// Retains the presented new-conversation VM so its empty-invite teardown
     /// can run on sheet dismiss (`presentingNewConvo` is already nil by then).
     @State private var dismissedNewConvo: NewConversationViewModel?
+    /// Retains a creation VM driving to `.ready` off-screen in desktop mode, so
+    /// its self-started create task isn't cancelled before the conversation lands
+    /// on the Chats root stack (see `routeNewConversationToRootIfDesktop`).
+    @State private var routingConversationToRoot: NewConversationViewModel?
     /// Claimed warm-cache conversation (mode `.newConversation`, which already
     /// has an invite) backing the "Invite a new contact" top-three. Minted on
     /// demand when the user taps "Show an invite code" / "Send an invite" --
@@ -477,6 +481,26 @@ struct ContactsView: View {
         }
     }
 
+    /// Desktop mode routes a conversation created from the contacts picker onto
+    /// the Chats root stack (via the shell, through `.openConversationRequested`)
+    /// once it reaches `.ready`, instead of showing it in a sheet on the Contacts
+    /// tab; the shell reset switches to Chats, so no local dismiss is needed.
+    /// Retains the minted VM off-screen so its self-started create task survives.
+    /// Returns true when it took over routing (desktop).
+    private func routeNewConversationToRootIfDesktop(_ viewModel: NewConversationViewModel) -> Bool {
+        guard FeatureFlags.shared.isDesktopModeEnabled else { return false }
+        routingConversationToRoot = viewModel
+        viewModel.onReachedReady = { [weak viewModel] in
+            guard let conversationId = viewModel?.conversationViewModel?.conversation.id else { return }
+            NotificationCenter.default.post(
+                name: .openConversationRequested,
+                object: nil,
+                userInfo: ["conversationId": conversationId]
+            )
+        }
+        return true
+    }
+
     /// Runs the empty-invite teardown for a dismissed new-conversation sheet so
     /// a "Show an invite code" convo the user closed without engaging doesn't
     /// linger in the chats list. A no-op for engaged convos -- messages,
@@ -564,6 +588,7 @@ struct ContactsView: View {
             ),
             coreActions: coreActions
         )
+        if routeNewConversationToRootIfDesktop(viewModel) { return }
         viewModel.onScanResolvedConversation = handleScanResolvedConversation
         dismissedNewConvo = viewModel
         presentingNewConvo = viewModel

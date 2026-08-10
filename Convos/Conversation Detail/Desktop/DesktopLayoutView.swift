@@ -33,6 +33,8 @@ struct DesktopInviteSectionConfiguration {
 }
 
 struct DesktopLayoutView: View {
+    /// Keys the web section's persisted cover snapshot.
+    var conversationId: String = ""
     var webURL: URL?
     var inviteConfiguration: DesktopInviteSectionConfiguration?
     /// The drawer's live occupied height (keyboard included). The scroll content
@@ -48,14 +50,19 @@ struct DesktopLayoutView: View {
             let bottomInset: CGFloat = drawerHeight
             ScrollView {
                 VStack(spacing: Constant.sectionSpacing) {
-                    DesktopWebSection(url: webURL, height: webSectionHeight)
-                    if let inviteConfiguration {
-                        DesktopInviteSection(configuration: inviteConfiguration)
+                    // The web section spans the full width with no inset or
+                    // rounded corners; the remaining cards keep the horizontal
+                    // margin.
+                    DesktopWebSection(conversationId: conversationId, url: webURL, height: webSectionHeight)
+                    VStack(spacing: Constant.sectionSpacing) {
+                        if let inviteConfiguration {
+                            DesktopInviteSection(configuration: inviteConfiguration)
+                        }
+                        DesktopPlaceholderSection(title: "Activity")
+                        DesktopPlaceholderSection(title: "Files")
                     }
-                    DesktopPlaceholderSection(title: "Activity")
-                    DesktopPlaceholderSection(title: "Files")
+                    .padding(.horizontal, Constant.horizontalPadding)
                 }
-                .padding(.horizontal, Constant.horizontalPadding)
             }
             .contentMargins(.bottom, bottomInset, for: .scrollContent)
             .scrollIndicators(.hidden)
@@ -73,21 +80,19 @@ struct DesktopLayoutView: View {
     }
 }
 
-/// The hero web card. Scrolling inside the web view is disabled so the outer
+/// The full-bleed web hero. It spans the layout edge to edge with no border or
+/// corner radius. Scrolling inside the web view is disabled so the outer
 /// desktop scroll owns the vertical gesture.
 private struct DesktopWebSection: View {
+    let conversationId: String
     let url: URL?
     let height: CGFloat
 
     var body: some View {
-        DesktopWebView(url: url, isScrollEnabled: false)
+        DesktopWebSurface(conversationId: conversationId, url: url, isScrollEnabled: false)
             .frame(height: height)
-            .clipShape(RoundedRectangle(cornerRadius: Constant.cornerRadius))
+            .clipped()
             .accessibilityIdentifier("desktop-web-section")
-    }
-
-    private enum Constant {
-        static let cornerRadius: CGFloat = DesignConstants.CornerRadius.mediumLarge
     }
 }
 

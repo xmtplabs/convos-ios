@@ -298,6 +298,13 @@ struct MainTabView: View {
                 tabRootNavState.markScreenAppeared()
                 navStateForTab(activeTab).markScreenAppeared()
                 conversationsViewModel.bringChatsTabToFront = { activeTab = .chats }
+                conversationsViewModel.prepareShellForRootConversation = {
+                    activeTab = .chats
+                    contactsPath = []
+                    thingsPushedItems = []
+                    thingsAgentContactMember = nil
+                    presentingAppSettings = false
+                }
                 conversationsViewModel.isChatsTabActive = activeTab == .chats
             }
             .modifier(metricsObserversModifier)

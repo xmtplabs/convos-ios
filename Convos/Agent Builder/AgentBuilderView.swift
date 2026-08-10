@@ -381,6 +381,35 @@ struct AgentBuilderView: View {
                         dismiss()
                         return
                     }
+                    // Desktop routes the freshly created agent conversation onto
+                    // the Chats root stack instead of morphing it in place inside
+                    // the sheet. The draft group is created up front, so it is
+                    // ready by Make; if Make somehow lands before `.ready`, fall
+                    // through to the in-sheet morph (which waits for the real id)
+                    // rather than dismissing to a not-yet-settled draft id.
+                    if mode == .sheet,
+                       FeatureFlags.shared.isDesktopModeEnabled,
+                       case .ready(let readyResult) = viewModel.newConversationViewModel.conversationState {
+                        let convoId = readyResult.conversationId
+                        // `commit()` promotes the hidden draft row to visible from
+                        // a `[weak self]` task after a fade delay; that task dies
+                        // when the shell tears the builder down on
+                        // `.openConversationRequested`. Retain the inner VM and
+                        // drive the visibility commit here so the routed
+                        // conversation actually surfaces in the list.
+                        // `commitConversationVisibility()` is safe to run alongside
+                        // `commit()`'s own attempt.
+                        let newConversationViewModel = viewModel.newConversationViewModel
+                        viewModel.commit(focusCoordinator: focusCoordinator)
+                        Task { await newConversationViewModel.commitConversationVisibility() }
+                        NotificationCenter.default.post(
+                            name: .openConversationRequested,
+                            object: nil,
+                            userInfo: ["conversationId": convoId]
+                        )
+                        dismiss()
+                        return
+                    }
                     // Dismiss the keyboard as the composer collapses. The agent
                     // still has to build and join before anything can be sent, so
                     // landing on the conversation with the input focused isn't

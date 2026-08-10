@@ -682,9 +682,11 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
 
     private enum Constant {
         /// Leading and trailing inset around the draft box and its surrounding
-        /// buttons (the composer's glass container).
-        static let composerPaddingLeading: CGFloat = DesignConstants.Spacing.step4x
-        static let composerPaddingTrailing: CGFloat = DesignConstants.Spacing.step4x
+        /// buttons (the composer's glass container). Computed rather than stored
+        /// because `MessagesBottomBar` is generic and Swift disallows static
+        /// stored properties on a type nested in a generic context.
+        static var composerPaddingLeading: CGFloat { DesignConstants.Spacing.step4x }
+        static var composerPaddingTrailing: CGFloat { DesignConstants.Spacing.step4x }
     }
 }
 

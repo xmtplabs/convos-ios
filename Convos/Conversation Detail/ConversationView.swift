@@ -950,6 +950,7 @@ private extension ConversationView {
         let drawerColorScheme: ColorScheme = pagerSelectedPage == .agent ? .dark : systemColorScheme
         return ZStack {
             DesktopLayoutView(
+                conversationId: viewModel.conversation.id,
                 inviteConfiguration: desktopInviteConfiguration,
                 drawerHeight: drawerHeight
             )

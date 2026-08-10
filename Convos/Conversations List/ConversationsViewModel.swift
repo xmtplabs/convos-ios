@@ -359,6 +359,13 @@ final class ConversationsViewModel {
     /// load. Mirrors `pendingScanNavigationConversationId`.
     @ObservationIgnored
     private var pendingConversationTapId: String?
+    /// Retains creation `NewConversationViewModel`s that are driving to `.ready`
+    /// off-screen in desktop mode (see `routeNewConversationToRootOnReady`). The
+    /// create task self-starts on construction, so without a strong reference the
+    /// VM would deallocate and cancel it before the conversation lands on the root
+    /// stack. Each entry is released once it reaches `.ready`.
+    @ObservationIgnored
+    private var creatingRootConversationViewModels: [NewConversationViewModel] = []
     /// A connection-grant deep link that arrived before its conversation was
     /// in the list (cold launch races the initial load). Resolved once the
     /// conversation appears; mirrors `pendingScanNavigationConversationId`.
@@ -392,6 +399,14 @@ final class ConversationsViewModel {
     /// switch has committed (see `isChatsTabActive`).
     @ObservationIgnored
     var bringChatsTabToFront: (() -> Void)?
+
+    /// Asks the tab shell to reset itself to the bare Chats root before a
+    /// desktop-mode conversation lands on the root stack: switch to the Chats
+    /// tab and clear every shell-owned surface under the conversation (Contacts
+    /// / Things stacks, app-settings and contact sheets). Registered by
+    /// `MainTabView`; used only by `openConversationInRootStack`.
+    @ObservationIgnored
+    var prepareShellForRootConversation: (() -> Void)?
 
     private var horizontalSizeClass: UserInterfaceSizeClass?
 
@@ -520,11 +535,12 @@ final class ConversationsViewModel {
         let contacts = (try? session.messagingServiceSync().contactsRepository().fetchAll()) ?? []
         let pickable = ContactsPickerViewModel.pickableContacts(contacts)
         guard !pickable.isEmpty else {
-            newConversationViewModel = NewConversationViewModel(
+            let viewModel = NewConversationViewModel(
                 session: session,
                 mode: .newConversation,
                 coreActions: coreActions
             )
+            presentOrRouteNewConversation(viewModel)
             return
         }
         presentingComposeFlow = true
@@ -582,13 +598,14 @@ final class ConversationsViewModel {
     /// instance of the given agent template into it. Entry point for the
     /// `convos://template/<id>` deeplink.
     private func startConversation(withAgentTemplateId templateId: String) {
-        newConversationViewModel = NewConversationViewModel(
+        let viewModel = NewConversationViewModel(
             session: session,
             // Deep link knows only the template id; the optimistic identity is
             // resolved asynchronously inside NewConversationViewModel.
             mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: nil),
             coreActions: coreActions
         )
+        presentOrRouteNewConversation(viewModel)
     }
 
     func deleteAllData() {
@@ -691,13 +708,11 @@ final class ConversationsViewModel {
             .sink { [weak self] notification in
                 guard let self,
                       let conversationId = notification.userInfo?["conversationId"] as? String else { return }
-                // Reuse the notification-tap routing + park-and-replay so a
-                // freshly forked group that hasn't reached the list observation
-                // yet is opened once it streams in. Setting the selection to a
-                // new id swaps the pushed ConversationView in place.
-                if !self.routeToTappedConversation(conversationId) {
-                    self.pendingConversationTapId = conversationId
-                }
+                // Land the conversation on the Chats root stack, resetting the
+                // shell out from under it. The route + park-and-replay opens a
+                // freshly forked group once it streams in; setting the selection
+                // to a new id swaps the pushed ConversationView in place.
+                self.openConversationInRootStack(conversationId)
             }
             .store(in: &cancellables)
 
@@ -1716,6 +1731,61 @@ extension ConversationsViewModel {
         guard let pendingId = pendingConversationTapId else { return }
         if routeToTappedConversation(pendingId) {
             pendingConversationTapId = nil
+        }
+    }
+}
+
+// MARK: - Desktop root-stack routing
+
+extension ConversationsViewModel {
+    /// Desktop mode: always land a conversation on the Chats tab's root stack
+    /// with nothing under it but the list. Dismisses every creation / settings
+    /// surface, resets the shell to the Chats tab, then selects the conversation
+    /// (parked and replayed if its row hasn't streamed into the list yet).
+    ///
+    /// Deferred one hop (like `navigateToScannedConversation`) so a sheet
+    /// dismissal commits before the selection push mounts -- dismissing a sheet
+    /// and swapping the underlying selection in the same tick can drop the push.
+    func openConversationInRootStack(_ conversationId: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // View-model-owned modals.
+            newConversationViewModel = nil
+            presentingComposeFlow = false
+            agentBuilderViewModel = nil
+            // Shell-owned tab, tab stacks, and sheets.
+            prepareShellForRootConversation?()
+            // Select on the Chats stack; park if the row isn't loaded yet.
+            if !routeToTappedConversation(conversationId) {
+                pendingConversationTapId = conversationId
+            }
+        }
+    }
+
+    /// Presents a freshly built creation `NewConversationViewModel` as the
+    /// shell's new-conversation sheet, or -- in desktop mode -- routes it onto
+    /// the Chats root stack once ready (see `routeNewConversationToRootOnReady`).
+    func presentOrRouteNewConversation(_ viewModel: NewConversationViewModel) {
+        if FeatureFlags.shared.isDesktopModeEnabled {
+            routeNewConversationToRootOnReady(viewModel)
+        } else {
+            newConversationViewModel = viewModel
+        }
+    }
+
+    /// Wires a freshly built creation `NewConversationViewModel` so that, the
+    /// moment its conversation reaches `.ready`, it is routed onto the Chats root
+    /// stack (dismissing the creation sheet that hosts it) instead of being shown
+    /// inside that sheet. Desktop-mode only; callers keep their existing sheet
+    /// presentation for the non-desktop path. Leaves `onReachedReady` untouched
+    /// for callers that already use it (e.g. AgentBuilder).
+    func routeNewConversationToRootOnReady(_ viewModel: NewConversationViewModel) {
+        creatingRootConversationViewModels.append(viewModel)
+        viewModel.onReachedReady = { [weak self, weak viewModel] in
+            guard let self, let viewModel,
+                  let conversationId = viewModel.conversationViewModel?.conversation.id else { return }
+            creatingRootConversationViewModels.removeAll { $0 === viewModel }
+            openConversationInRootStack(conversationId)
         }
     }
 }

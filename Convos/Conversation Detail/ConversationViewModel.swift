@@ -931,6 +931,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
     }
+    /// Retains a join/invite conversation minted from inside this chat while it
+    /// resolves headlessly, so desktop mode can route it onto the Chats root
+    /// stack once ready instead of presenting it in a sheet over the drawer.
+    /// See `routeInviteConversationToRootIfDesktop`.
+    @ObservationIgnored
+    private var routingConversationToRoot: NewConversationViewModel?
     /// Drives the contact detail sheet opened by tapping a shared agent's
     /// message card when no agent running that template is a member of this
     /// conversation. Carries a placeholder `Contact` built from the share
@@ -3654,11 +3660,33 @@ extension ConversationViewModel {
             presentingExplodedInviteInfo = true
             return
         }
-        presentingNewConversationForInvite = NewConversationViewModel(
+        let viewModel = NewConversationViewModel(
             session: session,
             mode: .joinInvite(code: invite.inviteSlug),
             coreActions: coreActions
         )
+        if routeInviteConversationToRootIfDesktop(viewModel) { return }
+        presentingNewConversationForInvite = viewModel
+    }
+
+    /// Desktop mode routes a conversation joined from inside this chat (a tapped
+    /// invite card or an in-conversation scan) onto the Chats root stack instead
+    /// of presenting it in a sheet over the drawer. The joined id isn't known
+    /// until the join reaches `.ready`, so the minted view model is retained
+    /// off-screen and its settled id posted once ready. Returns true when it
+    /// took over routing (desktop); false when the caller should fall back to
+    /// presenting the sheet itself.
+    private func routeInviteConversationToRootIfDesktop(_ viewModel: NewConversationViewModel) -> Bool {
+        guard FeatureFlags.shared.isDesktopModeEnabled else { return false }
+        routingConversationToRoot = viewModel
+        viewModel.onReadyConversation = { conversationId in
+            NotificationCenter.default.post(
+                name: .openConversationRequested,
+                object: nil,
+                userInfo: ["conversationId": conversationId]
+            )
+        }
+        return true
     }
 
     /// Routes a code decoded on the in-conversation Scan tab. An agent
@@ -3712,11 +3740,13 @@ extension ConversationViewModel {
             requestAgentJoin(templateId: templateId)
             return
         }
-        presentingNewConversationForInvite = NewConversationViewModel(
+        let viewModel = NewConversationViewModel(
             session: session,
             mode: .joinInvite(code: code),
             coreActions: coreActions
         )
+        if routeInviteConversationToRootIfDesktop(viewModel) { return }
+        presentingNewConversationForInvite = viewModel
     }
 
     /// Resolves a shared agent's link to its public profile for the message

@@ -266,6 +266,13 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// being added to. The presenter dismisses the scanner and navigates into the
     /// conversation. The id is settled (the conversation has reached `.ready`).
     var onScanResolvedConversation: ((String) -> Void)?
+    /// Fires once with the settled conversation id when the flow first reaches
+    /// `.ready`. Unlike `onReachedReady` (which carries no id and, for a join,
+    /// can read a stale draft id off the inner VM mid-swap), this passes the id
+    /// straight off the ready result -- so a joined conversation, whose id
+    /// differs from the draft the flow started on, routes to the right place.
+    /// Desktop uses it to push the conversation onto the Chats root stack.
+    var onReadyConversation: ((String) -> Void)?
     private var cachedInviteCode: String?
     private var consecutiveFailureCount: Int = 0
 
@@ -290,6 +297,10 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// agent join twice.
     @ObservationIgnored
     private var didTriggerAgentJoin: Bool = false
+    /// One-shot guard so a re-emitted `.ready` state doesn't fire
+    /// `onReadyConversation` more than once.
+    @ObservationIgnored
+    private var didFireReadyConversation: Bool = false
     /// Set for `.newConversationWithTemplate`. Drives the optimistic
     /// pending-agent identity painted on every inner `conversationViewModel`
     /// (indicator + contact card) before the real agent joins.
@@ -1329,6 +1340,11 @@ extension NewConversationViewModel {
         case .ready(let result):
             consecutiveFailureCount = 0
             conversationViewModel?.startOnboarding()
+
+            if !didFireReadyConversation {
+                didFireReadyConversation = true
+                onReadyConversation?(result.conversationId)
+            }
 
             if result.origin == .joined {
                 conversationViewModel?.inviteWasAccepted()

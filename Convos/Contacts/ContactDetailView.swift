@@ -90,6 +90,11 @@ struct ContactDetailView: View {
     /// Existing conversation pushed onto the host navigation stack when the
     /// user taps a row in the "Convos with you" sections.
     @State private var pushedConversation: NewConversationViewModel?
+    /// Retains a creation `NewConversationViewModel` driving to `.ready`
+    /// off-screen in desktop mode, so its self-started create task isn't
+    /// cancelled before the conversation lands on the Chats root stack (see
+    /// `routeNewConversationToRootIfDesktop`).
+    @State private var routingConversationToRoot: NewConversationViewModel?
     @State private var presentingAgentShareSheet: Bool = false
     /// Conversations already containing this agent template, split by who
     /// added the agent. Loaded on appear for template-backed agents; drives
@@ -497,6 +502,42 @@ struct ContactDetailView: View {
 
     // MARK: - Actions
 
+    /// Desktop mode routes every conversation opened from a contact card onto
+    /// the Chats root stack (via the shell, through `.openConversationRequested`)
+    /// instead of pushing it here or presenting it in a sheet, then dismisses the
+    /// card. Returns true when it took over routing (desktop); false when the
+    /// caller should fall back to its own push / sheet.
+    private func routeExistingConversationToRootIfDesktop(_ conversationId: String) -> Bool {
+        guard FeatureFlags.shared.isDesktopModeEnabled else { return false }
+        NotificationCenter.default.post(
+            name: .openConversationRequested,
+            object: nil,
+            userInfo: ["conversationId": conversationId]
+        )
+        dismiss()
+        return true
+    }
+
+    /// Desktop-mode sibling of `routeExistingConversationToRootIfDesktop` for
+    /// creation flows, where the id isn't known until the conversation reaches
+    /// `.ready`. Retains the minted VM off-screen and posts its id (then
+    /// dismisses the card) once ready.
+    private func routeNewConversationToRootIfDesktop(_ viewModel: NewConversationViewModel) -> Bool {
+        guard FeatureFlags.shared.isDesktopModeEnabled else { return false }
+        routingConversationToRoot = viewModel
+        let dismiss = dismiss
+        viewModel.onReachedReady = { [weak viewModel] in
+            guard let conversationId = viewModel?.conversationViewModel?.conversation.id else { return }
+            NotificationCenter.default.post(
+                name: .openConversationRequested,
+                object: nil,
+                userInfo: ["conversationId": conversationId]
+            )
+            dismiss()
+        }
+        return true
+    }
+
     /// Agent-DM prototype gate: a verified, non-template agent viewed from
     /// inside a shared conversation can be DM'd directly. Non-production
     /// only while the runtime side of agent DMs is in development.
@@ -523,6 +564,7 @@ struct ContactDetailView: View {
                     return
                 }
                 await MainActor.run {
+                    if routeExistingConversationToRootIfDesktop(conversation.id) { return }
                     presentingNewConvo = NewConversationViewModel(
                         session: session,
                         mode: .existingConversation(conversationId: conversation.id),
@@ -584,6 +626,7 @@ struct ContactDetailView: View {
     /// regression.
     private func routeToChat() {
         if let session, let existing = findExistingOneToOne(session: session) {
+            if routeExistingConversationToRootIfDesktop(existing.id) { return }
             presentingNewConvo = NewConversationViewModel(
                 session: session,
                 mode: .existingConversation(conversationId: existing.id),
@@ -687,7 +730,7 @@ struct ContactDetailView: View {
     /// the picker.
     private func handlePickerConfirm(_ memberInboxIds: Set<String>, _ agentTemplateIds: [String]) {
         guard !memberInboxIds.isEmpty || !agentTemplateIds.isEmpty, let session else { return }
-        presentingNewConvo = NewConversationViewModel(
+        let viewModel = NewConversationViewModel(
             session: session,
             mode: .newConversationWithMembers(
                 initialMemberInboxIds: Array(memberInboxIds),
@@ -695,6 +738,8 @@ struct ContactDetailView: View {
             ),
             coreActions: coreActions
         )
+        if routeNewConversationToRootIfDesktop(viewModel) { return }
+        presentingNewConvo = viewModel
     }
 
     /// Chat action for a template-backed agent: spawn a fresh instance of
@@ -725,11 +770,13 @@ struct ContactDetailView: View {
             descriptionText: agentDescription,
             avatarURL: contact.avatarURL
         )
-        presentingNewConvo = NewConversationViewModel(
+        let viewModel = NewConversationViewModel(
             session: session,
             mode: .newConversationWithTemplate(templateId: templateId, optimisticIdentity: optimisticIdentity),
             coreActions: coreActions
         )
+        if routeNewConversationToRootIfDesktop(viewModel) { return }
+        presentingNewConvo = viewModel
     }
 
     /// Opens an existing conversation from the "Convos with you" sections by
@@ -737,6 +784,7 @@ struct ContactDetailView: View {
     /// view in a `NavigationStack`).
     private func handleSelectAgentTemplateConversation(_ conversation: Conversation) {
         guard let session else { return }
+        if routeExistingConversationToRootIfDesktop(conversation.id) { return }
         pushedConversation = NewConversationViewModel(
             session: session,
             mode: .existingConversation(conversationId: conversation.id),
