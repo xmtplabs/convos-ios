@@ -16,6 +16,10 @@ final class ConversationsViewController: UIViewController {
         var filterEmptyMessage: String
         var horizontalSizeClass: UserInterfaceSizeClass?
         var hasMoreConversations: Bool
+        /// False while the boot catch-up burst is still landing. Snapshots
+        /// apply via `applySnapshotUsingReloadData` (no diffing, no
+        /// animation) until this flips true.
+        var isBootSettled: Bool
 
         static let empty: State = State(
             pinnedConversations: [],
@@ -24,7 +28,8 @@ final class ConversationsViewController: UIViewController {
             isFilteredResultEmpty: false,
             filterEmptyMessage: "",
             horizontalSizeClass: nil,
-            hasMoreConversations: false
+            hasMoreConversations: false,
+            isBootSettled: false
         )
     }
 
@@ -78,6 +83,7 @@ final class ConversationsViewController: UIViewController {
     }()
     private lazy var dataSource: UICollectionViewDiffableDataSource<ConversationsSection, Item> = makeDataSource()
     private var currentState: State = .empty
+    private var hasAppliedInitialSnapshot: Bool = false
 
     /// Inbox → user-contact override applied to auto-generated cell
     /// titles and avatar substitution. Set by the SwiftUI parent
@@ -159,8 +165,12 @@ final class ConversationsViewController: UIViewController {
             collectionView.setCollectionViewLayout(createLayout(), animated: false)
         }
 
-        let changedIds = changedConversationIds(old: oldState, new: state, selectionChanged: selectionChanged)
-        applySnapshot(animated: !pinnedMembershipChanged, changedIds: changedIds)
+        // Pre-settle applies go through the reload path, which re-dequeues
+        // every visible cell, so computing per-row changes would be wasted work.
+        let changedIds = state.isBootSettled
+            ? changedConversationIds(old: oldState, new: state, selectionChanged: selectionChanged)
+            : []
+        applySnapshot(animated: state.isBootSettled && !pinnedMembershipChanged, changedIds: changedIds)
     }
 
     private func changedConversationIds(old: State, new: State, selectionChanged: Bool) -> Set<String> {
@@ -456,23 +466,31 @@ final class ConversationsViewController: UIViewController {
             snapshot.appendItems(listItems, toSection: .list)
         }
 
-        dataSource.apply(snapshot, animatingDifferences: animated)
+        if currentState.isBootSettled && hasAppliedInitialSnapshot {
+            dataSource.apply(snapshot, animatingDifferences: animated)
 
-        if !changedIds.isEmpty {
-            var applied = dataSource.snapshot()
-            let itemsToReconfigure = applied.itemIdentifiers.filter { item in
-                switch item {
-                case .pinned(let c), .conversation(let c):
-                    return changedIds.contains(c.id)
-                case .filteredEmpty:
-                    return false
+            if !changedIds.isEmpty {
+                var applied = dataSource.snapshot()
+                let itemsToReconfigure = applied.itemIdentifiers.filter { item in
+                    switch item {
+                    case .pinned(let c), .conversation(let c):
+                        return changedIds.contains(c.id)
+                    case .filteredEmpty:
+                        return false
+                    }
+                }
+                if !itemsToReconfigure.isEmpty {
+                    applied.reconfigureItems(itemsToReconfigure)
+                    dataSource.apply(applied, animatingDifferences: false)
                 }
             }
-            if !itemsToReconfigure.isEmpty {
-                applied.reconfigureItems(itemsToReconfigure)
-                dataSource.apply(applied, animatingDifferences: false)
-            }
+        } else {
+            // Boot burst (or the very first apply): skip diffing entirely.
+            // The reload re-dequeues every visible cell, so the reconfigure
+            // pass above has no stale-cell case to fix.
+            dataSource.applySnapshotUsingReloadData(snapshot)
         }
+        hasAppliedInitialSnapshot = true
 
         updateSelection()
     }

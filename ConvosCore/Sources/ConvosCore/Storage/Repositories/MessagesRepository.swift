@@ -82,6 +82,13 @@ class MessagesRepository: MessagesRepositoryProtocol {
     private let conversationIdSubject: CurrentValueSubject<String, Never>
     private var conversationIdCancellable: AnyCancellable?
 
+    /// Coalesces observation re-emissions during write bursts (catch-up
+    /// sync) so the transcript reprocesses at most once per interval
+    /// instead of once per landed message. Leading-edge, so a message
+    /// sent into a quiet conversation still echoes immediately. Pass 0
+    /// to disable (tests that need synchronous emissions).
+    private let throttleInterval: TimeInterval
+
     // Pagination properties
     private let pageSize: Int
     private let currentLimitSubject: CurrentValueSubject<Int, Never>
@@ -146,13 +153,15 @@ class MessagesRepository: MessagesRepositoryProtocol {
         dbReader: any DatabaseReader,
         conversationId: String,
         currentInboxId: String,
-        pageSize: Int = 50
+        pageSize: Int = 50,
+        throttleInterval: TimeInterval = 0.3
     ) {
         self.dbReader = dbReader
         self.conversationIdSubject = .init(conversationId)
         self.currentInboxId = currentInboxId
         self.pageSize = pageSize
         self.currentLimitSubject = .init(pageSize)
+        self.throttleInterval = throttleInterval
     }
 
     init(
@@ -160,13 +169,15 @@ class MessagesRepository: MessagesRepositoryProtocol {
         conversationId: String,
         currentInboxId: String,
         conversationIdPublisher: AnyPublisher<String, Never>,
-        pageSize: Int = 25
+        pageSize: Int = 25,
+        throttleInterval: TimeInterval = 0.3
     ) {
         self.dbReader = dbReader
         self.conversationIdSubject = .init(conversationId)
         self.currentInboxId = currentInboxId
         self.pageSize = pageSize
         self.currentLimitSubject = .init(pageSize)
+        self.throttleInterval = throttleInterval
         conversationIdCancellable = conversationIdPublisher
             .dropFirst()
             .sink { [weak self] conversationId in
@@ -351,7 +362,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
     lazy var conversationMessagesResultPublisher: AnyPublisher<ConversationMessagesResult, Never> = {
         let dbReader = dbReader
         let stateQueue = stateQueue
-        return Publishers.CombineLatest(
+        let base: AnyPublisher<ConversationMessagesResult, Never> = Publishers.CombineLatest(
             conversationIdSubject.removeDuplicates(),
             currentLimitSubject.removeDuplicates()
         )
@@ -421,6 +432,10 @@ class MessagesRepository: MessagesRepositoryProtocol {
         }
         .switchToLatest()
         .eraseToAnyPublisher()
+        guard throttleInterval > 0 else { return base }
+        return base
+            .throttle(for: .seconds(throttleInterval), scheduler: DispatchQueue.main, latest: true)
+            .eraseToAnyPublisher()
     }()
 
     static func fetchMemberProfiles(_ db: Database, conversationId: String) throws -> [String: MemberProfileInfo] {
