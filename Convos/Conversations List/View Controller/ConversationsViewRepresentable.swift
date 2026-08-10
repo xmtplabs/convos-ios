@@ -10,6 +10,10 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
     let isFilteredResultEmpty: Bool
     let filterEmptyMessage: String
     var hasMoreConversations: Bool = false
+    /// False while the boot catch-up burst is still landing; the view
+    /// controller applies snapshots without diffing or animation until
+    /// this flips. See `BootSettlementMonitor`.
+    var isBootSettled: Bool = true
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.memberContactOverride) private var memberContactOverride: @Sendable (String) -> Contact?
 
@@ -41,7 +45,8 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
             isFilteredResultEmpty: isFilteredResultEmpty,
             filterEmptyMessage: filterEmptyMessage,
             horizontalSizeClass: horizontalSizeClass,
-            hasMoreConversations: hasMoreConversations
+            hasMoreConversations: hasMoreConversations,
+            isBootSettled: isBootSettled
         )
         viewController.memberContactOverride = memberContactOverride
         viewController.updateState(state)

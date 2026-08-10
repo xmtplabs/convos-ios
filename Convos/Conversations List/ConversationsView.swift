@@ -179,6 +179,7 @@ struct ConversationsView: View {
             isFilteredResultEmpty: viewModel.isFilteredResultEmpty,
             filterEmptyMessage: viewModel.activeFilter.emptyStateMessage,
             hasMoreConversations: viewModel.hasMoreConversations,
+            isBootSettled: viewModel.bootSettlement.isSettled,
             onSelectConversation: { conversation in
                 viewModel.select(conversation)
             },

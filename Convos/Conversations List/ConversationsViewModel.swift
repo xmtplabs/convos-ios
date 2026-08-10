@@ -152,6 +152,7 @@ final class ConversationsViewModel {
     @ObservationIgnored
     private let incomingPairingObservers: PairingNotificationObservers = .init()
     let staleDeviceObserver: StaleDeviceObserver = .init()
+    let bootSettlement: BootSettlementMonitor = .init()
 
     var newConversationViewModel: NewConversationViewModel? {
         didSet {
@@ -413,8 +414,11 @@ final class ConversationsViewModel {
         // revoked from the network. Done asynchronously because
         // messagingService() may need to construct the service.
         let stale = staleDeviceObserver
+        let settlement = bootSettlement
         Task { @MainActor in
-            stale.bind(to: session.messagingService().sessionStateManager)
+            let stateManager = session.messagingService().sessionStateManager
+            stale.bind(to: stateManager)
+            settlement.bind(to: stateManager)
         }
         self.conversationsCountRepository = session.conversationsCountRepo(
             for: .allowed,
@@ -763,7 +767,7 @@ final class ConversationsViewModel {
         if let inPage = conversationInPage(id: id) {
             return inPage
         }
-        return (try? conversationsPager.fetchConversation(id: id)) ?? nil
+        return try? conversationsPager.fetchConversation(id: id)
     }
 
     /// Selects a conversation by id, caching an out-of-window row first so
@@ -789,6 +793,39 @@ final class ConversationsViewModel {
         conversationsPager.loadMore()
     }
 
+    /// Ends the selected host conversation's invite session on a real
+    /// pop-to-home and mirrors the flipped flag into the in-memory list.
+    /// The persist is async (GRDB); without the mirror, an instant re-entry
+    /// builds the next detail view model from the stale list row and the big
+    /// inline Invite/Scan card flashes until the write round-trips.
+    func endHostedInviteSessionOnPop() {
+        guard let detailViewModel = selectedConversationViewModel else { return }
+        detailViewModel.markInviteSessionEndedIfHosting()
+        let endedConversation = detailViewModel.conversation
+        guard endedConversation.leftHostedInviteSession,
+              let index = conversations.firstIndex(where: { $0.id == endedConversation.id }) else { return }
+        conversations[index] = endedConversation
+    }
+
+    private func markConversationAsRead(_ conversation: Conversation) {
+        let conversationId = conversation.id
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let messagingService = session.messagingService()
+                let writer = messagingService.conversationLocalStateWriter()
+                try await writer.setUnread(false, for: conversationId)
+            } catch {
+                Log.warning("Failed marking conversation as read: \(error.localizedDescription)")
+            }
+        }
+    }
+}
+
+// MARK: - Conversation Actions
+
+extension ConversationsViewModel {
     func toggleMute(conversation: Conversation) {
         let conversationId = conversation.id
         let currentlyMuted = conversation.isMuted
@@ -837,35 +874,6 @@ final class ConversationsViewModel {
                 }
             } catch {
                 Log.error("Failed toggling pin for conversation \(conversationId): \(error.localizedDescription)")
-            }
-        }
-    }
-
-    /// Ends the selected host conversation's invite session on a real
-    /// pop-to-home and mirrors the flipped flag into the in-memory list.
-    /// The persist is async (GRDB); without the mirror, an instant re-entry
-    /// builds the next detail view model from the stale list row and the big
-    /// inline Invite/Scan card flashes until the write round-trips.
-    func endHostedInviteSessionOnPop() {
-        guard let detailViewModel = selectedConversationViewModel else { return }
-        detailViewModel.markInviteSessionEndedIfHosting()
-        let endedConversation = detailViewModel.conversation
-        guard endedConversation.leftHostedInviteSession,
-              let index = conversations.firstIndex(where: { $0.id == endedConversation.id }) else { return }
-        conversations[index] = endedConversation
-    }
-
-    private func markConversationAsRead(_ conversation: Conversation) {
-        let conversationId = conversation.id
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let messagingService = session.messagingService()
-                let writer = messagingService.conversationLocalStateWriter()
-                try await writer.setUnread(false, for: conversationId)
-            } catch {
-                Log.warning("Failed marking conversation as read: \(error.localizedDescription)")
             }
         }
     }

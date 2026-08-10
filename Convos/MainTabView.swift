@@ -114,6 +114,12 @@ struct MainTabView: View {
     /// builder sheet and in builders presented from descendant conversation
     /// screens -- can read the cached hints.
     @State private var promptHints: PromptHintsModel = .live()
+    /// Live suggested-agents service for the Contacts tab. Held in state so it
+    /// is built once (each `.live()` spins up a fresh API client and logs),
+    /// rather than on every `TabView` body pass -- `contactsTabContent` is
+    /// re-evaluated whenever the shell body recomputes, even while another tab
+    /// is frontmost.
+    @State private var suggestedAgentsService: SuggestedAgentsService = .live()
     /// Shared namespace for the agent-builder bar -> sheet zoom
     /// transition and the app-settings pill -> sheet zoom transition.
     /// The bar / pill apply
@@ -354,7 +360,7 @@ struct MainTabView: View {
             coreActions: coreActions,
             profileSettingsViewModel: profileSettingsViewModel,
             showsComposeButton: false,
-            suggestedAgentsService: SuggestedAgentsService.live(),
+            suggestedAgentsService: suggestedAgentsService,
             scrollTarget: $contactsScrollTarget,
             onMakeAgent: { conversationsViewModel.onStartAgent() },
             onScanJoinedConversation: handleContactsScanJoinedConversation,
