@@ -344,6 +344,9 @@ final class ConversationsViewModel {
     let coreActions: any CoreActions
     private let conversationsPager: any ConversationsPagerProtocol
     private let conversationsCountRepository: any ConversationsCountRepositoryProtocol
+    /// Used only for the by-id agent-DM tap routing lookup; the list itself is
+    /// served by `conversationsPager`.
+    private let conversationsRepository: any ConversationsRepositoryProtocol
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = .init()
     @ObservationIgnored
@@ -424,6 +427,7 @@ final class ConversationsViewModel {
         self.focusCoordinator = coordinator
         self.appSettingsViewModel = AppSettingsViewModel(session: session)
         self.conversationsPager = session.conversationsPager(for: .allowed)
+        self.conversationsRepository = session.conversationsRepository(for: .allowed)
         // Bind the stale-device observer to the session's state manager
         // so the banner appears when this device's installation is
         // revoked from the network. Done asynchronously because

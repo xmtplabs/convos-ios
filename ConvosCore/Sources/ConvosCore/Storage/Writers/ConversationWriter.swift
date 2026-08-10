@@ -1096,6 +1096,18 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             preservedInviteTag = nil
         }
 
+        // A conversation discovered before its custom metadata (which carries
+        // the real invite tag) has synced reports an empty tag. `inviteTag`
+        // is `notNull().unique()`, so a second empty-tag row collides on the
+        // UNIQUE constraint. Fall back to the same per-id provisional tag the
+        // unused-conversation path uses; a later stream update with the real
+        // tag replaces it by id.
+        if conversationToSave.inviteTag.isEmpty {
+            conversationToSave = conversationToSave.with(
+                inviteTag: UnusedConversationCache.provisionalInviteTag(for: conversationToSave.id)
+            )
+        }
+
         // Preserve fields from the existing row that the caller did not
         // explicitly carry forward: `hasHadVerifiedAgent` is sticky-on
         // (once true, stays true).
