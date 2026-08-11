@@ -59,6 +59,11 @@ public protocol UnusedConversationCacheProtocol: Actor {
     /// during inbox teardown so a late-resolving prewarm can't land a stale
     /// row in a fresh DB after teardown returns.
     func cancel() async
+
+    /// Installs the hook invoked (fire-and-forget) with the conversation id
+    /// each time a preparation fully completes, so the session can provision
+    /// the default agent into the still-hidden conversation.
+    func configureAgentProvisioner(_ provisioner: @escaping @Sendable (String) async -> Void) async
 }
 
 // MARK: - UnusedConversationCache
@@ -73,6 +78,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     /// same row isn't handed to two callers and the prewarmer correctly
     /// treats them as drained (prepares a replacement).
     private var claimedConversationIds: Set<String> = []
+    private var agentProvisioner: (@Sendable (String) async -> Void)?
     private static let preparationCooldown: TimeInterval = 30
 
     public init(identityStore: any KeychainIdentityStoreProtocol) {
@@ -194,6 +200,10 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         await task?.value
     }
 
+    public func configureAgentProvisioner(_ provisioner: @escaping @Sendable (String) async -> Void) async {
+        agentProvisioner = provisioner
+    }
+
     // MARK: - Private
 
     private func hasUnusedConversationInDatabase(
@@ -310,6 +320,16 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             lastPreparationFailure = nil
             claimedConversationIds.remove(group.id)
             Log.debug("Pre-created unused conversation: \(group.id)")
+
+            // Best-effort, off the preparation path: the row is already
+            // consumable, and the claim-time backstop re-ensures the agent if
+            // this background provision loses the race or fails.
+            if let agentProvisioner {
+                let conversationId = group.id
+                Task(priority: .background) {
+                    await agentProvisioner(conversationId)
+                }
+            }
         } catch {
             let isCancellation = error is CancellationError
             if isCancellation {

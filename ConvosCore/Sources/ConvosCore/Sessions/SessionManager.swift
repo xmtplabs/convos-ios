@@ -97,7 +97,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let notificationChangeReporter: any NotificationChangeReporterType
     private let platformProviders: PlatformProviders
     private let apiClient: any ConvosAPIClientProtocol
-    private let unusedConversationCache: any UnusedConversationCacheProtocol
+    let unusedConversationCache: any UnusedConversationCacheProtocol
+    let defaultAgentCoordinator: DefaultConversationAgentCoordinator = DefaultConversationAgentCoordinator()
     private let agentTemplateRepositoryInstance: any AgentTemplateRepositoryProtocol
 
     /// Single-inbox means a single cached `MessagingService`. The lock
@@ -170,6 +171,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         observe()
         wireAgentTemplateRepository()
+        wireDefaultAgentProvisioner()
 
         guard mode == .fullApp else {
             // Clip bootstrap: skip everything below. The clip writes the
@@ -512,6 +514,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         let conversationId = await unusedConversationCache.consumeUnusedConversationId(
             databaseWriter: databaseWriter
         )
+        if let conversationId {
+            // Claim-time backstop: cache-time provisioning is best-effort, so
+            // re-ensure the default agent on the way out. Fire-and-forget; the
+            // ready signal sent at commit awaits the shared provision task.
+            Task { [weak self] in
+                await self?.ensureDefaultAgentInConversation(id: conversationId)
+            }
+        }
         await unusedConversationCache.prepareUnusedConversation(
             service: service,
             databaseWriter: databaseWriter,
@@ -526,6 +536,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             id: conversationId,
             databaseWriter: databaseWriter
         )
+        // The user has entered the conversation - cue the pre-added default
+        // agent to send its greeting. Fire-and-forget so committing never
+        // blocks on the network.
+        Task { [weak self] in
+            await self?.sendConversationReadySignalIfNeeded(conversationId: conversationId)
+        }
     }
 
     public func releaseClaimedConversation(id conversationId: String) async {
@@ -1507,13 +1523,25 @@ extension SessionManager {
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
         forceErrorCode: Int?,
-        idempotencyKey: ConvosAPI.JoinIdempotencyKey?
+        idempotencyKey: ConvosAPI.JoinIdempotencyKey?,
+        ownerProfileName: String? = nil,
+        grantAdmin: Bool = false
     ) async throws -> ConvosAPI.AgentJoinResponse {
         // Capture the creator's device timezone on the main actor before any
         // async hop. This seeds the agent's baseline/default zone (Channel A);
         // it is distinct from the per-sender "timezone" ProfileUpdate metadata
         // key published below, which tracks each member's own current device tz.
         let creatorTimezone: String = await MainActor.run { TimeZone.current.identifier }
+
+        // The owner's profile name lets the backend compose the agent's display
+        // name ("Mike's agent"). Resolve it here when the caller did not supply
+        // one, so every join carries it. Best-effort: nil if empty/unreadable.
+        let effectiveOwnerName: String?
+        if let ownerProfileName {
+            effectiveOwnerName = ownerProfileName
+        } else {
+            effectiveOwnerName = await currentOwnerProfileName()
+        }
 
         // 1. Provision the agent and wait until its XMTP inbox is registered.
         //    Extracted to a helper that touches only the API client (no
@@ -1526,6 +1554,7 @@ extension SessionManager {
                         conversationId: conversationId.lowercased(),
                         templateId: templateId,
                         idempotencyKey: idempotencyKey,
+                        ownerProfileName: effectiveOwnerName,
                         options: options,
                         timezone: creatorTimezone
                     ),
@@ -1556,6 +1585,11 @@ extension SessionManager {
             do {
                 try await messagingService().conversationMetadataWriter()
                     .addMembers([agentInboxId], to: conversationId)
+                // Grant the agent admin so a future agent-admitted-join flow has
+                // the bit set. Best-effort: a failed grant must not fail the join.
+                if grantAdmin {
+                    await promoteAgentToAdminBestEffort(agentInboxId, in: conversationId)
+                }
                 // The conversation now has an agent member. Publish this user's
                 // own device timezone into the per-sender ProfileUpdate metadata
                 // (Channel B). Best-effort: a failure must not fail the join.
@@ -1585,6 +1619,39 @@ extension SessionManager {
             await publisher.publishTimezoneIfAgentConversation(conversationId: conversationId)
         } catch {
             Log.warning("Skipped timezone publish for \(conversationId); inbox not ready: \(error.localizedDescription)")
+        }
+    }
+
+    /// Grants a freshly-added agent admin. Best-effort: nothing server-side
+    /// exercises the bit yet, so a failed promotion is logged, not thrown, and
+    /// never fails the join.
+    private func promoteAgentToAdminBestEffort(_ agentInboxId: String, in conversationId: String) async {
+        do {
+            try await messagingService().conversationMetadataWriter()
+                .promoteToAdmin(agentInboxId, in: conversationId)
+        } catch {
+            Log.warning("Direct-add: agent admin grant failed for \(agentInboxId) in \(conversationId): \(error.localizedDescription)")
+        }
+    }
+
+    /// Current user's profile name, sent on agent joins so the backend can
+    /// compose the agent's display name. Trims; returns nil if empty/unreadable.
+    func currentOwnerProfileName() async -> String? {
+        do {
+            return try await databaseReader.read { db -> String? in
+                guard let inboxId = try DBInbox.currentInboxId(db) else {
+                    return nil
+                }
+                let name = try DBMyProfile
+                    .filter(DBMyProfile.Columns.inboxId == inboxId)
+                    .fetchOne(db)?
+                    .name
+                let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        } catch {
+            Log.error("Agent join: reading owner profile name failed: \(error.localizedDescription)")
+            return nil
         }
     }
 

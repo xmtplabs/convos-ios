@@ -43,6 +43,9 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         discardedIfUnengagedConversationIds.append(conversationId)
     }
 
+    public func ensureDefaultAgentConversationReady(id conversationId: String) async {
+    }
+
     public func deleteAllInboxes() async throws {
     }
 

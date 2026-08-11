@@ -481,6 +481,10 @@ extension MessagingService {
             return .droppedMessage
         }
 
+        if decodedMessage.isConversationReady {
+            return .droppedMessage
+        }
+
         if let contentType = try? decodedMessage.encodedContent.type,
            contentType == ContentTypeAgentJoinRequest {
             return .droppedMessage

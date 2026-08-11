@@ -224,6 +224,12 @@ public enum ConvosAPI {
         /// Optional and nil-omitted by Codable, so default joins stay
         /// byte-identical and the wire format remains backward-compatible.
         public let idempotencyKey: JoinIdempotencyKey?
+        /// Raw profile name of the joining user, sent so the backend can compose
+        /// the agent's display name ("Mike's agent"). Composition stays
+        /// server-side so the copy can change without a client release. Optional
+        /// and nil-omitted by Codable, so joins that do not carry it stay
+        /// byte-identical and the wire format remains backward-compatible.
+        public let ownerProfileName: String?
         public let options: AgentJoinOptions?
         /// IANA timezone identifier (e.g. "Europe/Paris") carrying the
         /// conversation creator's device timezone, used by the agent runtime as
@@ -240,6 +246,7 @@ public enum ConvosAPI {
             conversationId: String? = nil,
             templateId: String? = nil,
             idempotencyKey: JoinIdempotencyKey? = nil,
+            ownerProfileName: String? = nil,
             options: AgentJoinOptions? = nil,
             timezone: String? = nil
         ) {
@@ -247,6 +254,7 @@ public enum ConvosAPI {
             self.conversationId = conversationId
             self.templateId = templateId
             self.idempotencyKey = idempotencyKey
+            self.ownerProfileName = ownerProfileName
             self.options = options
             self.timezone = timezone
         }
@@ -275,6 +283,14 @@ public enum ConvosAPI {
         }
 
         public static let agentBuilder: AgentJoinOptions = AgentJoinOptions(onboarding: "agent-builder")
+
+        /// Join options for the silent bare default agent pre-added to every
+        /// conversation: no builder onboarding (the agent speaks only when the
+        /// `conversation_ready` cue or the user's first message addresses it),
+        /// optionally routed to a dev variant worker.
+        public static func defaultConversationAgent(variantId: String? = nil) -> AgentJoinOptions {
+            AgentJoinOptions(onboarding: nil, variantId: variantId)
+        }
     }
 
     public struct AgentJoinResponse: Codable {

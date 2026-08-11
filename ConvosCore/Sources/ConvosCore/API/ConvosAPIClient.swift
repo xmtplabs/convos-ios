@@ -1345,6 +1345,7 @@ extension ConvosAPIClient {
                 conversationId: joinRequest.conversationId,
                 templateId: joinRequest.templateId,
                 idempotencyKey: joinRequest.idempotencyKey,
+                ownerProfileName: joinRequest.ownerProfileName,
                 options: safeOptions,
                 timezone: joinRequest.timezone
             )
