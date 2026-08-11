@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import WebKit
 
 /// The fullscreen desktop surface rendered behind the chat drawer in desktop
@@ -20,14 +21,20 @@ struct DesktopWebView: UIViewRepresentable {
     var isScrollEnabled: Bool = true
     /// Fired on the main actor once the page finishes loading.
     var onLoaded: @MainActor () -> Void = {}
+    /// Fired on the main actor when the page requests navigation away from
+    /// the loaded space URL (link tap, JS redirect, target=_blank). The
+    /// navigation is cancelled in place; the host presents it in the desktop
+    /// browser popup instead.
+    var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(conversationId: conversationId, onLoaded: onLoaded)
+        Coordinator(conversationId: conversationId, onLoaded: onLoaded, onNavigationRequest: onNavigationRequest)
     }
 
     func makeUIView(context: Context) -> WKWebView {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         webView.isOpaque = false
         let raisedBackground = UIColor(named: "colorBackgroundRaised") ?? .systemBackground
         webView.backgroundColor = raisedBackground
@@ -39,12 +46,15 @@ struct DesktopWebView: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.conversationId = conversationId
         context.coordinator.onLoaded = onLoaded
+        context.coordinator.onNavigationRequest = onNavigationRequest
         webView.scrollView.isScrollEnabled = isScrollEnabled
         // Reload only when the destination actually changes; SwiftUI calls
         // this on unrelated state churn.
         guard context.coordinator.loadedURL != url || !context.coordinator.hasLoaded else { return }
         context.coordinator.loadedURL = url
         context.coordinator.hasLoaded = true
+        // A fresh programmatic load may redirect; allow its whole chain again.
+        context.coordinator.hasFinishedInitialLoad = false
         if let url {
             webView.load(URLRequest(url: url))
         } else {
@@ -52,19 +62,68 @@ struct DesktopWebView: UIViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var conversationId: String
         var onLoaded: @MainActor () -> Void
+        var onNavigationRequest: @MainActor (URL) -> Void
         var loadedURL: URL?
         var hasLoaded: Bool = false
+        var hasFinishedInitialLoad: Bool = false
 
-        init(conversationId: String, onLoaded: @escaping @MainActor () -> Void) {
+        init(
+            conversationId: String,
+            onLoaded: @escaping @MainActor () -> Void,
+            onNavigationRequest: @escaping @MainActor (URL) -> Void
+        ) {
             self.conversationId = conversationId
             self.onLoaded = onLoaded
+            self.onNavigationRequest = onNavigationRequest
         }
 
         // WebKit calls navigation delegate methods on the main thread.
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction
+        ) async -> WKNavigationActionPolicy {
+            // Subframe (iframe) loads are part of rendering the space page.
+            guard navigationAction.targetFrame?.isMainFrame == true else { return .allow }
+            guard let url = navigationAction.request.url else { return .allow }
+            // The programmatic load itself, its redirect chain, and same-URL
+            // reloads stay in place.
+            if !hasFinishedInitialLoad || url == loadedURL {
+                return .allow
+            }
+            routeIntercepted(url)
+            return .cancel
+        }
+
+        // Links with target=_blank have no target frame; open them in the
+        // popup instead of spawning a web view.
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if let url = navigationAction.request.url {
+                routeIntercepted(url)
+            }
+            return nil
+        }
+
+        /// Sends http(s) URLs to the popup; hands mailto/tel/etc to the system.
+        private func routeIntercepted(_ url: URL) {
+            let scheme = url.scheme?.lowercased() ?? ""
+            if scheme == "http" || scheme == "https" {
+                let onNavigationRequest = onNavigationRequest
+                Task { @MainActor in onNavigationRequest(url) }
+            } else if UIApplication.shared.canOpenURL(url) {
+                UIApplication.shared.open(url)
+            }
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+            hasFinishedInitialLoad = true
             let onLoaded = onLoaded
             Task { @MainActor in onLoaded() }
             let conversationId = conversationId

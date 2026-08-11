@@ -41,6 +41,9 @@ struct DesktopLayoutView: View {
     /// currently covers, at any detent and while typing. Defaults to the
     /// collapsed resting height for the first frame before the drawer reports.
     var drawerHeight: CGFloat = ConversationDrawerMetrics.collapsedRestingHeight
+    /// Fired when the web section's page requests navigation away from the
+    /// space URL; the host presents it in the desktop browser popup.
+    var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
     var body: some View {
         GeometryReader { proxy in
@@ -52,7 +55,12 @@ struct DesktopLayoutView: View {
                     // The web section spans the full width with no inset or
                     // rounded corners; the remaining cards keep the horizontal
                     // margin.
-                    DesktopWebSection(conversationId: conversationId, url: webURL, height: webSectionHeight)
+                    DesktopWebSection(
+                        conversationId: conversationId,
+                        url: webURL,
+                        height: webSectionHeight,
+                        onNavigationRequest: onNavigationRequest
+                    )
                     VStack(spacing: Constant.sectionSpacing) {
                         if let inviteConfiguration {
                             DesktopInviteSection(configuration: inviteConfiguration)
@@ -84,9 +92,15 @@ private struct DesktopWebSection: View {
     let conversationId: String
     let url: URL?
     let height: CGFloat
+    let onNavigationRequest: @MainActor (URL) -> Void
 
     var body: some View {
-        DesktopWebSurface(conversationId: conversationId, url: url, isScrollEnabled: false)
+        DesktopWebSurface(
+            conversationId: conversationId,
+            url: url,
+            isScrollEnabled: false,
+            onNavigationRequest: onNavigationRequest
+        )
             .frame(height: height)
             .clipped()
             .accessibilityIdentifier("desktop-web-section")

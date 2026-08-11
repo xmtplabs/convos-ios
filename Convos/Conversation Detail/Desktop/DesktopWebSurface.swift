@@ -9,6 +9,9 @@ struct DesktopWebSurface: View {
     let conversationId: String
     var url: URL?
     var isScrollEnabled: Bool = true
+    /// Forwarded to `DesktopWebView`; fired when the page requests navigation
+    /// away from the space URL.
+    var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
     @State private var isLoaded: Bool = false
     @State private var coverImage: UIImage?
@@ -19,7 +22,8 @@ struct DesktopWebSurface: View {
                 conversationId: conversationId,
                 url: url,
                 isScrollEnabled: isScrollEnabled,
-                onLoaded: { isLoaded = true }
+                onLoaded: { isLoaded = true },
+                onNavigationRequest: onNavigationRequest
             )
             DesktopCoverView(image: coverImage)
                 .opacity(isLoaded ? 0 : 1)

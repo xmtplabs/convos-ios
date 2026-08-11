@@ -103,6 +103,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// drawer and fed to the desktop scroll surface so its content insets by
     /// however much the drawer currently covers.
     @State private var drawerHeight: CGFloat = ConversationDrawerMetrics.collapsedRestingHeight
+    /// The URL of a navigation the desktop web surface intercepted; non-nil
+    /// presents the glass browser popup between the desktop and the drawer.
+    @State private var desktopBrowserURL: URL?
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -1013,9 +1016,15 @@ private extension ConversationView {
                 conversationId: viewModel.conversation.id,
                 webURL: desktopWebURL,
                 inviteConfiguration: desktopInviteConfiguration,
-                drawerHeight: drawerHeight
+                drawerHeight: drawerHeight,
+                onNavigationRequest: { url in desktopBrowserURL = url }
             )
             .ignoresSafeArea(edges: .bottom)
+            if let desktopBrowserURL {
+                DesktopBrowserOverlay(url: desktopBrowserURL) {
+                    self.desktopBrowserURL = nil
+                }
+            }
             ConversationDrawer(
                 detent: $drawerDetent,
                 extraCollapsedHeight: nagBarExtraHeight,
