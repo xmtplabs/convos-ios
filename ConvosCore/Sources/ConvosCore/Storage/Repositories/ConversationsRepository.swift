@@ -247,9 +247,9 @@ extension Database {
 
     /// Fold each group's separate agent DM into its row so the list can
     /// render a combined preview and a DM-aware unread indicator. Only
-    /// groups with a verified-agent member resolve a DM; the extra
-    /// `composeOneToOne` read runs inside this same `db` transaction so
-    /// GRDB's ValueObservation tracks the DM and keeps the list reactive.
+    /// groups with a verified-agent member resolve a DM; the DM read runs
+    /// inside this same `db` transaction so GRDB's ValueObservation tracks
+    /// the DM and keeps the list reactive.
     ///
     /// `resortByActivity`: the SQL order only knows each group's own
     /// messages; a reply in the folded DM lane must float the origin
@@ -262,16 +262,19 @@ extension Database {
         consent: [Consent],
         resortByActivity: Bool
     ) throws -> [Conversation] {
-        let folded = try conversations.map { (conversation: Conversation) -> Conversation in
-            guard let agentMember = conversation.members.first(where: { $0.isVerifiedAgent }) else {
-                return conversation
-            }
-            guard let dm = try composeOneToOne(
-                with: agentMember.profile.inboxId,
-                excluding: nil,
-                consent: consent,
-                onlyAgentDms: true
-            ) else {
+        // Every agent inbox this page mentions, resolved in a single read
+        // below. A page with no agent members needs no DM query at all.
+        var agentInboxIds: Set<String> = []
+        for conversation in conversations {
+            guard let agentMember = conversation.members.first(where: { $0.isVerifiedAgent }) else { continue }
+            agentInboxIds.insert(agentMember.profile.inboxId)
+        }
+        guard !agentInboxIds.isEmpty else { return conversations }
+        let dmsByAgentInboxId = try composeAgentDms(forAgentInboxIds: agentInboxIds, consent: consent)
+
+        let folded = conversations.map { (conversation: Conversation) -> Conversation in
+            guard let agentMember = conversation.members.first(where: { $0.isVerifiedAgent }),
+                  let dm = dmsByAgentInboxId[agentMember.profile.inboxId] else {
                 return conversation
             }
             var row = conversation
@@ -293,6 +296,71 @@ extension Database {
                 return lhs.offset < rhs.offset
             }
             .map(\.element)
+    }
+
+    /// Every agent DM belonging to `agentInboxIds`, keyed by the agent's
+    /// inbox id and keeping the most recently active DM per agent. One read
+    /// covers the whole page: the fold used to call `composeOneToOne` per
+    /// row, and each of those calls ran its own detailed query plus a full
+    /// contact-table scan, so a window of N agent rows cost N of each.
+    ///
+    /// No row limit here the way the 1:1 lookup has one - the predicate is
+    /// already narrow (agent DMs, exactly two members, one of them an agent
+    /// on this page), so the result set is the user's agent DMs and nothing
+    /// else. Capping globally could starve one agent's only DM behind
+    /// another agent's busier lane.
+    private func composeAgentDms(
+        forAgentInboxIds agentInboxIds: Set<String>,
+        consent: [Consent]
+    ) throws -> [String: Conversation] {
+        // Same membership shape the 1:1 lookup asserts: the agent is a
+        // member, the current user is a member, and that pair is the entire
+        // membership. Sorted so repeated pages generate identical SQL.
+        let sortedAgentInboxIds: [String] = agentInboxIds.sorted()
+        let agentDmPredicate: SQL = """
+            EXISTS (
+                SELECT 1 FROM conversation_members AS cm_agent
+                WHERE cm_agent.conversationId = conversation.id
+                AND cm_agent.inboxId IN \(sortedAgentInboxIds)
+            )
+            AND EXISTS (
+                SELECT 1 FROM conversation_members AS cm_self
+                WHERE cm_self.conversationId = conversation.id
+                AND cm_self.inboxId IN (SELECT inboxId FROM inbox)
+            )
+            AND (
+                SELECT COUNT(*) FROM conversation_members AS cm_count
+                WHERE cm_count.conversationId = conversation.id
+            ) = 2
+            """
+        let dbConversationDetailsList = try DBConversation
+            .filter(
+                !DBConversation.Columns.id.like("draft-%")
+                || (DBConversation.Columns.inviteTag != nil
+                    && length(DBConversation.Columns.inviteTag) > 0)
+            )
+            .filter(consent.contains(DBConversation.Columns.consent))
+            .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
+            .filter(DBConversation.Columns.isUnused == false)
+            .filter(DBConversation.Columns.isAgentDm == true)
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
+            .filter(literal: agentDmPredicate)
+            .detailedConversationQuery()
+            .fetchAll(self)
+        guard !dbConversationDetailsList.isEmpty else { return [:] }
+        let conversations = try dbConversationDetailsList.composeConversations(from: self)
+        // `detailedConversationQuery` orders by recency, so the first DM seen
+        // for an agent is that agent's most recently active one - the same row
+        // the per-row lookup used to return.
+        var dmsByAgentInboxId: [String: Conversation] = [:]
+        for dm in conversations {
+            guard let agentInboxId = dm.members
+                .first(where: { agentInboxIds.contains($0.profile.inboxId) })?
+                .profile.inboxId else { continue }
+            guard dmsByAgentInboxId[agentInboxId] == nil else { continue }
+            dmsByAgentInboxId[agentInboxId] = dm
+        }
+        return dmsByAgentInboxId
     }
 
     /// A single conversation by id under the same eligibility filters as
