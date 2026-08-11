@@ -371,6 +371,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.commitClaimedConversation(id: conversationId)
     }
 
+    func ensureDefaultAgentConversationReady(id conversationId: String) async {
+        await base.ensureDefaultAgentConversationReady(id: conversationId)
+    }
+
     func registerClaimedConversation(id conversationId: String) async {
         await base.registerClaimedConversation(id: conversationId)
     }

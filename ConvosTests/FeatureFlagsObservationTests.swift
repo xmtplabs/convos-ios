@@ -78,6 +78,23 @@ final class FeatureFlagsObservationTests: XCTestCase {
         XCTAssertEqual(flags.isDesktopModeEnabled, !initial)
     }
 
+    func testTogglingAgentAutoJoinNotifiesObservers() {
+        let flags = FeatureFlags.shared
+        let initial = flags.isAgentAutoJoinEnabled
+        defer { flags.isAgentAutoJoinEnabled = initial }
+
+        let changed = expectation(description: "agent auto-join flag observation fired")
+        withObservationTracking {
+            _ = flags.isAgentAutoJoinEnabled
+        } onChange: {
+            changed.fulfill()
+        }
+
+        flags.isAgentAutoJoinEnabled = !initial
+        wait(for: [changed], timeout: 1.0)
+        XCTAssertEqual(flags.isAgentAutoJoinEnabled, !initial)
+    }
+
     func testDesktopModeActivatesNewComposer() {
         let flags = FeatureFlags.shared
         let initialDesktop = flags.isDesktopModeEnabled

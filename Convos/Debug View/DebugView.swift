@@ -83,6 +83,7 @@ struct DebugViewSection: View {
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
             Toggle("New composer (Group/Agent switcher)", isOn: Bindable(FeatureFlags.shared).isNewComposerEnabled)
             Toggle("Desktop mode (implies new composer)", isOn: Bindable(FeatureFlags.shared).isDesktopModeEnabled)
+            Toggle("Agent auto-join (new conversations)", isOn: Bindable(FeatureFlags.shared).isAgentAutoJoinEnabled)
             abilitiesFeatureToggles
 
             let showInfoAction = { showingAgentsInfoSheet = true }

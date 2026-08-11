@@ -169,6 +169,24 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default -- gates agent auto-join (the default conversation
+    /// agent): every new conversation is silently provisioned with an agent
+    /// that greets once the user enters. Independent of desktop mode. Toggle
+    /// from App Settings -> Debug. Hard-locked off in production.
+    var isAgentAutoJoinEnabled: Bool {
+        get {
+            access(keyPath: \.isAgentAutoJoinEnabled)
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            return UserDefaults.standard.bool(forKey: Constant.agentAutoJoinEnabledKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            withMutation(keyPath: \.isAgentAutoJoinEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.agentAutoJoinEnabledKey)
+            }
+        }
+    }
+
     /// The read-site resolution for the new composer layout: desktop mode
     /// always uses the new composer, so either flag activates it. Reads two
     /// instrumented getters, so observation flows through without registrar
@@ -228,5 +246,6 @@ final class FeatureFlags {
         static let abilitiesV2EnabledKey: String = "featureFlags.abilitiesV2Enabled"
         static let newComposerEnabledKey: String = "featureFlags.newComposerEnabled"
         static let desktopModeEnabledKey: String = "featureFlags.desktopModeEnabled"
+        static let agentAutoJoinEnabledKey: String = "featureFlags.agentAutoJoinEnabled"
     }
 }

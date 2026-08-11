@@ -47,13 +47,14 @@ struct ConvosApp: App {
             Log.info("XMTP bidi streams enabled for this launch")
         }
 
-        // The desktop line seeds every new conversation with a silent default
+        // Agent auto-join seeds every new conversation with a silent default
         // agent. These app-installed hooks let ConvosCore read the app-only
-        // FeatureFlags at provision time: whether the flow is on (desktop mode)
-        // and, in dev, which agent variant worker to route the join to. Read
-        // lazily so a mid-session toggle applies to the next conversation.
+        // FeatureFlags at provision time: whether the flow is on (the agent
+        // auto-join flag) and, in dev, which agent variant worker to route the
+        // join to. Read lazily so a mid-session toggle applies to the next
+        // conversation.
         SessionManager.defaultAgentProvisioningEnabledProvider = {
-            await MainActor.run { FeatureFlags.shared.isDesktopModeEnabled }
+            await MainActor.run { FeatureFlags.shared.isAgentAutoJoinEnabled }
         }
         SessionManager.defaultAgentVariantIdProvider = {
             await MainActor.run {
