@@ -115,6 +115,54 @@ struct SerializationTests {
         #expect(decoded.hasHumanDm == true)
         #expect(decoded.emoji == "🎉")
     }
+
+    @Test("Space URL round-trips")
+    func spaceURLRoundTrip() throws {
+        var metadata = ConversationCustomMetadata()
+        #expect(metadata.hasSpaceURL == false)
+        metadata.spaceURL = "https://abcdefghijklmnopqrstuvwxyz234567.spaces.convos.org"
+
+        let encoded = try metadata.toCompactString()
+        let decoded = try ConversationCustomMetadata.fromCompactString(encoded)
+
+        #expect(decoded.hasSpaceURL == true)
+        #expect(decoded.spaceURL == "https://abcdefghijklmnopqrstuvwxyz234567.spaces.convos.org")
+    }
+
+    @Test("Space URL survives an unrelated read-modify-write")
+    func spaceURLSurvivesReadModifyWrite() throws {
+        var metadata = ConversationCustomMetadata()
+        metadata.spaceURL = "https://example.spaces.convos.org"
+
+        var reloaded = try ConversationCustomMetadata.fromCompactString(metadata.toCompactString())
+        reloaded.emoji = "🛰️"
+        let decoded = try ConversationCustomMetadata.fromCompactString(reloaded.toCompactString())
+
+        #expect(decoded.hasSpaceURL == true)
+        #expect(decoded.spaceURL == "https://example.spaces.convos.org")
+        #expect(decoded.emoji == "🛰️")
+    }
+
+    @Test("Space URL decodes from the cross-client wire form")
+    func spaceURLDecodesFromWireForm() throws {
+        // convos-cli v0.10.20 writes spaceUrl as field 10, wire type 2
+        // (length-delimited): key byte 0x52. Build that blob by hand so this
+        // test pins the cross-repo field assignment rather than our own
+        // encoder.
+        let url = "https://example.spaces.convos.org"
+        let urlBytes = try #require(url.data(using: .utf8))
+        var wire = Data([0x52, UInt8(urlBytes.count)])
+        wire.append(urlBytes)
+        let encoded = wire.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+
+        let decoded = try ConversationCustomMetadata.fromCompactString(encoded)
+
+        #expect(decoded.hasSpaceURL == true)
+        #expect(decoded.spaceURL == url)
+    }
 }
 
 @Suite("ConversationProfile Tests")
@@ -284,5 +332,115 @@ struct DataHexTests {
     func invalidHexReturnsNil() {
         #expect(Data(hexString: "gg") == nil)
         #expect(Data(hexString: "123") == nil)  // Odd length
+    }
+}
+
+@Suite("AppData Raw Fields Tests")
+struct AppDataRawFieldsTests {
+    @Test("Raw fields surface every encoded field number")
+    func rawFieldsSurfaceFieldNumbers() throws {
+        var metadata = ConversationCustomMetadata()
+        metadata.tag = "raw-tag"
+        metadata.expiresAtUnix = 1234567890
+        metadata.participationMode = .speakFreely
+        let profile = try #require(ConversationProfile(
+            inboxIdString: "0011223344556677889900112233445566778899001122334455667788990011",
+            name: "Alice"
+        ))
+        metadata.profiles.append(profile)
+
+        let encoded = try metadata.toCompactString()
+        let payload = try AppDataRawFields.payloadBytes(from: encoded)
+        let fields = try #require(AppDataRawFields.fields(in: payload))
+
+        let numbers = Set(fields.map(\.number))
+        #expect(numbers == [1, 2, 3, 9])
+    }
+
+    @Test("Raw fields survive compression")
+    func rawFieldsSurviveCompression() throws {
+        var metadata = ConversationCustomMetadata()
+        metadata.tag = String(repeating: "a", count: 300)
+
+        let encoded = try metadata.toCompactString()
+        let payload = try AppDataRawFields.payloadBytes(from: encoded)
+        let fields = try #require(AppDataRawFields.fields(in: payload))
+
+        #expect(fields.count == 1)
+        #expect(fields.first?.number == 1)
+        if case .lengthDelimited(let data) = try #require(fields.first).value {
+            #expect(String(data: data, encoding: .utf8) == metadata.tag)
+        } else {
+            Issue.record("Expected length-delimited tag field")
+        }
+    }
+
+    @Test("Garbage payload is rejected, not misparsed")
+    func garbagePayloadRejected() {
+        let garbage = Data([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+        #expect(AppDataRawFields.fields(in: garbage) == nil)
+    }
+
+    @Test("Unknown fields prefer JSON, then text, then hex")
+    func unknownFieldValueFallbacks() throws {
+        let jsonField = AppDataRawField(number: 100, value: .lengthDelimited(Data("{\"key\":\"value\"}".utf8)))
+        #expect(jsonField.debugSection.hasPrefix("[100] json:"))
+        #expect(jsonField.debugSection.contains("\"key\""))
+
+        let textField = AppDataRawField(number: 101, value: .lengthDelimited(Data("hello".utf8)))
+        #expect(textField.debugSection == "[101] text:\nhello")
+
+        let binaryField = AppDataRawField(number: 102, value: .lengthDelimited(Data([0x00, 0x01, 0xFF])))
+        #expect(binaryField.debugSection == "[102] hex:\n0001ff")
+    }
+
+    @Test("Known fields decode through the codec")
+    func knownFieldsDecodeThroughCodec() throws {
+        var metadata = ConversationCustomMetadata()
+        metadata.tag = "snapshot-tag"
+        metadata.emoji = "🦄"
+        metadata.expiresAtUnix = 1234567890
+        metadata.participationMode = .speakFreely
+        metadata.humanDm = HumanDmInfo()
+        var profile = try #require(ConversationProfile(
+            inboxIdString: "0011223344556677889900112233445566778899001122334455667788990011",
+            name: "Alice"
+        ))
+        var encryptedImage = EncryptedImageRef()
+        encryptedImage.url = "https://example.com/enc.bin"
+        encryptedImage.salt = Data(repeating: 1, count: 32)
+        encryptedImage.nonce = Data(repeating: 2, count: 12)
+        profile.encryptedImage = encryptedImage
+        metadata.profiles.append(profile)
+
+        let encoded = try metadata.toCompactString()
+        let snapshot = ConversationCustomMetadataDebugSnapshot(rawAppData: encoded)
+        let text = snapshot.appDataFieldsDebugText
+
+        #expect(snapshot.debugText.contains("appDataFields:"))
+        #expect(text.contains("[1] tag:\nsnapshot-tag"))
+        #expect(text.contains("[6] emoji:\n🦄"))
+        #expect(text.contains("[3] expiresAtUnix:\n1234567890 ("))
+        #expect(text.contains("[9] participationMode:\nspeakFreely (1)"))
+        #expect(text.contains("[11] humanDm:\n<no fields set>"))
+
+        let profilesSection = try #require(
+            text.components(separatedBy: "\n\n").first { $0.hasPrefix("[2] profiles:") }
+        )
+        #expect(profilesSection.contains("name: \"Alice\""))
+        #expect(profilesSection.contains("encryptedImage {"))
+        #expect(profilesSection.contains("url: \"https://example.com/enc.bin\""))
+    }
+
+    @Test("Known field with undecodable bytes falls back to raw rendering")
+    func knownFieldFallsBackWhenCodecRejects() {
+        let badProfile = AppDataRawField(number: 2, value: .lengthDelimited(Data([0xFF, 0xFF, 0xFF])))
+        #expect(badProfile.debugSection == "[2] hex:\nffffff")
+    }
+
+    @Test("Snapshot with no app data reports it")
+    func snapshotWithoutAppData() {
+        let snapshot = ConversationCustomMetadataDebugSnapshot(rawAppData: nil)
+        #expect(snapshot.appDataFieldsDebugText == "<no app data>")
     }
 }

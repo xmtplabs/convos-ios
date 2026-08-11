@@ -20,7 +20,7 @@ import SwiftProtobuf
 // incompatible with the version of SwiftProtobuf to which you are linking.
 // Please ensure that you are building against the same version of the API
 // that was used to generate this file.
-fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
+fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAPIVersionCheck {
   struct _2: SwiftProtobuf.ProtobufAPIVersion_2 {}
   typealias Version = _2
 }
@@ -33,7 +33,7 @@ fileprivate nonisolated struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobu
 /// Carried in appData rather than a message so it rides the group-metadata
 /// rails: new members read the current mode on join, and MLS metadata's
 /// last-writer-wins resolution settles two members changing it at once.
-public nonisolated enum ParticipationMode: SwiftProtobuf.Enum, Swift.CaseIterable {
+public enum ParticipationMode: SwiftProtobuf.Enum, Swift.CaseIterable {
   public typealias RawValue = Int
 
   /// Never written; an unset mode is the product default
@@ -88,7 +88,7 @@ public nonisolated enum ParticipationMode: SwiftProtobuf.Enum, Swift.CaseIterabl
 /// - One 32-byte AES-256 key per group (imageEncryptionKey)
 /// - Per-image: URL + salt + nonce (no digest - AES-GCM auth tag provides integrity)
 /// - ~48 bytes overhead per image
-public nonisolated struct ConversationCustomMetadata: Sendable {
+public struct ConversationCustomMetadata: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -155,6 +155,16 @@ public nonisolated struct ConversationCustomMetadata: Sendable {
   /// Clears the value of `participationMode`. Subsequent reads from it will return its default value.
   public mutating func clearParticipationMode() {self._participationMode = nil}
 
+  /// Deployed Space web URL for the room; the Assistant Worker is the sole authority, clients only read it
+  public var spaceURL: String {
+    get {_spaceURL ?? String()}
+    set {_spaceURL = newValue}
+  }
+  /// Returns true if `spaceURL` has been explicitly set.
+  public var hasSpaceURL: Bool {self._spaceURL != nil}
+  /// Clears the value of `spaceURL`. Subsequent reads from it will return its default value.
+  public mutating func clearSpaceURL() {self._spaceURL = nil}
+
   /// Present when created as a 1:1 human DM (desktop mode)
   public var humanDm: HumanDmInfo {
     get {_humanDm ?? HumanDmInfo()}
@@ -175,13 +185,14 @@ public nonisolated struct ConversationCustomMetadata: Sendable {
   fileprivate var _emoji: String? = nil
   fileprivate var _agentDm: AgentDmInfo? = nil
   fileprivate var _participationMode: ParticipationMode? = nil
+  fileprivate var _spaceURL: String? = nil
   fileprivate var _humanDm: HumanDmInfo? = nil
 }
 
 /// HumanDmInfo marks a conversation created via the contact/member "Chat" flow
 /// as a human 1:1 DM. Presence-only provenance marker; clients only honor it
 /// while the conversation has exactly 2 members and no verified agent member.
-public nonisolated struct HumanDmInfo: Sendable {
+public struct HumanDmInfo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -195,7 +206,7 @@ public nonisolated struct HumanDmInfo: Sendable {
 /// The agent's identity comes from the membership itself (member_kind plus
 /// attestation), not from this marker; clients only honor the marker when the
 /// conversation has exactly 2 members and the other member is an agent.
-public nonisolated struct AgentDmInfo: Sendable {
+public struct AgentDmInfo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -219,7 +230,7 @@ public nonisolated struct AgentDmInfo: Sendable {
 
 /// EncryptedImageRef stores encrypted image metadata
 /// AES-GCM auth tag (16 bytes) is appended to ciphertext, providing integrity verification
-public nonisolated struct EncryptedImageRef: Sendable {
+public struct EncryptedImageRef: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -239,7 +250,7 @@ public nonisolated struct EncryptedImageRef: Sendable {
 }
 
 /// ConversationProfile represents a participant in the conversation
-public nonisolated struct ConversationProfile: Sendable {
+public struct ConversationProfile: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -298,13 +309,13 @@ public nonisolated struct ConversationProfile: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-nonisolated extension ParticipationMode: SwiftProtobuf._ProtoNameProviding {
+extension ParticipationMode: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0PARTICIPATION_MODE_UNSPECIFIED\0\u{1}PARTICIPATION_MODE_SPEAK_FREELY\0\u{1}PARTICIPATION_MODE_MENTIONS_ONLY\0\u{2}\u{2}PARTICIPATION_MODE_PAUSED\0")
 }
 
-nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationCustomMetadata"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0\u{2}\u{2}agentDm\0\u{1}participationMode\0\u{1}humanDm\0\u{c}\u{7}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0\u{2}\u{2}agentDm\0\u{1}participationMode\0\u{1}spaceUrl\0\u{1}humanDm\0\u{c}\u{7}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -320,7 +331,8 @@ nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftPr
       case 6: try { try decoder.decodeSingularStringField(value: &self._emoji) }()
       case 8: try { try decoder.decodeSingularMessageField(value: &self._agentDm) }()
       case 9: try { try decoder.decodeSingularEnumField(value: &self._participationMode) }()
-      case 10: try { try decoder.decodeSingularMessageField(value: &self._humanDm) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self._spaceURL) }()
+      case 11: try { try decoder.decodeSingularMessageField(value: &self._humanDm) }()
       default: break
       }
     }
@@ -355,8 +367,11 @@ nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftPr
     try { if let v = self._participationMode {
       try visitor.visitSingularEnumField(value: v, fieldNumber: 9)
     } }()
+    try { if let v = self._spaceURL {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 10)
+    } }()
     try { if let v = self._humanDm {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
     } }()
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -370,13 +385,14 @@ nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftPr
     if lhs._emoji != rhs._emoji {return false}
     if lhs._agentDm != rhs._agentDm {return false}
     if lhs._participationMode != rhs._participationMode {return false}
+    if lhs._spaceURL != rhs._spaceURL {return false}
     if lhs._humanDm != rhs._humanDm {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-nonisolated extension HumanDmInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+extension HumanDmInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "HumanDmInfo"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
 
@@ -395,7 +411,7 @@ nonisolated extension HumanDmInfo: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-nonisolated extension AgentDmInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+extension AgentDmInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "AgentDmInfo"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}originConversationId\0")
 
@@ -429,7 +445,7 @@ nonisolated extension AgentDmInfo: SwiftProtobuf.Message, SwiftProtobuf._Message
   }
 }
 
-nonisolated extension EncryptedImageRef: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+extension EncryptedImageRef: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "EncryptedImageRef"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}url\0\u{1}salt\0\u{1}nonce\0")
 
@@ -469,7 +485,7 @@ nonisolated extension EncryptedImageRef: SwiftProtobuf.Message, SwiftProtobuf._M
   }
 }
 
-nonisolated extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationProfile"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}inboxId\0\u{1}name\0\u{1}image\0\u{1}encryptedImage\0\u{1}connections\0")
 

@@ -120,19 +120,6 @@ public final class MessagesViewController: UIViewController {
     private var previousFocusState: MessagesViewInputFocus?
     private var pendingScrollToBottomAfterKeyboard: Bool = false
 
-    /// Whether the user is near the bottom of the scroll view (within one screen height)
-    private var isNearBottom: Bool {
-        distanceFromBottom <= collectionView.frame.height
-    }
-
-    private var distanceFromBottom: CGFloat {
-        let contentHeight = collectionView.contentSize.height
-        let scrollViewHeight = collectionView.frame.height
-        let currentOffset = collectionView.contentOffset.y
-        let bottomInset = collectionView.adjustedContentInset.bottom
-        return contentHeight - (currentOffset + scrollViewHeight - bottomInset)
-    }
-
     /// Whether the list sat at the very bottom the last time the content
     /// offset changed. Unlike a live distance check, this is not fooled by
     /// in-place content growth at the bottom (which changes the content size
@@ -955,6 +942,19 @@ public final class MessagesViewController: UIViewController {
 // MARK: - Agent power reconfigure
 
 extension MessagesViewController {
+    /// Whether the user is near the bottom of the scroll view (within one screen height)
+    private var isNearBottom: Bool {
+        distanceFromBottom <= collectionView.frame.height
+    }
+
+    private var distanceFromBottom: CGFloat {
+        let contentHeight = collectionView.contentSize.height
+        let scrollViewHeight = collectionView.frame.height
+        let currentOffset = collectionView.contentOffset.y
+        let bottomInset = collectionView.adjustedContentInset.bottom
+        return contentHeight - (currentOffset + scrollViewHeight - bottomInset)
+    }
+
     /// Reconfigures the visible message cells sent by any of the given inbox
     /// ids. Used when the owner-computed power map flips for a sender: the
     /// `.messages` items themselves are unchanged, so — exactly like the

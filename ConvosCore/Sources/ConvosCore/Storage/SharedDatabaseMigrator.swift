@@ -236,6 +236,11 @@ extension SharedDatabaseMigrator {
                 t.column("sentAt", .datetime).notNull()
             }
         }
+        migrator.registerMigration("addConversationSpaceURLString") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "spaceURLString", .text)
+            }
+        }
     }
 
     /// The conversation's agent participation mode, mirrored from the group's

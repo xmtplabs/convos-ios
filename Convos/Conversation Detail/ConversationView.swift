@@ -372,36 +372,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
     }
 
-    private var lockedInfoButton: some View {
-        Button {
-            showingLockedInfo = true
-        } label: {
-            Image(systemName: "lock.fill")
-                .foregroundStyle(.colorTextSecondary)
-        }
-        .accessibilityLabel("Conversation locked")
-        .accessibilityHint("Tap for lock details")
-        .accessibilityIdentifier("lock-info-button")
-    }
-
-    /// The in-conversation top-right invite affordance. Opens the "Invite"
-    /// sheet (Figma node 5562-34019): the contacts picker re-titled "Invite",
-    /// scoped to this conversation, carrying the three convo-scoped invite
-    /// action rows + the scanner. Replaces the former `AddToConversationMenu`
-    /// context menu; the sheet itself is presented by `.addFromContactsPicker`.
-    private var inviteButton: some View {
-        Button(action: handleAddFromContactsTap) {
-            Image(systemName: "person.crop.circle.badge.plus")
-        }
-        .disabled(!messagesTopBarTrailingItemEnabled || effectiveReadOnly)
-        .accessibilityLabel("Invite")
-        .accessibilityIdentifier("add-to-conversation-button")
-    }
-
-    private var handleAddFromContactsTap: () -> Void {
-        { presentingAddFromContactsPicker = true }
-    }
-
     /// Non-nil only for members whose agent has a DM pager page (every
     /// verified agent gets its own segment; anyone else falls back to the
     /// contact card's direct-create path). Hoisted out of the view function
@@ -821,6 +791,36 @@ struct ConversationView<MessagesBottomBar: View>: View {
 // The desktop-mode layout and the Group/Agent tab support, in an extension
 // so the main struct stays within the type-body-length budget.
 private extension ConversationView {
+    var lockedInfoButton: some View {
+        Button {
+            showingLockedInfo = true
+        } label: {
+            Image(systemName: "lock.fill")
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .accessibilityLabel("Conversation locked")
+        .accessibilityHint("Tap for lock details")
+        .accessibilityIdentifier("lock-info-button")
+    }
+
+    /// The in-conversation top-right invite affordance. Opens the "Invite"
+    /// sheet (Figma node 5562-34019): the contacts picker re-titled "Invite",
+    /// scoped to this conversation, carrying the three convo-scoped invite
+    /// action rows + the scanner. Replaces the former `AddToConversationMenu`
+    /// context menu; the sheet itself is presented by `.addFromContactsPicker`.
+    var inviteButton: some View {
+        Button(action: handleAddFromContactsTap) {
+            Image(systemName: "person.crop.circle.badge.plus")
+        }
+        .disabled(!messagesTopBarTrailingItemEnabled || effectiveReadOnly)
+        .accessibilityLabel("Invite")
+        .accessibilityIdentifier("add-to-conversation-button")
+    }
+
+    var handleAddFromContactsTap: () -> Void {
+        { presentingAddFromContactsPicker = true }
+    }
+
     var pagerDotsInset: CGFloat {
         if isDesktopActive {
             return desktopSwitcherHeight > 0 ? desktopSwitcherHeight : Constant.switcherBottomInset
@@ -948,9 +948,11 @@ private extension ConversationView {
     /// card. The desktop behind keeps the ambient scheme either way.
     var desktopLayout: some View {
         let drawerColorScheme: ColorScheme = pagerSelectedPage == .agent ? .dark : systemColorScheme
+        let desktopWebURL: URL? = viewModel.conversation.spaceURL
         return ZStack {
             DesktopLayoutView(
                 conversationId: viewModel.conversation.id,
+                webURL: desktopWebURL,
                 inviteConfiguration: desktopInviteConfiguration,
                 drawerHeight: drawerHeight
             )

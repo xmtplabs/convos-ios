@@ -74,6 +74,11 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// and no verified agent. Drives standard DM presentation instead of the
     /// desktop group layout, and routes member/agent adds through a fork.
     public var isHumanDm: Bool = false
+    /// The deployed Space web URL for this conversation, mirrored from the
+    /// group's appData. The Assistant Worker publishes it and is the sole
+    /// authority - clients never construct one. Nil while no Space has been
+    /// published; the desktop layout shows its placeholder until it lands.
+    public var spaceURL: URL?
     /// Summary of the separate agent-DM conversation (self + this group's
     /// verified agent) that folds into this group's row. Populated by the
     /// conversations list composer for group rows that have a verified
@@ -170,6 +175,7 @@ public extension Conversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURL: spaceURL,
             agentDm: agentDm
         )
     }
@@ -216,6 +222,7 @@ public extension Conversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURL: spaceURL,
             agentDm: agentDm
         )
     }

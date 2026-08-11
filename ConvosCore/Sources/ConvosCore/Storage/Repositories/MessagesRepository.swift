@@ -1042,7 +1042,8 @@ private extension LightweightConversationDetails {
             wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil,
             isAgentDm: conversation.isAgentDm,
             participationMode: conversation.participationMode ?? .default,
-            isHumanDm: conversation.isHumanDm
+            isHumanDm: conversation.isHumanDm,
+            spaceURL: conversation.spaceURLString.flatMap { URL(string: $0) }
         )
     }
 }

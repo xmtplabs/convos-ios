@@ -53,6 +53,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let isAgentDm: Column = Column(CodingKeys.isAgentDm)
         static let participationMode: Column = Column(CodingKeys.participationMode)
         static let isHumanDm: Column = Column(CodingKeys.isHumanDm)
+        static let spaceURLString: Column = Column(CodingKeys.spaceURLString)
         static let addedById: Column = Column(CodingKeys.addedById)
         static let adderStatus: Column = Column(CodingKeys.adderStatus)
     }
@@ -89,6 +90,10 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     /// marker written at creation, desktop mode only). Presentation-only;
     /// re-evaluated on every store against the marker plus current shape.
     let isHumanDm: Bool
+    /// The deployed Space web URL for this conversation, carried in the
+    /// group's appData. The Assistant Worker is the sole authority; clients
+    /// only read it. Nil while no Space has been published.
+    let spaceURLString: String?
     /// Storage for `adder` - read that instead, and set it through `init`.
     /// The pair is kept consistent by a CHECK constraint: `addedById` is
     /// non-null exactly when `adderStatus` is `resolved`.
@@ -131,6 +136,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         isAgentDm: Bool = false,
         participationMode: ConversationParticipationMode? = nil,
         isHumanDm: Bool = false,
+        spaceURLString: String? = nil,
         adder: AdderResolution = .notRecorded
     ) {
         self.id = id
@@ -158,6 +164,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.isAgentDm = isAgentDm
         self.participationMode = participationMode
         self.isHumanDm = isHumanDm
+        self.spaceURLString = spaceURLString
         self.addedById = adder.knownInboxId
         self.adderStatus = adder.status
     }
@@ -347,6 +354,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -378,6 +386,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -409,6 +418,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -440,6 +450,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -471,6 +482,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -504,6 +516,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -535,6 +548,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -566,6 +580,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -597,6 +612,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -628,6 +644,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -659,6 +676,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -690,6 +708,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -721,6 +740,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -752,6 +772,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -783,6 +804,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -814,6 +836,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -844,7 +867,8 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
-            isHumanDm: isHumanDm
+            isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString
         )
     }
 
@@ -875,6 +899,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -906,6 +931,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -937,6 +963,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }
@@ -968,6 +995,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             isHumanDm: isHumanDm,
+            spaceURLString: spaceURLString,
             adder: adder
         )
     }

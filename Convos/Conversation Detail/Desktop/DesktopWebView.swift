@@ -2,8 +2,8 @@ import SwiftUI
 import WebKit
 
 /// The fullscreen desktop surface rendered behind the chat drawer in desktop
-/// mode. Loads an inline placeholder page until a real desktop destination
-/// exists; `url` is the seam where that swaps in.
+/// mode. Loads the conversation's Space web URL when one has been published
+/// into the group's appData; until then it shows an inline placeholder page.
 ///
 /// On every finished load it captures a snapshot of the rendered page and
 /// hands it to `DesktopSnapshotStore`, keyed by `conversationId`, so the next
@@ -13,7 +13,7 @@ import WebKit
 struct DesktopWebView: UIViewRepresentable {
     /// Identifies which conversation's snapshot this load should persist under.
     var conversationId: String
-    /// Future real destination; nil loads the inline placeholder.
+    /// The conversation's Space web URL; nil loads the inline placeholder.
     var url: URL?
     /// False when an outer scroll view (the desktop layout) owns the
     /// vertical gesture.

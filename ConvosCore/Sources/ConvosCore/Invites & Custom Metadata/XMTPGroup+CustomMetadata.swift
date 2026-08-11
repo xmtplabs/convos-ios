@@ -154,6 +154,17 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// The deployed Space web URL for this conversation, or nil while none has
+    /// been published. The Assistant Worker writes it into appData and is the
+    /// sole authority; clients never construct or write this value.
+    public var spaceURL: String? {
+        get throws {
+            let metadata = try currentCustomMetadata
+            guard metadata.hasSpaceURL, !metadata.spaceURL.isEmpty else { return nil }
+            return metadata.spaceURL
+        }
+    }
+
     /// Stamps this conversation as a human 1:1 DM. Called once by the creating
     /// device (desktop mode only), before the other member is added.
     public func markAsHumanDm() async throws {

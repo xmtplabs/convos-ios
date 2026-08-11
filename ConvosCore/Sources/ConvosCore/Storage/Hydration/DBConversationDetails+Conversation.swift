@@ -36,6 +36,8 @@ extension DBConversationDetails {
             imageURL = nil
         }
 
+        let spaceURL: URL? = conversation.spaceURLString.flatMap { URL(string: $0) }
+
         let agentJoinStatus: AgentJoinStatus?
         if let joinRequest = conversationAgentJoinRequest,
            let status = AgentJoinStatus(rawValue: joinRequest.status),
@@ -86,7 +88,8 @@ extension DBConversationDetails {
             wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil,
             isAgentDm: conversation.isAgentDm,
             participationMode: conversation.participationMode ?? .default,
-            isHumanDm: conversation.isHumanDm
+            isHumanDm: conversation.isHumanDm,
+            spaceURL: spaceURL
         )
     }
 
