@@ -103,9 +103,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// drawer and fed to the desktop scroll surface so its content insets by
     /// however much the drawer currently covers.
     @State private var drawerHeight: CGFloat = ConversationDrawerMetrics.collapsedRestingHeight
-    /// The URL of a navigation the desktop web surface intercepted; non-nil
-    /// presents the glass browser popup between the desktop and the drawer.
-    @State private var desktopBrowserURL: URL?
+    /// The stack of glass browser popups spawned by intercepted navigations,
+    /// rendered between the desktop and the drawer. Each intercepted URL (from
+    /// the desktop surface or a popup) pushes another entry on top.
+    @State private var desktopBrowserStack: [DesktopBrowserEntry] = []
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -1017,13 +1018,16 @@ private extension ConversationView {
                 webURL: desktopWebURL,
                 inviteConfiguration: desktopInviteConfiguration,
                 drawerHeight: drawerHeight,
-                onNavigationRequest: { url in desktopBrowserURL = url }
+                onNavigationRequest: pushDesktopBrowser
             )
             .ignoresSafeArea(edges: .bottom)
-            if let desktopBrowserURL {
-                DesktopBrowserOverlay(url: desktopBrowserURL) {
-                    self.desktopBrowserURL = nil
-                }
+            ForEach(desktopBrowserStack) { entry in
+                DesktopBrowserPopup(
+                    url: entry.url,
+                    onNavigationRequest: pushDesktopBrowser,
+                    onClose: { popDesktopBrowser(entry.id) }
+                )
+                .ignoresSafeArea()
             }
             ConversationDrawer(
                 detent: $drawerDetent,
@@ -1040,6 +1044,19 @@ private extension ConversationView {
                 drawerHeight = height
             }
         }
+    }
+
+    /// Pushes another glass browser popup for an intercepted navigation, from
+    /// either the desktop surface or a popup already on the stack.
+    @MainActor
+    func pushDesktopBrowser(_ url: URL) {
+        desktopBrowserStack.append(DesktopBrowserEntry(url: url))
+    }
+
+    /// Pops the popup with the given id once its dismiss morph completes,
+    /// revealing whatever it covered.
+    func popDesktopBrowser(_ id: UUID) {
+        desktopBrowserStack.removeAll { $0.id == id }
     }
 
     /// Extra collapsed-drawer height reserving room for the nag bar

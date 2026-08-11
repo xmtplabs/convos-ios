@@ -85,19 +85,18 @@ struct DesktopWebView: UIViewRepresentable {
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction
         ) async -> WKNavigationActionPolicy {
-            // Subframe (iframe) loads are part of rendering the space page.
-            guard navigationAction.targetFrame?.isMainFrame == true else { return .allow }
-            guard let url = navigationAction.request.url else { return .allow }
-            // The programmatic load itself, its redirect chain, and same-URL
-            // reloads stay in place.
-            if !hasFinishedInitialLoad || url == loadedURL {
+            guard let url = DesktopWebNavigation.interceptedURL(
+                for: navigationAction,
+                loadedURL: loadedURL,
+                hasFinishedInitialLoad: hasFinishedInitialLoad
+            ) else {
                 return .allow
             }
-            routeIntercepted(url)
+            DesktopWebNavigation.route(url, toHost: onNavigationRequest)
             return .cancel
         }
 
-        // Links with target=_blank have no target frame; open them in the
+        // Links with target=_blank have no target frame; route them to the
         // popup instead of spawning a web view.
         func webView(
             _ webView: WKWebView,
@@ -106,20 +105,9 @@ struct DesktopWebView: UIViewRepresentable {
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
             if let url = navigationAction.request.url {
-                routeIntercepted(url)
+                DesktopWebNavigation.route(url, toHost: onNavigationRequest)
             }
             return nil
-        }
-
-        /// Sends http(s) URLs to the popup; hands mailto/tel/etc to the system.
-        private func routeIntercepted(_ url: URL) {
-            let scheme = url.scheme?.lowercased() ?? ""
-            if scheme == "http" || scheme == "https" {
-                let onNavigationRequest = onNavigationRequest
-                Task { @MainActor in onNavigationRequest(url) }
-            } else if UIApplication.shared.canOpenURL(url) {
-                UIApplication.shared.open(url)
-            }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
@@ -163,5 +151,36 @@ struct DesktopWebView: UIViewRepresentable {
         <body><div>Desktop</div></body>
         </html>
         """
+    }
+}
+
+/// Navigation interception shared by the desktop web surface and the browser
+/// popups it spawns: each pins the page it initially loaded and hands any
+/// user-driven navigation to the host, which stacks a new popup for it.
+@MainActor
+enum DesktopWebNavigation {
+    /// The URL to intercept for `navigationAction`, or nil to let the
+    /// navigation proceed in place. Allows subframe (iframe) loads, the
+    /// initial load and its redirect chain, and same-URL reloads.
+    static func interceptedURL(
+        for navigationAction: WKNavigationAction,
+        loadedURL: URL?,
+        hasFinishedInitialLoad: Bool
+    ) -> URL? {
+        guard navigationAction.targetFrame?.isMainFrame == true else { return nil }
+        guard let url = navigationAction.request.url else { return nil }
+        if !hasFinishedInitialLoad || url == loadedURL { return nil }
+        return url
+    }
+
+    /// Routes an intercepted URL: http(s) to the popup host, other schemes
+    /// (mailto/tel) to the system.
+    static func route(_ url: URL, toHost onNavigationRequest: @escaping @MainActor (URL) -> Void) {
+        let scheme = url.scheme?.lowercased() ?? ""
+        if scheme == "http" || scheme == "https" {
+            Task { @MainActor in onNavigationRequest(url) }
+        } else if UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url)
+        }
     }
 }
