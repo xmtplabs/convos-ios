@@ -252,7 +252,9 @@ public nonisolated struct ConversationProfile: Sendable {
   /// Clears the value of `encryptedImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedImage() {self._encryptedImage = nil}
 
-  /// JSON grants payload for this sender's connections (see connections.mjs)
+  /// Deprecated: connection grants travel in ProfileUpdate message metadata
+  /// now; no client reads or writes this field anymore. Kept defined so the
+  /// field number stays claimed and payloads from older releases keep decoding.
   public var connections: String {
     get {_connections ?? String()}
     set {_connections = newValue}

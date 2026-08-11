@@ -439,34 +439,17 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
             Log.info("[CloudConnections] clearing grants for groupId=\(conversationId) senderId=\(senderId)")
         }
 
-        // Primary: send a ProfileUpdate message with metadata["connections"]. This is
-        // the CLI's (and therefore the agent's) current read path. We use the throwing
-        // variant so a send failure propagates to the caller, which then declines to
-        // persist the local grant change. We run this before the best-effort appData
-        // write so a ProfileUpdate failure can't leave a stale grant in appData.
+        // Send a ProfileUpdate message with metadata["connections"]. This is
+        // the CLI's (and therefore the agent's) read path. We use the throwing
+        // variant so a send failure propagates to the caller, which then declines
+        // to persist the local grant change. Grants are no longer mirrored into
+        // appData: the deprecated ConversationProfile.connections field had no
+        // readers on any client, and the CLI strips it on decode.
         try await sendProfileUpdateWithConnections(
             conversationId: conversationId,
             senderId: senderId,
             grantsJson: grantsJson
         )
-
-        // Best-effort: stash on the sender's ConversationProfile in appData (field 5).
-        // Forward-compat hedge for any CLI reader that looks at appData — failures are logged only,
-        // including failure to locate the group (appData isn't on the critical path).
-        do {
-            guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-                  case .group(let group) = conversation else {
-                Log.warning("[CloudConnections] appData write skipped (best-effort), conversation not found: \(conversationId)")
-                return
-            }
-            if let grantsJson {
-                try await group.updateSenderConnections(grantsJson, senderInboxId: senderId)
-            } else {
-                try await group.clearSenderConnections(senderInboxId: senderId)
-            }
-        } catch {
-            Log.warning("[CloudConnections] appData write failed (best-effort), continuing: \(error.localizedDescription)")
-        }
     }
 
     private func sendProfileUpdateWithConnections(
