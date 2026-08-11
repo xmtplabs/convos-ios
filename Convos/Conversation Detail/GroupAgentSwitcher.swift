@@ -16,15 +16,16 @@ struct GroupAgentSwitcher: View {
     var usesHomeStyle: Bool = false
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
+        HStack(spacing: DesignConstants.Spacing.stepX) {
             pill(
                 title: "Group",
                 page: .messages,
                 identifier: "switcher-group-pill"
             ) { color in
                 Image(systemName: usesHomeStyle ? ConvosTab.chats.symbol : "bubble.left.fill")
-                    .font(.system(size: 15.0, weight: .semibold))
+                    .font(.system(size: Constant.iconPointSize, weight: .medium))
                     .foregroundStyle(color)
+                    .frame(height: Constant.iconSlotHeight)
             }
             if showsAgentPill {
                 pill(
@@ -36,7 +37,7 @@ struct GroupAgentSwitcher: View {
                 }
             }
         }
-        .padding(.horizontal, DesignConstants.Spacing.step2x)
+        .padding(.horizontal, Constant.togglePaddingHorizontal)
         .padding(.top, Constant.togglePaddingTop)
         .padding(.bottom, Constant.togglePaddingBottom)
         .glassEffect(.regular.interactive(), in: .capsule)
@@ -51,23 +52,22 @@ struct GroupAgentSwitcher: View {
         @ViewBuilder glyph: (Color) -> some View
     ) -> some View {
         let isSelected: Bool = page == selectedPage
-        let color: Color = isSelected ? .primary : .colorFillTertiary
+        let color: Color = .colorTextPrimary
         let action = {
             withAnimation(.easeInOut(duration: 0.25)) {
                 selectedPage = page
             }
         }
         Button(action: action) {
-            VStack(spacing: DesignConstants.Spacing.stepX) {
+            VStack(spacing: Constant.glyphLabelSpacing) {
                 glyph(color)
                 Text(title)
-                    .font(.caption2)
-                    .fontWeight(isSelected ? .semibold : .regular)
+                    .font(.system(size: Constant.labelPointSize, weight: .medium))
                     .foregroundStyle(color)
                     .fixedSize(horizontal: usesHomeStyle, vertical: usesHomeStyle)
             }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.vertical, DesignConstants.Spacing.stepX)
+            .frame(width: Constant.pillWidth)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
             .background {
                 if usesHomeStyle && isSelected {
                     Capsule()
@@ -82,13 +82,18 @@ struct GroupAgentSwitcher: View {
         .accessibilityIdentifier(identifier)
     }
 
-    /// The "A" avatar glyph, mirroring the agent indicator the pager dots use.
+    /// The agent glyph: the shared `addAgentIcon` asset in a badge circle,
+    /// sized to sit in the same icon slot as the Group pill's symbol.
     private func agentGlyph(color: Color) -> some View {
-        Text("A")
-            .font(.system(size: 11.0, weight: .bold))
+        Image("addAgentIcon")
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
             .foregroundStyle(.background)
-            .frame(width: 18.0, height: 18.0)
+            .frame(width: Constant.agentGlyphSize, height: Constant.agentGlyphSize)
+            .frame(width: Constant.agentBadgeSize, height: Constant.agentBadgeSize)
             .background(color, in: .circle)
+            .frame(height: Constant.iconSlotHeight)
     }
 
     private enum Constant {
@@ -98,7 +103,24 @@ struct GroupAgentSwitcher: View {
         static let selectedFillOpacity: Double = 0.08
         /// Space above and below the switcher capsule, tuning its distance
         /// from the composer above and the drawer edge below.
-        static let togglePaddingTop: CGFloat = DesignConstants.Spacing.step2x
-        static let togglePaddingBottom: CGFloat = DesignConstants.Spacing.step2x
+        static let togglePaddingTop: CGFloat = DesignConstants.Spacing.stepX
+        static let togglePaddingBottom: CGFloat = DesignConstants.Spacing.stepX
+        /// Inset between the capsule edge and the pills, equal on all sides.
+        static let togglePaddingHorizontal: CGFloat = DesignConstants.Spacing.stepX
+        /// Fixed pill width, mirroring the equal-width items of the system
+        /// tab bar so both tabs read as uniform slots regardless of label.
+        static let pillWidth: CGFloat = 90.0
+        /// Metrics mirroring the system tab bar items on the home screen:
+        /// ~18pt medium symbols over 10pt medium labels, tightly stacked.
+        static let iconPointSize: CGFloat = 18.0
+        static let labelPointSize: CGFloat = 10.0
+        /// Fixed icon slot so the symbol and the agent badge baseline-align
+        /// their labels across pills.
+        static let iconSlotHeight: CGFloat = 22.0
+        static let glyphLabelSpacing: CGFloat = 2.0
+        /// The agent badge circle and the optical size of the `addAgentIcon`
+        /// glyph inside it, filling the icon slot like the symbol does.
+        static let agentBadgeSize: CGFloat = 22.0
+        static let agentGlyphSize: CGFloat = 12.0
     }
 }

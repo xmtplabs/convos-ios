@@ -50,9 +50,9 @@ private struct DesktopCoverView: View {
                 .scaledToFill()
         } else {
             ZStack {
-                Color.colorBackgroundSurfaceless
+                Color.colorBackgroundSubtle
                 Text("Desktop")
-                    .font(.body)
+                    .font(.largeTitle)
                     .foregroundStyle(.colorTextSecondary)
             }
         }

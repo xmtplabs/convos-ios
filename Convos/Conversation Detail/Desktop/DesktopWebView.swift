@@ -29,8 +29,9 @@ struct DesktopWebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         webView.navigationDelegate = context.coordinator
         webView.isOpaque = false
-        webView.backgroundColor = .systemBackground
-        webView.scrollView.backgroundColor = .systemBackground
+        let raisedBackground = UIColor(named: "colorBackgroundRaised") ?? .systemBackground
+        webView.backgroundColor = raisedBackground
+        webView.scrollView.backgroundColor = raisedBackground
         webView.scrollView.isScrollEnabled = isScrollEnabled
         return webView
     }
@@ -92,11 +93,11 @@ struct DesktopWebView: UIViewRepresentable {
             align-items: center;
             justify-content: center;
             font-family: -apple-system, sans-serif;
-            background: #f2f2f7;
+            background: #ffffff;
             color: #8e8e93;
         }
         @media (prefers-color-scheme: dark) {
-            body { background: #1c1c1e; }
+            body { background: #262626; }
         }
         </style>
         </head>

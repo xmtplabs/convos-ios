@@ -581,6 +581,11 @@ public final class MessagesViewController: UIViewController {
         messagesLayout.compensatesAllSelfSizingGrowth = false
     }
 
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        reconcileBottomInsetAfterLayout()
+    }
+
     /// The SwiftUI bottom bar mounts into the safe area a render pass or two
     /// after the list's first bottom anchor during the open transition, which
     /// silently grows `adjustedContentInset.bottom` without re-anchoring -
@@ -1434,6 +1439,63 @@ extension MessagesViewController: KeyboardListenerDelegate {
                      keyboardFrame.minY - collectionView.safeAreaInsets.bottom)
         let inset = max(keyboardInset, bottomBarHeight)
         return inset
+    }
+
+    /// Re-derives the keyboard-relative bottom inset once a layout pass
+    /// settles.
+    ///
+    /// The inset is otherwise event-driven (keyboard frame changes,
+    /// bar-height changes), so geometry changing against a static keyboard
+    /// leaves the last computed value stale: the desktop drawer lifts or
+    /// drops the transcript around a keyboard that never moves, and its
+    /// stationary Group/Agent pages hand the keyboard between composers
+    /// while both transcripts stay mounted. An inset captured mid-flight
+    /// then sticks, floating the list above the composer or hiding its last
+    /// rows behind the keyboard. Re-running the same calculation from the
+    /// last known keyboard frame converges the inset onto the settled
+    /// geometry; the gates defer to any in-flight interaction that already
+    /// owns the inset, and later layout passes retry until one runs clean.
+    private func reconcileBottomInsetAfterLayout() {
+        guard let lastKeyboardFrameChange,
+              view.window != nil,
+              !isSettlingInitialLayout,
+              animator == nil,
+              pendingComposerBottomInset == nil,
+              !hasPendingBottomBarInsetUpdate,
+              // The post-context-menu window waits to see whether the
+              // keyboard comes back before touching the inset; reconciling
+              // during it would reintroduce the down/up bounce that wait
+              // exists to avoid (see restoreBottomInsetAfterContextMenu).
+              pendingContextMenuInsetFallback == nil,
+              !contextMenuState.isPresented,
+              !isUserInitiatedScrolling,
+              currentControllerActions.options.isDisjoint(with: [
+                  .loadingInitialMessages,
+                  .loadingPreviousMessages,
+                  .updatingCollection,
+              ]),
+              currentInterfaceActions.options.isDisjoint(with: [
+                  .changingKeyboardFrame,
+                  .changingContentInsets,
+                  .changingFrameSize,
+                  .sendingMessage,
+                  .scrollingToTop,
+                  .scrollingToBottom,
+                  .updatingCollectionInIsolation,
+                  .determiningBottomBarHeight,
+              ]) else {
+            return
+        }
+        let target = calculateNewBottomInset(for: lastKeyboardFrameChange)
+        guard abs(collectionView.contentInset.bottom - target) > 0.5 else { return }
+        let wasPinned = isPinnedToBottom
+        UIView.performWithoutAnimation {
+            collectionView.contentInset.bottom = target
+            collectionView.verticalScrollIndicatorInsets.bottom = target
+        }
+        if wasPinned {
+            scrollToBottom(animated: false)
+        }
     }
 
     private func updateCollectionViewInsets(to topInset: CGFloat) {

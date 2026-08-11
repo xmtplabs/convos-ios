@@ -53,7 +53,7 @@ enum ConversationDrawerDetent: CaseIterable {
 enum ConversationDrawerMetrics {
     /// Roughly the input capsule + switcher + grabber; a measured height
     /// can replace this later.
-    static let collapsedHeight: CGFloat = 148.0
+    static let collapsedHeight: CGFloat = 172.0
     /// Horizontal and bottom inset of the collapsed floating compose card.
     /// The drawer sheds it while expanding, landing full width and flush
     /// with the bottom of the screen.

@@ -84,6 +84,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// clears the keyboard-raised compose card; the drawer uses only the
     /// visibility flag.
     @State private var keyboardHeight: CGFloat = 0
+    /// Deferred reaction to `keyboardWillHide`, cancelled when a show follows
+    /// immediately - see `handleKeyboardWillHide`.
+    @State private var pendingKeyboardHide: DispatchWorkItem?
     /// Exact height of the desktop switcher slot. The transcript uses this
     /// instead of a tuned constant so its last row clears both the switcher
     /// and the keyboard at every content-size category.
@@ -548,7 +551,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 showsAgentPill: agentTabAvailable,
                 usesHomeStyle: isDesktopActive
             )
-            .padding(.bottom, DesignConstants.Spacing.step2x)
+            .padding(.bottom, DesignConstants.Spacing.step6x)
             .onGeometryChange(
                 for: CGFloat.self,
                 of: { $0.size.height },
@@ -596,10 +599,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             handleKeyboardWillShow(notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            isKeyboardVisible = false
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                keyboardHeight = 0
-            }
+            handleKeyboardWillHide()
         }
         .onChange(of: focusState) { oldFocus, newFocus in
             handleComposerFocusChanged(from: oldFocus, to: newFocus)
@@ -878,6 +878,12 @@ private extension ConversationView {
     /// The docked keyboard height is captured so the desktop scroll surface can
     /// reserve room for it below the raised compose card.
     func handleKeyboardWillShow(_ notification: Notification) {
+        // A show arriving on the heels of a hide is a first-responder
+        // transfer (e.g. a Group/Agent tab switch moving the keyboard onto
+        // the other page's composer); drop the pending hide so the layout
+        // never loses its keyboard offset in between.
+        pendingKeyboardHide?.cancel()
+        pendingKeyboardHide = nil
         isKeyboardVisible = true
         let frameHeight: CGFloat? = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height
         let shouldPromoteDrawer: Bool = isDesktopActive && drawerDetent != .full
@@ -889,6 +895,31 @@ private extension ConversationView {
                 drawerDetent = .full
             }
         }
+    }
+
+    /// Reacts to `keyboardWillHide` after a short grace period instead of
+    /// immediately. Switching between the Group and Agent tabs with the
+    /// keyboard up hands the composer's first responder from one page's field
+    /// to the other's, and UIKit posts the outgoing field's hide before the
+    /// incoming field's show. Collapsing `keyboardHeight` on that transient
+    /// hide dropped the drawer - and every transcript inset derived from it -
+    /// for a beat on every switch. Deferring the hide lets the follow-up show
+    /// cancel it, so only a keyboard that actually leaves the screen collapses
+    /// the layout.
+    func handleKeyboardWillHide() {
+        pendingKeyboardHide?.cancel()
+        let hide = DispatchWorkItem {
+            pendingKeyboardHide = nil
+            isKeyboardVisible = false
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                keyboardHeight = 0
+            }
+        }
+        pendingKeyboardHide = hide
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Constant.keyboardTransferGracePeriod,
+            execute: hide
+        )
     }
 
     /// Whether the desktop layout (webview desktop + chat drawer) is active:
@@ -1034,6 +1065,12 @@ private enum Constant {
     /// composer; taller than the dots' 24pt because the switcher carries
     /// labeled pills. Tuned in the simulator.
     static let switcherBottomInset: CGFloat = 64.0
+    /// How long a `keyboardWillHide` waits before collapsing the layout, so
+    /// the show posted by a first-responder transfer (tab switches moving the
+    /// keyboard between composers) can cancel it. Long enough to span the
+    /// couple of runloop turns a cross-page focus move takes, short enough
+    /// that a genuine dismissal's drawer drop still tracks the keyboard.
+    static let keyboardTransferGracePeriod: TimeInterval = 0.1
 }
 
 // The sheet/navigation onChange handlers: each maps a viewModel

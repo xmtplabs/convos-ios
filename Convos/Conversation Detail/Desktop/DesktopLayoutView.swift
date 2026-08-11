@@ -7,8 +7,7 @@ import UIKit
 // mode. Replaces the old full-screen `DesktopWebView` background with a
 // sectioned layout: the web view as the hero card, then an optional invite
 // card (the same `InviteCodeBody` the transcript's index-0 invite cell and
-// `InviteCodeOverlay` compose), then clearly-stubbed placeholder cards for
-// upcoming sections (Activity, Files).
+// `InviteCodeOverlay` compose).
 //
 // The `ConversationDrawer` floats above this view; its collapsed resting
 // height is shared via `ConversationDrawerMetrics.collapsedRestingHeight`.
@@ -58,8 +57,6 @@ struct DesktopLayoutView: View {
                         if let inviteConfiguration {
                             DesktopInviteSection(configuration: inviteConfiguration)
                         }
-                        DesktopPlaceholderSection(title: "Activity")
-                        DesktopPlaceholderSection(title: "Files")
                     }
                     .padding(.horizontal, Constant.horizontalPadding)
                 }
@@ -68,7 +65,7 @@ struct DesktopLayoutView: View {
             .scrollIndicators(.hidden)
         }
         .background {
-            Color.colorBackgroundSurfaceless
+            Color.colorBackgroundSubtle
                 .ignoresSafeArea()
         }
     }
@@ -124,39 +121,6 @@ private struct DesktopInviteSection: View {
 
     private enum Constant {
         static let cornerRadius: CGFloat = DesignConstants.CornerRadius.mediumLarge
-    }
-}
-
-/// A clearly-stubbed card for a desktop section that doesn't exist yet.
-private struct DesktopPlaceholderSection: View {
-    let title: String
-
-    var body: some View {
-        let identifier: String = "desktop-placeholder-section-\(title.lowercased())"
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.colorTextPrimary)
-            Text("Coming soon")
-                .font(.caption)
-                .foregroundStyle(.colorTextSecondary)
-            RoundedRectangle(cornerRadius: Constant.fillCornerRadius)
-                .fill(.colorFillTertiary)
-                .frame(height: Constant.fillHeight)
-        }
-        .padding(DesignConstants.Spacing.step4x)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: Constant.cornerRadius)
-                .fill(DesignConstants.Colors.fillSubtle)
-        }
-        .accessibilityIdentifier(identifier)
-    }
-
-    private enum Constant {
-        static let cornerRadius: CGFloat = DesignConstants.CornerRadius.mediumLarge
-        static let fillCornerRadius: CGFloat = DesignConstants.CornerRadius.regular
-        static let fillHeight: CGFloat = 120.0
     }
 }
 
