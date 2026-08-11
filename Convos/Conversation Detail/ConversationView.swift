@@ -70,9 +70,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// presented.
     @State private var contextMenuState: MessageContextMenuState = .init()
     @State private var showingDebugInjector: Bool = false
-    /// Consent surface for agent ability-use asks, latched once per view
-    /// lifetime by `prepareEscalationIfNeeded` (nil while the abilities
-    /// flag is off or the conversation has no agent).
+    /// Consent surface for agent ability-use asks, managed by
+    /// `prepareEscalationIfNeeded` keyed on `escalationTaskKey` (nil while
+    /// the abilities flag is off or the conversation has no agent; rebuilt
+    /// when the shown conversation changes).
     @State private var escalationViewModel: ConversationEscalationViewModel?
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -245,6 +246,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         // flag is on. Absent, the composer draws no bubble at all.
         .environment(\.agentParticipation, participationContext)
         .task(id: participationTaskKey) { await prepareParticipation() }
+        .task(id: escalationTaskKey) { prepareEscalationIfNeeded() }
         // The mode rides the group's appData, so another member's change lands
         // as a change to this conversation's synced row and the bubble follows
         // it - nothing here polls.
@@ -543,7 +545,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             navState.markScreenAppeared()
             viewModel.onConversationAppeared()
             seedInitialPageIfNeeded()
-            prepareEscalationIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
             handleSelectAgentDmPageRequest(note)
@@ -1115,12 +1116,25 @@ private extension ConversationView {
         .animation(.spring(duration: 0.4, bounce: 0.2), value: bottomBarSlot)
     }
 
-    /// Builds the escalation view model once per view lifetime: only when
-    /// the Abilities V2 flag is on and the conversation has an agent. The
-    /// flag is read once and latched -- same posture as
-    /// `ConversationInfoView.AgentAccessMode`. Re-appearance restarts the
-    /// stream observation on the latched model.
+    /// Keys the escalation `.task` on the conversation AND on whether it
+    /// has an agent, mirroring `participationTaskKey`: a view instance that
+    /// pages to another conversation rebuilds the model for the new stream,
+    /// and an agent that joins an already-open conversation starts
+    /// observation without needing a re-appear.
+    var escalationTaskKey: String {
+        "\(viewModel.conversation.id)-\(viewModel.conversation.hasAgent)"
+    }
+
+    /// Builds the escalation view model when the Abilities V2 flag is on
+    /// and the conversation has an agent. The flag is read once and latched
+    /// -- same posture as `ConversationInfoView.AgentAccessMode`. Runs from
+    /// a `.task` keyed on `escalationTaskKey`, so re-appearance restarts
+    /// stream observation and a conversation change rebuilds the model.
     func prepareEscalationIfNeeded() {
+        if let escalationViewModel, escalationViewModel.conversationId != viewModel.conversation.id {
+            escalationViewModel.stopObserving()
+            self.escalationViewModel = nil
+        }
         if let escalationViewModel {
             escalationViewModel.startObserving()
             return

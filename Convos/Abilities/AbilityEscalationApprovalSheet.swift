@@ -188,10 +188,13 @@ struct AbilityEscalationApprovalSheet: View {
         )
     }
 
+    /// Seeds from the resolved `requestedBundles`, not the raw request ids:
+    /// an id the catalog ability doesn't carry never renders a toggle, so it
+    /// must not ride the seed set into `onAllow` unseen.
     private func seedSelectionIfNeeded() {
         guard !didSeedSelection else { return }
         didSeedSelection = true
-        enabledBundleIds = Set(context.request.requestedBundleIds)
+        enabledBundleIds = Set(requestedBundles.map(\.id))
     }
 
     private enum Constant {

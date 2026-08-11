@@ -203,6 +203,40 @@ struct AbilityEscalationMockTests {
         #expect(request.abilityId == "googlecalendar")
     }
 
+    @Test("Revoking a stored-active but expired delegation throws and leaves it expired")
+    func revokeExpiredDelegation() async throws {
+        let service = makeService()
+        let expiredId = "delegation-gmail-expired"
+
+        await #expect(throws: AbilityEscalationServiceError.delegationNotActive(delegationId: expiredId)) {
+            try await service.revoke(delegationId: expiredId)
+        }
+
+        // The stored row must not have been rewritten to revoked.
+        let delegations = await service.delegations(abilityId: "gmail")
+        let expired = try #require(delegations.first { $0.id == expiredId })
+        #expect(expired.effectiveState() == .expired)
+    }
+
+    @Test("Toggle-off during the auto-fire delay re-arms the scripted ask for the next subscribe")
+    func autoFireRearmsAfterInactiveWindow() async throws {
+        let flag = ActiveFlagBox(isActive: true)
+        let service = makeService(isActive: { flag.isActive })
+
+        // Subscribing while active schedules the fire; the toggle goes off
+        // before the delay elapses, so the fire must not land.
+        _ = await service.pendingRequestsStream(conversationId: "convo-g")
+        flag.isActive = false
+        try await Task.sleep(for: .milliseconds(100))
+        let pending = await service.pendingRequests(conversationId: "convo-g")
+        #expect(pending.isEmpty)
+
+        // Re-enabling and resubscribing schedules it again.
+        flag.isActive = true
+        let (request, _) = try await awaitScriptedRequest(from: service, conversationId: "convo-g")
+        #expect(request.abilityId == "googlecalendar")
+    }
+
     @Test("Seeded fixtures: unique ids, catalog-resolvable abilities, all four display states")
     func fixtureSanity() {
         let now = Date()

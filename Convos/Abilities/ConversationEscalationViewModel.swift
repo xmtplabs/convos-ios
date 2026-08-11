@@ -29,7 +29,9 @@ final class ConversationEscalationViewModel {
     /// Non-nil presents the approval sheet.
     var approvalContext: AbilityEscalationApprovalContext?
 
-    private let conversationId: String
+    /// Read by the owning view to detect that it now shows a different
+    /// conversation and this model must be rebuilt for the new stream.
+    let conversationId: String
     /// The pair latched at construction, same posture as the abilities VMs.
     private let selection: AbilitiesSelection
     @ObservationIgnored private var observationTask: Task<Void, Never>?

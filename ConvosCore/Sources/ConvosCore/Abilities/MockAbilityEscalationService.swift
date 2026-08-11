@@ -121,7 +121,7 @@ public actor MockAbilityEscalationService: AbilityEscalationServiceProtocol {
         guard let delegation = delegationsById[delegationId] else {
             throw AbilityEscalationServiceError.unknownDelegation(delegationId: delegationId)
         }
-        guard delegation.state == .active else {
+        guard delegation.effectiveState() == .active else {
             throw AbilityEscalationServiceError.delegationNotActive(delegationId: delegationId)
         }
         delegationsById[delegationId] = delegation.withState(.revoked)
@@ -176,7 +176,12 @@ public actor MockAbilityEscalationService: AbilityEscalationServiceProtocol {
     }
 
     private func fireScriptedRequest(conversationId: String) {
-        guard isActive() else { return }
+        guard isActive() else {
+            // The toggle went off during the delay; re-arm so the scripted
+            // ask fires on the next subscribe after re-enable.
+            firedConversations.remove(conversationId)
+            return
+        }
         let request = Self.scriptedRequest(conversationId: conversationId)
         pendingByConversation[conversationId, default: []].append(request)
         emitPending(conversationId: conversationId)
