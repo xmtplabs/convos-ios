@@ -498,13 +498,14 @@ struct ContactDetailView: View {
     // MARK: - Actions
 
     /// Agent-DM prototype gate: a verified, non-template agent viewed from
-    /// inside a shared conversation can be DM'd directly. Non-production
-    /// only while the runtime side of agent DMs is in development.
+    /// inside a shared conversation can be DM'd directly. Behind the
+    /// agent-DMs feature flag (off by default) while the runtime side of
+    /// agent DMs is in development.
     private var canStartAgentDm: Bool {
         session != nil
             && isVerifiedAgent
             && mode.isScopedToConversation
-            && !ConfigManager.shared.currentEnvironment.isProduction
+            && FeatureFlags.shared.isAgentDmsEnabled
     }
 
     private func handleChatWithAgentDm() {

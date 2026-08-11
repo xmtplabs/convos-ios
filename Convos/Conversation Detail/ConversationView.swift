@@ -468,12 +468,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     /// Inboxes of the conversation's DM-able agents, one per verified agent
     /// member, when the agent-DM prototype should offer DM pages: not already
-    /// inside a DM, non-production only (matches ContactDetailView's gate).
+    /// inside a DM, agent-DMs flag on (matches ContactDetailView's gate).
     /// Kept in member join order (`_members` is ordered createdAt.asc), so a
     /// newly-added agent appends a page after the existing ones rather than
     /// reordering them and relocating a DM the user already opened.
     private var agentDmPageInboxIds: [String] {
-        guard !ConfigManager.shared.currentEnvironment.isProduction,
+        guard FeatureFlags.shared.isAgentDmsEnabled,
               !viewModel.conversation.isAgentDm else {
             return []
         }

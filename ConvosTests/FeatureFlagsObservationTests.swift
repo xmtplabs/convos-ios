@@ -27,6 +27,23 @@ final class FeatureFlagsObservationTests: XCTestCase {
         XCTAssertEqual(flags.isAbilitiesV2Enabled, !initial)
     }
 
+    func testTogglingAgentDmsNotifiesObservers() {
+        let flags = FeatureFlags.shared
+        let initial = flags.isAgentDmsEnabled
+        defer { flags.isAgentDmsEnabled = initial }
+
+        let changed = expectation(description: "agent DMs flag observation fired")
+        withObservationTracking {
+            _ = flags.isAgentDmsEnabled
+        } onChange: {
+            changed.fulfill()
+        }
+
+        flags.isAgentDmsEnabled = !initial
+        wait(for: [changed], timeout: 1.0)
+        XCTAssertEqual(flags.isAgentDmsEnabled, !initial)
+    }
+
     func testTogglingBidiStreamsNotifiesObservers() {
         let flags = FeatureFlags.shared
         let initial = flags.isXMTPBidiStreamsEnabled

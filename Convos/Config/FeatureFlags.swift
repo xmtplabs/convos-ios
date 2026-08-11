@@ -132,6 +132,25 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default -- gates the agent-DM surfaces: the DM page in the
+    /// conversation pager (and its segment in the pager control) and the
+    /// chat-with-agent action on an agent's contact card. Toggle from
+    /// App Settings -> Debug. Hard-locked off in production so the
+    /// prototype can never surface for end users.
+    var isAgentDmsEnabled: Bool {
+        get {
+            access(keyPath: \.isAgentDmsEnabled)
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            return UserDefaults.standard.bool(forKey: Constant.agentDmsEnabledKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            withMutation(keyPath: \.isAgentDmsEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.agentDmsEnabledKey)
+            }
+        }
+    }
+
     /// Mock credits/subscription state used by the in-app paywall preview surface
     /// in the Debug menu. Non-production only; defaults to `.plusAmple`.
     var mockCreditsPreset: CreditsStatePreset {
@@ -181,5 +200,6 @@ final class FeatureFlags {
         static let listenParticipationEnabledKey: String = "featureFlags.listenParticipationEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
         static let abilitiesV2EnabledKey: String = "featureFlags.abilitiesV2Enabled"
+        static let agentDmsEnabledKey: String = "featureFlags.agentDmsEnabled"
     }
 }
