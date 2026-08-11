@@ -538,6 +538,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             switcherBar
         }
+        .onChange(of: switcherSuppressed) { _, suppressed in
+            handleSwitcherSuppressedChanged(suppressed)
+        }
     }
 
     /// The Group/Agent switcher pinned in the slot the pager dots occupy,
@@ -545,7 +548,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// the pager so it stays fixed while pages swipe horizontally.
     @ViewBuilder
     private var switcherBar: some View {
-        if isNewComposerActive {
+        if isNewComposerActive && !switcherSuppressed {
             GroupAgentSwitcher(
                 selectedPage: $pagerSelectedPage,
                 showsAgentPill: agentTabAvailable,
@@ -822,6 +825,10 @@ private extension ConversationView {
     }
 
     var pagerDotsInset: CGFloat {
+        if switcherSuppressed {
+            // No switcher to clear; fall back to the pre-switcher inset.
+            return isKeyboardVisible ? 0.0 : 24.0
+        }
         if isDesktopActive {
             return desktopSwitcherHeight > 0 ? desktopSwitcherHeight : Constant.switcherBottomInset
         }
@@ -943,6 +950,27 @@ private extension ConversationView {
         !ConfigManager.shared.currentEnvironment.isProduction
             && !viewModel.conversation.isAgentDm
             && !viewModel.upgradesOnAdd
+    }
+
+    /// Whether the Group/Agent switcher is hidden entirely under desktop
+    /// mode: a human DM, or a two-member conversation with no agent, is
+    /// effectively a 1:1 with one other human, so there is no agent surface
+    /// for the toggle to switch to. Agent adds route through the contacts
+    /// picker instead, and the switcher reappears once an agent joins.
+    var switcherSuppressed: Bool {
+        guard FeatureFlags.shared.isDesktopModeEnabled else { return false }
+        let conversation = viewModel.conversation
+        if conversation.isHumanDm { return true }
+        let hasAgent: Bool = conversation.members.contains(where: \.isAgent)
+        return !hasAgent && conversation.members.count == 2
+    }
+
+    /// Snaps back to the group page when the switcher hides while the agent
+    /// page is selected (e.g. the last agent leaves a three-member group),
+    /// since desktop pages are stationary and the toggle was the only way off.
+    func handleSwitcherSuppressedChanged(_ suppressed: Bool) {
+        guard suppressed, pagerSelectedPage == .agent else { return }
+        pagerSelectedPage = .messages
     }
 
     var pagerPages: [ConversationPagerPage] {
