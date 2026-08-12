@@ -145,13 +145,16 @@ struct ConversationTabBar: View {
     }
 
     /// The agent glyph: the shared `addAgentIcon` asset in a badge circle,
-    /// sized to sit in the same icon slot as the symbol slots.
+    /// sized to sit in the same icon slot as the symbol slots. The glyph is
+    /// cut out in the card's fill color - `.background` resolves against the
+    /// glass capsule and can vanish into the badge on the dark agent
+    /// surface.
     private func agentGlyph(isSelected: Bool) -> some View {
         Image("addAgentIcon")
             .renderingMode(.template)
             .resizable()
             .scaledToFit()
-            .foregroundStyle(.background)
+            .foregroundStyle(Color.colorBackgroundRaised)
             .frame(width: Constant.agentGlyphSize, height: Constant.agentGlyphSize)
             .frame(width: Constant.agentBadgeSize, height: Constant.agentBadgeSize)
             .background(iconColor(isSelected: isSelected), in: .circle)
