@@ -99,9 +99,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// sheet-hosted composers to fire on send.
     @State private var groupScrollToBottom: (() -> Void)?
     @State private var agentScrollToBottom: (() -> Void)?
-    /// The desktop browser popup stack: each intercepted navigation pushes a
-    /// fresh entry above the desktop surface and below the sheet.
-    @State private var desktopBrowserEntries: [DesktopBrowserEntry] = []
+    /// The head of the desktop browsing chain: an intercepted link tap on
+    /// the desktop pushes this onto the navigation stack (further links push
+    /// from within the page; the system back button walks home).
+    @State private var pushedDesktopBrowserEntry: DesktopBrowserEntry?
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -564,6 +565,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ContentPopGestureDisabler()
                 .frame(width: 0, height: 0)
         }
+        // A link tap on the desktop pushes a browser page onto the stack;
+        // the system back button returns to the root desktop view, and the
+        // conversation's toolbar items (the add-members button) stay behind
+        // on this screen.
+        .navigationDestination(item: $pushedDesktopBrowserEntry) { entry in
+            DesktopBrowserPageView(entry: entry)
+        }
         .modifier(metricsObserversPart1)
         .modifier(metricsObserversPart2)
         .modifier(metricsObserversPart3)
@@ -708,17 +716,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
 private extension ConversationView {
     /// The conversation's layered layout: the selected tab's backing view
-    /// filling the screen, the desktop browser popups above it, and the
-    /// floating conversation sheet over everything. The sheet is a
-    /// bottom-aligned ZStack sibling (not an overlay - safe-area expansion
-    /// doesn't reach overlay children), so it can extend into the bottom
-    /// safe area like the native tab bar while still riding the keyboard.
+    /// filling the screen and the floating conversation sheet over it. The
+    /// sheet is a bottom-aligned ZStack sibling (not an overlay - safe-area
+    /// expansion doesn't reach overlay children), so it can extend into the
+    /// bottom safe area like the native tab bar while still riding the
+    /// keyboard.
     var conversationLayout: some View {
         ZStack(alignment: .bottom) {
-            ZStack {
-                backingViews
-                desktopBrowserPopups
-            }
+            backingViews
             conversationSheet
         }
     }
@@ -755,31 +760,12 @@ private extension ConversationView {
                     webURL: viewModel.conversation.spaceURL,
                     sheetHeight: sheetOccupiedHeight,
                     onNavigationRequest: { url in
-                        desktopBrowserEntries.append(DesktopBrowserEntry(url: url))
+                        pushedDesktopBrowserEntry = DesktopBrowserEntry(url: url)
                     }
                 )
                 .opacity(selectedTab == .desktop ? 1 : 0)
                 .allowsHitTesting(selectedTab == .desktop)
             }
-        }
-    }
-
-    /// The stacked desktop browser popups: each intercepted navigation
-    /// pushes a fresh entry whose page pins its own URL; further navigation
-    /// stacks another popup on top.
-    @ViewBuilder
-    var desktopBrowserPopups: some View {
-        ForEach(desktopBrowserEntries) { entry in
-            DesktopBrowserPopup(
-                url: entry.url,
-                onNavigationRequest: { url in
-                    desktopBrowserEntries.append(DesktopBrowserEntry(url: url))
-                },
-                onClose: {
-                    desktopBrowserEntries.removeAll { $0.id == entry.id }
-                }
-            )
-            .ignoresSafeArea()
         }
     }
 

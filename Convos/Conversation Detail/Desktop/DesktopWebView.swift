@@ -149,7 +149,10 @@ struct DesktopWebView: UIViewRepresentable {
             hasFinishedInitialLoad = true
             let onLoaded = onLoaded
             Task { @MainActor in onLoaded() }
+            // Pushed browser pages pass no conversation id; only the
+            // conversation's own desktop persists a cover snapshot.
             let conversationId = conversationId
+            guard !conversationId.isEmpty else { return }
             webView.takeSnapshot(with: nil) { image, error in
                 if let error {
                     Log.error("DesktopWebView snapshot failed: \(error)")
