@@ -155,6 +155,16 @@ public nonisolated struct ConversationCustomMetadata: Sendable {
   /// Clears the value of `participationMode`. Subsequent reads from it will return its default value.
   public mutating func clearParticipationMode() {self._participationMode = nil}
 
+  /// Deployed Space web URL for the room; the Assistant Worker is the sole authority, clients only read it
+  public var spaceURL: String {
+    get {_spaceURL ?? String()}
+    set {_spaceURL = newValue}
+  }
+  /// Returns true if `spaceURL` has been explicitly set.
+  public var hasSpaceURL: Bool {self._spaceURL != nil}
+  /// Clears the value of `spaceURL`. Subsequent reads from it will return its default value.
+  public mutating func clearSpaceURL() {self._spaceURL = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -165,6 +175,7 @@ public nonisolated struct ConversationCustomMetadata: Sendable {
   fileprivate var _emoji: String? = nil
   fileprivate var _agentDm: AgentDmInfo? = nil
   fileprivate var _participationMode: ParticipationMode? = nil
+  fileprivate var _spaceURL: String? = nil
 }
 
 /// AgentDmInfo marks a 2-member conversation as a private DM with an agent.
@@ -282,7 +293,7 @@ nonisolated extension ParticipationMode: SwiftProtobuf._ProtoNameProviding {
 
 nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationCustomMetadata"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0\u{2}\u{2}agentDm\0\u{1}participationMode\0\u{c}\u{7}\u{1}")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}emoji\0\u{2}\u{2}agentDm\0\u{1}participationMode\0\u{1}spaceUrl\0\u{c}\u{7}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -298,6 +309,7 @@ nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftPr
       case 6: try { try decoder.decodeSingularStringField(value: &self._emoji) }()
       case 8: try { try decoder.decodeSingularMessageField(value: &self._agentDm) }()
       case 9: try { try decoder.decodeSingularEnumField(value: &self._participationMode) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self._spaceURL) }()
       default: break
       }
     }
@@ -332,6 +344,9 @@ nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftPr
     try { if let v = self._participationMode {
       try visitor.visitSingularEnumField(value: v, fieldNumber: 9)
     } }()
+    try { if let v = self._spaceURL {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 10)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -344,6 +359,7 @@ nonisolated extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftPr
     if lhs._emoji != rhs._emoji {return false}
     if lhs._agentDm != rhs._agentDm {return false}
     if lhs._participationMode != rhs._participationMode {return false}
+    if lhs._spaceURL != rhs._spaceURL {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

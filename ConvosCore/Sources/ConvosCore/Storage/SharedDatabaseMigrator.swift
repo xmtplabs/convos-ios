@@ -222,6 +222,17 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConversationAddedById", migrate: Self.addConversationAddedById)
         migrator.registerMigration("addConversationParticipationMode", migrate: Self.addConversationParticipationMode)
         migrator.registerMigration("clearCutListenParticipationMode", migrate: Self.clearCutListenParticipationMode)
+        migrator.registerMigration("addConversationSpaceURLString", migrate: Self.addConversationSpaceURLString)
+    }
+
+    /// The deployed Space web URL for the conversation, mirrored from the
+    /// group's appData (the Assistant Worker publishes it; clients only read).
+    /// Nullable with no default: a null column is a conversation no Space has
+    /// been published for yet, which the desktop tab renders as a placeholder.
+    static func addConversationSpaceURLString(_ db: Database) throws {
+        try db.alter(table: "conversation") { t in
+            t.add(column: "spaceURLString", .text)
+        }
     }
 
     /// The conversation's agent participation mode, mirrored from the group's
