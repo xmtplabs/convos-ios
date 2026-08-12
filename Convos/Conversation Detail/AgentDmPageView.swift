@@ -63,6 +63,14 @@ struct AgentDmPageView: View {
         // speak in the group room; it has no meaning in a 1:1 agent DM, so clear
         // the inherited participation context to hide the control here.
         .environment(\.agentParticipation, nil)
+        // The backing views mount on the tab's first visit with the tab
+        // already active, so no isActiveTab change fires; handle the initial
+        // activation (mark read, register the push-suppression lane) here.
+        .onAppear {
+            if isActiveTab {
+                handleActiveTabChange(true)
+            }
+        }
         .onChange(of: isActiveTab) { _, active in
             handleActiveTabChange(active)
         }

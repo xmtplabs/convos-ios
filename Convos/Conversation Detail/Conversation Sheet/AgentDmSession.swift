@@ -42,6 +42,11 @@ final class AgentDmSession {
     /// current DM binding so the new agent's DM can bind in its place.
     func setAgent(inboxId: String?) {
         guard inboxId != agentInboxId else { return }
+        // Clear any push-suppression lane registered for the outgoing DM;
+        // nobody re-posts it with the old id once the binding is gone.
+        if dmViewModel != nil {
+            updateActiveDmLane(isActive: false)
+        }
         agentInboxId = inboxId
         dmViewModel = nil
         bindIfNeeded()

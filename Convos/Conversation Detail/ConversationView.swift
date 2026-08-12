@@ -544,6 +544,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
             .profile.inboxId
     }
 
+    /// Tabs available for this conversation: the Desktop tab exists only
+    /// once a Space URL has been published into the group's appData. The
+    /// synced conversation re-emits on appData updates, so the tab appears
+    /// live the moment the Assistant Worker publishes one.
+    private var availableTabs: [ConversationTab] {
+        viewModel.conversation.spaceURL != nil
+            ? ConversationTab.allCases
+            : [.group, .agent]
+    }
+
     /// The sheet's clearance above the *safe-area* bottom line, which is
     /// what the transcripts inset by (their controllers add the safe area
     /// and keyboard themselves). The card extends into the bottom safe
@@ -583,6 +593,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 // cancel the in-flight reply swipe so the tab change doesn't
                 // fire a reply.
                 contextMenuState.cancelInFlightSwipe()
+            }
+        }
+        // A conversation can lose its Space URL (or never have had one);
+        // fall back off the Desktop tab if it disappears from under us.
+        .onChange(of: viewModel.conversation.spaceURL) { _, newURL in
+            if newURL == nil, selectedTab == .desktop {
+                desktopBrowserEntries.removeAll()
+                selectTab(.group)
             }
         }
         // Keeps the Agent tab bound to the conversation's current agent, and
@@ -834,7 +852,7 @@ private extension ConversationView {
                 .opacity(selectedTab == .agent ? 1 : 0)
                 .allowsHitTesting(selectedTab == .agent)
             }
-            if visitedTabs.contains(.desktop) {
+            if visitedTabs.contains(.desktop), availableTabs.contains(.desktop) {
                 DesktopLayoutView(
                     conversationId: viewModel.conversation.id,
                     webURL: viewModel.conversation.spaceURL,
@@ -860,6 +878,7 @@ private extension ConversationView {
             tabBar: {
                 ConversationTabBar(
                     selectedTab: $selectedTab,
+                    tabs: availableTabs,
                     onReselect: handleTabReselect(_:)
                 )
             }

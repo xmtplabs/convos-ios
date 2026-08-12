@@ -89,11 +89,13 @@ struct DesktopWebView: UIViewRepresentable {
         context.coordinator.loadedURL = url
         context.coordinator.hasLoaded = true
         // A fresh programmatic load may redirect; allow its whole chain again.
+        // Tracking the returned navigation lets the coordinator ignore stale
+        // completions from a superseded load.
         context.coordinator.hasFinishedInitialLoad = false
         if let url {
-            webView.load(URLRequest(url: url))
+            context.coordinator.activeNavigation = webView.load(URLRequest(url: url))
         } else {
-            webView.loadHTMLString(Constant.placeholderHTML, baseURL: nil)
+            context.coordinator.activeNavigation = webView.loadHTMLString(Constant.placeholderHTML, baseURL: nil)
         }
     }
 
@@ -104,6 +106,10 @@ struct DesktopWebView: UIViewRepresentable {
         var loadedURL: URL?
         var hasLoaded: Bool = false
         var hasFinishedInitialLoad: Bool = false
+        /// The most recently started load; completions for anything else are
+        /// stale (e.g. the placeholder finishing after the real Space URL
+        /// superseded it) and must not flip the interception state.
+        var activeNavigation: WKNavigation?
 
         init(
             conversationId: String,
@@ -146,7 +152,12 @@ struct DesktopWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+            guard isCurrent(navigation) else { return }
             hasFinishedInitialLoad = true
+            // The initial chain may have redirected; pin the final committed
+            // URL so a later reload of the displayed page stays in place
+            // instead of being intercepted as outbound navigation.
+            loadedURL = webView.url ?? loadedURL
             let onLoaded = onLoaded
             Task { @MainActor in onLoaded() }
             // Pushed browser pages pass no conversation id; only the
@@ -160,6 +171,36 @@ struct DesktopWebView: UIViewRepresentable {
                 guard let pngData = image?.pngData() else { return }
                 Task { await DesktopSnapshotStore.shared.store(pngData, for: conversationId) }
             }
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
+            handleLoadFailure(navigation, error: error)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: Error) {
+            handleLoadFailure(navigation, error: error)
+        }
+
+        /// A failed load must not strand the surface: clearing `hasLoaded`
+        /// lets the next update pass retry the same URL, and firing
+        /// `onLoaded` drops the snapshot cover so the surface isn't an
+        /// opaque, untouchable ghost while it waits. Cancellations (a newer
+        /// load superseding this one) are not failures.
+        private func handleLoadFailure(_ navigation: WKNavigation?, error: Error) {
+            guard isCurrent(navigation) else { return }
+            let nsError = error as NSError
+            guard nsError.code != NSURLErrorCancelled else { return }
+            Log.warning("DesktopWebView load failed: \(error.localizedDescription)")
+            hasLoaded = false
+            let onLoaded = onLoaded
+            Task { @MainActor in onLoaded() }
+        }
+
+        /// Whether a delegate callback belongs to the most recently started
+        /// load. WebKit occasionally reports a nil navigation; accept those
+        /// rather than dropping real completions.
+        private func isCurrent(_ navigation: WKNavigation?) -> Bool {
+            navigation == nil || activeNavigation == nil || navigation === activeNavigation
         }
     }
 

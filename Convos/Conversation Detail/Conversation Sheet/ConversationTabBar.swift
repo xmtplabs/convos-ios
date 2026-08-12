@@ -73,16 +73,18 @@ struct ConversationTabBar: View {
             }
             .onEnded { value in
                 select(atX: value.location.x)
-                if !gestureChangedSelection, tab(atX: value.location.x) == selectedTab {
-                    onReselect(selectedTab)
+                if !gestureChangedSelection, let tab = tab(atX: value.location.x), tab == selectedTab {
+                    onReselect(tab)
                 }
                 gestureChangedSelection = false
             }
     }
 
     /// The slot under a horizontal position on the bar, clamped so a finger
-    /// sliding off the bar's ends sticks to the edge slots.
-    private func tab(atX x: CGFloat) -> ConversationTab {
+    /// sliding off the bar's ends sticks to the edge slots. Nil only for an
+    /// empty `tabs` array.
+    private func tab(atX x: CGFloat) -> ConversationTab? {
+        guard !tabs.isEmpty else { return nil }
         let slotStride: CGFloat = Constant.slotWidth + Constant.slotSpacing
         let index: Int = min(max(Int(x / slotStride), 0), tabs.count - 1)
         return tabs[index]
@@ -91,8 +93,7 @@ struct ConversationTabBar: View {
     /// Maps a horizontal position on the bar to a slot and selects it. Live
     /// tracking: called on touch-down and every drag sample.
     private func select(atX x: CGFloat) {
-        let tab: ConversationTab = tab(atX: x)
-        guard tab != selectedTab else { return }
+        guard let tab = tab(atX: x), tab != selectedTab else { return }
         gestureChangedSelection = true
         withAnimation(.easeInOut(duration: 0.25)) {
             selectedTab = tab
