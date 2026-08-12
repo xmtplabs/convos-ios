@@ -55,8 +55,12 @@ struct DesktopWebView: UIViewRepresentable {
         // The surface is positioned by SwiftUI (full-bleed under the floating
         // sheet); letting UIKit re-apply safe-area insets on top of that
         // makes a 100vh page scrollable and misplaces the indicator. The
-        // sheet clearance arrives via `bottomContentInset` instead.
+        // chrome clearances arrive via the explicit content insets instead -
+        // and the indicator's automatic adjustment is its own flag, applied
+        // even with `.never`, so it must be silenced too or the safe areas
+        // stack onto the manual indicator insets.
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.scrollView.automaticallyAdjustsScrollIndicatorInsets = false
         return webView
     }
 
