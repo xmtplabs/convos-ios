@@ -268,7 +268,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // measured height instead of hosting a bar.
             hostsBottomBar: false,
             onScrollToBottomAvailable: { scrollFn in
-                groupScrollToBottom = scrollFn
+                // Fires from inside the representable's make pass; defer the
+                // state write out of the view-update transaction or SwiftUI
+                // drops it.
+                DispatchQueue.main.async {
+                    groupScrollToBottom = scrollFn
+                }
             },
             bottomBarContent: { EmptyView() }
         )
@@ -342,6 +347,22 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private func popDesktopBrowserPage() {
         withAnimation(.easeInOut(duration: 0.25)) {
             _ = desktopBrowserEntries.popLast()
+        }
+    }
+
+    /// The native tab bar's re-tap contract: tapping the active tab returns
+    /// to that surface's resting state - the desktop pops its browsing chain
+    /// to the root view; the transcripts scroll to the latest message.
+    private func handleTabReselect(_ tab: ConversationTab) {
+        switch tab {
+        case .desktop:
+            withAnimation(.easeInOut(duration: 0.25)) {
+                desktopBrowserEntries.removeAll()
+            }
+        case .group:
+            groupScrollToBottom?()
+        case .agent:
+            agentScrollToBottom?()
         }
     }
 
@@ -804,7 +825,10 @@ private extension ConversationView {
                     focusState: $agentFocusState,
                     focusCoordinator: agentFocusCoordinator,
                     onScrollToBottomAvailable: { scrollFn in
-                        agentScrollToBottom = scrollFn
+                        // Same deferral as the group transcript's bridge.
+                        DispatchQueue.main.async {
+                            agentScrollToBottom = scrollFn
+                        }
                     }
                 )
                 .opacity(selectedTab == .agent ? 1 : 0)
@@ -833,7 +857,12 @@ private extension ConversationView {
                 sheetOccupiedHeight = height
             },
             barContent: { sheetBarContent },
-            tabBar: { ConversationTabBar(selectedTab: $selectedTab) }
+            tabBar: {
+                ConversationTabBar(
+                    selectedTab: $selectedTab,
+                    onReselect: handleTabReselect(_:)
+                )
+            }
         )
         // Like the native floating tab bar, the card rests inside the bottom
         // safe area: its edge inset is measured from the physical screen

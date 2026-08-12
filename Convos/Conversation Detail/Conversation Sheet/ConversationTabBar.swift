@@ -13,10 +13,17 @@ struct ConversationTabBar: View {
     /// Tabs to render, in order. The full set by default; hosts may trim it
     /// (e.g. a draft conversation with no desktop yet).
     var tabs: [ConversationTab] = ConversationTab.allCases
+    /// Fired when a tap lands on the already-selected tab (the native tab
+    /// bar's re-tap contract: pop to root / scroll to top). Not fired when a
+    /// drag visits other slots before returning.
+    var onReselect: (ConversationTab) -> Void = { _ in }
 
     /// True while a finger is on the bar; compresses the thumb slightly,
     /// mirroring the native segmented thumb's pressed state.
     @GestureState private var isTracking: Bool = false
+    /// Whether the current gesture moved the selection; a touch that never
+    /// does and ends on the selected tab is a re-tap.
+    @State private var gestureChangedSelection: Bool = false
 
     private var selectedIndex: Int {
         tabs.firstIndex(of: selectedTab) ?? 0
@@ -66,17 +73,27 @@ struct ConversationTabBar: View {
             }
             .onEnded { value in
                 select(atX: value.location.x)
+                if !gestureChangedSelection, tab(atX: value.location.x) == selectedTab {
+                    onReselect(selectedTab)
+                }
+                gestureChangedSelection = false
             }
     }
 
-    /// Maps a horizontal position on the bar to a slot and selects it. Live
-    /// tracking: called on touch-down and every drag sample, clamped so a
-    /// finger sliding off the bar's ends sticks to the edge slots.
-    private func select(atX x: CGFloat) {
+    /// The slot under a horizontal position on the bar, clamped so a finger
+    /// sliding off the bar's ends sticks to the edge slots.
+    private func tab(atX x: CGFloat) -> ConversationTab {
         let slotStride: CGFloat = Constant.slotWidth + Constant.slotSpacing
         let index: Int = min(max(Int(x / slotStride), 0), tabs.count - 1)
-        let tab: ConversationTab = tabs[index]
+        return tabs[index]
+    }
+
+    /// Maps a horizontal position on the bar to a slot and selects it. Live
+    /// tracking: called on touch-down and every drag sample.
+    private func select(atX x: CGFloat) {
+        let tab: ConversationTab = tab(atX: x)
         guard tab != selectedTab else { return }
+        gestureChangedSelection = true
         withAnimation(.easeInOut(duration: 0.25)) {
             selectedTab = tab
         }
