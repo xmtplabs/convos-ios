@@ -758,13 +758,16 @@ struct ConversationInfoView: View {
 // MARK: - Support and debug section
 
 extension ConversationInfoView {
-    // The support rows ship in every environment so production users can
-    // send on-device diagnostics to support; the remaining rows are internal
-    // debugging tools and stay out of production builds.
+    // The support rows ship in every environment so production users can send
+    // on-device diagnostics to support. The Space proposal row follows its
+    // explicit opt-in flag; the remaining debug rows stay out of production.
     @ViewBuilder
     private var debugInfoSection: some View {
         let isProduction = ConfigManager.shared.currentEnvironment.isProduction
         Section {
+            if FeatureFlags.shared.isSpacePullRequestProposalEnabled {
+                spacePullRequestProposalRow
+            }
             if !isProduction {
                 internalDebugRows
             }
@@ -782,9 +785,6 @@ extension ConversationInfoView {
 
     @ViewBuilder
     private var internalDebugRows: some View {
-        if FeatureFlags.shared.isSpacePullRequestProposalEnabled {
-            spacePullRequestProposalRow
-        }
         HStack {
             Text("Fork status")
             Spacer()

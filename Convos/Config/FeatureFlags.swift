@@ -188,15 +188,14 @@ final class FeatureFlags {
     }
 
     /// Off by default -- gates the internal action that proposes a draft pull
-    /// request from a conversation's Space. Hard-locked off in production.
+    /// request from a conversation's Space. Deliberately reachable in every
+    /// environment; production users opt in from the curated prod debug menu.
     var isSpacePullRequestProposalEnabled: Bool {
         get {
             access(keyPath: \.isSpacePullRequestProposalEnabled)
-            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
             return UserDefaults.standard.bool(forKey: Constant.spacePullRequestProposalEnabledKey)
         }
         set {
-            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
             withMutation(keyPath: \.isSpacePullRequestProposalEnabled) {
                 UserDefaults.standard.set(newValue, forKey: Constant.spacePullRequestProposalEnabledKey)
             }

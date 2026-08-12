@@ -20,14 +20,17 @@ import UserNotifications
 //
 // Hard rules enforced here:
 // - No mutating controls (no "Request Now", no "Register Device Again", no
-//   purchase / change-plan CTAs, no mock-credit toggles). Two deliberate
-//   exceptions, both flipping only a local default so a tester can opt this
+//   purchase / change-plan CTAs, no mock-credit toggles). Three deliberate
+//   exceptions, all flipping only a local default so a tester can opt this
 //   install into a feature we are dogfooding in production:
 //   - the XMTP bidi streaming opt-in, which selects the stream transport at
 //     next launch -- nothing account- or network-mutating.
 //   - the Listen opt-in, which only decides whether the participation control
 //     is built. Turning it on mutates nothing by itself; the writes happen
 //     later, in the control, when a member actually picks a level.
+//   - the Space pull-request opt-in, which only decides whether the Conversation
+//     Info action row is built; the network write happens later, when a member
+//     actually taps the action.
 // - The live `BackendAuthProbe` (JWT minter) is never imported or instantiated
 //   here. The identity readout uses `DeviceIdentitySnapshot`, which is
 //   network-free and carries no JWT.
@@ -168,17 +171,18 @@ struct ProdDebugMenuView: View {
         }
     }
 
-    // MARK: - Feature flags (display only, except the bidi opt-in)
+    // MARK: - Feature flags (display only, except curated opt-ins)
 
     @ViewBuilder
     private var featureFlagsSection: some View {
         let injectorEnabled: Bool = FeatureFlags.shared.isDebugInjectorEnabled
         Section("Feature flags") {
             labeledRow("Debug injector", injectorEnabled ? "On" : "Off")
-            // The two interactive controls in this curated menu; see the
+            // The three interactive controls in this curated menu; see the
             // module overview for why they are allowed here.
             Toggle("Listen (agent participation)", isOn: Bindable(FeatureFlags.shared).isListenParticipationEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
+            Toggle("Propose PR from Space", isOn: Bindable(FeatureFlags.shared).isSpacePullRequestProposalEnabled)
         }
     }
 
