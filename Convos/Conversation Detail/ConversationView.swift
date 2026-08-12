@@ -59,16 +59,45 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// It lives here rather than in the composer because the level belongs to
     /// the conversation; the composer only draws the control.
     @State private var participation: AgentParticipationStore?
-    @State private var pagerSelectedPage: ConversationPagerPage = .messages
-    /// Guards the one-time seed of `pagerSelectedPage` from `initialAgentDmInboxId`.
-    @State private var didSeedInitialPage: Bool = false
-    /// Tracks keyboard visibility so the pager dots hide and the pager-dots
-    /// inset collapses while the keyboard is up.
+    /// The conversation sheet's selected tab, the single source of truth for
+    /// both the backing view behind the sheet and the bar the sheet hosts.
+    @State private var selectedTab: ConversationTab = .group
+    /// Tabs the user has visited. The Desktop web view and the agent DM
+    /// mount on first visit and stay mounted (hidden, not torn down) so tab
+    /// switches never reload them.
+    @State private var visitedTabs: Set<ConversationTab> = [.group]
+    /// Guards the one-time seed of `selectedTab` from `initialAgentDmInboxId`.
+    @State private var didSeedInitialTab: Bool = false
+    /// The sheet's detent. Only `.compact` is reachable today; see
+    /// `ConversationSheetDetent`.
+    @State private var sheetDetent: ConversationSheetDetent = .compact
+    /// The sheet's live measured bottom clearance, fed to every backing view
+    /// so transcripts and scroll content clear the resting card.
+    @State private var sheetOccupiedHeight: CGFloat = ConversationSheetMetrics.compactRestingHeight
+    /// Binds the Agent tab to the agent's real DM conversation; shared by the
+    /// backing transcript and the sheet's agent composer.
+    @State private var agentDmSession: AgentDmSession?
+    /// Tracks keyboard visibility so tab switches can transfer composer
+    /// focus between the group and agent composers.
     @State private var isKeyboardVisible: Bool = false
-    /// Lifted out of `MessagesView` so this view can gate the pager
-    /// against horizontal swipes while the long-press context menu is
-    /// presented.
+    /// Lifted out of `MessagesView` so this view can hide the conversation
+    /// sheet while the long-press context menu is presented.
     @State private var contextMenuState: MessageContextMenuState = .init()
+    /// The agent DM transcript's own context-menu state; the DM stays mounted
+    /// alongside the group transcript, so they cannot share one.
+    @State private var agentContextMenuState: MessageContextMenuState = .init()
+    /// Focus for the sheet's agent composer, deliberately separate from the
+    /// group composer's `focusState`: both surfaces stay mounted, so a shared
+    /// value would fight between their text fields.
+    @FocusState private var agentFocusState: MessagesViewInputFocus?
+    @State private var agentFocusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
+    /// Scroll-to-bottom triggers bridged out of each transcript for the
+    /// sheet-hosted composers to fire on send.
+    @State private var groupScrollToBottom: (() -> Void)?
+    @State private var agentScrollToBottom: (() -> Void)?
+    /// The desktop browser popup stack: each intercepted navigation pushes a
+    /// fresh entry above the desktop surface and below the sheet.
+    @State private var desktopBrowserEntries: [DesktopBrowserEntry] = []
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -104,8 +133,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     private var messagesView: some View {
-        @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
-        return MessagesView(
+        MessagesView(
             contextMenuState: contextMenuState,
             conversation: viewModel.conversation,
             messages: viewModel.messagesWithThinkingIndicators,
@@ -138,7 +166,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onClearAgentShare: viewModel.clearPendingAgentShare,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
-            onboardingCoordinator: onboardingCoordinator,
+            onboardingCoordinator: viewModel.onboardingCoordinator,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             messagesTextFieldEnabled: messagesTextFieldEnabled,
@@ -223,37 +251,20 @@ struct ConversationView<MessagesBottomBar: View>: View {
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
-            extraBottomInset: pagerDotsInset,
+            extraBottomInset: sheetOccupiedHeight,
             showsInviteScanCard: showsTopOfConvoInvite,
             inviteScanMode: inviteScanMode,
             inviteScanInitialSegment: embeddedInviteInitialSegment,
             onScannedInviteCode: inviteScanScannedHandler,
             onInviteShareCompleted: onInviteShareCompletedHandler,
-            bottomBarContent: {
-                VStack(spacing: DesignConstants.Spacing.step3x) {
-                    bottomBarContent()
-
-                    // Capability requests no longer auto-present a card here:
-                    // the transcript's connect pill is the single entry point
-                    // and opens the approval sheet. The slot keeps the
-                    // post-approval toast and the onboarding view.
-                    Group {
-                        if viewModel.showsCapabilityApprovedToast {
-                            CapabilityApprovedToastView()
-                                .transition(.blurReplace)
-                        } else {
-                            ConversationOnboardingView(
-                                coordinator: onboardingCoordinator,
-                                focusCoordinator: focusCoordinator,
-                                coreActions: viewModel.coreActions
-                            )
-                            .transition(.blurReplace)
-                        }
-                    }
-                    .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
-                }
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-            }
+            // The composer lives in the conversation sheet now (see
+            // `sheetBarContent`); the transcript insets by the sheet's
+            // measured height instead of hosting a bar.
+            hostsBottomBar: false,
+            onScrollToBottomAvailable: { scrollFn in
+                groupScrollToBottom = scrollFn
+            },
+            bottomBarContent: { EmptyView() }
         )
         // Only where there is an agent to govern, and only while the Listen
         // flag is on. Absent, the composer draws no bubble at all.
@@ -278,40 +289,42 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
     }
 
-    /// True while the agent-DM page is the pager's selected page. The DM is a
-    /// fixed 2-member conversation, so the invite/add-member affordance is hidden
-    /// there.
+    /// True while the Agent tab is selected. The DM is a fixed 2-member
+    /// conversation, so the invite/add-member affordance is hidden there.
     private var isAgentDmPageActive: Bool {
-        if case .agentDm = pagerSelectedPage { return true }
-        return false
+        selectedTab == .agent
     }
 
-    /// Opens the pager on the requested agent-DM page once, when the view was
-    /// pushed from a conversations-list row whose most-recent unread is a DM.
-    /// No-op unless that agent actually has a DM page in this conversation.
-    private func seedInitialPageIfNeeded() {
-        guard !didSeedInitialPage else { return }
-        didSeedInitialPage = true
+    /// Opens the Agent tab once, when the view was pushed from a
+    /// conversations-list row whose most-recent unread is in the DM.
+    private func seedInitialTabIfNeeded() {
+        guard !didSeedInitialTab else { return }
+        didSeedInitialTab = true
         guard let inboxId = initialAgentDmInboxId,
-              agentDmPageInboxIds.contains(inboxId) else {
+              inboxId == primaryAgentInboxId else {
             return
         }
-        pagerSelectedPage = .agentDm(agentInboxId: inboxId)
+        selectTab(.agent)
     }
 
-    /// Switches to a specific agent-DM page when a DM notification is tapped while
-    /// this conversation is already on screen (a fresh open seeds the page from
-    /// `initialAgentDmInboxId`, but re-selecting the same conversation is a no-op,
-    /// so an already-open view has to be told directly). Ignores requests for a
-    /// different conversation or an agent without a DM page here.
+    /// Switches to the Agent tab when a DM notification is tapped while this
+    /// conversation is already on screen (a fresh open seeds the tab from
+    /// `initialAgentDmInboxId`, but re-selecting the same conversation is a
+    /// no-op, so an already-open view has to be told directly). Ignores
+    /// requests for a different conversation.
     private func handleSelectAgentDmPageRequest(_ note: Notification) {
         guard let conversationId = note.userInfo?["conversationId"] as? String,
-              conversationId == viewModel.conversation.id,
-              let agentInboxId = note.userInfo?["agentInboxId"] as? String,
-              agentDmPageInboxIds.contains(agentInboxId) else {
+              conversationId == viewModel.conversation.id else {
             return
         }
-        pagerSelectedPage = .agentDm(agentInboxId: agentInboxId)
+        selectTab(.agent)
+    }
+
+    /// Programmatic tab selection: keeps `visitedTabs` in sync (the
+    /// `onChange(of: selectedTab)` hook does the same for user taps).
+    private func selectTab(_ tab: ConversationTab) {
+        visitedTabs.insert(tab)
+        selectedTab = tab
     }
 
     @ToolbarContentBuilder
@@ -368,16 +381,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
         { presentingAddFromContactsPicker = true }
     }
 
-    /// Non-nil only for members whose agent has a DM pager page (every
-    /// verified agent gets its own segment; anyone else falls back to the
-    /// contact card's direct-create path). Hoisted out of the view function
+    /// Non-nil only for the agent the Agent tab is bound to (the
+    /// conversation's first verified agent); anyone else falls back to the
+    /// contact card's direct-create path. Hoisted out of the view function
     /// so it stays a single builder expression.
     private func startAgentDmAction(for member: ConversationMember) -> ((String) -> Void)? {
-        guard agentDmPageInboxIds.contains(member.profile.inboxId) else { return nil }
-        return { agentInboxId in
+        guard member.profile.inboxId == primaryAgentInboxId else { return nil }
+        return { _ in
             viewModel.presentingProfileForMember = nil
             withAnimation(.easeInOut(duration: 0.25)) {
-                pagerSelectedPage = .agentDm(agentInboxId: agentInboxId)
+                selectTab(.agent)
             }
         }
     }
@@ -416,17 +429,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var debugInjectorBinding: Binding<Bool> {
         guard FeatureFlags.shared.isDebugInjectorEnabled else { return .constant(false) }
         return $showingDebugInjector
-    }
-
-    private var thingsPage: some View {
-        AgentFilesLinksView(
-            conversationId: viewModel.conversation.id,
-            repository: viewModel.makeAgentFilesLinksRepository(),
-            members: viewModel.conversation.members,
-            usesInlineHeader: true,
-            profileSheetContent: profileSheetForMember,
-            focusBinding: $focusState
-        )
     }
 
     private func profileSheetForMember(_ member: ConversationMember) -> AnyView {
@@ -468,82 +470,57 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .background(.colorBackgroundSurfaceless)
     }
 
-    private var pagerDotsInset: CGFloat {
-        isKeyboardVisible ? 0.0 : 24.0
-    }
-
-    /// Inboxes of the conversation's DM-able agents, one per verified agent
-    /// member, when the agent-DM prototype should offer DM pages: not already
-    /// inside a DM, non-production only (matches ContactDetailView's gate).
-    /// Kept in member join order (`_members` is ordered createdAt.asc), so a
-    /// newly-added agent appends a page after the existing ones rather than
-    /// reordering them and relocating a DM the user already opened.
-    private var agentDmPageInboxIds: [String] {
-        guard !ConfigManager.shared.currentEnvironment.isProduction,
-              !viewModel.conversation.isAgentDm else {
-            return []
-        }
+    /// The agent the Agent tab binds to: the conversation's first verified
+    /// agent member, in join order (`_members` is ordered createdAt.asc), so
+    /// a newly-added agent never displaces the DM the user already opened.
+    /// Nil while the conversation has no verified agent (the tab still
+    /// renders, with its empty state and a disabled composer) or when this
+    /// conversation is itself an agent DM.
+    private var primaryAgentInboxId: String? {
+        guard !viewModel.conversation.isAgentDm else { return nil }
         return viewModel.conversation.members
-            .filter { $0.isVerifiedAgent }
-            .map { $0.profile.inboxId }
-    }
-
-    private var pagerPages: [ConversationPagerPage] {
-        var pages: [ConversationPagerPage] = [.messages]
-        for agentInboxId in agentDmPageInboxIds {
-            pages.append(.agentDm(agentInboxId: agentInboxId))
-        }
-        pages.append(.things)
-        return pages
+            .first { $0.isVerifiedAgent }?
+            .profile.inboxId
     }
 
     var body: some View {
-        ConversationPager(
-            selectedPage: $pagerSelectedPage,
-            pages: pagerPages,
-            showsPageDots: !isKeyboardVisible,
-            dotsHidden: contextMenuState.isPresented,
-            scrollingDisabled: contextMenuState.isPresented,
-            messagesPage: { messagesView },
-            agentDmPage: { agentInboxId in
-                let isActive: Bool = pagerSelectedPage == .agentDm(agentInboxId: agentInboxId)
-                AgentDmPageView(
-                    viewModel: viewModel,
-                    agentInboxId: agentInboxId,
-                    extraBottomInset: pagerDotsInset,
-                    isReadOnly: effectiveReadOnly,
-                    isActivePage: isActive,
-                    keyboardVisible: isKeyboardVisible
-                )
-            },
-            thingsPage: { thingsPage }
-        )
+        conversationLayout
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             isKeyboardVisible = false
         }
-        .onChange(of: pagerSelectedPage) { _, newPage in
+        .onChange(of: selectedTab) { oldTab, newTab in
+            visitedTabs.insert(newTab)
             let keyboardWasUp: Bool = isKeyboardVisible
-            if newPage != .things {
-                focusCoordinator.dismissThingsSearchIfNeeded()
-            }
-            if newPage == .messages {
+            if newTab == .group {
                 // Returning to the group: transfer the keyboard back onto the
-                // group composer when the user paged in mid-edit.
+                // group composer when the user switched in mid-edit.
                 if keyboardWasUp {
                     focusCoordinator.moveFocus(to: .message)
                 }
-            } else {
-                // Leaving the group for a peer page: release the group composer.
-                // The DM page re-grabs focus onto its own composer (transferring
-                // the keyboard); the Things page has no composer, so it drops.
+            } else if oldTab == .group {
+                // Leaving the group for a peer tab: release the group
+                // composer. The agent page re-grabs focus onto its own
+                // composer (transferring the keyboard); the Desktop tab has
+                // no composer, so it drops.
                 focusCoordinator.dismissMessageComposerIfNeeded()
-                // A right-swipe can both start a reply and page away; cancel the
-                // in-flight reply swipe so the page change doesn't fire a reply.
+                // A right-swipe can both start a reply and switch away;
+                // cancel the in-flight reply swipe so the tab change doesn't
+                // fire a reply.
                 contextMenuState.cancelInFlightSwipe()
             }
+        }
+        // Keeps the Agent tab bound to the conversation's current agent, and
+        // keeps retrying the DM bind until the agent-created DM syncs in.
+        .task(id: primaryAgentInboxId) {
+            let session = agentDmSession ?? AgentDmSession(originViewModel: viewModel)
+            if agentDmSession == nil {
+                agentDmSession = session
+            }
+            session.setAgent(inboxId: primaryAgentInboxId)
+            await session.rebindWhenDmAppears()
         }
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
@@ -556,13 +533,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ensureNavigator()
             navState.markScreenAppeared()
             viewModel.onConversationAppeared()
-            seedInitialPageIfNeeded()
+            seedInitialTabIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
             handleSelectAgentDmPageRequest(note)
         }
         .onDisappear {
-            focusCoordinator.dismissThingsSearchIfNeeded()
             viewModel.onConversationDisappeared()
             navigator?.closed(context: navState.closeContext())
         }
@@ -703,6 +679,181 @@ struct ConversationView<MessagesBottomBar: View>: View {
             VoiceMemoPlayer.shared.stop()
             viewModel.voiceMemoRecorder.cancelRecording()
         }
+    }
+}
+
+// MARK: - Layout
+
+private extension ConversationView {
+    /// The conversation's layered layout: the selected tab's backing view
+    /// filling the screen, the desktop browser popups above it, and the
+    /// floating conversation sheet over everything. The sheet lives in a
+    /// bottom overlay inside the safe area, so it rides the keyboard while
+    /// the backing views keep their full-screen frames.
+    var conversationLayout: some View {
+        ZStack {
+            backingViews
+            desktopBrowserPopups
+        }
+        .overlay(alignment: .bottom) {
+            conversationSheet
+        }
+    }
+
+    /// One backing view per tab, all kept mounted once visited: switching
+    /// flips opacity and hit-testing instead of tearing views down, so the
+    /// UIKit transcripts keep their scroll state and the desktop web view
+    /// never reloads on a tab hop.
+    var backingViews: some View {
+        ZStack {
+            messagesView
+                .opacity(selectedTab == .group ? 1 : 0)
+                .allowsHitTesting(selectedTab == .group)
+            if visitedTabs.contains(.agent), let agentDmSession {
+                AgentDmPageView(
+                    session: agentDmSession,
+                    extraBottomInset: sheetOccupiedHeight,
+                    isReadOnly: effectiveReadOnly,
+                    isActiveTab: selectedTab == .agent,
+                    keyboardVisible: isKeyboardVisible,
+                    contextMenuState: agentContextMenuState,
+                    focusState: $agentFocusState,
+                    focusCoordinator: agentFocusCoordinator,
+                    onScrollToBottomAvailable: { scrollFn in
+                        agentScrollToBottom = scrollFn
+                    }
+                )
+                .opacity(selectedTab == .agent ? 1 : 0)
+                .allowsHitTesting(selectedTab == .agent)
+            }
+            if visitedTabs.contains(.desktop) {
+                DesktopLayoutView(
+                    conversationId: viewModel.conversation.id,
+                    webURL: viewModel.conversation.spaceURL,
+                    inviteConfiguration: desktopInviteConfiguration,
+                    sheetHeight: sheetOccupiedHeight,
+                    onNavigationRequest: { url in
+                        desktopBrowserEntries.append(DesktopBrowserEntry(url: url))
+                    }
+                )
+                .opacity(selectedTab == .desktop ? 1 : 0)
+                .allowsHitTesting(selectedTab == .desktop)
+            }
+        }
+    }
+
+    /// The desktop's invite card mirrors the transcript's inline Invite/Scan
+    /// eligibility (`showsTopOfConvoInvite`), constructed with the same
+    /// handlers the index-0 invite cell uses.
+    var desktopInviteConfiguration: DesktopInviteSectionConfiguration? {
+        guard showsTopOfConvoInvite else { return nil }
+        return DesktopInviteSectionConfiguration(
+            conversation: viewModel.conversation,
+            invite: viewModel.invite,
+            mode: inviteScanMode,
+            initialSegment: embeddedInviteInitialSegment,
+            onScannedCode: inviteScanScannedHandler,
+            onShareCompleted: onInviteShareCompletedHandler
+        )
+    }
+
+    /// The stacked desktop browser popups: each intercepted navigation
+    /// pushes a fresh entry whose page pins its own URL; further navigation
+    /// stacks another popup on top.
+    @ViewBuilder
+    var desktopBrowserPopups: some View {
+        ForEach(desktopBrowserEntries) { entry in
+            DesktopBrowserPopup(
+                url: entry.url,
+                onNavigationRequest: { url in
+                    desktopBrowserEntries.append(DesktopBrowserEntry(url: url))
+                },
+                onClose: {
+                    desktopBrowserEntries.removeAll { $0.id == entry.id }
+                }
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    var conversationSheet: some View {
+        ConversationBottomSheet(
+            detent: $sheetDetent,
+            isHidden: contextMenuState.isPresented || agentContextMenuState.isPresented,
+            onOccupiedHeightChanged: { height in
+                sheetOccupiedHeight = height
+            },
+            barContent: { sheetBarContent },
+            tabBar: { ConversationTabBar(selectedTab: $selectedTab) }
+        )
+    }
+
+    /// The bar the sheet hosts above its tab bar, keyed by the selected tab:
+    /// the group composer, the agent-DM composer (disabled until the DM
+    /// exists), or nothing on the Desktop tab.
+    @ViewBuilder
+    var sheetBarContent: some View {
+        switch selectedTab {
+        case .desktop:
+            EmptyView()
+        case .group:
+            if !effectiveReadOnly {
+                ConversationComposerBar(
+                    viewModel: viewModel,
+                    focusState: $focusState,
+                    focusCoordinator: focusCoordinator,
+                    messagesTextFieldEnabled: messagesTextFieldEnabled,
+                    scrollToBottom: { groupScrollToBottom?() },
+                    onDebugAttachmentTap: debugAttachmentTapHandler,
+                    extraBarContent: { groupExtraBarContent }
+                )
+                // Only where there is an agent to govern, and only while the
+                // Listen flag is on. Absent, the composer draws no bubble at
+                // all.
+                .environment(\.agentParticipation, participationContext)
+            }
+        case .agent:
+            if let agentDmSession, !effectiveReadOnly {
+                AgentComposerBar(
+                    session: agentDmSession,
+                    focusState: $agentFocusState,
+                    focusCoordinator: agentFocusCoordinator,
+                    isReadOnly: effectiveReadOnly,
+                    scrollToBottom: { agentScrollToBottom?() }
+                )
+                // The participation control governs the group room; it has
+                // no meaning in a 1:1 agent DM.
+                .environment(\.agentParticipation, nil)
+            }
+        }
+    }
+
+    /// Extra rows above the group composer: the injected bottom-bar slot
+    /// (e.g. the Agent Builder's chrome) plus the capability-approved toast /
+    /// onboarding pair. Capability requests no longer auto-present a card
+    /// here: the transcript's connect pill is the single entry point and
+    /// opens the approval sheet.
+    var groupExtraBarContent: some View {
+        @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
+        return VStack(spacing: DesignConstants.Spacing.step3x) {
+            bottomBarContent()
+
+            Group {
+                if viewModel.showsCapabilityApprovedToast {
+                    CapabilityApprovedToastView()
+                        .transition(.blurReplace)
+                } else {
+                    ConversationOnboardingView(
+                        coordinator: onboardingCoordinator,
+                        focusCoordinator: focusCoordinator,
+                        coreActions: viewModel.coreActions
+                    )
+                    .transition(.blurReplace)
+                }
+            }
+            .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
 }
 

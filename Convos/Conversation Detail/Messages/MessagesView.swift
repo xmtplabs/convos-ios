@@ -113,6 +113,15 @@ struct MessagesView<BottomBarContent: View>: View {
     var inviteScanInitialSegment: ScanInviteSegment = .invite
     var onScannedInviteCode: ((String) -> Void)?
     var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
+    /// False when the composer is hosted externally (the conversation
+    /// sheet): the transcript renders no bar of its own and insets purely by
+    /// `extraBottomInset`, which the sheet keeps fed with its measured
+    /// height.
+    var hostsBottomBar: Bool = true
+    /// Surfaces the transcript's scroll-to-bottom trigger to an external
+    /// composer host, which fires it on send (the internal bar wires this
+    /// itself).
+    var onScrollToBottomAvailable: ((@escaping () -> Void) -> Void)?
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
@@ -239,12 +248,14 @@ struct MessagesView<BottomBarContent: View>: View {
             backwardsSecrecyInfoSheet: { AnyView(BackwardsSecrecyInfoView()) },
             bottomBarHeight: bottomBarHeight + extraBottomInset,
             // Read-only hosts never render the composer (see the
-            // `safeAreaBar` below), so the controller must not wait for a
+            // `safeAreaBar` below), and external-composer hosts render it in
+            // the conversation sheet, so the controller must not wait for a
             // bottom-bar measurement before applying its initial state and
             // revealing the list.
-            hasBottomBar: !isReadOnly,
+            hasBottomBar: !isReadOnly && hostsBottomBar,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn
+                onScrollToBottomAvailable?(scrollFn)
             },
             messageInputFocusTrigger: { fn in
                 notifyMessageInputFocused = fn
@@ -258,7 +269,7 @@ struct MessagesView<BottomBarContent: View>: View {
         }
         .environment(\.isConversationReadOnly, isReadOnly)
         .safeAreaBar(edge: .bottom) {
-            if !isReadOnly {
+            if !isReadOnly && hostsBottomBar {
                 MessagesBottomBar(
                     profile: profile,
                     displayName: $displayName,
