@@ -49,9 +49,18 @@ private struct DesktopCoverView: View {
 
     var body: some View {
         if let image {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
+            // Contain the fill: `scaledToFill` reports the image's oversized
+            // ideal frame, and an uncontained overflow here inflates the
+            // conversation's whole backing ZStack past the screen. Drawing it
+            // as an overlay on a container-sized base keeps the cover exactly
+            // the surface's size.
+            Color.clear
+                .overlay {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                }
+                .clipped()
         } else {
             ZStack {
                 Color.colorBackgroundSubtle
