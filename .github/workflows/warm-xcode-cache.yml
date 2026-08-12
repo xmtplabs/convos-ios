@@ -2,10 +2,16 @@
 # subsequent PR runs hit on first try. Without this, GHA-style caches are
 # branch-scoped: a cache populated by a PR run is only visible to that PR.
 #
+# Seeds two caches: the pinned Xcode nix store and the SPM package clones
+# (the latter keyed on Package.resolved; libxmtp alone is ~2 GiB of git
+# history, and a cold fetch of it is what used to blow the Firebase PR
+# job's timeout).
+#
 # Runs:
 #   - On a daily schedule (cheap insurance against eviction).
-#   - When this workflow itself or the firebase-pr workflow changes (so
-#     cache-key drift on Xcode bumps gets re-warmed without waiting a day).
+#   - When this workflow, the firebase-pr workflow, or any Package.resolved
+#     changes (so cache-key drift on Xcode or dependency bumps gets
+#     re-warmed without waiting a day).
 #   - On manual dispatch.
 
 name: Warm Xcode Cache
@@ -20,6 +26,7 @@ on:
     paths:
       - .github/workflows/warm-xcode-cache.yml
       - .github/workflows/firebase-pr.yml
+      - '**/Package.resolved'
   workflow_dispatch:
 
 concurrency:
@@ -30,7 +37,9 @@ jobs:
   warm:
     name: Pin Xcode and seed WarpBuilds cache
     runs-on: warp-macos-latest-arm64-12x
-    timeout-minutes: 10
+    # A cold seed of the SPM clones has been observed at 17+ minutes when
+    # GitHub's pack generation for libxmtp is slow.
+    timeout-minutes: 40
     permissions:
       id-token: write
       contents: read
@@ -49,3 +58,29 @@ jobs:
         with:
           xcode-path: /Applications/Xcode_26.3.app
           xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+
+      # Same path/key the Firebase PR job restores (convos-releases
+      # ios-firebase-pr.yml). Seeding it here, on the default branch, is what
+      # makes fresh PRs hit on first try.
+      # Saves as `post-if: success()`, so a resolve that dies partway through
+      # leaves the previous key intact rather than publishing a half-cloned
+      # directory.
+      - name: Restore SPM package clones
+        uses: WarpBuilds/cache@v1
+        with:
+          path: .spm-clones
+          key: spm-clones-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            spm-clones-
+
+      # Resolution only fetches the package graph; no build. Uses the runner's
+      # stock Xcode directly so this job stays independent of the nix shell.
+      - name: Resolve SPM dependencies into the clone cache
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Convos.xcodeproj \
+            -scheme "Convos (PR Preview)" \
+            -configuration "PR Preview" \
+            -clonedSourcePackagesDirPath .spm-clones
