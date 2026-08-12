@@ -843,15 +843,14 @@ extension ConversationInfoView {
     }
 
     private var spacePullRequestProposalRow: some View {
-        let action = {
-            _ = Task {
+        Button {
+            Task {
                 await spacePullRequestCoordinator.propose(
                     conversationId: viewModel.conversation.id,
                     variantId: viewModel.conversation.agentVariant?.slug
                 )
             }
-        }
-        return Button(action: action) {
+        } label: {
             HStack {
                 Text("Propose PR from Space")
                     .foregroundStyle(.colorTextPrimary)
@@ -864,23 +863,31 @@ extension ConversationInfoView {
         .disabled(spacePullRequestCoordinator.isBusy)
         .accessibilityIdentifier("propose-space-pr-button")
         .accessibilityLabel("Propose pull request from Space")
-        .alert(item: $spacePullRequestCoordinator.alert) { payload in
+        .alert(
+            spacePullRequestCoordinator.alert?.title ?? "",
+            isPresented: spacePullRequestAlertIsPresented,
+            presenting: spacePullRequestCoordinator.alert
+        ) { payload in
             if let pullRequestURL = payload.pullRequestURL {
-                return Alert(
-                    title: Text(payload.title),
-                    message: Text(payload.message),
-                    primaryButton: .default(Text("Open PR")) {
-                        openURL(pullRequestURL)
-                    },
-                    secondaryButton: .cancel(Text("OK"))
-                )
+                Button("Open PR") {
+                    openURL(pullRequestURL)
+                }
             }
-            return Alert(
-                title: Text(payload.title),
-                message: Text(payload.message),
-                dismissButton: .default(Text("OK"))
-            )
+            Button("OK", role: .cancel) {}
+        } message: { payload in
+            Text(payload.message)
         }
+    }
+
+    private var spacePullRequestAlertIsPresented: Binding<Bool> {
+        Binding(
+            get: { spacePullRequestCoordinator.alert != nil },
+            set: { isPresented in
+                if !isPresented {
+                    spacePullRequestCoordinator.alert = nil
+                }
+            }
+        )
     }
 
     @ViewBuilder

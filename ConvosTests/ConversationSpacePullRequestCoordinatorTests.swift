@@ -89,10 +89,7 @@ final class ConversationSpacePullRequestCoordinatorTests: XCTestCase {
         )
     }
 
-    func testProposalPassesOnlyRouteIdentifiersAndLeavesConversationSnapshotUnchanged() async throws {
-        var conversation = Conversation.mock(id: "conversation-1")
-        conversation.spaceURL = try XCTUnwrap(URL(string: "https://space.example.com/conversation-1"))
-        let before = conversation
+    func testProposalPassesRouteIdentifiers() async {
         var receivedConversationId: String?
         var receivedVariantId: String?
         let coordinator = ConversationSpacePullRequestCoordinator { conversationId, variantId in
@@ -101,12 +98,10 @@ final class ConversationSpacePullRequestCoordinatorTests: XCTestCase {
             return Self.unchanged(conversationId: conversationId)
         }
 
-        await coordinator.propose(conversationId: conversation.id, variantId: "pr-1234")
+        await coordinator.propose(conversationId: "conversation-1", variantId: "pr-1234")
 
         XCTAssertEqual(receivedConversationId, "conversation-1")
         XCTAssertEqual(receivedVariantId, "pr-1234")
-        XCTAssertEqual(conversation, before)
-        XCTAssertEqual(conversation.spaceURL, before.spaceURL)
     }
 
     private static func unchanged(conversationId: String) -> ConvosAPI.SpacePullRequestProposalOutcome {

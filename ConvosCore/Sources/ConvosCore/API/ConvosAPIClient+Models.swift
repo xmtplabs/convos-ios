@@ -426,11 +426,11 @@ public enum ConvosAPI {
 extension ConvosAPI {
     // MARK: - v2/conversations/:conversationId/debug/space-upstream
 
-    public enum SpacePullRequestProposalOutcome: Codable, Equatable, Sendable {
+    public enum SpacePullRequestProposalOutcome: Decodable, Equatable, Sendable {
         case pullRequest(PullRequest)
         case unchanged(Unchanged)
 
-        public struct PullRequest: Codable, Equatable, Sendable {
+        public struct PullRequest: Decodable, Equatable, Sendable {
             public let conversationId: String
             public let prURL: URL
             public let prNumber: Int
@@ -483,19 +483,6 @@ extension ConvosAPI {
                 refusedCount = try container.decode(Int.self, forKey: .refusedCount)
             }
 
-            public func encode(to encoder: Encoder) throws {
-                var container = encoder.container(keyedBy: CodingKeys.self)
-                try container.encode(conversationId, forKey: .conversationId)
-                try container.encode(prURL.absoluteString, forKey: .prURL)
-                try container.encode(prNumber, forKey: .prNumber)
-                try container.encode(branch, forKey: .branch)
-                try container.encode(commitSha, forKey: .commitSha)
-                try container.encode(forkCommitSha, forKey: .forkCommitSha)
-                try container.encode(wrote, forKey: .wrote)
-                try container.encode(deleted, forKey: .deleted)
-                try container.encode(refusedCount, forKey: .refusedCount)
-            }
-
             private static func isValidPullRequestURL(_ url: URL) -> Bool {
                 url.scheme?.lowercased() == "https" && url.host != nil
             }
@@ -513,7 +500,7 @@ extension ConvosAPI {
             }
         }
 
-        public struct Unchanged: Codable, Equatable, Sendable {
+        public struct Unchanged: Decodable, Equatable, Sendable {
             public let conversationId: String
             public let forkCommitSha: String
             public let wrote: Int
@@ -537,6 +524,13 @@ extension ConvosAPI {
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: DiscriminatorCodingKeys.self)
+            guard try container.decode(Bool.self, forKey: .success) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .success,
+                    in: container,
+                    debugDescription: "Space pull request success envelope must set success to true"
+                )
+            }
             switch try container.decode(Discriminator.self, forKey: .outcome) {
             case .pullRequest:
                 self = .pullRequest(try PullRequest(from: decoder))
@@ -545,24 +539,13 @@ extension ConvosAPI {
             }
         }
 
-        public func encode(to encoder: Encoder) throws {
-            var container = encoder.container(keyedBy: DiscriminatorCodingKeys.self)
-            switch self {
-            case .pullRequest(let pullRequest):
-                try container.encode(Discriminator.pullRequest, forKey: .outcome)
-                try pullRequest.encode(to: encoder)
-            case .unchanged(let unchanged):
-                try container.encode(Discriminator.unchanged, forKey: .outcome)
-                try unchanged.encode(to: encoder)
-            }
-        }
-
-        private enum Discriminator: String, Codable {
+        private enum Discriminator: String, Decodable {
             case pullRequest = "pull_request"
             case unchanged
         }
 
         private enum DiscriminatorCodingKeys: String, CodingKey {
+            case success
             case outcome
         }
     }
@@ -581,8 +564,14 @@ extension ConvosAPI {
         case rateLimited
 
         init?(body: Data) {
-            guard let response = try? JSONDecoder().decode(SpacePullRequestProposalErrorResponse.self, from: body) else { return nil }
-            switch response.code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() {
+            struct ErrorBody: Decodable {
+                let success: Bool
+                let error: String
+                let message: String
+            }
+            guard let response = try? JSONDecoder().decode(ErrorBody.self, from: body),
+                  !response.success else { return nil }
+            switch response.error {
             case "INVALID_REQUEST":
                 self = .invalidRequest
             case "SPACE_UPSTREAM_NOT_ARMED":
@@ -609,11 +598,6 @@ extension ConvosAPI {
                 return nil
             }
         }
-    }
-
-    struct SpacePullRequestProposalErrorResponse: Codable, Equatable, Sendable {
-        let error: String
-        let code: String
     }
 
     enum SpacePullRequestProposalDecodingError: Error, Equatable {

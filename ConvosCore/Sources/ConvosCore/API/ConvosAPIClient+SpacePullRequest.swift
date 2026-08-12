@@ -12,7 +12,11 @@ extension ConvosAPIClient {
         do {
             let (data, response) = try await performAuthenticatedRequest(request)
             guard (200...299).contains(response.statusCode) else {
-                throw spacePullRequestProposalEndpointError(statusCode: response.statusCode, data: data)
+                throw spacePullRequestProposalEndpointError(
+                    statusCode: response.statusCode,
+                    data: data,
+                    path: request.url?.path(percentEncoded: false)
+                )
             }
             return try Self.decodeSpacePullRequestProposalOutcome(data)
         } catch let error as URLError where error.code == .timedOut {
@@ -24,8 +28,8 @@ extension ConvosAPIClient {
         conversationId: String,
         variantId: String?
     ) throws -> URLRequest {
-        var request = try authenticatedRequest(
-            for: "v2/conversations/\(participationPathComponent(conversationId))/debug/space-upstream",
+        var request = try endpointRequest(
+            pathSegments: ["v2", "conversations", conversationId, "debug", "space-upstream"],
             method: "POST",
             queryParameters: prodSafeVariantId(variantId).map { ["variantId": $0] }
         )
@@ -41,7 +45,11 @@ extension ConvosAPIClient {
         ConvosAPI.SpacePullRequestProposalError(body: data)
     }
 
-    private func spacePullRequestProposalEndpointError(statusCode: Int, data: Data) -> Error {
+    private func spacePullRequestProposalEndpointError(statusCode: Int, data: Data, path: String?) -> Error {
+        let bodyLimit = 512
+        let body = String(bytes: data.prefix(bodyLimit), encoding: .utf8) ?? "non-UTF-8 body"
+        let truncated = data.count > bodyLimit ? "…" : ""
+        Log.error("\(path ?? "space pull request endpoint") failed [\(statusCode)]: \(body)\(truncated)")
         if let typedError = Self.decodeSpacePullRequestProposalError(data) {
             return typedError
         }

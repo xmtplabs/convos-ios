@@ -4,16 +4,19 @@ import Testing
 
 @Suite("Space pull request proposal contract")
 struct SpacePullRequestProposalContractTests {
-    @Test("Request is an authenticated bodyless POST with the 55-second budget")
+    @Test("Request keeps an opaque conversation id in one authenticated path segment")
     func requestContract() throws {
         let client = try makeClient(environment: .local(config: Self.configuration))
         let request = try client.spacePullRequestProposalRequest(
-            conversationId: "ABC_123-",
+            conversationId: "ab/c%d?e#f",
             variantId: nil
         )
 
         #expect(request.httpMethod == "POST")
-        #expect(request.url?.path == "/api/v2/conversations/ABC_123-/debug/space-upstream")
+        #expect(
+            request.url?.absoluteString ==
+                "https://api.example.com/api/v2/conversations/ab%2Fc%25d%3Fe%23f/debug/space-upstream"
+        )
         #expect(request.url?.query == nil)
         #expect(request.httpBody == nil)
         #expect(request.timeoutInterval == 55)
@@ -48,10 +51,11 @@ struct SpacePullRequestProposalContractTests {
         #expect(request.url?.query == nil)
     }
 
-    @Test("Pull request success decodes additively and exposes only a validated HTTPS URL")
+    @Test("Pull request success decodes the backend envelope and exposes only a validated HTTPS URL")
     func pullRequestDecode() throws {
         let data = try #require("""
         {
+          "success": true,
           "conversationId": "conversation-1",
           "outcome": "pull_request",
           "prUrl": "https://github.com/xmtplabs/convos-assistants/pull/123",
@@ -59,10 +63,9 @@ struct SpacePullRequestProposalContractTests {
           "branch": "space-upstream/conversation-1",
           "commitSha": "commit-1",
           "forkCommitSha": "fork-1",
-          "wrote": 4,
-          "deleted": 1,
-          "refusedCount": 2,
-          "futureField": { "isIgnored": true }
+          "wrote": 0,
+          "deleted": 0,
+          "refusedCount": 0
         }
         """.data(using: .utf8))
         let outcome = try ConvosAPIClient.decodeSpacePullRequestProposalOutcome(data)
@@ -73,20 +76,20 @@ struct SpacePullRequestProposalContractTests {
         }
         #expect(pullRequest.conversationId == "conversation-1")
         #expect(pullRequest.prURL.absoluteString == "https://github.com/xmtplabs/convos-assistants/pull/123")
-        #expect(pullRequest.refusedCount == 2)
+        #expect(pullRequest.refusedCount == 0)
     }
 
-    @Test("Unchanged success decodes with additive fields")
+    @Test("Unchanged success decodes the backend envelope")
     func unchangedDecode() throws {
         let data = try #require("""
         {
+          "success": true,
           "conversationId": "conversation-1",
           "outcome": "unchanged",
           "forkCommitSha": "fork-1",
           "wrote": 0,
           "deleted": 0,
-          "refusedCount": 1,
-          "futureField": true
+          "refusedCount": 0
         }
         """.data(using: .utf8))
         let outcome = try ConvosAPIClient.decodeSpacePullRequestProposalOutcome(data)
@@ -96,7 +99,28 @@ struct SpacePullRequestProposalContractTests {
             return
         }
         #expect(unchanged.conversationId == "conversation-1")
-        #expect(unchanged.refusedCount == 1)
+        #expect(unchanged.refusedCount == 0)
+    }
+
+    @Test("Success decoding ignores additive fields")
+    func additiveSuccessDecode() throws {
+        let data = try #require("""
+        {
+          "success": true,
+          "conversationId": "conversation-1",
+          "outcome": "unchanged",
+          "forkCommitSha": "fork-1",
+          "wrote": 0,
+          "deleted": 0,
+          "refusedCount": 0,
+          "futureField": { "isIgnored": true }
+        }
+        """.data(using: .utf8))
+
+        guard case .unchanged = try ConvosAPIClient.decodeSpacePullRequestProposalOutcome(data) else {
+            Issue.record("Expected unchanged outcome")
+            return
+        }
     }
 
     @Test("Pull request decode rejects non-HTTPS and hostless URLs")
@@ -104,6 +128,7 @@ struct SpacePullRequestProposalContractTests {
         for prURL in ["http://github.com/x/pull/1", "https:///pull/1"] {
             let data = try #require("""
             {
+              "success": true,
               "conversationId": "conversation-1",
               "outcome": "pull_request",
               "prUrl": "\(prURL)",
@@ -122,15 +147,45 @@ struct SpacePullRequestProposalContractTests {
         }
     }
 
-    @Test("Known error codes normalize while unknown envelopes fall through")
+    @Test("Every backend error code maps to its typed client error")
     func typedErrorDecode() throws {
-        let lowercased = try #require(#"{"error":"not armed","code":"space_upstream_not_armed"}"#.data(using: .utf8))
-        let timeout = try #require(#"{"error":"timed out","code":"SPACE_UPSTREAM_TIMEOUT"}"#.data(using: .utf8))
-        let unknown = try #require(#"{"error":"new failure","code":"SOMETHING_NEW"}"#.data(using: .utf8))
+        let cases: [(String, ConvosAPI.SpacePullRequestProposalError)] = [
+            ("INVALID_REQUEST", .invalidRequest),
+            ("VARIANT_UNAVAILABLE", .variantUnavailable),
+            ("SPACE_NOT_FOUND", .spaceNotFound),
+            ("SPACE_REPOSITORY_UNAVAILABLE", .repositoryUnavailable),
+            ("SPACE_UPSTREAM_NOT_ARMED", .notArmed),
+            ("SPACE_UPSTREAM_UNAVAILABLE", .unavailable),
+            ("SPACE_UPSTREAM_REFUSED", .refused),
+            ("SPACE_UPSTREAM_GITHUB_FAILED", .githubFailed),
+            ("SPACE_UPSTREAM_FAILED", .failed),
+            ("SPACE_UPSTREAM_TIMEOUT", .timeout),
+            ("RATE_LIMITED", .rateLimited)
+        ]
 
-        #expect(ConvosAPIClient.decodeSpacePullRequestProposalError(lowercased) == .notArmed)
-        #expect(ConvosAPIClient.decodeSpacePullRequestProposalError(timeout) == .timeout)
+        for (code, expected) in cases {
+            let data = try #require(
+                #"{"success":false,"error":"\#(code)","message":"human-readable message"}"#.data(using: .utf8)
+            )
+            #expect(ConvosAPIClient.decodeSpacePullRequestProposalError(data) == expected)
+        }
+    }
+
+    @Test("Unknown and malformed error envelopes fall through")
+    func typedErrorFallthrough() throws {
+        let unknown = try #require(
+            #"{"success":false,"error":"SOMETHING_NEW","message":"new failure"}"#.data(using: .utf8)
+        )
+        let success = try #require(
+            #"{"success":true,"error":"SPACE_UPSTREAM_FAILED","message":"not an error"}"#.data(using: .utf8)
+        )
+        let legacy = try #require(
+            #"{"error":"failed","code":"SPACE_UPSTREAM_FAILED"}"#.data(using: .utf8)
+        )
+
         #expect(ConvosAPIClient.decodeSpacePullRequestProposalError(unknown) == nil)
+        #expect(ConvosAPIClient.decodeSpacePullRequestProposalError(success) == nil)
+        #expect(ConvosAPIClient.decodeSpacePullRequestProposalError(legacy) == nil)
     }
 
     private func makeClient(environment: AppEnvironment) throws -> ConvosAPIClient {

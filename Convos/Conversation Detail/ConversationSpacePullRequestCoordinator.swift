@@ -2,14 +2,10 @@ import ConvosCore
 import Foundation
 import Observation
 
-struct ConversationSpacePullRequestAlertPayload: Equatable, Identifiable {
+struct ConversationSpacePullRequestAlertPayload: Equatable {
     let title: String
     let message: String
     let pullRequestURL: URL?
-
-    var id: String {
-        "\(title)|\(message)|\(pullRequestURL?.absoluteString ?? "")"
-    }
 }
 
 @MainActor
