@@ -187,6 +187,18 @@ case "$TEST_TYPE" in
             failed=1
         fi
 
+        # ConvosCore unit suites (everything except the backend-dependent
+        # ConvosCoreIntegrationTests target, which needs XMTP_NODE_ADDRESS and
+        # runs in the integration job). Running them here keeps them off the
+        # heavily loaded integration runner, where stub-based async tests were
+        # flaking on starvation timeouts.
+        CORE_UNIT_LOG="$CI_LOG_DIR/convoscore-unit-tests.log"
+        if ! run_capture "$CORE_UNIT_LOG" "ConvosCore unit tests" \
+            swift test --skip ConvosCoreIntegrationTests; then
+            emit_failure_summary "$CORE_UNIT_LOG" "ConvosCore unit tests"
+            failed=1
+        fi
+
         if [[ "$failed" -ne 0 ]]; then
             exit 1
         fi
@@ -212,12 +224,14 @@ case "$TEST_TYPE" in
 
         # Integration tests depend on an ephemeral XMTP backend where operations
         # can have highly variable latency. Retry once on failure to reduce flake.
+        # Only the backend-dependent target runs here; unit suites run in the
+        # unit job (see --unit above) so they don't flake under this job's load.
         MAX_ATTEMPTS=2
         ATTEMPT=1
         while [[ $ATTEMPT -le $MAX_ATTEMPTS ]]; do
             TEST_LOG="$CI_LOG_DIR/integration-tests-attempt-$ATTEMPT.log"
             if run_capture "$TEST_LOG" "Integration tests (attempt $ATTEMPT/$MAX_ATTEMPTS)" \
-                swift test --skip-build; then
+                swift test --skip-build --filter ConvosCoreIntegrationTests; then
                 emit_success_summary "Integration tests"
                 break
             fi

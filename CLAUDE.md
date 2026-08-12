@@ -300,7 +300,8 @@ Logger.error("Error message")
 
 ### Test Organization
 - Unit tests in `ConvosTests`
-- Core logic tests in `ConvosCoreTests`
+- Core logic tests in `ConvosCoreTests` (stub/mock-based, no network)
+- Backend-dependent core tests in `ConvosCoreIntegrationTests` — suites that create real XMTP clients via `TestFixtures`; new suites that talk to an XMTP node belong here, and CI runs this target only in the integration job
 - UI tests in separate target
 
 ## Security Best Practices

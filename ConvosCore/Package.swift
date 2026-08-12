@@ -129,6 +129,21 @@ let package = Package(
                 .product(name: "CryptoSwift", package: "CryptoSwift"),
             ]
         ),
+        // Suites that create real XMTP clients against a backend node
+        // (XMTP_NODE_ADDRESS). Split into their own target so CI can run
+        // them separately: the integration job runs only this target, and
+        // the unit job skips it — see ci/run-tests.sh.
+        .testTarget(
+            name: "ConvosCoreIntegrationTests",
+            dependencies: [
+                "ConvosCore",
+                "ConvosAppData",
+                .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
+                .product(name: "XMTPiOS", package: "libxmtp"),
+                .product(name: "CSecp256k1", package: "CSecp256k1.swift"),
+                .product(name: "CryptoSwift", package: "CryptoSwift"),
+            ]
+        ),
         .testTarget(
             name: "ConvosConnectionsXMTPTests",
             dependencies: [
