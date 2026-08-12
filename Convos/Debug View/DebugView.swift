@@ -84,6 +84,7 @@ struct DebugViewSection: View {
             Toggle("New composer (Group/Agent switcher)", isOn: Bindable(FeatureFlags.shared).isNewComposerEnabled)
             Toggle("Desktop mode (implies new composer)", isOn: Bindable(FeatureFlags.shared).isDesktopModeEnabled)
             Toggle("Agent auto-join (new conversations)", isOn: Bindable(FeatureFlags.shared).isAgentAutoJoinEnabled)
+            Toggle("Propose PR from Space", isOn: Bindable(FeatureFlags.shared).isSpacePullRequestProposalEnabled)
             abilitiesFeatureToggles
 
             let showInfoAction = { showingAgentsInfoSheet = true }

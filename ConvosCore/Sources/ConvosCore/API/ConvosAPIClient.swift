@@ -127,6 +127,11 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
         variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse
 
+    func proposePullRequestFromSpace(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.SpacePullRequestProposalOutcome
+
     // Agent templates
     /// Public detail fetch for a published agent template, keyed by its
     /// template id (UUID) or hashed url slug (e.g. `gandalf.felpl`). Backs the
@@ -1042,7 +1047,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         return try await performRequest(request)
     }
 
-    private func participationPathComponent(_ conversationId: String) -> String {
+    func participationPathComponent(_ conversationId: String) -> String {
         conversationId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? conversationId
     }
 

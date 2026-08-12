@@ -132,6 +132,19 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         .init(success: true, conversationId: conversationId, mode: "speak")
     }
 
+    func proposePullRequestFromSpace(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.SpacePullRequestProposalOutcome {
+        .unchanged(.init(
+            conversationId: conversationId,
+            forkCommitSha: "mock-space-commit",
+            wrote: 0,
+            deleted: 0,
+            refusedCount: 0
+        ))
+    }
+
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
         .init(
             id: UUID().uuidString,

@@ -74,6 +74,19 @@ extension ConvosAPIClientProtocol {
         )
     }
 
+    func proposePullRequestFromSpace(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.SpacePullRequestProposalOutcome {
+        .unchanged(.init(
+            conversationId: conversationId,
+            forkCommitSha: "test-space-commit",
+            wrote: 0,
+            deleted: 0,
+            refusedCount: 0
+        ))
+    }
+
     /// Default for the direct-add status poll so pre-existing stubs don't
     /// re-stub it. A coherent terminal state — joined ⇒ inbox present — so
     /// unrelated tests don't iterate the poll loop. Tests that exercise the
@@ -179,6 +192,18 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
     func unregisterInstallation(clientId: String) async throws {}
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
         AssetRenewalResult(renewed: 0, failed: 0, expiredKeys: [])
+    }
+    func proposePullRequestFromSpace(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.SpacePullRequestProposalOutcome {
+        .unchanged(.init(
+            conversationId: conversationId,
+            forkCommitSha: "test-space-commit",
+            wrote: 0,
+            deleted: 0,
+            refusedCount: 0
+        ))
     }
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
         throw CancellationError()

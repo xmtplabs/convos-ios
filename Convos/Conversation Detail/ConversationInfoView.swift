@@ -109,6 +109,7 @@ struct ConversationInfoView: View {
     @State private var showingRestoreInviteTagAlert: Bool = false
     @State private var restoreInviteTagText: String = ""
     @State private var showingLeaveConfirmation: Bool = false
+    @State private var spacePullRequestCoordinator: ConversationSpacePullRequestCoordinator = .init()
     /// "New Agent" builder, presented from here so it stacks on top of the
     /// Info sheet rather than racing the chat view's own builder sheet.
     @State private var presentingAgentBuilder: AgentBuilderViewModel?
@@ -781,6 +782,9 @@ extension ConversationInfoView {
 
     @ViewBuilder
     private var internalDebugRows: some View {
+        if FeatureFlags.shared.isSpacePullRequestProposalEnabled {
+            spacePullRequestProposalRow
+        }
         HStack {
             Text("Fork status")
             Spacer()
@@ -835,6 +839,47 @@ extension ConversationInfoView {
             showingRestoreInviteTagAlert = true
         } label: {
             Text("Restore invite tag")
+        }
+    }
+
+    private var spacePullRequestProposalRow: some View {
+        let action = {
+            _ = Task {
+                await spacePullRequestCoordinator.propose(
+                    conversationId: viewModel.conversation.id,
+                    variantId: viewModel.conversation.agentVariant?.slug
+                )
+            }
+        }
+        return Button(action: action) {
+            HStack {
+                Text("Propose PR from Space")
+                    .foregroundStyle(.colorTextPrimary)
+                Spacer()
+                if spacePullRequestCoordinator.isBusy {
+                    ProgressView()
+                }
+            }
+        }
+        .disabled(spacePullRequestCoordinator.isBusy)
+        .accessibilityIdentifier("propose-space-pr-button")
+        .accessibilityLabel("Propose pull request from Space")
+        .alert(item: $spacePullRequestCoordinator.alert) { payload in
+            if let pullRequestURL = payload.pullRequestURL {
+                return Alert(
+                    title: Text(payload.title),
+                    message: Text(payload.message),
+                    primaryButton: .default(Text("Open PR")) {
+                        openURL(pullRequestURL)
+                    },
+                    secondaryButton: .cancel(Text("OK"))
+                )
+            }
+            return Alert(
+                title: Text(payload.title),
+                message: Text(payload.message),
+                dismissButton: .default(Text("OK"))
+            )
         }
     }
 
