@@ -71,9 +71,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// The sheet's detent. Only `.compact` is reachable today; see
     /// `ConversationSheetDetent`.
     @State private var sheetDetent: ConversationSheetDetent = .compact
-    /// The sheet's live measured bottom clearance, fed to every backing view
-    /// so transcripts and scroll content clear the resting card.
+    /// The sheet's live measured bottom clearance from the physical screen
+    /// edge, fed to every backing view so transcripts and scroll content
+    /// clear the resting card.
     @State private var sheetOccupiedHeight: CGFloat = ConversationSheetMetrics.compactRestingHeight
+    /// Window safe-area insets, used to convert the sheet's physical-edge
+    /// clearance into the safe-area-relative inset the transcripts take.
+    @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
     /// Binds the Agent tab to the agent's real DM conversation; shared by the
     /// backing transcript and the sheet's agent composer.
     @State private var agentDmSession: AgentDmSession?
@@ -251,7 +255,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
-            extraBottomInset: sheetOccupiedHeight,
+            extraBottomInset: transcriptBottomInset,
             showsInviteScanCard: showsTopOfConvoInvite,
             inviteScanMode: inviteScanMode,
             inviteScanInitialSegment: embeddedInviteInitialSegment,
@@ -483,6 +487,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
             .profile.inboxId
     }
 
+    /// The sheet's clearance above the *safe-area* bottom line, which is
+    /// what the transcripts inset by (their controllers add the safe area
+    /// and keyboard themselves). The card extends into the bottom safe
+    /// area like the native tab bar, so that region is subtracted while
+    /// the keyboard is down; with the keyboard up the card rests directly
+    /// above it and the full measured clearance applies.
+    private var transcriptBottomInset: CGFloat {
+        isKeyboardVisible
+            ? sheetOccupiedHeight
+            : max(sheetOccupiedHeight - windowSafeAreaInsets.bottom, 0)
+    }
+
     var body: some View {
         conversationLayout
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -712,7 +728,7 @@ private extension ConversationView {
             if visitedTabs.contains(.agent), let agentDmSession {
                 AgentDmPageView(
                     session: agentDmSession,
-                    extraBottomInset: sheetOccupiedHeight,
+                    extraBottomInset: transcriptBottomInset,
                     isReadOnly: effectiveReadOnly,
                     isActiveTab: selectedTab == .agent,
                     keyboardVisible: isKeyboardVisible,
@@ -770,6 +786,11 @@ private extension ConversationView {
             barContent: { sheetBarContent },
             tabBar: { ConversationTabBar(selectedTab: $selectedTab) }
         )
+        // Like the native floating tab bar, the card rests inside the bottom
+        // safe area (its edge inset is measured from the physical screen
+        // edge). Only the container region is ignored - the keyboard still
+        // lifts the sheet.
+        .ignoresSafeArea(.container, edges: .bottom)
     }
 
     /// The bar the sheet hosts above its tab bar, keyed by the selected tab:

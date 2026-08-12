@@ -44,11 +44,11 @@ struct ConversationTabBar: View {
         .accessibilityIdentifier("conversation-tab-bar")
     }
 
-    /// The sliding selection thumb. `Color.primary`-based so it lightens on
-    /// the dark agent surface and tints on the light group surface.
+    /// The sliding selection thumb, filled with the design's selected-tab
+    /// token (fill/subtle), which flips with the dark agent surface.
     private var thumb: some View {
         Capsule()
-            .fill(Color.primary.opacity(Constant.thumbFillOpacity))
+            .fill(DesignConstants.Colors.fillSubtle)
             .frame(width: Constant.slotWidth, height: Constant.slotHeight)
             .scaleEffect(isTracking ? Constant.trackingThumbScale : 1.0)
             .offset(x: CGFloat(selectedIndex) * (Constant.slotWidth + Constant.slotSpacing))
@@ -87,8 +87,8 @@ struct ConversationTabBar: View {
         return VStack(spacing: Constant.glyphLabelSpacing) {
             glyph(for: tab, isSelected: isSelected)
             Text(tab.title)
-                .font(.system(size: Constant.labelPointSize, weight: .medium))
-                .foregroundStyle(slotColor(isSelected: isSelected))
+                .font(.system(size: Constant.labelPointSize, weight: .bold))
+                .foregroundStyle(labelColor(isSelected: isSelected))
         }
         .frame(width: Constant.slotWidth, height: Constant.slotHeight)
         .animation(.easeInOut(duration: 0.2), value: isSelected)
@@ -97,9 +97,13 @@ struct ConversationTabBar: View {
         .accessibilityIdentifier("conversation-tab-\(tab.rawValue)")
     }
 
-    /// Unselected slots dim to secondary, matching the system tab bar's
-    /// unselected item treatment.
-    private func slotColor(isSelected: Bool) -> Color {
+    /// Unselected treatment from the design: tertiary icon over a secondary
+    /// label; both go primary when selected.
+    private func iconColor(isSelected: Bool) -> Color {
+        isSelected ? .colorTextPrimary : .colorTextTertiary
+    }
+
+    private func labelColor(isSelected: Bool) -> Color {
         isSelected ? .colorTextPrimary : .colorTextSecondary
     }
 
@@ -117,8 +121,8 @@ struct ConversationTabBar: View {
 
     private func symbolGlyph(_ name: String, isSelected: Bool) -> some View {
         Image(systemName: name)
-            .font(.system(size: Constant.iconPointSize, weight: .medium))
-            .foregroundStyle(slotColor(isSelected: isSelected))
+            .font(.system(size: Constant.iconPointSize, weight: .semibold))
+            .foregroundStyle(iconColor(isSelected: isSelected))
             .frame(height: Constant.iconSlotHeight)
     }
 
@@ -132,37 +136,33 @@ struct ConversationTabBar: View {
             .foregroundStyle(.background)
             .frame(width: Constant.agentGlyphSize, height: Constant.agentGlyphSize)
             .frame(width: Constant.agentBadgeSize, height: Constant.agentBadgeSize)
-            .background(slotColor(isSelected: isSelected), in: .circle)
+            .background(iconColor(isSelected: isSelected), in: .circle)
             .frame(height: Constant.iconSlotHeight)
     }
 
     private enum Constant {
-        /// Fill of the sliding selection thumb.
-        static let thumbFillOpacity: Double = 0.08
         /// The native segmented thumb compresses slightly under a finger.
         static let trackingThumbScale: CGFloat = 0.95
         /// Inset between the glass capsule's edge and the slots, equal on
-        /// all sides (mirrors the home control).
+        /// all sides (Figma track p-4).
         static let capsulePadding: CGFloat = DesignConstants.Spacing.stepX
-        static let slotSpacing: CGFloat = DesignConstants.Spacing.stepX
-        /// Fixed slot size, mirroring the equal-width items of the system
-        /// tab bar so the tabs read as uniform slots regardless of label.
-        static let slotWidth: CGFloat = 90.0
-        /// Icon slot + label + the former vertical padding, kept explicit so
-        /// the thumb and the slots share one frame.
-        static let slotHeight: CGFloat = 52.0
-        /// Metrics mirroring the system tab bar items on the home screen:
-        /// ~18pt medium symbols over 10pt medium labels, tightly stacked.
-        static let iconPointSize: CGFloat = 18.0
+        /// Slots sit adjacent inside the track (Figma tabs stack with no
+        /// gap).
+        static let slotSpacing: CGFloat = 0.0
+        /// Slot metrics from Figma 7156:13839: fixed 102x54 slots so the
+        /// tabs read as uniform regardless of label.
+        static let slotWidth: CGFloat = 102.0
+        static let slotHeight: CGFloat = 54.0
+        /// 17pt semibold symbols in a 28pt icon slot over 10pt bold labels,
+        /// tightly stacked (gap 1).
+        static let iconPointSize: CGFloat = 17.0
         static let labelPointSize: CGFloat = 10.0
-        /// Fixed icon slot so the symbols and the agent badge baseline-align
-        /// their labels across slots.
-        static let iconSlotHeight: CGFloat = 22.0
-        static let glyphLabelSpacing: CGFloat = 2.0
+        static let iconSlotHeight: CGFloat = 28.0
+        static let glyphLabelSpacing: CGFloat = 1.0
         /// The agent badge circle and the optical size of the `addAgentIcon`
         /// glyph inside it, filling the icon slot like the symbols do.
-        static let agentBadgeSize: CGFloat = 22.0
-        static let agentGlyphSize: CGFloat = 12.0
+        static let agentBadgeSize: CGFloat = 24.0
+        static let agentGlyphSize: CGFloat = 13.0
     }
 }
 

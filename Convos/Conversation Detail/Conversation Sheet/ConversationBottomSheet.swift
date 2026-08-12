@@ -20,18 +20,23 @@ enum ConversationSheetDetent: CaseIterable {
 /// which reserve bottom clearance against the compact resting height until
 /// the live measurement lands.
 enum ConversationSheetMetrics {
-    /// Horizontal and bottom inset of the floating compact card.
+    /// Horizontal and bottom inset of the floating compact card, measured
+    /// from the physical screen edges: like the native floating tab bar,
+    /// the card ignores the bottom safe area and rests under the home
+    /// indicator.
     static let edgeInset: CGFloat = 8.0
-    /// Continuous corner radius of the compact card, sized to sit close to
-    /// concentric with the device bezel at the 8pt inset.
-    static let cornerRadius: CGFloat = 34.0
+    /// Continuous corner radii of the compact card (Figma 7156:13775):
+    /// rounder on the bottom, where the card sits concentric with the
+    /// device bezel at the 8pt inset.
+    static let topCornerRadius: CGFloat = 40.0
+    static let bottomCornerRadius: CGFloat = 48.0
     /// Rough intrinsic height of the compact card (grabber + composer +
     /// tab bar). Only a first-frame estimate: the sheet self-sizes to its
     /// content and reports the measured height to the host.
     static let estimatedCompactHeight: CGFloat = 172.0
-    /// Vertical clearance the resting compact card occupies above the bottom
-    /// safe-area edge, inset included. First-frame estimate; the live value
-    /// arrives via `onOccupiedHeightChanged`.
+    /// Vertical clearance the resting compact card occupies above the
+    /// physical bottom screen edge, inset included. First-frame estimate;
+    /// the live value arrives via `onOccupiedHeightChanged`.
     static var compactRestingHeight: CGFloat { estimatedCompactHeight + edgeInset }
 }
 
@@ -72,18 +77,22 @@ struct ConversationBottomSheet<BarContent: View, TabBarContent: View>: View {
     @State private var dragOffset: CGFloat = 0
 
     var body: some View {
-        VStack(spacing: 0) {
-            grabber
+        VStack(spacing: Constant.contentSpacing) {
             barContent()
             tabBar()
-                .padding(.top, Constant.tabBarPaddingTop)
-                .padding(.bottom, Constant.tabBarPaddingBottom)
         }
+        .padding(.top, Constant.contentTopPadding)
+        .padding(.bottom, Constant.contentBottomPadding)
         .frame(maxWidth: .infinity)
         .background {
-            RoundedRectangle(cornerRadius: ConversationSheetMetrics.cornerRadius, style: .continuous)
-                .fill(Color.colorBackgroundSurfaceless)
+            cardShape
+                .fill(Color.colorBackgroundRaised)
                 .shadow(color: Constant.shadowColor, radius: Constant.shadowRadius, y: Constant.shadowYOffset)
+        }
+        // The grabber floats near the card's top edge, over the content's
+        // top padding (Figma pins it 6pt in).
+        .overlay(alignment: .top) {
+            grabber
         }
         .padding(.horizontal, ConversationSheetMetrics.edgeInset)
         .padding(.bottom, ConversationSheetMetrics.edgeInset)
@@ -110,12 +119,25 @@ struct ConversationBottomSheet<BarContent: View, TabBarContent: View>: View {
         return Constant.maxRubberBandLift * (1 - exp(-upwardDrag / Constant.rubberBandDistance))
     }
 
+    private var cardShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            cornerRadii: .init(
+                topLeading: ConversationSheetMetrics.topCornerRadius,
+                bottomLeading: ConversationSheetMetrics.bottomCornerRadius,
+                bottomTrailing: ConversationSheetMetrics.bottomCornerRadius,
+                topTrailing: ConversationSheetMetrics.topCornerRadius
+            ),
+            style: .continuous
+        )
+    }
+
     private var grabber: some View {
         Capsule()
             .fill(.colorFillTertiary)
             .frame(width: Constant.grabberWidth, height: Constant.grabberHeight)
+            .padding(.top, Constant.grabberTopPadding)
             .frame(maxWidth: .infinity)
-            .frame(height: Constant.grabberHitAreaHeight)
+            .frame(height: Constant.grabberHitAreaHeight, alignment: .top)
             .contentShape(.rect)
             .gesture(grabberDrag)
             .accessibilityIdentifier("conversation-sheet-grabber")
@@ -145,16 +167,22 @@ struct ConversationBottomSheet<BarContent: View, TabBarContent: View>: View {
 // Hoisted out of the generic sheet type: generic types cannot hold static
 // stored properties.
 private enum Constant {
-    static let grabberWidth: CGFloat = 44.0
-    static let grabberHeight: CGFloat = 5.0
-    static let grabberHitAreaHeight: CGFloat = 26.0
-    static let tabBarPaddingTop: CGFloat = DesignConstants.Spacing.stepX
-    static let tabBarPaddingBottom: CGFloat = DesignConstants.Spacing.step2x
-    /// Kept faint: a heavier spread dithers into a visible band over the
-    /// light desktop background.
-    static let shadowColor: Color = Color.black.opacity(0.06)
-    static let shadowRadius: CGFloat = 10.0
-    static let shadowYOffset: CGFloat = 2.0
+    /// Grabber metrics from Figma 7156:13838: 56x4, pinned 6pt from the
+    /// card's top edge, with a taller invisible hit area for the drag.
+    static let grabberWidth: CGFloat = 56.0
+    static let grabberHeight: CGFloat = 4.0
+    static let grabberTopPadding: CGFloat = 6.0
+    static let grabberHitAreaHeight: CGFloat = 28.0
+    /// Card content: 16pt padding with a 12pt gap between the bar and the
+    /// tab bar (Figma p-16 / gap-12). Horizontal insets stay with the bar
+    /// content itself - the composer already carries the 16pt inset.
+    static let contentSpacing: CGFloat = DesignConstants.Spacing.step3x
+    static let contentTopPadding: CGFloat = DesignConstants.Spacing.step4x
+    static let contentBottomPadding: CGFloat = DesignConstants.Spacing.step4x
+    /// The design's "Cheap glass" drop shadow: 8% black, radius 16, y 4.
+    static let shadowColor: Color = Color.black.opacity(0.08)
+    static let shadowRadius: CGFloat = 16.0
+    static let shadowYOffset: CGFloat = 4.0
     /// A downward drag moves the card at reduced rate and springs back.
     static let downwardRubberBandFactor: CGFloat = 0.35
     /// Asymptotic ceiling of the upward rubber-band lift.
