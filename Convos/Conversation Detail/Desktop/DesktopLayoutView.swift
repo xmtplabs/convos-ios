@@ -7,6 +7,9 @@ struct DesktopLayoutView: View {
     /// Keys the web section's persisted cover snapshot.
     var conversationId: String = ""
     var webURL: URL?
+    /// The sheet's live occupied height, applied as the page's bottom
+    /// content/indicator inset so content can scroll clear of the sheet.
+    var sheetHeight: CGFloat = ConversationSheetMetrics.compactRestingHeight
     /// Fired when the page requests navigation away from the space URL; the
     /// host presents it in the desktop browser popup.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
@@ -15,6 +18,7 @@ struct DesktopLayoutView: View {
         DesktopWebSurface(
             conversationId: conversationId,
             url: webURL,
+            bottomContentInset: sheetHeight,
             onNavigationRequest: onNavigationRequest
         )
         .ignoresSafeArea(edges: .bottom)

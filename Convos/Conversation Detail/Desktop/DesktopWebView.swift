@@ -20,6 +20,10 @@ struct DesktopWebView: UIViewRepresentable {
     /// False when an outer scroll view (the desktop layout) owns the
     /// vertical gesture.
     var isScrollEnabled: Bool = true
+    /// Bottom clearance for the page and its scroll indicator - the floating
+    /// conversation sheet's occupied height - so page content can scroll
+    /// clear of the sheet while the surface itself stays full-bleed.
+    var bottomContentInset: CGFloat = 0
     /// Fired on the main actor once the page finishes loading.
     var onLoaded: @MainActor () -> Void = {}
     /// Fired on the main actor when the page requests navigation away from
@@ -41,6 +45,11 @@ struct DesktopWebView: UIViewRepresentable {
         webView.backgroundColor = raisedBackground
         webView.scrollView.backgroundColor = raisedBackground
         webView.scrollView.isScrollEnabled = isScrollEnabled
+        // The surface is positioned by SwiftUI (full-bleed under the floating
+        // sheet); letting UIKit re-apply safe-area insets on top of that
+        // makes a 100vh page scrollable and misplaces the indicator. The
+        // sheet clearance arrives via `bottomContentInset` instead.
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         return webView
     }
 
@@ -49,6 +58,10 @@ struct DesktopWebView: UIViewRepresentable {
         context.coordinator.onLoaded = onLoaded
         context.coordinator.onNavigationRequest = onNavigationRequest
         webView.scrollView.isScrollEnabled = isScrollEnabled
+        if webView.scrollView.contentInset.bottom != bottomContentInset {
+            webView.scrollView.contentInset.bottom = bottomContentInset
+            webView.scrollView.verticalScrollIndicatorInsets.bottom = bottomContentInset
+        }
         // Reload only when the destination actually changes; SwiftUI calls
         // this on unrelated state churn.
         guard context.coordinator.loadedURL != url || !context.coordinator.hasLoaded else { return }

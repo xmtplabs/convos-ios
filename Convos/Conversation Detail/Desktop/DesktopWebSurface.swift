@@ -9,6 +9,9 @@ struct DesktopWebSurface: View {
     let conversationId: String
     var url: URL?
     var isScrollEnabled: Bool = true
+    /// Forwarded to `DesktopWebView`: bottom clearance (the floating sheet's
+    /// occupied height) for the page and its scroll indicator.
+    var bottomContentInset: CGFloat = 0
     /// Forwarded to `DesktopWebView`; fired when the page requests navigation
     /// away from the space URL.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
@@ -22,6 +25,7 @@ struct DesktopWebSurface: View {
                 conversationId: conversationId,
                 url: url,
                 isScrollEnabled: isScrollEnabled,
+                bottomContentInset: bottomContentInset,
                 onLoaded: { isLoaded = true },
                 onNavigationRequest: onNavigationRequest
             )

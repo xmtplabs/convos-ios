@@ -150,9 +150,11 @@ private enum Constant {
     static let grabberHitAreaHeight: CGFloat = 26.0
     static let tabBarPaddingTop: CGFloat = DesignConstants.Spacing.stepX
     static let tabBarPaddingBottom: CGFloat = DesignConstants.Spacing.step2x
-    static let shadowColor: Color = Color.black.opacity(0.12)
-    static let shadowRadius: CGFloat = 16.0
-    static let shadowYOffset: CGFloat = 4.0
+    /// Kept faint: a heavier spread dithers into a visible band over the
+    /// light desktop background.
+    static let shadowColor: Color = Color.black.opacity(0.06)
+    static let shadowRadius: CGFloat = 10.0
+    static let shadowYOffset: CGFloat = 2.0
     /// A downward drag moves the card at reduced rate and springs back.
     static let downwardRubberBandFactor: CGFloat = 0.35
     /// Asymptotic ceiling of the upward rubber-band lift.

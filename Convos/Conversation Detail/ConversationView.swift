@@ -730,6 +730,7 @@ private extension ConversationView {
                 DesktopLayoutView(
                     conversationId: viewModel.conversation.id,
                     webURL: viewModel.conversation.spaceURL,
+                    sheetHeight: sheetOccupiedHeight,
                     onNavigationRequest: { url in
                         desktopBrowserEntries.append(DesktopBrowserEntry(url: url))
                     }
