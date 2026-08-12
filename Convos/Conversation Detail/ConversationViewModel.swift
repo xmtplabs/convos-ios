@@ -2303,19 +2303,23 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// have confirmed. On failure nothing is broadcast: the sheet stays up
     /// with a retryable error and the pill stays pending, so a
     /// successful-looking approval can never wake the agent without a server
-    /// grant behind it.
+    /// grant behind it. A grant refused with the typed `connection_not_found`
+    /// (stale local connection row) drives the in-sheet OAuth leg and retries
+    /// once instead of surfacing an error; `allowConnectRecovery` is false on
+    /// that retry so a second refusal falls through to the retryable error.
     private func approveCapabilityRequest(
         _ request: CapabilityRequest,
         providerIds: Set<ProviderID>,
         bundleSelection: [String: Set<String>],
-        conversationId: String
+        conversationId: String,
+        allowConnectRecovery: Bool = true
     ) {
         guard capabilityApprovalInFlightRequestId == nil else { return }
         capabilityApprovalInFlightRequestId = request.requestId
         capabilityApprovalErrorMessage = nil
         Task { [weak self] in
             guard let self else { return }
-            let sent = await self.sendCapabilityResult(
+            let outcome = await self.sendCapabilityResult(
                 request: request,
                 status: .approved,
                 providerIds: providerIds,
@@ -2328,16 +2332,68 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             // surface its own error in the newer request's sheet.
             guard self.capabilityApprovalInFlightRequestId == request.requestId else { return }
             self.capabilityApprovalInFlightRequestId = nil
-            guard sent else {
+            switch outcome {
+            case .sent:
+                self.locallyHandledCapabilityRequestIds.insert(request.requestId)
+                // Only dismiss the picker if it's still showing *this* request — a newer
+                // request might have arrived during the async hop and replaced the layout,
+                // and we mustn't blow that one away on the old request's behalf.
+                if self.pendingCapabilityPickerLayout?.request.requestId == request.requestId {
+                    self.pendingCapabilityPickerLayout = nil
+                }
+            case .needsConnect(let providers) where allowConnectRecovery:
+                self.connectStaleProvidersAndRetryApproval(
+                    providers,
+                    request: request,
+                    providerIds: providerIds,
+                    bundleSelection: bundleSelection,
+                    conversationId: conversationId
+                )
+            case .failed, .needsConnect:
                 self.capabilityApprovalErrorMessage = Constant.capabilityApprovalFailedMessage
-                return
             }
-            self.locallyHandledCapabilityRequestIds.insert(request.requestId)
-            // Only dismiss the picker if it's still showing *this* request — a newer
-            // request might have arrived during the async hop and replaced the layout,
-            // and we mustn't blow that one away on the old request's behalf.
-            if self.pendingCapabilityPickerLayout?.request.requestId == request.requestId {
-                self.pendingCapabilityPickerLayout = nil
+        }
+    }
+
+    /// Recovery for the backend's typed `connection_not_found` refusal: the
+    /// local snapshot claimed a linked connection but the server holds no
+    /// live credential (an OAuth that never completed, or a server-side
+    /// revoke/purge). Runs the same in-sheet OAuth leg a Connect tap uses,
+    /// then retries the approval once with recovery disabled. Cancelling the
+    /// OAuth session leaves the sheet up with the retryable error.
+    private func connectStaleProvidersAndRetryApproval(
+        _ providers: [ProviderID],
+        request: CapabilityRequest,
+        providerIds: Set<ProviderID>,
+        bundleSelection: [String: Set<String>],
+        conversationId: String
+    ) {
+        guard connectOnApproveInFlightRequestId != request.requestId else { return }
+        connectOnApproveInFlightRequestId = request.requestId
+        let authorizer = session.deviceConnectionAuthorizer()
+        let registry = session.capabilityProviderRegistry()
+        let manager = session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme)
+        Task { [weak self] in
+            let allLinked = await Self.connectUnlinkedProviders(
+                providers,
+                authorizer: authorizer,
+                registry: registry,
+                cloudConnectionManager: manager
+            )
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.connectOnApproveInFlightRequestId = nil
+                guard allLinked else {
+                    self.capabilityApprovalErrorMessage = Constant.capabilityApprovalFailedMessage
+                    return
+                }
+                self.approveCapabilityRequest(
+                    request,
+                    providerIds: providerIds,
+                    bundleSelection: bundleSelection,
+                    conversationId: conversationId,
+                    allowConnectRecovery: false
+                )
             }
         }
     }
@@ -2351,15 +2407,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// either, since those (with resolver and device bookkeeping) run in
     /// `finalizeBroadcastApproval` only after the send succeeds. An unbacked
     /// "approved" would wake the agent only for the backend to deny its tool
-    /// calls, so the caller keeps the request pending. Returns true when the
-    /// result went out.
+    /// calls, so the caller keeps the request pending. A grant refused with
+    /// the typed `connection_not_found` comes back as `.needsConnect` so the
+    /// caller can drive the in-sheet OAuth leg instead of surfacing an error.
     private func sendCapabilityResult(
         request: CapabilityRequest,
         status: CapabilityRequestResult.Status,
         providerIds: Set<ProviderID>,
         bundleSelection: [String: Set<String>] = [:],
         conversationId: String
-    ) async -> Bool {
+    ) async -> CapabilityResultSendOutcome {
         let resolver = session.capabilityResolver()
         let writer = messagingService.capabilityRequestResultWriter()
         // Snapshot the resolver's current providerIds for this (subject, verb,
@@ -2385,7 +2442,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let sortedIds = providerIds.sorted(by: { $0.rawValue < $1.rawValue })
 
         if status == .approved {
-            let cloudGrantsConfirmed = await Self.persistApprovedCloudCapabilities(
+            let confirmation = await Self.persistApprovedCloudCapabilities(
                 providerIds: sortedIds,
                 bundleSelection: bundleSelection,
                 conversationId: conversationId,
@@ -2393,7 +2450,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 grantWriter: messagingService.connectionGrantWriter(),
                 repository: session.cloudConnectionRepository()
             )
-            guard cloudGrantsConfirmed else { return false }
+            guard confirmation.allConfirmed else {
+                guard confirmation.providersNeedingConnect.isEmpty else {
+                    return .needsConnect(confirmation.providersNeedingConnect)
+                }
+                return .failed
+            }
         } else {
             // Resolver errors don't block the result: routing state is local
             // bookkeeping and a re-approval repairs it, whereas a swallowed
@@ -2426,7 +2488,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             try await writer.sendResult(result, in: conversationId)
         } catch {
             Log.error("Failed to send capability_request_result: \(error.localizedDescription)")
-            return false
+            return .failed
         }
         if status == .approved {
             await finalizeBroadcastApproval(
@@ -2437,7 +2499,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 conversationId: conversationId
             )
         }
-        return true
+        return .sent
+    }
+
+    /// How one `sendCapabilityResult` attempt ended. `.needsConnect` carries
+    /// the providers whose grant POST the backend refused with the typed
+    /// `connection_not_found` -- the local connection row is stale and the
+    /// in-sheet OAuth leg must run before the approval can confirm.
+    enum CapabilityResultSendOutcome: Equatable {
+        case sent
+        case failed
+        case needsConnect([ProviderID])
     }
 
     /// Post-broadcast bookkeeping for an approval whose `.approved` result
@@ -2592,9 +2664,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         grantedToInboxId: String,
         grantWriter: any CloudConnectionGrantWriterProtocol,
         repository: any CloudConnectionRepositoryProtocol
-    ) async -> Bool {
+    ) async -> CloudGrantConfirmation {
         let activeConnections = (try? await repository.connections()) ?? []
         var allConfirmed = true
+        var providersNeedingConnect: [ProviderID] = []
 
         for providerId in providerIds {
             guard let serviceId = providerId.cloudServiceId else { continue }
@@ -2616,12 +2689,33 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                     grantedToInboxId: grantedToInboxId,
                     bundleIds: bundleIds
                 )
+            } catch CloudConnectionsAPI.GrantError.connectionNotFound {
+                // The backend's live-credential gate refused the grant: the
+                // local row is stale (an OAuth that never completed, or a
+                // server-side revoke/purge). The caller drives the in-sheet
+                // OAuth leg for these providers instead of surfacing an error.
+                Log.warning("Backend holds no live connection for \(providerId.rawValue); routing to the connect flow")
+                allConfirmed = false
+                providersNeedingConnect.append(providerId)
             } catch {
                 Log.error("Failed to persist cloud grant for \(providerId.rawValue) → \(grantedToInboxId): \(error.localizedDescription)")
                 allConfirmed = false
             }
         }
-        return allConfirmed
+        return CloudGrantConfirmation(
+            allConfirmed: allConfirmed,
+            providersNeedingConnect: providersNeedingConnect
+        )
+    }
+
+    /// Outcome of confirming the cloud grants behind one approval.
+    struct CloudGrantConfirmation: Equatable {
+        /// Every approved cloud provider's grant is backend-confirmed.
+        let allConfirmed: Bool
+        /// Providers whose grant POST was refused with the typed
+        /// `connection_not_found`: no live credential exists server-side, so
+        /// OAuth must (re)run before the approval can confirm.
+        let providersNeedingConnect: [ProviderID]
     }
 
     /// The user-visible `connection_event granted` transcript lines for the

@@ -20,7 +20,7 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
         let grantWriter = ConfigurableGrantWriter()
         grantWriter.confirmingGrantError = ConfigurableGrantWriter.Failure()
 
-        let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
+        let confirmation = await ConversationViewModel.persistApprovedCloudCapabilities(
             providerIds: [googleCalendar],
             bundleSelection: ["googlecalendar": ["calendar.events"]],
             conversationId: "convo-1",
@@ -32,8 +32,10 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(confirmed,
+        XCTAssertFalse(confirmation.allConfirmed,
                        "A failed grant POST must leave the approval unconfirmed so no .approved result broadcasts")
+        XCTAssertTrue(confirmation.providersNeedingConnect.isEmpty,
+                      "A generic push failure is retryable in place, not a connect-flow signal")
         XCTAssertEqual(grantWriter.confirmingGrants.count, 1,
                        "The confirming push was attempted exactly once")
     }
@@ -41,7 +43,7 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
     func testConfirmedGrantPostApproves() async {
         let grantWriter = ConfigurableGrantWriter()
 
-        let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
+        let confirmation = await ConversationViewModel.persistApprovedCloudCapabilities(
             providerIds: [googleCalendar],
             bundleSelection: ["googlecalendar": ["calendar.events"]],
             conversationId: "convo-1",
@@ -53,7 +55,7 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(confirmed)
+        XCTAssertTrue(confirmation.allConfirmed)
         XCTAssertEqual(grantWriter.confirmingGrants, [
             ConfigurableGrantWriter.Grant(
                 connectionId: "conn-1",
@@ -67,7 +69,7 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
     func testExistingConfirmedGrantStillRunsConfirmingPushOnApproval() async {
         let grantWriter = ConfigurableGrantWriter()
 
-        let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
+        let confirmation = await ConversationViewModel.persistApprovedCloudCapabilities(
             providerIds: [googleCalendar],
             bundleSelection: ["googlecalendar": ["calendar.events"]],
             conversationId: "convo-1",
@@ -81,7 +83,7 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(confirmed)
+        XCTAssertTrue(confirmation.allConfirmed)
         XCTAssertEqual(grantWriter.confirmingGrants.count, 1,
                        "A locally cached backend id is not proof of server state (server-side revokes " +
                        "or purges leave it stale); every approval re-runs the idempotent confirming push")
@@ -95,7 +97,7 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
         let grantWriter = ConfigurableGrantWriter()
         grantWriter.confirmingGrantError = ConfigurableGrantWriter.Failure()
 
-        let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
+        let confirmation = await ConversationViewModel.persistApprovedCloudCapabilities(
             providerIds: [googleCalendar],
             bundleSelection: ["googlecalendar": ["calendar.events"]],
             conversationId: "convo-1",
@@ -109,7 +111,7 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(confirmed,
+        XCTAssertFalse(confirmation.allConfirmed,
                        "An unconfirmable push blocks the broadcast even when a stale backend id is cached locally")
         XCTAssertEqual(grantWriter.confirmingGrants.count, 1)
     }
@@ -117,7 +119,7 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
     func testExistingUnconfirmedGrantRetriesBackendPush() async {
         let grantWriter = ConfigurableGrantWriter()
 
-        let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
+        let confirmation = await ConversationViewModel.persistApprovedCloudCapabilities(
             providerIds: [googleCalendar],
             bundleSelection: ["googlecalendar": ["calendar.events"]],
             conversationId: "convo-1",
@@ -131,7 +133,7 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(confirmed)
+        XCTAssertTrue(confirmation.allConfirmed)
         XCTAssertEqual(grantWriter.confirmingGrants.count, 1,
                        "A local grant whose earlier POST never confirmed re-runs the confirming push on retry")
     }
@@ -139,7 +141,7 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
     func testMissingActiveConnectionLeavesApprovalUnconfirmed() async {
         let grantWriter = ConfigurableGrantWriter()
 
-        let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
+        let confirmation = await ConversationViewModel.persistApprovedCloudCapabilities(
             providerIds: [googleCalendar],
             bundleSelection: ["googlecalendar": ["calendar.events"]],
             conversationId: "convo-1",
@@ -148,9 +150,39 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
             repository: StubConnectionsRepository(stubbedConnections: [], stubbedGrants: [])
         )
 
-        XCTAssertFalse(confirmed,
+        XCTAssertFalse(confirmation.allConfirmed,
                        "Without an active connection no server grant can back the approval")
+        XCTAssertTrue(confirmation.providersNeedingConnect.isEmpty)
         XCTAssertTrue(grantWriter.confirmingGrants.isEmpty)
+    }
+
+    func testConnectionNotFoundRefusalRoutesProviderToConnectFlow() async {
+        // The backend's live-credential gate refused the grant (typed 409
+        // connection_not_found): the local row claims a connection the server
+        // no longer holds. The provider must come back as needing the
+        // in-sheet OAuth leg, not as a plain retryable failure.
+        let grantWriter = ConfigurableGrantWriter()
+        grantWriter.confirmingGrantError = CloudConnectionsAPI.GrantError.connectionNotFound
+
+        let confirmation = await ConversationViewModel.persistApprovedCloudCapabilities(
+            providerIds: [googleCalendar],
+            bundleSelection: ["googlecalendar": ["calendar.events"]],
+            conversationId: "convo-1",
+            grantedToInboxId: "agent-inbox",
+            grantWriter: grantWriter,
+            repository: StubConnectionsRepository(
+                stubbedConnections: [makeConnection()],
+                stubbedGrants: [
+                    makeGrant(backendGrantId: "backend-stale", bundleIds: ["calendar.events"]),
+                ]
+            )
+        )
+
+        XCTAssertFalse(confirmation.allConfirmed,
+                       "A refused grant must not let the .approved result broadcast")
+        XCTAssertEqual(confirmation.providersNeedingConnect, [googleCalendar],
+                       "The typed refusal routes the provider into the connect flow")
+        XCTAssertEqual(grantWriter.confirmingGrants.count, 1)
     }
 
     // MARK: - Granted transcript lines follow the result send
