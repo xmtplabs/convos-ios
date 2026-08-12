@@ -105,6 +105,10 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     /// App-provided chip for a staged agent-share link, forwarded to
     /// `MessagesInputView`.
     @ViewBuilder let agentShareChip: () -> AgentChip
+    /// Agent-style composer: the media buttons (camera, photos, files) sit
+    /// inline at the field's leading edge instead of behind the `+` menu,
+    /// and an empty composer's send slot becomes the voice-memo entry.
+    var usesInlineMediaButtons: Bool = false
 
     @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
@@ -158,6 +162,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         voiceMemoRecorder: VoiceMemoRecorder,
         onSendVoiceMemo: @escaping () -> Void,
         onDebugAttachmentTap: (() -> Void)? = nil,
+        usesInlineMediaButtons: Bool = false,
         onBaseHeightChanged: @escaping (CGFloat) -> Void,
         @ViewBuilder bottomBarContent: @escaping () -> BottomBarContent,
         @ViewBuilder quickEditView: @escaping (String, Binding<Bool>) -> QuickEdit,
@@ -199,6 +204,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         self.voiceMemoRecorder = voiceMemoRecorder
         self.onSendVoiceMemo = onSendVoiceMemo
         self.onDebugAttachmentTap = onDebugAttachmentTap
+        self.usesInlineMediaButtons = usesInlineMediaButtons
         self.onBaseHeightChanged = onBaseHeightChanged
         self.bottomBarContent = bottomBarContent
         self.quickEditView = quickEditView
@@ -579,6 +585,56 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         }
     }
 
+    /// The agent-style leading accessory: the media actions as always-visible
+    /// buttons instead of rows behind the `+` menu. Shares the menu variant's
+    /// availability rules (`disabledAttachmentActions`).
+    private var inlineMediaButtons: some View {
+        HStack(spacing: 0) {
+            inlineMediaButton(
+                symbol: "camera.fill",
+                action: .camera,
+                label: "Camera",
+                identifier: "camera-button"
+            )
+            inlineMediaButton(
+                symbol: "photo.fill",
+                action: .photos,
+                label: "Photo library",
+                identifier: "photo-picker-button"
+            )
+            inlineMediaButton(
+                symbol: "document.fill",
+                action: .files,
+                label: "Attach file",
+                identifier: "file-picker-button"
+            )
+        }
+    }
+
+    private func inlineMediaButton(
+        symbol: String,
+        action: ComposerAttachmentAction,
+        label: String,
+        identifier: String
+    ) -> some View {
+        let isDisabled: Bool = disabledAttachmentActions.contains(action)
+        return Button {
+            handleAttachmentSelected(action)
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 18.0, weight: .medium))
+                .foregroundStyle(Color.colorTextPrimary.opacity(isDisabled ? 0.3 : 1.0))
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .hoverEffect(.lift)
+        .hoverEffectDisabled(isDisabled)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
+    }
+
     @ViewBuilder
     private var normalInputView: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
@@ -605,11 +661,18 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
+                onVoiceMemoTapWhenEmpty: usesInlineMediaButtons ? { startVoiceMemoRecording() } : nil,
                 onClearLinkPreview: onClearLinkPreview,
                 onClearMediaAttachment: onClearMediaAttachment,
                 fileAttachmentPreview: fileAttachmentPreview,
                 agentShareChip: agentShareChip,
-                attachmentsButton: { attachmentsGlyph }
+                attachmentsButton: {
+                    if usesInlineMediaButtons {
+                        inlineMediaButtons
+                    } else {
+                        attachmentsGlyph
+                    }
+                }
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
@@ -618,8 +681,12 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .glassEffectID("input", in: namespace)
             .glassEffectTransition(.matchedGeometry)
             .overlay(alignment: .bottomLeading) {
-                attachmentsControl
-                    .padding(DesignConstants.Spacing.step2x)
+                // The invisible `+` menu control only overlays the glyph
+                // variant; the inline buttons are real buttons.
+                if !usesInlineMediaButtons {
+                    attachmentsControl
+                        .padding(DesignConstants.Spacing.step2x)
+                }
             }
         }
         .disabled(!messagesTextFieldEnabled)

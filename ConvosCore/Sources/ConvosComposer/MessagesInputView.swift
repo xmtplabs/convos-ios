@@ -29,6 +29,9 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
     private let focused: MessagesViewInputFocus = .message
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
+    /// When set, an empty composer (no text, no attachments) swaps the send
+    /// button for a voice-memo button that fires this; typing swaps back.
+    var onVoiceMemoTapWhenEmpty: (() -> Void)?
     var onClearLinkPreview: (() -> Void)?
     var onClearMediaAttachment: ((UUID) -> Void)?
     /// App-provided content for a staged (not-yet-sent) file attachment chip.
@@ -67,6 +70,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
         messagesTextFieldEnabled: Bool,
         onSendMessage: @escaping () -> Void,
         onClearInvite: @escaping () -> Void,
+        onVoiceMemoTapWhenEmpty: (() -> Void)? = nil,
         onClearLinkPreview: (() -> Void)? = nil,
         onClearMediaAttachment: ((UUID) -> Void)? = nil,
         @ViewBuilder fileAttachmentPreview: @escaping (PendingFileAttachment) -> FilePreview,
@@ -93,6 +97,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
         self.messagesTextFieldEnabled = messagesTextFieldEnabled
         self.onSendMessage = onSendMessage
         self.onClearInvite = onClearInvite
+        self.onVoiceMemoTapWhenEmpty = onVoiceMemoTapWhenEmpty
         self.onClearLinkPreview = onClearLinkPreview
         self.onClearMediaAttachment = onClearMediaAttachment
         self.fileAttachmentPreview = fileAttachmentPreview
@@ -113,6 +118,37 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
             || pendingInviteURL != nil
             || isShowingAgentShareChip
             || composerLinkPreview != nil
+    }
+
+    /// Send, or the voice-memo entry while the composer is empty and the
+    /// host opted in.
+    @ViewBuilder
+    private var trailingButton: some View {
+        if let onVoiceMemoTapWhenEmpty,
+           messageText.isEmpty,
+           !hasAttachments {
+            voiceMemoButton(action: onVoiceMemoTapWhenEmpty)
+        } else {
+            sendButton
+        }
+    }
+
+    /// Same circle as the enabled send button, carrying the voice-memo
+    /// waveform: an empty composer's primary action is starting a memo.
+    private func voiceMemoButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "waveform")
+                .frame(width: sendButtonSize, height: sendButtonSize, alignment: .center)
+                .tint(.colorTextPrimaryInverted)
+                .font(.callout.weight(.medium))
+        }
+        .background(.colorFillPrimary)
+        .mask(Circle())
+        .frame(width: sendButtonSize, height: sendButtonSize, alignment: .bottomLeading)
+        .hoverEffect(.lift)
+        .disabled(!messagesTextFieldEnabled)
+        .accessibilityLabel("Record voice memo")
+        .accessibilityIdentifier("voice-memo-send-button")
     }
 
     private var sendButton: some View {
@@ -169,7 +205,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
             HStack(alignment: .bottom, spacing: 0) {
                 attachmentsAccessory
                 messageTextField
-                sendButton
+                trailingButton
             }
         }
         .padding(DesignConstants.Spacing.step2x)

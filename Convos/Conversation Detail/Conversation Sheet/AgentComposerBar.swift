@@ -25,6 +25,7 @@ struct AgentComposerBar: View {
                 messagePlaceholder: "Chat with \(session.agentName)",
                 isGroupComposer: false,
                 scrollToBottom: scrollToBottom,
+                usesInlineMediaButtons: true,
                 extraBarContent: { EmptyView() }
             )
         } else {
@@ -34,9 +35,9 @@ struct AgentComposerBar: View {
 
     /// Disabled composer for the not-yet-created DM. The field and send
     /// button stay disabled until the session binds the real conversation
-    /// (normally within a second or two of the agent joining). The `+` stays
-    /// visible (inert) so the composer keeps its normal shape rather than
-    /// dropping the attachments affordance.
+    /// (normally within a second or two of the agent joining). The media
+    /// buttons stay visible (inert, dimmed) so the composer keeps the
+    /// agent bar's shape rather than dropping the affordances.
     private var draftComposer: some View {
         MessagesInputView(
             displayName: .constant(""),
@@ -52,7 +53,7 @@ struct AgentComposerBar: View {
             onClearInvite: {},
             fileAttachmentPreview: { _ in EmptyView() },
             agentShareChip: { EmptyView() },
-            attachmentsButton: { draftAttachmentsGlyph }
+            attachmentsButton: { draftMediaButtons }
         )
         .fixedSize(horizontal: false, vertical: true)
         .clipShape(.rect(cornerRadius: Constant.draftCornerRadius))
@@ -63,16 +64,20 @@ struct AgentComposerBar: View {
         .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
 
-    /// The `+` glyph in the pre-creation composer: kept visible so the bar
-    /// holds its normal shape, but inert and dimmed (no conversation to
-    /// attach to yet) to read as disabled alongside the field and send
-    /// button. Mirrors `MessagesBottomBar.attachmentsGlyph`.
-    private var draftAttachmentsGlyph: some View {
-        Image(systemName: "plus")
-            .font(.system(size: 18.0, weight: .medium))
-            .foregroundStyle(Color.colorTextPrimary)
-            .frame(width: 32, height: 32)
-            .opacity(0.4)
+    /// The media buttons in the pre-creation composer: kept visible so the
+    /// bar holds the agent style's shape, but inert and dimmed (no
+    /// conversation to attach to yet) to read as disabled alongside the
+    /// field. Mirrors `MessagesBottomBar.inlineMediaButtons`.
+    private var draftMediaButtons: some View {
+        HStack(spacing: 0) {
+            ForEach(["camera.fill", "photo.fill", "document.fill"], id: \.self) { symbol in
+                Image(systemName: symbol)
+                    .font(.system(size: 18.0, weight: .medium))
+                    .foregroundStyle(Color.colorTextPrimary)
+                    .frame(width: 32, height: 32)
+            }
+        }
+        .opacity(0.4)
     }
 
     private enum Constant {
