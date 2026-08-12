@@ -82,6 +82,10 @@ struct ConversationBottomSheet<BarContent: View, TabBarContent: View>: View {
     /// Fades the whole card out (and disables interaction) while transient
     /// chrome owns the screen, e.g. the message long-press context menu.
     var isHidden: Bool = false
+    /// Whether the grabber renders. Off while `.compact` is the only detent
+    /// - a drag affordance that can't resize anything is a lie; flip it back
+    /// on when `.half`/`.full` become reachable.
+    var showsGrabber: Bool = false
     /// Fired with the card's live bottom clearance: measured card height plus
     /// the bottom edge inset. Keyboard displacement is excluded - hosts feed
     /// this to transcript insets whose controllers track the keyboard
@@ -116,7 +120,9 @@ struct ConversationBottomSheet<BarContent: View, TabBarContent: View>: View {
         // The grabber floats near the card's top edge, over the content's
         // top padding (Figma pins it 6pt in).
         .overlay(alignment: .top) {
-            grabber
+            if showsGrabber {
+                grabber
+            }
         }
         .padding(.horizontal, ConversationSheetMetrics.edgeInset)
         .padding(.bottom, ConversationSheetMetrics.edgeInset)
