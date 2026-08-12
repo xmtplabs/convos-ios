@@ -40,10 +40,13 @@ struct DesktopWebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
+        // Transparent web chrome: the SwiftUI host paints the desktop canvas
+        // (the conversation background), and the placeholder page leaves its
+        // body transparent so both stay one surface until a Space page with
+        // its own background loads.
         webView.isOpaque = false
-        let raisedBackground = UIColor(named: "colorBackgroundRaised") ?? .systemBackground
-        webView.backgroundColor = raisedBackground
-        webView.scrollView.backgroundColor = raisedBackground
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
         webView.scrollView.isScrollEnabled = isScrollEnabled
         // The surface is positioned by SwiftUI (full-bleed under the floating
         // sheet); letting UIKit re-apply safe-area insets on top of that
@@ -154,11 +157,8 @@ struct DesktopWebView: UIViewRepresentable {
             align-items: center;
             justify-content: center;
             font-family: -apple-system, sans-serif;
-            background: #ffffff;
+            background: transparent;
             color: #8e8e93;
-        }
-        @media (prefers-color-scheme: dark) {
-            body { background: #262626; }
         }
         </style>
         </head>

@@ -22,9 +22,16 @@ struct DesktopLayoutView: View {
             onNavigationRequest: onNavigationRequest
         )
         .ignoresSafeArea(edges: .bottom)
+        // The conversation ambient: the subtle wash over the surfaceless
+        // base (subtle alone is a low-alpha black and needs the base under
+        // it). Shows through the transparent web view until a Space page
+        // paints its own background.
         .background {
-            Color.colorBackgroundSubtle
-                .ignoresSafeArea()
+            ZStack {
+                Color.colorBackgroundSurfaceless
+                Color.colorBackgroundSubtle
+            }
+            .ignoresSafeArea()
         }
         .accessibilityIdentifier("desktop-web-section")
     }

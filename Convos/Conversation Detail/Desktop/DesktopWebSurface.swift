@@ -66,7 +66,10 @@ private struct DesktopCoverView: View {
                 }
                 .clipped()
         } else {
+            // Opaque canvas fill (it must hide the loading page beneath),
+            // layered the same way the desktop layout paints its background.
             ZStack {
+                Color.colorBackgroundSurfaceless
                 Color.colorBackgroundSubtle
                 Text("Desktop")
                     .font(.largeTitle)
