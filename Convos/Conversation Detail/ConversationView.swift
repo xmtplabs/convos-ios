@@ -730,8 +730,6 @@ private extension ConversationView {
                 DesktopLayoutView(
                     conversationId: viewModel.conversation.id,
                     webURL: viewModel.conversation.spaceURL,
-                    inviteConfiguration: desktopInviteConfiguration,
-                    sheetHeight: sheetOccupiedHeight,
                     onNavigationRequest: { url in
                         desktopBrowserEntries.append(DesktopBrowserEntry(url: url))
                     }
@@ -740,21 +738,6 @@ private extension ConversationView {
                 .allowsHitTesting(selectedTab == .desktop)
             }
         }
-    }
-
-    /// The desktop's invite card mirrors the transcript's inline Invite/Scan
-    /// eligibility (`showsTopOfConvoInvite`), constructed with the same
-    /// handlers the index-0 invite cell uses.
-    var desktopInviteConfiguration: DesktopInviteSectionConfiguration? {
-        guard showsTopOfConvoInvite else { return nil }
-        return DesktopInviteSectionConfiguration(
-            conversation: viewModel.conversation,
-            invite: viewModel.invite,
-            mode: inviteScanMode,
-            initialSegment: embeddedInviteInitialSegment,
-            onScannedCode: inviteScanScannedHandler,
-            onShareCompleted: onInviteShareCompletedHandler
-        )
     }
 
     /// The stacked desktop browser popups: each intercepted navigation
