@@ -34,17 +34,37 @@ struct DesktopWebSurface: View {
                 topContentInset: topContentInset,
                 bottomContentInset: bottomContentInset,
                 reloadNonce: reloadNonce,
-                onLoaded: { isLoaded = true },
+                onLoaded: {
+                    // Only the reveal animates; the cover itself is raised
+                    // instantly (see the reload hook below), or the cleared
+                    // web view would show through its fade-in.
+                    withAnimation(.easeInOut(duration: Constant.coverFadeDuration)) {
+                        isLoaded = true
+                    }
+                },
                 onNavigationRequest: onNavigationRequest
             )
             DesktopCoverView(image: coverImage)
                 .opacity(isLoaded ? 0 : 1)
                 .allowsHitTesting(!isLoaded)
         }
-        .animation(.easeInOut(duration: Constant.coverFadeDuration), value: isLoaded)
         .task(id: conversationId) {
             let data: Data? = await DesktopSnapshotStore.shared.snapshotData(for: conversationId)
             coverImage = data.flatMap { UIImage(data: $0) }
+        }
+        // An in-place reload clears the transparent web view's content
+        // layer mid-flight, which reads as the page blinking out. The last
+        // stored snapshot is a capture of exactly what's on screen, so
+        // raising the cover (instantly - identical pixels) holds the frame
+        // through the reload, then cross-fades to the fresh page on finish.
+        .onChange(of: reloadNonce) { _, _ in
+            guard url != nil else { return }
+            Task {
+                let data: Data? = await DesktopSnapshotStore.shared.snapshotData(for: conversationId)
+                guard let data, let image = UIImage(data: data) else { return }
+                coverImage = image
+                isLoaded = false
+            }
         }
     }
 
