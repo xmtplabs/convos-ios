@@ -132,7 +132,12 @@ echo "Waiting for TLS to be ready..." >&2
 # TLS host and a plain-HTTP port, where `Verify return code:` still appears
 # and so is no good either.
 while [[ $TLS_ATTEMPT -lt $MAX_TLS_ATTEMPTS ]]; do
-    if openssl s_client -connect "$APP_HOSTNAME:443" -servername "$APP_HOSTNAME" -alpn h2 \
+    # The alarm/exec wrapper bounds each probe at 10s: s_client has no connect
+    # timeout of its own, so a socket that stalls mid-handshake would hang this
+    # attempt past every retry bound. alarm survives exec, so the signal lands
+    # on openssl itself; macOS runners ship no timeout(1).
+    if perl -e 'alarm shift; exec @ARGV' 10 \
+        openssl s_client -connect "$APP_HOSTNAME:443" -servername "$APP_HOSTNAME" -alpn h2 \
         </dev/null 2>/dev/null | grep -q "^New, TLS"; then
         echo "TLS is ready!" >&2
         break

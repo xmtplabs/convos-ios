@@ -112,9 +112,14 @@ jobs:
           # it when set, and this step's output file is collected the moment the
           # step ends - long before the background deploy would write. The wait
           # step publishes the address instead.
+          #
+          # The status goes through a tmp file + rename: `>` creates the file
+          # before the value lands, and the wait step treats existence as
+          # written-and-complete.
           nohup env -u GITHUB_OUTPUT bash -c '
             "$1"/ci/fly/deploy "$2" > "$3/deploy.out" 2> "$3/deploy.err"
-            echo $? > "$3/deploy.status"
+            echo $? > "$3/deploy.status.tmp"
+            mv "$3/deploy.status.tmp" "$3/deploy.status"
           ' _ "$GITHUB_WORKSPACE" "$APP_NAME" "$FLY_DIR" > /dev/null 2>&1 &
           echo "Deploy started in background for $APP_NAME"
 
