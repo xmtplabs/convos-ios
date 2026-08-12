@@ -36,6 +36,9 @@ struct ConversationTabBar: View {
         // distance zero fires on touch-down), so selection follows the
         // finger the way the system segmented control's thumb does.
         .gesture(trackingGesture)
+        .padding(Constant.capsulePadding)
+        // The liquid-glass capsule the native floating tab bar rides in.
+        .glassEffect(.regular.interactive(), in: .capsule)
         .sensoryFeedback(.selection, trigger: selectedTab)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("conversation-tab-bar")
@@ -138,6 +141,9 @@ struct ConversationTabBar: View {
         static let thumbFillOpacity: Double = 0.08
         /// The native segmented thumb compresses slightly under a finger.
         static let trackingThumbScale: CGFloat = 0.95
+        /// Inset between the glass capsule's edge and the slots, equal on
+        /// all sides (mirrors the home control).
+        static let capsulePadding: CGFloat = DesignConstants.Spacing.stepX
         static let slotSpacing: CGFloat = DesignConstants.Spacing.stepX
         /// Fixed slot size, mirroring the equal-width items of the system
         /// tab bar so the tabs read as uniform slots regardless of label.
