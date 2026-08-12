@@ -93,8 +93,9 @@ extension ConversationProfile {
     ///   When it carries one, its own fields stand (the initializers already
     ///   clear the variant they don't use). Removal is an explicit operation
     ///   (`clearProfileAvatar`), never a side effect of empty local state.
-    /// - `connections`: preserved when absent on the incoming side - it lives
-    ///   only in remote metadata and is managed by its own update/clear APIs.
+    /// - `connections`: deprecated - current clients no longer write it, but
+    ///   an entry written by an older release is preserved when absent on the
+    ///   incoming side so a merge never clobbers another writer's payload.
     public func merged(over existing: ConversationProfile) -> ConversationProfile {
         var result = self
         let carriesImage = (hasEncryptedImage && encryptedImage.isValid) || hasImage

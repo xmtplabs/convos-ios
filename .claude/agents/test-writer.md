@@ -18,7 +18,8 @@ When invoked:
 
 ## Test Locations
 
-- **ConvosCore tests**: `ConvosCore/Tests/ConvosCoreTests/`
+- **ConvosCore unit tests**: `ConvosCore/Tests/ConvosCoreTests/` — stub/mock-based suites, no network
+- **ConvosCore integration tests**: `ConvosCore/Tests/ConvosCoreIntegrationTests/` — suites that create real XMTP clients (via `TestFixtures`) against a backend node (`XMTP_NODE_ADDRESS`); CI runs this target only in the integration job
 - **App tests**: `ConvosTests/`
 - **Mock objects**: `ConvosCore/Sources/ConvosCore/Mocks/`
 

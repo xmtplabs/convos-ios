@@ -19,7 +19,6 @@ import Foundation
 public enum ConversationParticipationMode: String, CaseIterable, Codable, Sendable {
     case speakFreely = "speak"
     case mentionsOnly = "mention"
-    case listenOnly = "listen"
     case paused
 
     /// The mode a conversation is in until someone sets one. An unset
@@ -33,7 +32,7 @@ public enum ConversationParticipationMode: String, CaseIterable, Codable, Sendab
     public var isQuiet: Bool {
         switch self {
         case .speakFreely: false
-        case .mentionsOnly, .listenOnly, .paused: true
+        case .mentionsOnly, .paused: true
         }
     }
 
@@ -42,8 +41,7 @@ public enum ConversationParticipationMode: String, CaseIterable, Codable, Sendab
     public var title: String {
         switch self {
         case .speakFreely: "Speak freely"
-        case .mentionsOnly: "Mentions only"
-        case .listenOnly: "Listen only"
+        case .mentionsOnly: "Listen mode"
         case .paused: "Pause"
         }
     }
@@ -60,7 +58,6 @@ public extension ConversationParticipationMode {
         switch proto {
         case .speakFreely: self = .speakFreely
         case .mentionsOnly: self = .mentionsOnly
-        case .listenOnly: self = .listenOnly
         case .paused: self = .paused
         case .unspecified, .UNRECOGNIZED: return nil
         }
@@ -70,7 +67,6 @@ public extension ConversationParticipationMode {
         switch self {
         case .speakFreely: .speakFreely
         case .mentionsOnly: .mentionsOnly
-        case .listenOnly: .listenOnly
         case .paused: .paused
         }
     }

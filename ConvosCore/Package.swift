@@ -31,7 +31,7 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.5.0"),
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
-            revision: "ios-4.12.0-nightly.20260806.4742763"
+            revision: "ios-4.12.0-nightly.20260812.2d0eb7b"
         ),
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
         .package(url: "https://github.com/ra1028/DifferenceKit.git", from: "1.3.0"),
@@ -120,6 +120,21 @@ let package = Package(
         ),
         .testTarget(
             name: "ConvosCoreTests",
+            dependencies: [
+                "ConvosCore",
+                "ConvosAppData",
+                .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
+                .product(name: "XMTPiOS", package: "libxmtp"),
+                .product(name: "CSecp256k1", package: "CSecp256k1.swift"),
+                .product(name: "CryptoSwift", package: "CryptoSwift"),
+            ]
+        ),
+        // Suites that create real XMTP clients against a backend node
+        // (XMTP_NODE_ADDRESS). Split into their own target so CI can run
+        // them separately: the integration job runs only this target, and
+        // the unit job skips it — see ci/run-tests.sh.
+        .testTarget(
+            name: "ConvosCoreIntegrationTests",
             dependencies: [
                 "ConvosCore",
                 "ConvosAppData",

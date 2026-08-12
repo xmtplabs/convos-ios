@@ -1,0 +1,482 @@
+// Integration-target copy of ConvosCoreTests/TestHelpers.swift (test targets
+// cannot share sources). Keep the two in sync when editing shared helpers;
+// this copy additionally holds MockAgentKeyset for the attestation suites.
+@testable import ConvosCore
+import ConvosInvites
+import CryptoKit
+import Foundation
+import GRDB
+import Testing
+@preconcurrency import XMTPiOS
+
+// Set custom XMTP endpoint at module load time (before any async code)
+// This runs synchronously when the test module is loaded
+// @preconcurrency import suppresses strict concurrency warnings for XMTP static properties
+private let _configureXMTPEndpoint: Void = {
+    if let endpoint = ProcessInfo.processInfo.environment["XMTP_NODE_ADDRESS"] {
+        XMTPEnvironment.customLocalAddress = endpoint
+    }
+}()
+
+// Rust tracing only flows to os_log on iOS — gated by env var so CI can
+// capture libxmtp output to disk for artifact upload.
+private let _configureXMTPLogging: Void = {
+    let env = ProcessInfo.processInfo.environment
+    guard let levelString = env["CONVOS_TEST_XMTP_LOG_LEVEL"], !levelString.isEmpty else {
+        return
+    }
+
+    let logLevel: Client.LogLevel
+    switch levelString.lowercased() {
+    case "error": logLevel = .error
+    case "warn", "warning": logLevel = .warn
+    case "info": logLevel = .info
+    case "debug": logLevel = .debug
+    default:
+        print("Unknown CONVOS_TEST_XMTP_LOG_LEVEL '\(levelString)', skipping libxmtp log activation")
+        return
+    }
+
+    let directoryURL: URL = if let custom = env["CONVOS_TEST_XMTP_LOG_DIR"], !custom.isEmpty {
+        URL(fileURLWithPath: custom, isDirectory: true)
+    } else {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("convos-test-xmtp-logs", isDirectory: true)
+    }
+
+    Client.activatePersistentLibXMTPLogWriter(
+        logLevel: logLevel,
+        rotationSchedule: .never,
+        maxFiles: 5,
+        customLogDirectory: directoryURL
+    )
+
+    print("libxmtp log writer activated at \(directoryURL.path) (level=\(levelString))")
+}()
+
+/// Stretches polled waits further on CI, on top of the floor each helper
+/// applies.
+///
+/// The budgets callers pass were picked against a single test running on a
+/// developer machine, where these conditions settle in well under a second.
+/// They are not what the same work costs inside the full suite: 248 suites
+/// running together stretch it by more than an order of magnitude, locally as
+/// much as on a shared runner. A deadline here is a guard against a genuine
+/// hang, not a performance budget - the helpers return the instant the
+/// condition holds, so a generous deadline costs nothing on the healthy path
+/// and only lengthens a run that was going to fail regardless.
+let testTimeoutScale: Double = {
+    let env = ProcessInfo.processInfo.environment
+    let isCI = env["CI"] != nil || env["GITHUB_ACTIONS"] != nil
+    return isCI ? 6.0 : 1.0
+}()
+
+/// Waits until a condition becomes true, polling at a specified interval
+/// - Parameters:
+///   - timeout: Maximum time to wait (default: 10 seconds), scaled by
+///     `testTimeoutScale` on CI
+///   - interval: Polling interval (default: 50ms)
+///   - condition: Async closure that returns true when condition is met
+/// - Throws: TimeoutError if condition not met within timeout
+func waitUntil(
+    timeout: Duration = .seconds(10),
+    interval: Duration = .milliseconds(50),
+    condition: () async -> Bool
+) async throws {
+    let deadline = ContinuousClock.now + max(timeout, .seconds(30)) * testTimeoutScale
+    while ContinuousClock.now < deadline {
+        if await condition() {
+            return
+        }
+        try await Task.sleep(for: interval)
+    }
+    throw TimeoutError()
+}
+
+/// Helper to wait for SessionStateMachine to reach a specific state with timeout
+func waitForState(
+    _ stateMachine: SessionStateMachine,
+    timeout: TimeInterval = 30,
+    condition: @escaping @Sendable (SessionStateMachine.State) -> Bool
+) async throws -> SessionStateMachine.State {
+    try await withTimeout(seconds: timeout) {
+        for await state in await stateMachine.stateSequence where condition(state) {
+            return state
+        }
+        throw TimeoutError()
+    }
+}
+
+/// Test fixtures for creating XMTP clients in tests
+class TestFixtures {
+    let environment: AppEnvironment
+    let identityStore: MockKeychainIdentityStore
+    let keychainService: MockKeychainService
+    let databaseManager: MockDatabaseManager
+
+    /// Unique per-fixture directory for libxmtp database files. In the
+    /// `.tests` environment `defaultDatabasesDirectory` is the shared
+    /// process temp directory, and production delete paths (for example
+    /// `SessionStateMachine.deleteDatabaseFiles`) sweep every `xmtp-*`
+    /// file in that directory. Suites run in parallel, so a delete-flow
+    /// test sweeping the shared directory destroys the live databases of
+    /// clients created by other suites mid-test. Giving each fixture its
+    /// own directory keeps those sweeps from reaching our clients.
+    let databasesDirectory: URL
+
+    var clientA: (any XMTPClientProvider)?
+    var clientB: (any XMTPClientProvider)?
+    var clientC: (any XMTPClientProvider)?
+
+    var clientIdA: String?
+    var clientIdB: String?
+    var clientIdC: String?
+
+    init() {
+        self.environment = .tests
+        self.identityStore = MockKeychainIdentityStore()
+        self.keychainService = MockKeychainService()
+        self.databaseManager = MockDatabaseManager.makeTestDatabase()
+        self.databasesDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("convos-test-fixtures-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: databasesDirectory, withIntermediateDirectories: true)
+
+        // Configure logging for tests
+        ConvosLog.configure(environment: .tests)
+
+        // Configure mock singletons for code that doesn't use dependency injection
+        // Uses resetForTesting() to allow reconfiguration across test runs
+        DeviceInfo.resetForTesting()
+        DeviceInfo.configure(MockDeviceInfoProvider())
+        PushNotificationRegistrar.resetForTesting()
+        PushNotificationRegistrar.configure(MockPushNotificationRegistrarProvider())
+
+        _ = _configureXMTPEndpoint
+        _ = _configureXMTPLogging
+    }
+
+    // Create a new XMTP client for testing
+    // swiftlint:disable:next large_tuple
+    func createClient() async throws -> (client: any XMTPClientProvider, clientId: String, keys: KeychainIdentityKeys) {
+        let keys = try await identityStore.generateKeys()
+        let clientId = ClientId.generate().value
+
+        let clientOptions = ClientOptions(
+            api: .init(
+                env: .local,
+                appVersion: "convos-tests/1.0.0"
+            ),
+            codecs: [
+                TextCodec(),
+                ReplyCodec(),
+                ReactionV2Codec(),
+                ReactionCodec(),
+                AttachmentCodec(),
+                RemoteAttachmentCodec(),
+                GroupUpdatedCodec(),
+                ExplodeSettingsCodec(),
+                InviteJoinErrorCodec(),
+                InviteJoinHandledCodec(),
+                ProfileUpdateCodec(),
+                ProfileSnapshotCodec(),
+                JoinRequestCodec(),
+                TypingIndicatorCodec()
+            ],
+            dbEncryptionKey: keys.databaseKey,
+            dbDirectory: databasesDirectory.path
+        )
+
+        let client = try await Client.create(account: keys.signingKey, options: clientOptions)
+
+        // Save to mock identity store. In the single-inbox model there is only one
+        // slot; multi-client fixtures overwrite each other and the tests that rely
+        // on that coupling will be rewritten in C13.
+        _ = try await identityStore.save(inboxId: client.inboxId, clientId: clientId, keys: keys)
+
+        return (client, clientId, keys)
+    }
+
+    /// Create three test clients (A, B, C) for testing
+    func createTestClients() async throws {
+        let (a, aId, _) = try await createClient()
+        let (b, bId, _) = try await createClient()
+        let (c, cId, _) = try await createClient()
+
+        clientA = a
+        clientB = b
+        clientC = c
+        clientIdA = aId
+        clientIdB = bId
+        clientIdC = cId
+    }
+
+    /// Clean up all test clients
+    func cleanup() async throws {
+        if let client = clientA {
+            try? client.deleteLocalDatabase()
+        }
+        if let client = clientB {
+            try? client.deleteLocalDatabase()
+        }
+        if let client = clientC {
+            try? client.deleteLocalDatabase()
+        }
+
+        try await identityStore.delete()
+        try databaseManager.erase()
+        try? FileManager.default.removeItem(at: databasesDirectory)
+    }
+
+    /// Builds a fresh MessagingService for tests that previously used
+    /// `UnusedConversationCache.consumeOrCreateMessagingService` as a
+    /// bootstrap. Registers a new XMTP identity for the fixture.
+    /// Defaults to `XMTPClientFactory.inMemory` so libxmtp's pool-management
+    /// surface is inert across parallel tests in the same process.
+    func makeFreshMessagingService(
+        platformProviders: PlatformProviders = .mock,
+        xmtpClientFactory: XMTPClientFactory = .inMemory
+    ) -> MessagingService {
+        let authorizationOperation = AuthorizeInboxOperation.register(
+            identityStore: identityStore,
+            databaseReader: databaseManager.dbReader,
+            databaseWriter: databaseManager.dbWriter,
+            environment: environment,
+            platformProviders: platformProviders,
+            deviceRegistrationManager: nil,
+            apiClient: nil,
+            xmtpClientFactory: xmtpClientFactory,
+            coreActions: NoOpCoreActions()
+        )
+        return MessagingService(
+            authorizationOperation: authorizationOperation,
+            databaseWriter: databaseManager.dbWriter,
+            databaseReader: databaseManager.dbReader,
+            identityStore: identityStore,
+            environment: environment,
+            deviceInfoProvider: platformProviders.deviceInfo,
+            backgroundUploadManager: UnavailableBackgroundUploadManager()
+        )
+    }
+}
+
+/// Mock keyset for agent-attestation checks. Counterpart of the definition in
+/// ConvosCoreTests/AgentAttestationTests.swift for suites in this target.
+struct MockAgentKeyset: AgentKeysetProviding {
+    let keys: [String: ResolvedKey]
+
+    init(keys: [String: ResolvedKey]) {
+        self.keys = keys
+    }
+
+    init(keys: [String: Curve25519.Signing.PublicKey], issuer: AgentVerification.Issuer = .convos) {
+        self.keys = keys.mapValues { ResolvedKey(publicKey: $0, issuer: issuer) }
+    }
+
+    func resolveKey(for kid: String) async -> ResolvedKey? {
+        keys[kid]
+    }
+
+    func cachedResolveKey(for kid: String) -> ResolvedKey? {
+        keys[kid]
+    }
+}
+
+/// Mock implementation of InvitesRepositoryProtocol for testing
+class MockInvitesRepository: InvitesRepositoryProtocol {
+    private var invites: [String: [Invite]] = [:]
+
+    func fetchInvites(for creatorInboxId: String) async throws -> [Invite] {
+        invites[creatorInboxId] ?? []
+    }
+
+    // Test helper methods
+    func addInvite(_ invite: Invite, for creatorInboxId: String) {
+        var existing = invites[creatorInboxId] ?? []
+        existing.append(invite)
+        invites[creatorInboxId] = existing
+    }
+
+    func clearInvites(for creatorInboxId: String) {
+        invites.removeValue(forKey: creatorInboxId)
+    }
+}
+
+/// Mock implementation of SyncingManagerProtocol for testing
+actor MockSyncingManager: SyncingManagerProtocol {
+    var isStarted: Bool = false
+    var isPaused: Bool = false
+    var startCallCount: Int = 0
+    var stopCallCount: Int = 0
+    var pauseCallCount: Int = 0
+    var resumeCallCount: Int = 0
+    var runBatchCatchUpCallCount: Int = 0
+
+    var isSyncReady: Bool {
+        isStarted && !isPaused
+    }
+
+    func start(with client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) {
+        isStarted = true
+        isPaused = false
+        startCallCount += 1
+    }
+
+    func stop() {
+        isStarted = false
+        isPaused = false
+        stopCallCount += 1
+    }
+
+    func pause() {
+        isPaused = true
+        pauseCallCount += 1
+    }
+
+    func resume() {
+        isPaused = false
+        resumeCallCount += 1
+    }
+
+    func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
+    }
+
+    func startAgentJoinRequestPolling() {
+    }
+
+    func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
+    }
+
+    func requestDiscovery() async {
+    }
+
+    nonisolated func runBatchCatchUp(client: AnyClientProvider, since: Date?) async {
+        await incrementBatchCatchUpCount()
+    }
+
+    nonisolated func runHistoryBackfill(client: AnyClientProvider) async {
+    }
+
+    private func incrementBatchCatchUpCount() {
+        runBatchCatchUpCallCount += 1
+    }
+}
+
+/// Mock implementation of NetworkMonitor for testing
+public actor MockNetworkMonitor: NetworkMonitorProtocol {
+    private var _status: NetworkMonitor.Status = .connected(.wifi)
+    private var statusContinuations: [AsyncStream<NetworkMonitor.Status>.Continuation] = []
+
+    public init(initialStatus: NetworkMonitor.Status = .connected(.wifi)) {
+        self._status = initialStatus
+    }
+
+    public var status: NetworkMonitor.Status {
+        _status
+    }
+
+    public var isConnected: Bool {
+        _status.isConnected
+    }
+
+    public func start() async {
+        // Mock doesn't need to do anything on start
+    }
+
+    public func stop() async {
+        // Clean up continuations
+        for continuation in statusContinuations {
+            continuation.finish()
+        }
+        statusContinuations.removeAll()
+    }
+
+    public var statusSequence: AsyncStream<NetworkMonitor.Status> {
+        AsyncStream { continuation in
+            Task { [weak self] in
+                guard let self else { return }
+                await self.addStatusContinuation(continuation)
+            }
+        }
+    }
+
+    private func addStatusContinuation(_ continuation: AsyncStream<NetworkMonitor.Status>.Continuation) {
+        statusContinuations.append(continuation)
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.removeStatusContinuation(continuation)
+            }
+        }
+        continuation.yield(_status)
+    }
+
+    private func removeStatusContinuation(_ continuation: AsyncStream<NetworkMonitor.Status>.Continuation) {
+        statusContinuations.removeAll { $0 == continuation }
+    }
+
+    // Test helper methods to simulate network changes
+    public func simulateDisconnection() {
+        _status = .disconnected
+        for continuation in statusContinuations {
+            continuation.yield(_status)
+        }
+    }
+
+    public func simulateConnection(type: NetworkMonitor.ConnectionType = .wifi) {
+        _status = .connected(type)
+        for continuation in statusContinuations {
+            continuation.yield(_status)
+        }
+    }
+
+    public func simulateConnecting() {
+        _status = .connecting
+        for continuation in statusContinuations {
+            continuation.yield(_status)
+        }
+    }
+}
+
+class NotificationCapture: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var _postedNotifications: [(name: Notification.Name, userInfo: [AnyHashable: Any]?)] = []
+    private var observers: [NSObjectProtocol] = []
+
+    var postedNotifications: [(name: Notification.Name, userInfo: [AnyHashable: Any]?)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _postedNotifications
+    }
+
+    func startCapturing(_ name: Notification.Name) {
+        let observer = NotificationCenter.default.addObserver(
+            forName: name,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            self.lock.lock()
+            self._postedNotifications.append((notification.name, notification.userInfo))
+            self.lock.unlock()
+        }
+        observers.append(observer)
+    }
+
+    func stopCapturing() {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.removeAll()
+    }
+
+    func hasNotification(_ name: Notification.Name) -> Bool {
+        postedNotifications.contains { $0.name == name }
+    }
+
+    func notifications(named name: Notification.Name) -> [(name: Notification.Name, userInfo: [AnyHashable: Any]?)] {
+        postedNotifications.filter { $0.name == name }
+    }
+
+    func reset() {
+        lock.lock()
+        _postedNotifications.removeAll()
+        lock.unlock()
+    }
+}
