@@ -1,3 +1,4 @@
+import BezelKit
 import ConvosComposer
 import SwiftUI
 
@@ -25,11 +26,28 @@ enum ConversationSheetMetrics {
     /// the card ignores the bottom safe area and rests under the home
     /// indicator.
     static let edgeInset: CGFloat = 8.0
-    /// Continuous corner radii of the compact card (Figma 7156:13775):
-    /// rounder on the bottom, where the card sits concentric with the
-    /// device bezel at the 8pt inset.
-    static let topCornerRadius: CGFloat = 40.0
-    static let bottomCornerRadius: CGFloat = 48.0
+    /// Continuous corner radii of the compact card: the bottom corners sit
+    /// concentric with the device bezel at the 8pt inset (the mock's 48
+    /// assumes a 56pt bezel; devices vary, so the radius is derived), and
+    /// the top corners stay 8pt tighter, preserving the mock's 40/48
+    /// relationship.
+    @MainActor
+    static var bottomCornerRadius: CGFloat {
+        let bezelRadius: CGFloat = CGFloat.deviceBezel > 0 ? .deviceBezel : Fallback.bezelRadius
+        return max(bezelRadius - edgeInset, Fallback.minimumBottomRadius)
+    }
+
+    @MainActor
+    static var topCornerRadius: CGFloat {
+        bottomCornerRadius - edgeInset
+    }
+
+    private enum Fallback {
+        /// The bezel radius the mock's 48pt bottom corner assumes; used when
+        /// BezelKit has no entry for the device (e.g. brand-new hardware).
+        static let bezelRadius: CGFloat = 56.0
+        static let minimumBottomRadius: CGFloat = 24.0
+    }
     /// Rough intrinsic height of the compact card (grabber + composer +
     /// tab bar). Only a first-frame estimate: the sheet self-sizes to its
     /// content and reports the measured height to the host.
