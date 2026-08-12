@@ -35,6 +35,11 @@ struct DesktopWebView: UIViewRepresentable {
     var reloadNonce: Int = 0
     /// Fired on the main actor once the page finishes loading.
     var onLoaded: @MainActor () -> Void = {}
+    /// Fired right before an in-place reload starts, carrying a capture of
+    /// exactly what's on screen. The host raises its cover with it; the
+    /// reload begins one runloop tick later, so the cover is rendered
+    /// before WebKit clears the content layer.
+    var onWillReload: @MainActor (UIImage) -> Void = { _ in }
     /// Fired on the main actor when the page requests navigation away from
     /// the loaded space URL (link tap, JS redirect, target=_blank). The
     /// navigation is cancelled in place; the host presents it in the desktop
@@ -42,7 +47,11 @@ struct DesktopWebView: UIViewRepresentable {
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(conversationId: conversationId, onLoaded: onLoaded, onNavigationRequest: onNavigationRequest)
+        Coordinator(
+            conversationId: conversationId,
+            onLoaded: onLoaded,
+            onNavigationRequest: onNavigationRequest
+        )
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -89,11 +98,27 @@ struct DesktopWebView: UIViewRepresentable {
             }
         }
         // An in-place refresh of the already-loaded page, distinct from the
-        // destination change below.
+        // destination change below. The page is fully painted right now -
+        // unlike at didFinish, where a JS app hasn't rendered yet - so THIS
+        // is the moment to capture the cover; the reload starts only after
+        // the host has it on screen.
         if context.coordinator.lastReloadNonce != reloadNonce {
             context.coordinator.lastReloadNonce = reloadNonce
             if context.coordinator.hasLoaded, url != nil {
-                context.coordinator.activeNavigation = webView.reload()
+                let coordinator = context.coordinator
+                let onWillReload = onWillReload
+                webView.takeSnapshot(with: nil) { [weak webView] image, _ in
+                    Task { @MainActor in
+                        if let image {
+                            onWillReload(image)
+                        }
+                        // One tick for the cover to render, then reload.
+                        DispatchQueue.main.async {
+                            guard let webView else { return }
+                            coordinator.activeNavigation = webView.reload()
+                        }
+                    }
+                }
                 return
             }
         }
@@ -181,12 +206,19 @@ struct DesktopWebView: UIViewRepresentable {
             // conversation's own desktop persists a cover snapshot.
             let conversationId = conversationId
             guard !conversationId.isEmpty else { return }
-            webView.takeSnapshot(with: nil) { image, error in
-                if let error {
-                    Log.error("DesktopWebView snapshot failed: \(error)")
+            // The Space page is a JS app: at didFinish it hasn't painted
+            // yet, and an immediate capture stores a blank cover. Give it a
+            // beat to render before persisting.
+            let navigation = navigation
+            DispatchQueue.main.asyncAfter(deadline: .now() + Constant.snapshotDelay) { [weak self, weak webView] in
+                guard let self, let webView, self.isCurrent(navigation) else { return }
+                webView.takeSnapshot(with: nil) { image, error in
+                    if let error {
+                        Log.error("DesktopWebView snapshot failed: \(error)")
+                    }
+                    guard let pngData = image?.pngData() else { return }
+                    Task { await DesktopSnapshotStore.shared.store(pngData, for: conversationId) }
                 }
-                guard let pngData = image?.pngData() else { return }
-                Task { await DesktopSnapshotStore.shared.store(pngData, for: conversationId) }
             }
         }
 
@@ -222,6 +254,9 @@ struct DesktopWebView: UIViewRepresentable {
     }
 
     private enum Constant {
+        /// How long after didFinish the persisted cover snapshot waits for
+        /// the page's JS to actually paint.
+        static let snapshotDelay: TimeInterval = 1.0
         static let placeholderHTML: String = """
         <!doctype html>
         <html>

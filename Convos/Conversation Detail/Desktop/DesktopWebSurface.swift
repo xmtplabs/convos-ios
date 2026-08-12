@@ -35,12 +35,20 @@ struct DesktopWebSurface: View {
                 bottomContentInset: bottomContentInset,
                 reloadNonce: reloadNonce,
                 onLoaded: {
-                    // Only the reveal animates; the cover itself is raised
-                    // instantly (see the reload hook below), or the cleared
-                    // web view would show through its fade-in.
-                    withAnimation(.easeInOut(duration: Constant.coverFadeDuration)) {
+                    // The reveal waits a beat past didFinish - a JS page
+                    // hasn't painted yet at that moment - and only the
+                    // fade animates: the cover must never fade IN, or the
+                    // cleared layer shows through.
+                    withAnimation(.easeInOut(duration: Constant.coverFadeDuration).delay(Constant.revealDelay)) {
                         isLoaded = true
                     }
+                },
+                onWillReload: { image in
+                    // A capture of exactly what's on screen, delivered right
+                    // before the reload clears the content layer: identical
+                    // pixels hold the frame through the refresh.
+                    coverImage = image
+                    isLoaded = false
                 },
                 onNavigationRequest: onNavigationRequest
             )
@@ -52,24 +60,13 @@ struct DesktopWebSurface: View {
             let data: Data? = await DesktopSnapshotStore.shared.snapshotData(for: conversationId)
             coverImage = data.flatMap { UIImage(data: $0) }
         }
-        // An in-place reload clears the transparent web view's content
-        // layer mid-flight, which reads as the page blinking out. The last
-        // stored snapshot is a capture of exactly what's on screen, so
-        // raising the cover (instantly - identical pixels) holds the frame
-        // through the reload, then cross-fades to the fresh page on finish.
-        .onChange(of: reloadNonce) { _, _ in
-            guard url != nil else { return }
-            Task {
-                let data: Data? = await DesktopSnapshotStore.shared.snapshotData(for: conversationId)
-                guard let data, let image = UIImage(data: data) else { return }
-                coverImage = image
-                isLoaded = false
-            }
-        }
     }
 
     private enum Constant {
         static let coverFadeDuration: Double = 0.35
+        /// The gap between didFinish and the page's JS actually painting;
+        /// revealing at didFinish would expose an unpainted canvas.
+        static let revealDelay: Double = 0.6
     }
 }
 
