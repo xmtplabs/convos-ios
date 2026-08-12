@@ -19,17 +19,13 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
     func testGrantPostFailureLeavesApprovalUnconfirmed() async {
         let grantWriter = ConfigurableGrantWriter()
         grantWriter.confirmingGrantError = ConfigurableGrantWriter.Failure()
-        let eventWriter = SpyEventWriter()
 
         let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
             providerIds: [googleCalendar],
-            newlyApprovedProviderIds: [googleCalendar],
             bundleSelection: ["googlecalendar": ["calendar.events"]],
-            capability: .read,
             conversationId: "convo-1",
             grantedToInboxId: "agent-inbox",
             grantWriter: grantWriter,
-            eventWriter: eventWriter,
             repository: StubConnectionsRepository(
                 stubbedConnections: [makeConnection()],
                 stubbedGrants: []
@@ -40,23 +36,17 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
                        "A failed grant POST must leave the approval unconfirmed so no .approved result broadcasts")
         XCTAssertEqual(grantWriter.confirmingGrants.count, 1,
                        "The confirming push was attempted exactly once")
-        XCTAssertTrue(eventWriter.grantedProviderIds.isEmpty,
-                      "No granted transcript line may announce a grant the backend never confirmed")
     }
 
-    func testConfirmedGrantPostApprovesAndEmitsGrantedEvent() async {
+    func testConfirmedGrantPostApproves() async {
         let grantWriter = ConfigurableGrantWriter()
-        let eventWriter = SpyEventWriter()
 
         let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
             providerIds: [googleCalendar],
-            newlyApprovedProviderIds: [googleCalendar],
             bundleSelection: ["googlecalendar": ["calendar.events"]],
-            capability: .read,
             conversationId: "convo-1",
             grantedToInboxId: "agent-inbox",
             grantWriter: grantWriter,
-            eventWriter: eventWriter,
             repository: StubConnectionsRepository(
                 stubbedConnections: [makeConnection()],
                 stubbedGrants: []
@@ -72,22 +62,17 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
                 bundleIds: ["calendar.events"]
             ),
         ])
-        XCTAssertEqual(eventWriter.grantedProviderIds, ["composio.googlecalendar"])
     }
 
     func testExistingConfirmedGrantWithSameScopeSkipsRepush() async {
         let grantWriter = ConfigurableGrantWriter()
-        let eventWriter = SpyEventWriter()
 
         let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
             providerIds: [googleCalendar],
-            newlyApprovedProviderIds: [googleCalendar],
             bundleSelection: ["googlecalendar": ["calendar.events"]],
-            capability: .read,
             conversationId: "convo-1",
             grantedToInboxId: "agent-inbox",
             grantWriter: grantWriter,
-            eventWriter: eventWriter,
             repository: StubConnectionsRepository(
                 stubbedConnections: [makeConnection()],
                 stubbedGrants: [
@@ -99,23 +84,17 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
         XCTAssertTrue(confirmed, "A grant the backend already confirmed backs the approval as-is")
         XCTAssertTrue(grantWriter.confirmingGrants.isEmpty,
                       "Same scope + confirmed backend id: no re-push needed")
-        XCTAssertEqual(eventWriter.grantedProviderIds, ["composio.googlecalendar"],
-                       "The granted line follows the resolver diff, not the grant write")
     }
 
     func testExistingUnconfirmedGrantRetriesBackendPush() async {
         let grantWriter = ConfigurableGrantWriter()
-        let eventWriter = SpyEventWriter()
 
         let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
             providerIds: [googleCalendar],
-            newlyApprovedProviderIds: [],
             bundleSelection: ["googlecalendar": ["calendar.events"]],
-            capability: .read,
             conversationId: "convo-1",
             grantedToInboxId: "agent-inbox",
             grantWriter: grantWriter,
-            eventWriter: eventWriter,
             repository: StubConnectionsRepository(
                 stubbedConnections: [makeConnection()],
                 stubbedGrants: [
@@ -131,24 +110,55 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
 
     func testMissingActiveConnectionLeavesApprovalUnconfirmed() async {
         let grantWriter = ConfigurableGrantWriter()
-        let eventWriter = SpyEventWriter()
 
         let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
             providerIds: [googleCalendar],
-            newlyApprovedProviderIds: [googleCalendar],
             bundleSelection: ["googlecalendar": ["calendar.events"]],
-            capability: .read,
             conversationId: "convo-1",
             grantedToInboxId: "agent-inbox",
             grantWriter: grantWriter,
-            eventWriter: eventWriter,
             repository: StubConnectionsRepository(stubbedConnections: [], stubbedGrants: [])
         )
 
         XCTAssertFalse(confirmed,
                        "Without an active connection no server grant can back the approval")
         XCTAssertTrue(grantWriter.confirmingGrants.isEmpty)
-        XCTAssertTrue(eventWriter.grantedProviderIds.isEmpty)
+    }
+
+    // MARK: - Granted transcript lines follow the result send
+
+    func testGrantedEventsEmitOnlyForNewlyApprovedCloudProviders() async {
+        let eventWriter = SpyEventWriter()
+        let alreadyApproved = ProviderID(rawValue: "composio.googledrive")
+        let deviceProvider = ProviderID(rawValue: "device.calendar")
+
+        await ConversationViewModel.sendCloudGrantedEvents(
+            providerIds: [googleCalendar, alreadyApproved, deviceProvider],
+            newlyApprovedProviderIds: [googleCalendar, deviceProvider],
+            capability: .read,
+            conversationId: "convo-1",
+            grantedToInboxId: "agent-inbox",
+            eventWriter: eventWriter
+        )
+
+        XCTAssertEqual(eventWriter.grantedProviderIds, ["composio.googlecalendar"],
+                       "The granted line follows the resolver diff and covers cloud providers only")
+    }
+
+    func testGrantedEventsSkipProvidersTheResolverAlreadyHad() async {
+        let eventWriter = SpyEventWriter()
+
+        await ConversationViewModel.sendCloudGrantedEvents(
+            providerIds: [googleCalendar],
+            newlyApprovedProviderIds: [],
+            capability: .read,
+            conversationId: "convo-1",
+            grantedToInboxId: "agent-inbox",
+            eventWriter: eventWriter
+        )
+
+        XCTAssertTrue(eventWriter.grantedProviderIds.isEmpty,
+                      "A re-approval of an already resolved provider must not echo a duplicate group-update line")
     }
 
     // MARK: - Approval pipeline keeps the request pending on failure

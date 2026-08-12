@@ -217,6 +217,8 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
     /// that fails closed without reaching the server. The caller decides
     /// whether that is best-effort (`grantConnection` logs and moves on) or
     /// contractual (`grantConnectionConfirmingBackend` propagates it).
+    /// A failure persisting the returned id locally is logged, not thrown:
+    /// the push itself was confirmed by then.
     private func pushGrantToBackend(_ grant: DBCloudConnectionGrant, connection: DBCloudConnection) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let scope = await resolveBundleScope(
@@ -273,8 +275,24 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
             bundleIds: pushedScope.bundleIds,
             serviceVersion: pushedScope.serviceVersion
         )
-        try await databaseWriter.write { db in
-            try updated.save(db)
+        // The backend confirmed the grant above; recording the returned id is
+        // local bookkeeping. Throwing here would make a confirming caller
+        // treat a live backend grant as unconfirmed and surface a retryable
+        // error for an authorization that already exists. Instead the row
+        // keeps its nil backendGrantId, so the next approval re-runs the push;
+        // the backend upserts the same tuple and returns the same id, and
+        // revocation targets the natural key rather than the stored id.
+        do {
+            try await databaseWriter.write { db in
+                try updated.save(db)
+            }
+        } catch {
+            Log.error(
+                "[CloudConnections] backend grant confirmed (id=\(response.id)) but persisting the " +
+                "backend id locally failed; the next approval re-runs the idempotent push " +
+                "(connectionId=\(grant.connectionId), conversationId=\(grant.conversationId), " +
+                "grantedToInboxId=\(grant.grantedToInboxId)): \(error.localizedDescription)"
+            )
         }
     }
 

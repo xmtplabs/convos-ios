@@ -435,6 +435,39 @@ struct ConnectionGrantWriterTests {
         #expect(stored.first?.backendGrantId == "backend-grant-1")
     }
 
+    @Test("Confirming grant: a local persistence failure after a confirmed push does not throw")
+    func confirmingGrantSurvivesLocalPersistenceFailureAfterConfirmedPush() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_confirm_persist_fail"
+        try fixture.seedConversation(id: conversationId)
+
+        // Sabotage the grant table between the confirmed POST and the
+        // writer's follow-up bookkeeping, so persisting the returned backend
+        // id fails while the backend grant is live. Throwing here would make
+        // the caller treat the confirmed authorization as unconfirmed and
+        // surface a retryable error for a grant that already exists.
+        let databaseWriter = fixture.databaseManager.dbWriter
+        recordingClient.onCreateSuccess = {
+            try await databaseWriter.write { db in
+                try db.drop(table: DBCloudConnectionGrant.databaseTableName)
+            }
+        }
+
+        try await fixture.writer.grantConnectionConfirmingBackend(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: nil
+        )
+
+        #expect(recordingClient.createCalls.count == 1,
+                "the push reached the backend and was confirmed; only the local id write failed")
+    }
+
     @Test("Revoke: revokes the backend grant by natural key when a backend id is stored")
     func revokeRevokesBackendGrant() async throws {
         let recordingClient = RecordingGrantAPIClient()
@@ -862,6 +895,10 @@ private final class RecordingGrantAPIClient: TestStubAPIClient {
     var servicesFetchCount: Int = 0
     /// When set, every catalog fetch fails — models a backend/network outage.
     var servicesError: Error?
+    /// Runs after a create call succeeds, just before its response is
+    /// returned — lets a test sabotage local state between the confirmed
+    /// POST and the writer's follow-up bookkeeping.
+    var onCreateSuccess: (() async throws -> Void)?
 
     override func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse {
         servicesFetchCount += 1
@@ -899,6 +936,7 @@ private final class RecordingGrantAPIClient: TestStubAPIClient {
         if !createErrorQueue.isEmpty {
             throw createErrorQueue.removeFirst()
         }
+        try await onCreateSuccess?()
         return CloudConnectionsAPI.CreateGrantResponse(id: "backend-grant-\(createCalls.count)")
     }
 

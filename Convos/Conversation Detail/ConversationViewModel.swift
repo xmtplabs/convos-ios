@@ -2322,6 +2322,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 bundleSelection: bundleSelection,
                 conversationId: conversationId
             )
+            // A conversation switch mid-flight resets the in-flight id and may
+            // hand it to a newer approval. A late completion that no longer
+            // owns the id must not clear that approval's re-entrancy guard or
+            // surface its own error in the newer request's sheet.
+            guard self.capabilityApprovalInFlightRequestId == request.requestId else { return }
             self.capabilityApprovalInFlightRequestId = nil
             guard sent else {
                 self.capabilityApprovalErrorMessage = Constant.capabilityApprovalFailedMessage
@@ -2338,13 +2343,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
 
     /// Posts the `capability_request_result` reply for `request`. Deny/cancel
-    /// results always post — the agent must see the user's intent even when
+    /// results always post -- the agent must see the user's intent even when
     /// local bookkeeping fails. Approved results are contingent: every
     /// approved cloud provider's grant must be confirmed against the backend
     /// first, and the result message must actually send. If either fails,
-    /// nothing is broadcast (an unbacked "approved" would wake the agent only
-    /// for the backend to deny its tool calls) and the caller keeps the
-    /// request pending. Returns true when the result went out.
+    /// nothing is broadcast -- no result, and no granted transcript line
+    /// either, since those (with resolver and device bookkeeping) run in
+    /// `finalizeBroadcastApproval` only after the send succeeds. An unbacked
+    /// "approved" would wake the agent only for the backend to deny its tool
+    /// calls, so the caller keeps the request pending. Returns true when the
+    /// result went out.
     private func sendCapabilityResult(
         request: CapabilityRequest,
         status: CapabilityRequestResult.Status,
@@ -2356,10 +2364,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let writer = messagingService.capabilityRequestResultWriter()
         // Snapshot the resolver's current providerIds for this (subject, verb,
         // conversation) tuple before mutating it. The diff (`newlyApprovedProviderIds`)
-        // is what the cloud persist path uses to decide whether to fire a
-        // connection_event — fan-in semantics are per-(provider, verb), so a
-        // second verb approval on a provider already granted at the connection
-        // level still needs its own group-update line.
+        // decides which granted connection_events fire after the result send --
+        // fan-in semantics are per-(provider, verb), so a second verb approval
+        // on a provider already granted at the connection level still needs its
+        // own group-update line. The resolver mutates only after a successful
+        // send, so a failed send leaves the diff intact for the retry.
         let askerInboxId = request.askerInboxId
         let previouslyApproved: Set<ProviderID>
         if status == .approved {
@@ -2378,51 +2387,27 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         if status == .approved {
             let cloudGrantsConfirmed = await Self.persistApprovedCloudCapabilities(
                 providerIds: sortedIds,
-                newlyApprovedProviderIds: newlyApprovedProviderIds,
                 bundleSelection: bundleSelection,
-                capability: request.capability,
                 conversationId: conversationId,
                 grantedToInboxId: askerInboxId,
                 grantWriter: messagingService.connectionGrantWriter(),
-                eventWriter: messagingService.connectionEventWriter(),
                 repository: session.cloudConnectionRepository()
             )
             guard cloudGrantsConfirmed else { return false }
-        }
-
-        // Resolver errors don't block the result: routing state is local
-        // bookkeeping and a re-approval repairs it, whereas a swallowed
-        // result would strand the agent.
-        do {
-            switch status {
-            case .approved:
-                try await resolver.setResolution(
-                    providerIds,
-                    subject: request.subject,
-                    capability: request.capability,
-                    conversationId: conversationId,
-                    grantedToInboxId: askerInboxId
-                )
-            case .denied, .cancelled, .staleResource, .unknown:
+        } else {
+            // Resolver errors don't block the result: routing state is local
+            // bookkeeping and a re-approval repairs it, whereas a swallowed
+            // result would strand the agent.
+            do {
                 try await resolver.clearResolution(
                     subject: request.subject,
                     capability: request.capability,
                     conversationId: conversationId,
                     grantedToInboxId: askerInboxId
                 )
+            } catch {
+                Log.error("Capability resolver update failed (still posting result to agent): \(error.localizedDescription)")
             }
-        } catch {
-            Log.error("Capability resolver update failed (still posting result to agent): \(error.localizedDescription)")
-        }
-
-        if status == .approved {
-            await Self.persistApprovedDeviceCapabilities(
-                providerIds: sortedIds,
-                capability: request.capability,
-                conversationId: conversationId,
-                grantedToInboxId: askerInboxId,
-                session: session
-            )
         }
 
         let availableActions = await self.availableActions(
@@ -2439,14 +2424,64 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         )
         do {
             try await writer.sendResult(result, in: conversationId)
-            if status == .approved {
-                flashCapabilityApprovedToast()
-            }
-            return true
         } catch {
             Log.error("Failed to send capability_request_result: \(error.localizedDescription)")
             return false
         }
+        if status == .approved {
+            await finalizeBroadcastApproval(
+                request: request,
+                providerIds: providerIds,
+                sortedProviderIds: sortedIds,
+                newlyApprovedProviderIds: newlyApprovedProviderIds,
+                conversationId: conversationId
+            )
+        }
+        return true
+    }
+
+    /// Post-broadcast bookkeeping for an approval whose `.approved` result
+    /// actually went out: resolver routing state, device enablement, the
+    /// user-visible granted transcript lines, and the toast. Deliberately
+    /// deferred until after `sendResult` succeeds -- a granted line in the
+    /// transcript must imply the agent was woken with the matching result.
+    /// On a failed send nothing here runs; the retry recomputes the same
+    /// resolver diff and runs it then, so the lines still emit exactly once.
+    private func finalizeBroadcastApproval(
+        request: CapabilityRequest,
+        providerIds: Set<ProviderID>,
+        sortedProviderIds: [ProviderID],
+        newlyApprovedProviderIds: Set<ProviderID>,
+        conversationId: String
+    ) async {
+        do {
+            try await session.capabilityResolver().setResolution(
+                providerIds,
+                subject: request.subject,
+                capability: request.capability,
+                conversationId: conversationId,
+                grantedToInboxId: request.askerInboxId
+            )
+        } catch {
+            // Routing state is local bookkeeping; a re-approval repairs it.
+            Log.error("Capability resolver update failed after broadcasting result: \(error.localizedDescription)")
+        }
+        await Self.persistApprovedDeviceCapabilities(
+            providerIds: sortedProviderIds,
+            capability: request.capability,
+            conversationId: conversationId,
+            grantedToInboxId: request.askerInboxId,
+            session: session
+        )
+        await Self.sendCloudGrantedEvents(
+            providerIds: sortedProviderIds,
+            newlyApprovedProviderIds: newlyApprovedProviderIds,
+            capability: request.capability,
+            conversationId: conversationId,
+            grantedToInboxId: request.askerInboxId,
+            eventWriter: messagingService.connectionEventWriter()
+        )
+        flashCapabilityApprovedToast()
     }
 
     private func availableActions(
@@ -2531,26 +2566,25 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
     /// For each approved `composio.<service>` provider, ensure a per-conversation
     /// `CloudConnectionGrant` exists against the matching active `CloudConnection`,
-    /// confirmed against the backend grant store, and emit a `connection_event
-    /// granted` if the grant is newly created.
+    /// confirmed against the backend grant store. The user-visible granted
+    /// transcript lines are not emitted here -- they follow the `.approved`
+    /// result send (see `sendCloudGrantedEvents`), so a confirmed grant whose
+    /// result never broadcasts leaves no granted line in the transcript.
     ///
     /// Returns false when any approved cloud provider's grant could not be
-    /// confirmed — no active local connection to grant against, or the grant
+    /// confirmed -- no active local connection to grant against, or the grant
     /// write / backend POST failed. The caller must not broadcast an
     /// `.approved` result in that case: the agent would be woken with an
     /// approval the backend then denies. A grant already confirmed
     /// (`backendGrantId` present) with an unchanged bundle scope is skipped;
     /// a row missing its backend id re-runs the confirming push so an
     /// earlier failed POST is retried on the next Done tap.
-    static func persistApprovedCloudCapabilities( // swiftlint:disable:this function_parameter_count
+    static func persistApprovedCloudCapabilities(
         providerIds: [ProviderID],
-        newlyApprovedProviderIds: Set<ProviderID>,
         bundleSelection: [String: Set<String>],
-        capability: ConnectionCapability,
         conversationId: String,
         grantedToInboxId: String,
         grantWriter: any CloudConnectionGrantWriterProtocol,
-        eventWriter: any ConnectionEventWriterProtocol,
         repository: any CloudConnectionRepositoryProtocol
     ) async -> Bool {
         let activeConnections = (try? await repository.connections()) ?? []
@@ -2592,14 +2626,30 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 } catch {
                     Log.error("Failed to persist cloud grant for \(providerId.rawValue) → \(grantedToInboxId): \(error.localizedDescription)")
                     allConfirmed = false
-                    continue
                 }
             }
+        }
+        return allConfirmed
+    }
 
-            // Fan-in is per-(providerId, verb): if the resolver already had
-            // this providerId for this verb (re-approval after deny, picker
-            // shown twice), don't echo a duplicate group-update message.
-            guard newlyApprovedProviderIds.contains(providerId) else { continue }
+    /// The user-visible `connection_event granted` transcript lines for the
+    /// cloud providers this approval newly resolved. Fan-in is per-(provider,
+    /// verb) via the resolver diff: if the resolver already had a providerId
+    /// for this verb (re-approval after deny, picker shown twice), no
+    /// duplicate group-update message is echoed. Called only after the
+    /// `.approved` result broadcast, so a granted line always implies the
+    /// agent was woken with the matching result.
+    static func sendCloudGrantedEvents(
+        providerIds: [ProviderID],
+        newlyApprovedProviderIds: Set<ProviderID>,
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String,
+        eventWriter: any ConnectionEventWriterProtocol
+    ) async {
+        for providerId in providerIds {
+            guard providerId.cloudServiceId != nil,
+                  newlyApprovedProviderIds.contains(providerId) else { continue }
             try? await eventWriter.sendGranted(
                 providerId: providerId.rawValue,
                 capability: capability,
@@ -2607,7 +2657,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 in: conversationId
             )
         }
-        return allConfirmed
     }
 
     private static func capabilityActionParameter(
