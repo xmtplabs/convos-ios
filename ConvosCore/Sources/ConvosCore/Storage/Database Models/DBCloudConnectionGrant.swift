@@ -61,7 +61,8 @@ extension DBCloudConnectionGrant {
             serviceId: serviceId,
             grantedToInboxId: grantedToInboxId,
             grantedAt: grantedAt,
-            bundleIds: bundleIds
+            bundleIds: bundleIds,
+            backendGrantId: backendGrantId
         )
     }
 
@@ -71,7 +72,7 @@ extension DBCloudConnectionGrant {
         self.serviceId = grant.serviceId
         self.grantedToInboxId = grant.grantedToInboxId
         self.grantedAt = grant.grantedAt
-        self.backendGrantId = nil
+        self.backendGrantId = grant.backendGrantId
         self.bundleIds = grant.bundleIds
         self.serviceVersion = nil
     }

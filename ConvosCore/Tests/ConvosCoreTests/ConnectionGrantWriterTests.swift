@@ -378,6 +378,63 @@ struct ConnectionGrantWriterTests {
         #expect(stored.first?.backendGrantId == nil)
     }
 
+    @Test("Confirming grant: backend push failure propagates; local row stands unconfirmed for retry")
+    func confirmingGrantThrowsWhenBackendPushFails() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        struct PushFailure: Error {}
+        recordingClient.createError = PushFailure()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_confirm_fail"
+        try fixture.seedConversation(id: conversationId)
+
+        var caughtExpectedError: Bool = false
+        do {
+            try await fixture.writer.grantConnectionConfirmingBackend(
+                connection.id,
+                to: conversationId,
+                grantedToInboxId: "agent-1",
+                bundleIds: nil
+            )
+            Issue.record("Expected grantConnectionConfirmingBackend to throw")
+        } catch is PushFailure {
+            caughtExpectedError = true
+        } catch {
+            Issue.record("Expected PushFailure but got \(error)")
+        }
+        #expect(caughtExpectedError, "the swallowed-error path is exactly what this variant removes")
+
+        // The local row stands (same posture as grantConnection) with a nil
+        // backendGrantId marking the push still owed, so a retry re-runs it.
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.count == 1)
+        #expect(stored.first?.backendGrantId == nil)
+    }
+
+    @Test("Confirming grant: successful push stores the backend id and does not throw")
+    func confirmingGrantStoresBackendIdOnSuccess() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_confirm_ok"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnectionConfirmingBackend(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: nil
+        )
+
+        #expect(recordingClient.createCalls.count == 1)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.backendGrantId == "backend-grant-1")
+    }
+
     @Test("Revoke: revokes the backend grant by natural key when a backend id is stored")
     func revokeRevokesBackendGrant() async throws {
         let recordingClient = RecordingGrantAPIClient()

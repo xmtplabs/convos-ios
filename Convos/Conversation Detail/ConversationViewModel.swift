@@ -927,6 +927,18 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// request, the request was answered here, or observation reset).
     var presentingCapabilityApproval: Bool = false
     var showsCapabilityApprovedToast: Bool = false
+    /// Request id whose approval pipeline (backend grant confirmation + result
+    /// send) is in flight. Re-entrancy guard for the Done tap, and drives the
+    /// sheet's progress state. The request is only consumed once the pipeline
+    /// succeeds; until then the pill stays pending.
+    private(set) var capabilityApprovalInFlightRequestId: String?
+    var capabilityApprovalInFlight: Bool {
+        capabilityApprovalInFlightRequestId != nil
+    }
+    /// Failure the approval sheet surfaces when an approval could not be
+    /// completed -- the backend grant POST or the result send failed. The
+    /// request stays pending and the sheet's button retries the same approval.
+    private(set) var capabilityApprovalErrorMessage: String?
     var presentingProfileForMember: ConversationMember?
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
@@ -1757,6 +1769,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         pendingCapabilityPickerLayout = nil
         latestObservedCapabilityRequest = nil
         locallyHandledCapabilityRequestIds.removeAll()
+        capabilityApprovalInFlightRequestId = nil
+        capabilityApprovalErrorMessage = nil
         capabilityRequestsCancellable?.cancel()
         capabilityRequestsCancellable = session.capabilityRequestRepository(for: conversationId)
             .pendingRequestPublisher
@@ -2043,6 +2057,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         guard prompt.status == .pending else { return }
         guard let layout = pendingCapabilityPickerLayout,
               layout.request.requestId == prompt.requestId else { return }
+        // A failure from an earlier, since-dismissed attempt shouldn't greet
+        // the user on a fresh open; the sheet starts clean.
+        capabilityApprovalErrorMessage = nil
         presentingCapabilityApproval = true
     }
 
@@ -2073,6 +2090,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         guard let layout = pendingCapabilityPickerLayout else { return }
         let request = layout.request
         let conversationId = conversation.id
+        capabilityApprovalErrorMessage = nil
 
         let split = Self.splitCapabilityApproval(
             providerIds: providerIds,
@@ -2279,127 +2297,155 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         return revokedServiceIds
     }
 
+    /// Runs the approval pipeline for one Done tap. The request is consumed
+    /// (pill resolved, sheet dismissed) only after the `.approved` result
+    /// actually went out — which in turn requires the backend grant POST to
+    /// have confirmed. On failure nothing is broadcast: the sheet stays up
+    /// with a retryable error and the pill stays pending, so a
+    /// successful-looking approval can never wake the agent without a server
+    /// grant behind it.
     private func approveCapabilityRequest(
         _ request: CapabilityRequest,
         providerIds: Set<ProviderID>,
         bundleSelection: [String: Set<String>],
         conversationId: String
     ) {
-        locallyHandledCapabilityRequestIds.insert(request.requestId)
-        // Only dismiss the picker if it's still showing *this* request — a newer
-        // request might have arrived during the async hop and replaced the layout,
-        // and we mustn't blow that one away on the old request's behalf.
-        if pendingCapabilityPickerLayout?.request.requestId == request.requestId {
-            pendingCapabilityPickerLayout = nil
+        guard capabilityApprovalInFlightRequestId == nil else { return }
+        capabilityApprovalInFlightRequestId = request.requestId
+        capabilityApprovalErrorMessage = nil
+        Task { [weak self] in
+            guard let self else { return }
+            let sent = await self.sendCapabilityResult(
+                request: request,
+                status: .approved,
+                providerIds: providerIds,
+                bundleSelection: bundleSelection,
+                conversationId: conversationId
+            )
+            self.capabilityApprovalInFlightRequestId = nil
+            guard sent else {
+                self.capabilityApprovalErrorMessage = Constant.capabilityApprovalFailedMessage
+                return
+            }
+            self.locallyHandledCapabilityRequestIds.insert(request.requestId)
+            // Only dismiss the picker if it's still showing *this* request — a newer
+            // request might have arrived during the async hop and replaced the layout,
+            // and we mustn't blow that one away on the old request's behalf.
+            if self.pendingCapabilityPickerLayout?.request.requestId == request.requestId {
+                self.pendingCapabilityPickerLayout = nil
+            }
         }
-        sendCapabilityResult(
-            request: request,
-            status: .approved,
-            providerIds: providerIds,
-            bundleSelection: bundleSelection,
-            conversationId: conversationId
-        )
     }
 
+    /// Posts the `capability_request_result` reply for `request`. Deny/cancel
+    /// results always post — the agent must see the user's intent even when
+    /// local bookkeeping fails. Approved results are contingent: every
+    /// approved cloud provider's grant must be confirmed against the backend
+    /// first, and the result message must actually send. If either fails,
+    /// nothing is broadcast (an unbacked "approved" would wake the agent only
+    /// for the backend to deny its tool calls) and the caller keeps the
+    /// request pending. Returns true when the result went out.
     private func sendCapabilityResult(
         request: CapabilityRequest,
         status: CapabilityRequestResult.Status,
         providerIds: Set<ProviderID>,
         bundleSelection: [String: Set<String>] = [:],
         conversationId: String
-    ) {
+    ) async -> Bool {
         let resolver = session.capabilityResolver()
         let writer = messagingService.capabilityRequestResultWriter()
-        Task {
-            // The agent's contract is that a result is *always* posted — even cancel
-            // and deny — so we keep going on a resolver-side error and let the agent
-            // see the user's intent. Local persistence failure is logged and surfaced
-            // separately if it ever needs UI surfacing; it must not strand the agent.
-            //
-            // Snapshot the resolver's current providerIds for this (subject, verb,
-            // conversation) tuple before mutating it. The diff (`newlyApprovedProviderIds`)
-            // is what the cloud persist path uses to decide whether to fire a
-            // connection_event — fan-in semantics are per-(provider, verb), so a
-            // second verb approval on a provider already granted at the connection
-            // level still needs its own group-update line.
-            let askerInboxId = request.askerInboxId
-            let previouslyApproved: Set<ProviderID>
-            if status == .approved {
-                previouslyApproved = await resolver.resolution(
+        // Snapshot the resolver's current providerIds for this (subject, verb,
+        // conversation) tuple before mutating it. The diff (`newlyApprovedProviderIds`)
+        // is what the cloud persist path uses to decide whether to fire a
+        // connection_event — fan-in semantics are per-(provider, verb), so a
+        // second verb approval on a provider already granted at the connection
+        // level still needs its own group-update line.
+        let askerInboxId = request.askerInboxId
+        let previouslyApproved: Set<ProviderID>
+        if status == .approved {
+            previouslyApproved = await resolver.resolution(
+                subject: request.subject,
+                capability: request.capability,
+                conversationId: conversationId,
+                grantedToInboxId: askerInboxId
+            )
+        } else {
+            previouslyApproved = []
+        }
+        let newlyApprovedProviderIds = providerIds.subtracting(previouslyApproved)
+        let sortedIds = providerIds.sorted(by: { $0.rawValue < $1.rawValue })
+
+        if status == .approved {
+            let cloudGrantsConfirmed = await Self.persistApprovedCloudCapabilities(
+                providerIds: sortedIds,
+                newlyApprovedProviderIds: newlyApprovedProviderIds,
+                bundleSelection: bundleSelection,
+                capability: request.capability,
+                conversationId: conversationId,
+                grantedToInboxId: askerInboxId,
+                grantWriter: messagingService.connectionGrantWriter(),
+                eventWriter: messagingService.connectionEventWriter(),
+                repository: session.cloudConnectionRepository()
+            )
+            guard cloudGrantsConfirmed else { return false }
+        }
+
+        // Resolver errors don't block the result: routing state is local
+        // bookkeeping and a re-approval repairs it, whereas a swallowed
+        // result would strand the agent.
+        do {
+            switch status {
+            case .approved:
+                try await resolver.setResolution(
+                    providerIds,
                     subject: request.subject,
                     capability: request.capability,
                     conversationId: conversationId,
                     grantedToInboxId: askerInboxId
                 )
-            } else {
-                previouslyApproved = []
+            case .denied, .cancelled, .staleResource, .unknown:
+                try await resolver.clearResolution(
+                    subject: request.subject,
+                    capability: request.capability,
+                    conversationId: conversationId,
+                    grantedToInboxId: askerInboxId
+                )
             }
-            let newlyApprovedProviderIds = providerIds.subtracting(previouslyApproved)
+        } catch {
+            Log.error("Capability resolver update failed (still posting result to agent): \(error.localizedDescription)")
+        }
 
-            do {
-                switch status {
-                case .approved:
-                    try await resolver.setResolution(
-                        providerIds,
-                        subject: request.subject,
-                        capability: request.capability,
-                        conversationId: conversationId,
-                        grantedToInboxId: askerInboxId
-                    )
-                case .denied, .cancelled, .staleResource, .unknown:
-                    try await resolver.clearResolution(
-                        subject: request.subject,
-                        capability: request.capability,
-                        conversationId: conversationId,
-                        grantedToInboxId: askerInboxId
-                    )
-                }
-            } catch {
-                Log.error("Capability resolver update failed (still posting result to agent): \(error.localizedDescription)")
-            }
-
-            let availableActions = await self.availableActions(
-                for: providerIds.sorted(by: { $0.rawValue < $1.rawValue }),
-                capability: request.capability
-            )
-            let result = CapabilityRequestResult(
-                requestId: request.requestId,
-                status: status,
-                subject: request.subject,
+        if status == .approved {
+            await Self.persistApprovedDeviceCapabilities(
+                providerIds: sortedIds,
                 capability: request.capability,
-                providers: providerIds.sorted(by: { $0.rawValue < $1.rawValue }),
-                availableActions: availableActions
+                conversationId: conversationId,
+                grantedToInboxId: askerInboxId,
+                session: session
             )
-            if status == .approved {
-                let sortedIds = providerIds.sorted(by: { $0.rawValue < $1.rawValue })
-                await Self.persistApprovedDeviceCapabilities(
-                    providerIds: sortedIds,
-                    capability: request.capability,
-                    conversationId: conversationId,
-                    grantedToInboxId: askerInboxId,
-                    session: session
-                )
-                await Self.persistApprovedCloudCapabilities(
-                    providerIds: sortedIds,
-                    newlyApprovedProviderIds: newlyApprovedProviderIds,
-                    bundleSelection: bundleSelection,
-                    capability: request.capability,
-                    conversationId: conversationId,
-                    grantedToInboxId: askerInboxId,
-                    session: session
-                )
-            }
+        }
 
-            do {
-                try await writer.sendResult(result, in: conversationId)
-                if status == .approved {
-                    await MainActor.run { [weak self] in
-                        self?.flashCapabilityApprovedToast()
-                    }
-                }
-            } catch {
-                Log.error("Failed to send capability_request_result: \(error.localizedDescription)")
+        let availableActions = await self.availableActions(
+            for: sortedIds,
+            capability: request.capability
+        )
+        let result = CapabilityRequestResult(
+            requestId: request.requestId,
+            status: status,
+            subject: request.subject,
+            capability: request.capability,
+            providers: sortedIds,
+            availableActions: availableActions
+        )
+        do {
+            try await writer.sendResult(result, in: conversationId)
+            if status == .approved {
+                flashCapabilityApprovedToast()
             }
+            return true
+        } catch {
+            Log.error("Failed to send capability_request_result: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -2484,49 +2530,60 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
 
     /// For each approved `composio.<service>` provider, ensure a per-conversation
-    /// `CloudConnectionGrant` exists against the matching active `CloudConnection` and
-    /// emit a `connection_event granted` if the grant is newly created. Skips providers
-    /// whose CloudConnection isn't active locally — those would have been created by the
-    /// caller (e.g. picker → connectCloudProvider) and the publisher snapshot taken here
-    /// races against that path; if we miss it the next sync corrects state.
-    private static func persistApprovedCloudCapabilities( // swiftlint:disable:this function_parameter_count
+    /// `CloudConnectionGrant` exists against the matching active `CloudConnection`,
+    /// confirmed against the backend grant store, and emit a `connection_event
+    /// granted` if the grant is newly created.
+    ///
+    /// Returns false when any approved cloud provider's grant could not be
+    /// confirmed — no active local connection to grant against, or the grant
+    /// write / backend POST failed. The caller must not broadcast an
+    /// `.approved` result in that case: the agent would be woken with an
+    /// approval the backend then denies. A grant already confirmed
+    /// (`backendGrantId` present) with an unchanged bundle scope is skipped;
+    /// a row missing its backend id re-runs the confirming push so an
+    /// earlier failed POST is retried on the next Done tap.
+    static func persistApprovedCloudCapabilities( // swiftlint:disable:this function_parameter_count
         providerIds: [ProviderID],
         newlyApprovedProviderIds: Set<ProviderID>,
         bundleSelection: [String: Set<String>],
         capability: ConnectionCapability,
         conversationId: String,
         grantedToInboxId: String,
-        session: any SessionManagerProtocol
-    ) async {
-        let messagingService = session.messagingService()
-        let grantWriter = messagingService.connectionGrantWriter()
-        let eventWriter = messagingService.connectionEventWriter()
-        let repository = session.cloudConnectionRepository()
+        grantWriter: any CloudConnectionGrantWriterProtocol,
+        eventWriter: any ConnectionEventWriterProtocol,
+        repository: any CloudConnectionRepositoryProtocol
+    ) async -> Bool {
         let activeConnections = (try? await repository.connections()) ?? []
         let existingGrants = (try? await repository.grants(for: conversationId)) ?? []
-        let existingGrantedKeys = Set(existingGrants.map { GrantKey(connectionId: $0.connectionId, grantedToInboxId: $0.grantedToInboxId) })
+        var allConfirmed = true
 
         for providerId in providerIds {
             guard let serviceId = providerId.cloudServiceId else { continue }
-            guard let connection = activeConnections.first(where: { $0.serviceId == serviceId }) else { continue }
+            guard let connection = activeConnections.first(where: { $0.serviceId == serviceId }) else {
+                // Without an active local connection there is nothing to grant
+                // against, so no server grant can back this approval.
+                Log.error("No active connection for approved provider \(providerId.rawValue); approval not confirmed")
+                allConfirmed = false
+                continue
+            }
 
             // The grant row is per-(connection, conversation, agent). Two agents
             // approved for the same connection get two rows; the same agent re-
-            // approving the same connection with the same bundle scope is a no-op
-            // for the grant write but still needs its own connection_event. A
-            // re-approval with a *different* bundle selection re-grants so the
-            // backend scope follows the user's latest picker state.
+            // approving the same connection with the same confirmed bundle scope
+            // is a no-op for the grant write but still needs its own
+            // connection_event. A re-approval with a *different* bundle selection
+            // re-grants so the backend scope follows the user's latest picker state.
             let bundleIds = bundleSelection[serviceId].map { $0.sorted() }
-            let grantKey = GrantKey(connectionId: connection.id, grantedToInboxId: grantedToInboxId)
             let existingGrant = existingGrants.first {
                 $0.connectionId == connection.id && $0.grantedToInboxId == grantedToInboxId
             }
             let bundleScopeChanged = existingGrant.map {
                 bundleIds != nil && Set($0.bundleIds ?? []) != Set(bundleIds ?? [])
             } ?? false
-            if !existingGrantedKeys.contains(grantKey) || bundleScopeChanged {
+            let backendUnconfirmed = existingGrant.map { $0.backendGrantId == nil } ?? true
+            if backendUnconfirmed || bundleScopeChanged {
                 do {
-                    try await grantWriter.grantConnection(
+                    try await grantWriter.grantConnectionConfirmingBackend(
                         connection.id,
                         to: conversationId,
                         grantedToInboxId: grantedToInboxId,
@@ -2534,6 +2591,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                     )
                 } catch {
                     Log.error("Failed to persist cloud grant for \(providerId.rawValue) → \(grantedToInboxId): \(error.localizedDescription)")
+                    allConfirmed = false
                     continue
                 }
             }
@@ -2549,11 +2607,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 in: conversationId
             )
         }
-    }
-
-    private struct GrantKey: Hashable {
-        let connectionId: String
-        let grantedToInboxId: String
+        return allConfirmed
     }
 
     private static func capabilityActionParameter(
@@ -2819,6 +2873,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         /// window in SyncingManager, which itself covers the assistant
         /// backend's roughly two-minute give-up with margin.
         static let assistantJoinWaitWindow: TimeInterval = 150
+        /// Shown in the approval sheet when an approval could not be
+        /// completed (backend grant confirmation or result send failed).
+        static let capabilityApprovalFailedMessage: String =
+            "Couldn't confirm this approval with the server. Check your connection and try again."
     }
 }
 
