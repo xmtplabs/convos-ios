@@ -20,13 +20,19 @@ struct DesktopLayoutView: View {
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
     var body: some View {
-        DesktopWebSurface(
-            conversationId: conversationId,
-            url: webURL,
-            bottomContentInset: webURL != nil ? sheetHeight : 0,
-            onNavigationRequest: onNavigationRequest
-        )
-        .ignoresSafeArea(edges: .bottom)
+        // The proxy reads the top safe area (status bar + navigation chrome)
+        // that the surface is about to ignore, so the page insets by it and
+        // can scroll fully below the floating top bar.
+        GeometryReader { proxy in
+            DesktopWebSurface(
+                conversationId: conversationId,
+                url: webURL,
+                topContentInset: webURL != nil ? proxy.safeAreaInsets.top : 0,
+                bottomContentInset: webURL != nil ? sheetHeight : 0,
+                onNavigationRequest: onNavigationRequest
+            )
+            .ignoresSafeArea(edges: .vertical)
+        }
         // The conversation ambient: the subtle wash over the surfaceless
         // base (subtle alone is a low-alpha black and needs the base under
         // it). Shows through the transparent web view until a Space page

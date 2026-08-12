@@ -20,6 +20,10 @@ struct DesktopWebView: UIViewRepresentable {
     /// False when an outer scroll view (the desktop layout) owns the
     /// vertical gesture.
     var isScrollEnabled: Bool = true
+    /// Top clearance for the page and its scroll indicator - the navigation
+    /// chrome's height - so page content can scroll fully below the floating
+    /// top bar while the surface itself stays full-bleed.
+    var topContentInset: CGFloat = 0
     /// Bottom clearance for the page and its scroll indicator - the floating
     /// conversation sheet's occupied height - so page content can scroll
     /// clear of the sheet while the surface itself stays full-bleed.
@@ -61,9 +65,19 @@ struct DesktopWebView: UIViewRepresentable {
         context.coordinator.onLoaded = onLoaded
         context.coordinator.onNavigationRequest = onNavigationRequest
         webView.scrollView.isScrollEnabled = isScrollEnabled
-        if webView.scrollView.contentInset.bottom != bottomContentInset {
-            webView.scrollView.contentInset.bottom = bottomContentInset
-            webView.scrollView.verticalScrollIndicatorInsets.bottom = bottomContentInset
+        let scrollView = webView.scrollView
+        if scrollView.contentInset.top != topContentInset || scrollView.contentInset.bottom != bottomContentInset {
+            // A page resting at the top must stay at the (new) top: with
+            // manual insets the resting offset is -inset.top, and UIKit
+            // doesn't shift it when the inset changes.
+            let wasAtTop: Bool = scrollView.contentOffset.y <= -scrollView.contentInset.top + 1
+            scrollView.contentInset.top = topContentInset
+            scrollView.contentInset.bottom = bottomContentInset
+            scrollView.verticalScrollIndicatorInsets.top = topContentInset
+            scrollView.verticalScrollIndicatorInsets.bottom = bottomContentInset
+            if wasAtTop {
+                scrollView.contentOffset.y = -topContentInset
+            }
         }
         // Reload only when the destination actually changes; SwiftUI calls
         // this on unrelated state churn.
