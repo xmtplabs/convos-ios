@@ -93,6 +93,12 @@ struct ConversationBottomSheet<BarContent: View, TabBarContent: View>: View {
     @ViewBuilder let tabBar: () -> TabBarContent
 
     @State private var dragOffset: CGFloat = 0
+    /// The card's live height, used to clamp the top corner radius: on the
+    /// compact Desktop tab (no composer) the ideal top+bottom radii exceed
+    /// the card height and SwiftUI would compress BOTH corners, pulling the
+    /// bottom out of bezel concentricity. The bottom radius never yields;
+    /// the top shrinks instead.
+    @State private var cardHeight: CGFloat = ConversationSheetMetrics.estimatedCompactHeight
 
     var body: some View {
         VStack(spacing: Constant.contentSpacing) {
@@ -119,6 +125,7 @@ struct ConversationBottomSheet<BarContent: View, TabBarContent: View>: View {
         } action: { height in
             // The measured frame already includes the bottom edge-inset
             // padding, so the height is the card's full bottom clearance.
+            cardHeight = height - ConversationSheetMetrics.edgeInset
             onOccupiedHeightChanged(height)
         }
         .offset(y: max(dragOffset, 0) * Constant.downwardRubberBandFactor - rubberBandedLift)
@@ -138,12 +145,19 @@ struct ConversationBottomSheet<BarContent: View, TabBarContent: View>: View {
     }
 
     private var cardShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
+        let bottomRadius: CGFloat = ConversationSheetMetrics.bottomCornerRadius
+        // When the ideal radii don't fit the card's height, only the top
+        // yields - the bottom stays concentric with the bezel.
+        let topRadius: CGFloat = min(
+            ConversationSheetMetrics.topCornerRadius,
+            max(cardHeight - bottomRadius, Constant.minimumTopCornerRadius)
+        )
+        return UnevenRoundedRectangle(
             cornerRadii: .init(
-                topLeading: ConversationSheetMetrics.topCornerRadius,
-                bottomLeading: ConversationSheetMetrics.bottomCornerRadius,
-                bottomTrailing: ConversationSheetMetrics.bottomCornerRadius,
-                topTrailing: ConversationSheetMetrics.topCornerRadius
+                topLeading: topRadius,
+                bottomLeading: bottomRadius,
+                bottomTrailing: bottomRadius,
+                topTrailing: topRadius
             ),
             style: .continuous
         )
@@ -197,6 +211,8 @@ private enum Constant {
     static let contentSpacing: CGFloat = DesignConstants.Spacing.step3x
     static let contentTopPadding: CGFloat = DesignConstants.Spacing.step4x
     static let contentBottomPadding: CGFloat = DesignConstants.Spacing.step4x
+    /// Floor for the clamped top corner radius on very short cards.
+    static let minimumTopCornerRadius: CGFloat = 16.0
     /// The design's "Cheap glass" drop shadow: 8% black, radius 16, y 4.
     static let shadowColor: Color = Color.black.opacity(0.08)
     static let shadowRadius: CGFloat = 16.0

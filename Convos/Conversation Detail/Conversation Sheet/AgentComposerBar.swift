@@ -58,10 +58,10 @@ struct AgentComposerBar: View {
         .clipShape(.rect(cornerRadius: Constant.draftCornerRadius))
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: Constant.draftCornerRadius))
         // Mirrors MessagesBottomBar's composer padding (16 horizontal, 8
-        // vertical) so the sheet keeps one height across the Group tab and
-        // the pre-creation Agent tab.
+        // below, none above) so the sheet keeps one height across the Group
+        // tab and the pre-creation Agent tab.
         .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .padding(.bottom, DesignConstants.Spacing.step2x)
     }
 
     /// The `+` glyph in the pre-creation composer: kept visible so the bar

@@ -90,6 +90,9 @@ struct ConversationComposerBar<ExtraBarContent: View>: View {
                     // the resolver directly (same reason the context-menu
                     // overlay does).
                     .environment(\.agentShareResolver, viewModel.agentShareResolver)
+                    // The composer block carries no top inset of its own, so
+                    // the reply bar supplies the separation.
+                    .padding(.bottom, DesignConstants.Spacing.step2x)
                 }
             },
             quickEditView: { placeholderText, isImagePickerPresented in

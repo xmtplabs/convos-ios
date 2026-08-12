@@ -271,10 +271,10 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 }
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
-            // Symmetric 8pt vertical insets: the conversation sheet supplies
-            // the outer rhythm around the bar (Figma 7156:13775 gives the
-            // input row 8pt above and below).
-            .padding(.top, DesignConstants.Spacing.step2x)
+            // No top inset: the conversation sheet's card padding places the
+            // input row directly (Figma 7156:13775 starts the row at the
+            // card's 16pt padding); slot content above supplies its own
+            // spacing. 8pt below separates the row from the tab bar's gap.
             .padding(.bottom, DesignConstants.Spacing.step2x)
         }
     }
