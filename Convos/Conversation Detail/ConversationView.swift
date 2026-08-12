@@ -558,6 +558,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
             viewModel.onConversationDisappeared()
             navigator?.closed(context: navState.closeContext())
         }
+        // Keep the edge-swipe back gesture, drop the content-area one while
+        // this screen is up (see ContentPopGestureDisabler).
+        .background {
+            ContentPopGestureDisabler()
+                .frame(width: 0, height: 0)
+        }
         .modifier(metricsObserversPart1)
         .modifier(metricsObserversPart2)
         .modifier(metricsObserversPart3)
