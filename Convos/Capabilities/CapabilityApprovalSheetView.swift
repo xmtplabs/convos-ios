@@ -433,13 +433,16 @@ private struct ApprovalSheetContent: View {
 }
 
 /// The design system's wide switch (68x28 track, 39x24 knob) from the Figma
-/// permission row — a stock `UISwitch` is 51x31 and visibly different.
+/// permission row — a stock `UISwitch` is 51x31 and visibly different. The
+/// on-state track uses the app's semantic green (the stock switch's on
+/// color); a luminosity-dependent fill would render white-on-white against
+/// the dark sheet.
 private struct WideSwitchToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         let action = { configuration.isOn.toggle() }
         return Button(action: action) {
             RoundedRectangle(cornerRadius: Constant.trackCornerRadius)
-                .fill(configuration.isOn ? Color.colorFillPrimary : Color.colorFillTertiary)
+                .fill(configuration.isOn ? Color.colorGreen : Color.colorFillTertiary)
                 .frame(width: Constant.trackWidth, height: Constant.trackHeight)
                 .overlay(alignment: configuration.isOn ? .trailing : .leading) {
                     RoundedRectangle(cornerRadius: Constant.trackCornerRadius)
