@@ -345,12 +345,20 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
     }
 
+    /// True while the Desktop tab is showing an open browsing chain: the
+    /// top bar pops pages instead of the conversation, and the add-members
+    /// item hides. Other tabs keep their normal chrome even while a chain
+    /// waits behind the Desktop tab.
+    private var isBrowsingDesktop: Bool {
+        selectedTab == .desktop && !desktopBrowserEntries.isEmpty
+    }
+
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
         // Swap the system back button for one that pops browser pages while
-        // the desktop browsing chain is open, walking home to the root
+        // the desktop browsing chain is showing, walking home to the root
         // desktop view.
-        if !desktopBrowserEntries.isEmpty {
+        if isBrowsingDesktop {
             ToolbarItem(placement: .topBarLeading) {
                 Button(action: popDesktopBrowserPage) {
                     Image(systemName: "chevron.left")
@@ -363,7 +371,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
         // toolbar item is dropped for that flow. Browser pages hide the
         // trailing item entirely.
-        if !topBarTrailingHidden && !showsEmbeddedInvite && desktopBrowserEntries.isEmpty {
+        if !topBarTrailingHidden && !showsEmbeddedInvite && !isBrowsingDesktop {
             ToolbarItem(placement: .topBarTrailing) {
                 if viewModel.isLocked {
                     lockedInfoButton
@@ -537,9 +545,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onChange(of: selectedTab) { oldTab, newTab in
             visitedTabs.insert(newTab)
-            // The browsing chain is a desktop-context excursion; a tab
-            // switch dismisses it.
-            desktopBrowserEntries.removeAll()
             let keyboardWasUp: Bool = isKeyboardVisible
             if newTab == .group {
                 // Returning to the group: transfer the keyboard back onto the
@@ -595,9 +600,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ContentPopGestureDisabler()
                 .frame(width: 0, height: 0)
         }
-        // While browser pages are open, the pop-a-page back button in
+        // While browser pages are showing, the pop-a-page back button in
         // `topBarTrailing` stands in for the system one.
-        .navigationBarBackButtonHidden(!desktopBrowserEntries.isEmpty)
+        .navigationBarBackButtonHidden(isBrowsingDesktop)
         .modifier(metricsObserversPart1)
         .modifier(metricsObserversPart2)
         .modifier(metricsObserversPart3)
@@ -758,19 +763,25 @@ private extension ConversationView {
     }
 
     /// The desktop browsing chain: full-screen pages sliding in above the
-    /// desktop, below the floating sheet.
+    /// desktop, below the floating sheet. Like the backing views, the chain
+    /// stays mounted across tab switches (hidden, not torn down) so
+    /// returning to the Desktop tab lands back on the same page.
     @ViewBuilder
     var desktopBrowserLayers: some View {
-        ForEach(desktopBrowserEntries) { entry in
-            DesktopBrowserPageView(
-                entry: entry,
-                sheetHeight: sheetOccupiedHeight,
-                onNavigationRequest: { url in
-                    pushDesktopBrowserPage(for: url)
-                }
-            )
-            .transition(.move(edge: .trailing))
+        ZStack {
+            ForEach(desktopBrowserEntries) { entry in
+                DesktopBrowserPageView(
+                    entry: entry,
+                    sheetHeight: sheetOccupiedHeight,
+                    onNavigationRequest: { url in
+                        pushDesktopBrowserPage(for: url)
+                    }
+                )
+                .transition(.move(edge: .trailing))
+            }
         }
+        .opacity(selectedTab == .desktop ? 1 : 0)
+        .allowsHitTesting(selectedTab == .desktop)
     }
 
     /// One backing view per tab, all kept mounted once visited: switching
