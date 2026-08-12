@@ -7,9 +7,9 @@ import XCTest
 /// Approval-confirmation coverage: an `.approved` capability result is
 /// contingent on a confirmed backend grant POST. A failed POST leaves the
 /// approval unconfirmed (nothing may broadcast, the sheet surfaces a
-/// retryable error, the pill stays pending), a previously unconfirmed grant
-/// retries the push on the next Done tap, and a grant already confirmed with
-/// the same scope is skipped.
+/// retryable error, the pill stays pending), and the confirming push runs on
+/// every approval -- a locally cached backend grant id is never trusted as
+/// proof of server state, since server-side revokes or purges leave it stale.
 @MainActor
 final class ConversationViewModelApproveConfirmationTests: XCTestCase {
     private let googleCalendar = ProviderID(rawValue: "composio.googlecalendar")
@@ -64,7 +64,7 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
         ])
     }
 
-    func testExistingConfirmedGrantWithSameScopeSkipsRepush() async {
+    func testExistingConfirmedGrantStillRunsConfirmingPushOnApproval() async {
         let grantWriter = ConfigurableGrantWriter()
 
         let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
@@ -81,9 +81,37 @@ final class ConversationViewModelApproveConfirmationTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(confirmed, "A grant the backend already confirmed backs the approval as-is")
-        XCTAssertTrue(grantWriter.confirmingGrants.isEmpty,
-                      "Same scope + confirmed backend id: no re-push needed")
+        XCTAssertTrue(confirmed)
+        XCTAssertEqual(grantWriter.confirmingGrants.count, 1,
+                       "A locally cached backend id is not proof of server state (server-side revokes " +
+                       "or purges leave it stale); every approval re-runs the idempotent confirming push")
+    }
+
+    func testStaleConfirmedGrantWithFailingPushLeavesApprovalUnconfirmed() async {
+        // The exact stale-marker shape: the local row carries a backend id
+        // from an earlier approval whose server rows were since removed. The
+        // push must run and its failure must block the .approved broadcast --
+        // trusting the cached id would wake the agent into 403s.
+        let grantWriter = ConfigurableGrantWriter()
+        grantWriter.confirmingGrantError = ConfigurableGrantWriter.Failure()
+
+        let confirmed = await ConversationViewModel.persistApprovedCloudCapabilities(
+            providerIds: [googleCalendar],
+            bundleSelection: ["googlecalendar": ["calendar.events"]],
+            conversationId: "convo-1",
+            grantedToInboxId: "agent-inbox",
+            grantWriter: grantWriter,
+            repository: StubConnectionsRepository(
+                stubbedConnections: [makeConnection()],
+                stubbedGrants: [
+                    makeGrant(backendGrantId: "backend-stale", bundleIds: ["calendar.events"]),
+                ]
+            )
+        )
+
+        XCTAssertFalse(confirmed,
+                       "An unconfirmable push blocks the broadcast even when a stale backend id is cached locally")
+        XCTAssertEqual(grantWriter.confirmingGrants.count, 1)
     }
 
     func testExistingUnconfirmedGrantRetriesBackendPush() async {

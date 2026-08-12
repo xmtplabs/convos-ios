@@ -168,9 +168,9 @@ final class ConversationConnectionsViewModel {
                 // Order matches CloudConnectionManager.postRevocationSideEffects:
                 // post the user-visible group-update line first, then drop the
                 // provider from every (subject, verb, agent) row in this conversation.
-                // Resolver-cleanup is what unblocks persistApprovedCloudCapabilities'
-                // idempotency gate so a follow-up capability_request approval re-emits
-                // its own group-update line. Revoke text is a complete sentence
+                // Resolver-cleanup is what unblocks sendCloudGrantedEvents'
+                // resolver-diff gate so a follow-up capability_request approval
+                // re-emits its own group-update line. Revoke text is a complete sentence
                 // ("Calendar connection removed") so we keep grantedToInboxId nil and
                 // render it conversation-level.
                 try? await connectionEventWriter.sendRevoked(

@@ -2246,8 +2246,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// (connection, conversation, agent) and mirror the conversation-info
     /// revoke toggle's side effects in the same order — the user-visible
     /// `connection_event revoked` group-update line first, then resolver
-    /// cleanup (which re-arms `persistApprovedCloudCapabilities`' idempotency
-    /// gate so a later re-approval emits its own granted line). Services
+    /// cleanup (which re-arms `sendCloudGrantedEvents`' resolver-diff gate
+    /// so a later re-approval emits its own granted line). Services
     /// without an existing grant are a pure no-op: nothing is created,
     /// nothing is sent. Returns the service ids actually revoked.
     static func revokeUncheckedCloudGrants( // swiftlint:disable:this function_parameter_count
@@ -2575,10 +2575,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// confirmed -- no active local connection to grant against, or the grant
     /// write / backend POST failed. The caller must not broadcast an
     /// `.approved` result in that case: the agent would be woken with an
-    /// approval the backend then denies. A grant already confirmed
-    /// (`backendGrantId` present) with an unchanged bundle scope is skipped;
-    /// a row missing its backend id re-runs the confirming push so an
-    /// earlier failed POST is retried on the next Done tap.
+    /// approval the backend then denies.
+    ///
+    /// The confirming push runs unconditionally, even when a local grant row
+    /// already carries a `backendGrantId`: a locally cached id is not proof
+    /// of server state (a server-side revoke, reset, or purge leaves the row
+    /// stale, and trusting it would broadcast `.approved` with no server
+    /// grant behind it -- the agent then 403s on every execution). The
+    /// backend upserts the (owner, grantee, conversation, toolkit) tuple, so
+    /// re-approving is idempotent and self-healing, and the pushed scope
+    /// follows the user's latest picker state.
     static func persistApprovedCloudCapabilities(
         providerIds: [ProviderID],
         bundleSelection: [String: Set<String>],
@@ -2588,7 +2594,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         repository: any CloudConnectionRepositoryProtocol
     ) async -> Bool {
         let activeConnections = (try? await repository.connections()) ?? []
-        let existingGrants = (try? await repository.grants(for: conversationId)) ?? []
         var allConfirmed = true
 
         for providerId in providerIds {
@@ -2601,32 +2606,19 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 continue
             }
 
-            // The grant row is per-(connection, conversation, agent). Two agents
-            // approved for the same connection get two rows; the same agent re-
-            // approving the same connection with the same confirmed bundle scope
-            // is a no-op for the grant write but still needs its own
-            // connection_event. A re-approval with a *different* bundle selection
-            // re-grants so the backend scope follows the user's latest picker state.
+            // The grant row is per-(connection, conversation, agent); two
+            // agents approved for the same connection get two rows.
             let bundleIds = bundleSelection[serviceId].map { $0.sorted() }
-            let existingGrant = existingGrants.first {
-                $0.connectionId == connection.id && $0.grantedToInboxId == grantedToInboxId
-            }
-            let bundleScopeChanged = existingGrant.map {
-                bundleIds != nil && Set($0.bundleIds ?? []) != Set(bundleIds ?? [])
-            } ?? false
-            let backendUnconfirmed = existingGrant.map { $0.backendGrantId == nil } ?? true
-            if backendUnconfirmed || bundleScopeChanged {
-                do {
-                    try await grantWriter.grantConnectionConfirmingBackend(
-                        connection.id,
-                        to: conversationId,
-                        grantedToInboxId: grantedToInboxId,
-                        bundleIds: bundleIds
-                    )
-                } catch {
-                    Log.error("Failed to persist cloud grant for \(providerId.rawValue) → \(grantedToInboxId): \(error.localizedDescription)")
-                    allConfirmed = false
-                }
+            do {
+                try await grantWriter.grantConnectionConfirmingBackend(
+                    connection.id,
+                    to: conversationId,
+                    grantedToInboxId: grantedToInboxId,
+                    bundleIds: bundleIds
+                )
+            } catch {
+                Log.error("Failed to persist cloud grant for \(providerId.rawValue) → \(grantedToInboxId): \(error.localizedDescription)")
+                allConfirmed = false
             }
         }
         return allConfirmed
