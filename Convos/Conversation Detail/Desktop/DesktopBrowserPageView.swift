@@ -1,41 +1,46 @@
 import SwiftUI
 
-/// One pushed external page in the desktop browsing chain. Each intercepted
-/// navigation pushes a fresh entry; identity is per-tap so tapping the same
-/// link twice still pushes.
+/// One page in the desktop browsing chain. Each intercepted navigation
+/// pushes a fresh entry; identity is per-tap so tapping the same link twice
+/// still pushes.
 struct DesktopBrowserEntry: Identifiable, Hashable {
     let id: UUID = UUID()
     let url: URL
 }
 
-/// An external web page pushed onto the conversation's navigation stack from
-/// the desktop. The system back button walks the chain back to the root
-/// desktop view, and the conversation's own toolbar items (the add-members
-/// button) stay behind on the conversation screen. Each pushed page pins the
-/// URL it opened with and pushes the next page for any outbound navigation
-/// (see `DesktopWebNavigation`).
+/// An external web page layered over the desktop, below the floating
+/// conversation sheet - browsing never leaves the conversation screen, so
+/// the sheet stays up and the top bar's back button (swapped in by
+/// `ConversationView` while pages are open) walks the chain home to the
+/// root desktop view. Mirrors the desktop surface's full-bleed geometry:
+/// the page insets by the navigation chrome and the sheet so content
+/// scrolls clear of both.
 struct DesktopBrowserPageView: View {
     let entry: DesktopBrowserEntry
-
-    @State private var nextEntry: DesktopBrowserEntry?
+    /// The sheet's live occupied height, measured from the physical screen
+    /// bottom; applied as the page's bottom content/indicator inset.
+    var sheetHeight: CGFloat = ConversationSheetMetrics.compactRestingHeight
+    /// Fired when this page requests navigation away from its own URL; the
+    /// host pushes another page for it.
+    var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
     var body: some View {
-        DesktopWebView(
-            // An empty conversation id keeps pushed pages from overwriting
-            // the conversation's desktop cover snapshot.
-            conversationId: "",
-            url: entry.url,
-            onNavigationRequest: { url in
-                nextEntry = DesktopBrowserEntry(url: url)
-            }
-        )
+        GeometryReader { proxy in
+            DesktopWebView(
+                // An empty conversation id keeps browser pages from
+                // overwriting the conversation's desktop cover snapshot.
+                conversationId: "",
+                url: entry.url,
+                topContentInset: proxy.safeAreaInsets.top,
+                bottomContentInset: sheetHeight,
+                onNavigationRequest: onNavigationRequest
+            )
+            .ignoresSafeArea(edges: .vertical)
+        }
         .background {
             Color.colorBackgroundRaised
                 .ignoresSafeArea()
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(item: $nextEntry) { next in
-            DesktopBrowserPageView(entry: next)
-        }
+        .accessibilityIdentifier("desktop-browser-page")
     }
 }

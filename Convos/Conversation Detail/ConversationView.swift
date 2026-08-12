@@ -99,10 +99,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// sheet-hosted composers to fire on send.
     @State private var groupScrollToBottom: (() -> Void)?
     @State private var agentScrollToBottom: (() -> Void)?
-    /// The head of the desktop browsing chain: an intercepted link tap on
-    /// the desktop pushes this onto the navigation stack (further links push
-    /// from within the page; the system back button walks home).
-    @State private var pushedDesktopBrowserEntry: DesktopBrowserEntry?
+    /// The desktop browsing chain, layered over the desktop and below the
+    /// floating sheet so browsing never leaves the conversation screen.
+    /// While non-empty, the top bar swaps the system back button for one
+    /// that pops pages, and hides the add-members item.
+    @State private var desktopBrowserEntries: [DesktopBrowserEntry] = []
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -332,11 +333,37 @@ struct ConversationView<MessagesBottomBar: View>: View {
         selectedTab = tab
     }
 
+    private func pushDesktopBrowserPage(for url: URL) {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            desktopBrowserEntries.append(DesktopBrowserEntry(url: url))
+        }
+    }
+
+    private func popDesktopBrowserPage() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            _ = desktopBrowserEntries.popLast()
+        }
+    }
+
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
+        // Swap the system back button for one that pops browser pages while
+        // the desktop browsing chain is open, walking home to the root
+        // desktop view.
+        if !desktopBrowserEntries.isEmpty {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: popDesktopBrowserPage) {
+                    Image(systemName: "chevron.left")
+                        .fontWeight(.semibold)
+                }
+                .accessibilityLabel("Back")
+                .accessibilityIdentifier("desktop-browser-back")
+            }
+        }
         // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
-        // toolbar item is dropped for that flow.
-        if !topBarTrailingHidden && !showsEmbeddedInvite {
+        // toolbar item is dropped for that flow. Browser pages hide the
+        // trailing item entirely.
+        if !topBarTrailingHidden && !showsEmbeddedInvite && desktopBrowserEntries.isEmpty {
             ToolbarItem(placement: .topBarTrailing) {
                 if viewModel.isLocked {
                     lockedInfoButton
@@ -510,6 +537,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onChange(of: selectedTab) { oldTab, newTab in
             visitedTabs.insert(newTab)
+            // The browsing chain is a desktop-context excursion; a tab
+            // switch dismisses it.
+            desktopBrowserEntries.removeAll()
             let keyboardWasUp: Bool = isKeyboardVisible
             if newTab == .group {
                 // Returning to the group: transfer the keyboard back onto the
@@ -565,13 +595,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ContentPopGestureDisabler()
                 .frame(width: 0, height: 0)
         }
-        // A link tap on the desktop pushes a browser page onto the stack;
-        // the system back button returns to the root desktop view, and the
-        // conversation's toolbar items (the add-members button) stay behind
-        // on this screen.
-        .navigationDestination(item: $pushedDesktopBrowserEntry) { entry in
-            DesktopBrowserPageView(entry: entry)
-        }
+        // While browser pages are open, the pop-a-page back button in
+        // `topBarTrailing` stands in for the system one.
+        .navigationBarBackButtonHidden(!desktopBrowserEntries.isEmpty)
         .modifier(metricsObserversPart1)
         .modifier(metricsObserversPart2)
         .modifier(metricsObserversPart3)
@@ -723,8 +749,27 @@ private extension ConversationView {
     /// keyboard.
     var conversationLayout: some View {
         ZStack(alignment: .bottom) {
-            backingViews
+            ZStack {
+                backingViews
+                desktopBrowserLayers
+            }
             conversationSheet
+        }
+    }
+
+    /// The desktop browsing chain: full-screen pages sliding in above the
+    /// desktop, below the floating sheet.
+    @ViewBuilder
+    var desktopBrowserLayers: some View {
+        ForEach(desktopBrowserEntries) { entry in
+            DesktopBrowserPageView(
+                entry: entry,
+                sheetHeight: sheetOccupiedHeight,
+                onNavigationRequest: { url in
+                    pushDesktopBrowserPage(for: url)
+                }
+            )
+            .transition(.move(edge: .trailing))
         }
     }
 
@@ -760,7 +805,7 @@ private extension ConversationView {
                     webURL: viewModel.conversation.spaceURL,
                     sheetHeight: sheetOccupiedHeight,
                     onNavigationRequest: { url in
-                        pushedDesktopBrowserEntry = DesktopBrowserEntry(url: url)
+                        pushDesktopBrowserPage(for: url)
                     }
                 )
                 .opacity(selectedTab == .desktop ? 1 : 0)
