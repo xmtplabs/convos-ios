@@ -109,6 +109,7 @@ struct ConversationInfoView: View {
     @State private var showingRestoreInviteTagAlert: Bool = false
     @State private var restoreInviteTagText: String = ""
     @State private var showingLeaveConfirmation: Bool = false
+    @State private var spacePullRequestCoordinator: ConversationSpacePullRequestCoordinator = .init()
     /// "New Agent" builder, presented from here so it stacks on top of the
     /// Info sheet rather than racing the chat view's own builder sheet.
     @State private var presentingAgentBuilder: AgentBuilderViewModel?
@@ -757,13 +758,16 @@ struct ConversationInfoView: View {
 // MARK: - Support and debug section
 
 extension ConversationInfoView {
-    // The support rows ship in every environment so production users can
-    // send on-device diagnostics to support; the remaining rows are internal
-    // debugging tools and stay out of production builds.
+    // The support rows ship in every environment so production users can send
+    // on-device diagnostics to support. The Space proposal row follows its
+    // explicit opt-in flag; the remaining debug rows stay out of production.
     @ViewBuilder
     private var debugInfoSection: some View {
         let isProduction = ConfigManager.shared.currentEnvironment.isProduction
         Section {
+            if FeatureFlags.shared.isSpacePullRequestProposalEnabled {
+                spacePullRequestProposalRow
+            }
             if !isProduction {
                 internalDebugRows
             }
@@ -836,6 +840,54 @@ extension ConversationInfoView {
         } label: {
             Text("Restore invite tag")
         }
+    }
+
+    private var spacePullRequestProposalRow: some View {
+        Button {
+            Task {
+                await spacePullRequestCoordinator.propose(
+                    conversationId: viewModel.conversation.id,
+                    variantId: viewModel.conversation.agentVariant?.slug
+                )
+            }
+        } label: {
+            HStack {
+                Text("Propose PR from Space")
+                    .foregroundStyle(.colorTextPrimary)
+                Spacer()
+                if spacePullRequestCoordinator.isBusy {
+                    ProgressView()
+                }
+            }
+        }
+        .disabled(spacePullRequestCoordinator.isBusy)
+        .accessibilityIdentifier("propose-space-pr-button")
+        .accessibilityLabel("Propose pull request from Space")
+        .alert(
+            spacePullRequestCoordinator.alert?.title ?? "",
+            isPresented: spacePullRequestAlertIsPresented,
+            presenting: spacePullRequestCoordinator.alert
+        ) { payload in
+            if let pullRequestURL = payload.pullRequestURL {
+                Button("Open PR") {
+                    openURL(pullRequestURL)
+                }
+            }
+            Button("OK", role: .cancel) {}
+        } message: { payload in
+            Text(payload.message)
+        }
+    }
+
+    private var spacePullRequestAlertIsPresented: Binding<Bool> {
+        Binding(
+            get: { spacePullRequestCoordinator.alert != nil },
+            set: { isPresented in
+                if !isPresented {
+                    spacePullRequestCoordinator.alert = nil
+                }
+            }
+        )
     }
 
     @ViewBuilder

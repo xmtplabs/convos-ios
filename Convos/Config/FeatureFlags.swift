@@ -187,6 +187,21 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default -- gates the internal action that proposes a draft pull
+    /// request from a conversation's Space. Deliberately reachable in every
+    /// environment; production users opt in from the curated prod debug menu.
+    var isSpacePullRequestProposalEnabled: Bool {
+        get {
+            access(keyPath: \.isSpacePullRequestProposalEnabled)
+            return UserDefaults.standard.bool(forKey: Constant.spacePullRequestProposalEnabledKey)
+        }
+        set {
+            withMutation(keyPath: \.isSpacePullRequestProposalEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.spacePullRequestProposalEnabledKey)
+            }
+        }
+    }
+
     /// The read-site resolution for the new composer layout: desktop mode
     /// always uses the new composer, so either flag activates it. Reads two
     /// instrumented getters, so observation flows through without registrar
@@ -247,5 +262,6 @@ final class FeatureFlags {
         static let newComposerEnabledKey: String = "featureFlags.newComposerEnabled"
         static let desktopModeEnabledKey: String = "featureFlags.desktopModeEnabled"
         static let agentAutoJoinEnabledKey: String = "featureFlags.agentAutoJoinEnabled"
+        static let spacePullRequestProposalEnabledKey: String = "featureFlags.spacePullRequestProposalEnabled"
     }
 }

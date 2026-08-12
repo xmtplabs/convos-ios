@@ -10,6 +10,35 @@ import XCTest
 /// without leaving and re-entering the screen.
 @MainActor
 final class FeatureFlagsObservationTests: XCTestCase {
+    func testSpacePullRequestProposalDefaultsOffPersistsAndNotifiesObservers() {
+        let key = "featureFlags.spacePullRequestProposalEnabled"
+        let defaults = UserDefaults.standard
+        let original = defaults.object(forKey: key)
+        defer {
+            if let original {
+                defaults.set(original, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        defaults.removeObject(forKey: key)
+
+        let flags = FeatureFlags.shared
+        XCTAssertFalse(flags.isSpacePullRequestProposalEnabled)
+
+        let changed = expectation(description: "Space pull request proposal flag observation fired")
+        withObservationTracking {
+            _ = flags.isSpacePullRequestProposalEnabled
+        } onChange: {
+            changed.fulfill()
+        }
+
+        flags.isSpacePullRequestProposalEnabled = true
+        wait(for: [changed], timeout: 1.0)
+        XCTAssertTrue(defaults.bool(forKey: key))
+        XCTAssertTrue(flags.isSpacePullRequestProposalEnabled)
+    }
+
     func testTogglingAbilitiesV2NotifiesObservers() {
         let flags = FeatureFlags.shared
         let initial = flags.isAbilitiesV2Enabled

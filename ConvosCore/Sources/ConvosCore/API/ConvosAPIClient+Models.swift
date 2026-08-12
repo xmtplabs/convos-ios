@@ -421,7 +421,191 @@ public enum ConvosAPI {
             }
         }
     }
+}
 
+extension ConvosAPI {
+    // MARK: - v2/conversations/:conversationId/debug/space-upstream
+
+    public enum SpacePullRequestProposalOutcome: Decodable, Equatable, Sendable {
+        case pullRequest(PullRequest)
+        case unchanged(Unchanged)
+
+        public struct PullRequest: Decodable, Equatable, Sendable {
+            public let conversationId: String
+            public let prURL: URL
+            public let prNumber: Int
+            public let branch: String
+            public let commitSha: String
+            public let forkCommitSha: String
+            public let wrote: Int
+            public let deleted: Int
+            public let refusedCount: Int
+
+            public init(
+                conversationId: String,
+                prURL: URL,
+                prNumber: Int,
+                branch: String,
+                commitSha: String,
+                forkCommitSha: String,
+                wrote: Int,
+                deleted: Int,
+                refusedCount: Int
+            ) throws {
+                guard Self.isValidPullRequestURL(prURL) else {
+                    throw SpacePullRequestProposalDecodingError.invalidPullRequestURL
+                }
+                self.conversationId = conversationId
+                self.prURL = prURL
+                self.prNumber = prNumber
+                self.branch = branch
+                self.commitSha = commitSha
+                self.forkCommitSha = forkCommitSha
+                self.wrote = wrote
+                self.deleted = deleted
+                self.refusedCount = refusedCount
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                let prURLString = try container.decode(String.self, forKey: .prURL)
+                guard let prURL = URL(string: prURLString), Self.isValidPullRequestURL(prURL) else {
+                    throw SpacePullRequestProposalDecodingError.invalidPullRequestURL
+                }
+                conversationId = try container.decode(String.self, forKey: .conversationId)
+                self.prURL = prURL
+                prNumber = try container.decode(Int.self, forKey: .prNumber)
+                branch = try container.decode(String.self, forKey: .branch)
+                commitSha = try container.decode(String.self, forKey: .commitSha)
+                forkCommitSha = try container.decode(String.self, forKey: .forkCommitSha)
+                wrote = try container.decode(Int.self, forKey: .wrote)
+                deleted = try container.decode(Int.self, forKey: .deleted)
+                refusedCount = try container.decode(Int.self, forKey: .refusedCount)
+            }
+
+            private static func isValidPullRequestURL(_ url: URL) -> Bool {
+                url.scheme?.lowercased() == "https" && url.host != nil
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case conversationId
+                case prURL = "prUrl"
+                case prNumber
+                case branch
+                case commitSha
+                case forkCommitSha
+                case wrote
+                case deleted
+                case refusedCount
+            }
+        }
+
+        public struct Unchanged: Decodable, Equatable, Sendable {
+            public let conversationId: String
+            public let forkCommitSha: String
+            public let wrote: Int
+            public let deleted: Int
+            public let refusedCount: Int
+
+            public init(
+                conversationId: String,
+                forkCommitSha: String,
+                wrote: Int,
+                deleted: Int,
+                refusedCount: Int
+            ) {
+                self.conversationId = conversationId
+                self.forkCommitSha = forkCommitSha
+                self.wrote = wrote
+                self.deleted = deleted
+                self.refusedCount = refusedCount
+            }
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: DiscriminatorCodingKeys.self)
+            guard try container.decode(Bool.self, forKey: .success) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .success,
+                    in: container,
+                    debugDescription: "Space pull request success envelope must set success to true"
+                )
+            }
+            switch try container.decode(Discriminator.self, forKey: .outcome) {
+            case .pullRequest:
+                self = .pullRequest(try PullRequest(from: decoder))
+            case .unchanged:
+                self = .unchanged(try Unchanged(from: decoder))
+            }
+        }
+
+        private enum Discriminator: String, Decodable {
+            case pullRequest = "pull_request"
+            case unchanged
+        }
+
+        private enum DiscriminatorCodingKeys: String, CodingKey {
+            case success
+            case outcome
+        }
+    }
+
+    public enum SpacePullRequestProposalError: Error, Equatable, Sendable {
+        case invalidRequest
+        case notArmed
+        case spaceNotFound
+        case repositoryUnavailable
+        case refused
+        case variantUnavailable
+        case timeout
+        case githubFailed
+        case unavailable
+        case failed
+        case rateLimited
+
+        init?(body: Data) {
+            struct ErrorBody: Decodable {
+                let success: Bool
+                let error: String
+                let message: String
+            }
+            guard let response = try? JSONDecoder().decode(ErrorBody.self, from: body),
+                  !response.success else { return nil }
+            switch response.error {
+            case "INVALID_REQUEST":
+                self = .invalidRequest
+            case "SPACE_UPSTREAM_NOT_ARMED":
+                self = .notArmed
+            case "SPACE_NOT_FOUND":
+                self = .spaceNotFound
+            case "SPACE_REPOSITORY_UNAVAILABLE":
+                self = .repositoryUnavailable
+            case "SPACE_UPSTREAM_REFUSED":
+                self = .refused
+            case "VARIANT_UNAVAILABLE":
+                self = .variantUnavailable
+            case "SPACE_UPSTREAM_TIMEOUT":
+                self = .timeout
+            case "SPACE_UPSTREAM_GITHUB_FAILED":
+                self = .githubFailed
+            case "SPACE_UPSTREAM_UNAVAILABLE":
+                self = .unavailable
+            case "SPACE_UPSTREAM_FAILED":
+                self = .failed
+            case "RATE_LIMITED":
+                self = .rateLimited
+            default:
+                return nil
+            }
+        }
+    }
+
+    enum SpacePullRequestProposalDecodingError: Error, Equatable {
+        case invalidPullRequestURL
+    }
+}
+
+extension ConvosAPI {
     // MARK: - v2/agent-templates/:id
 
     // Subset of the agent-template object the backend returns from the
