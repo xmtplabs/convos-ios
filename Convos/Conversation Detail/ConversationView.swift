@@ -104,6 +104,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// While non-empty, the top bar swaps the system back button for one
     /// that pops pages, and hides the add-members item.
     @State private var desktopBrowserEntries: [DesktopBrowserEntry] = []
+    /// Bumped when the user returns to the Desktop tab, asking the loaded
+    /// Space page for an in-place reload so it picks up server-side changes
+    /// without leaving the conversation.
+    @State private var desktopReloadNonce: Int = 0
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -338,6 +342,65 @@ struct ConversationView<MessagesBottomBar: View>: View {
         selectedTab = tab
     }
 
+    /// Focus transfers ride the coordinators - each composer has its own
+    /// (both surfaces stay mounted, so raw FocusState writes would fight) -
+    /// releasing the outgoing composer and, when the user switched mid-edit,
+    /// claiming the incoming one so the keyboard hands over instead of
+    /// dropping.
+    private func handleSelectedTabChange(from oldTab: ConversationTab, to newTab: ConversationTab) {
+        let isReturnVisit: Bool = visitedTabs.contains(newTab)
+        visitedTabs.insert(newTab)
+        // Returning to a loaded desktop refreshes the page (an in-place
+        // reload - the old content stays up while the new arrives); the
+        // first visit performs the initial load anyway.
+        if newTab == .desktop, oldTab != .desktop, isReturnVisit {
+            desktopReloadNonce += 1
+        }
+        let keyboardWasUp: Bool = isKeyboardVisible
+        switch newTab {
+        case .group:
+            if keyboardWasUp {
+                // Claim the incoming composer directly - the outgoing field
+                // resigns implicitly and its sync wiring clears its
+                // coordinator. Explicitly dismissing first leaves a beat
+                // with no first responder and the keyboard visibly dips.
+                focusCoordinator.moveFocus(to: .message)
+            } else {
+                agentFocusCoordinator.dismissMessageComposerIfNeeded()
+            }
+        case .agent:
+            if keyboardWasUp {
+                agentFocusCoordinator.moveFocus(to: .message)
+            } else {
+                focusCoordinator.dismissMessageComposerIfNeeded()
+            }
+        case .desktop:
+            // No composer: the keyboard drops.
+            focusCoordinator.dismissMessageComposerIfNeeded()
+            agentFocusCoordinator.dismissMessageComposerIfNeeded()
+        }
+        // A right-swipe can both start a reply and switch away; cancel the
+        // in-flight reply swipe so the tab change doesn't fire one.
+        if oldTab == .group {
+            contextMenuState.cancelInFlightSwipe()
+        }
+    }
+
+    /// Re-applies the agent composer's `@FocusState` for a same-value
+    /// `moveFocus` request (see `FocusCoordinator.refocusNonce`), bouncing
+    /// through nil when needed so SwiftUI re-acquires the first responder.
+    private func reassertAgentFocus() {
+        let target = agentFocusCoordinator.currentFocus
+        guard agentFocusState == target else {
+            agentFocusState = target
+            return
+        }
+        agentFocusState = nil
+        DispatchQueue.main.async {
+            agentFocusState = target
+        }
+    }
+
     private func pushDesktopBrowserPage(for url: URL) {
         withAnimation(.easeInOut(duration: 0.25)) {
             desktopBrowserEntries.append(DesktopBrowserEntry(url: url))
@@ -566,7 +629,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             : max(sheetOccupiedHeight - windowSafeAreaInsets.bottom, 0)
     }
 
-    var body: some View {
+    /// The layout plus the tab/focus/session observers, split from `body`
+    /// to keep each expression inside the type-check budget.
+    private var conversationCore: some View {
         conversationLayout
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             isKeyboardVisible = true
@@ -575,25 +640,20 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isKeyboardVisible = false
         }
         .onChange(of: selectedTab) { oldTab, newTab in
-            visitedTabs.insert(newTab)
-            let keyboardWasUp: Bool = isKeyboardVisible
-            if newTab == .group {
-                // Returning to the group: transfer the keyboard back onto the
-                // group composer when the user switched in mid-edit.
-                if keyboardWasUp {
-                    focusCoordinator.moveFocus(to: .message)
-                }
-            } else if oldTab == .group {
-                // Leaving the group for a peer tab: release the group
-                // composer. The agent page re-grabs focus onto its own
-                // composer (transferring the keyboard); the Desktop tab has
-                // no composer, so it drops.
-                focusCoordinator.dismissMessageComposerIfNeeded()
-                // A right-swipe can both start a reply and switch away;
-                // cancel the in-flight reply swipe so the tab change doesn't
-                // fire a reply.
-                contextMenuState.cancelInFlightSwipe()
-            }
+            handleSelectedTabChange(from: oldTab, to: newTab)
+        }
+        // The agent composer's focus plumbing, mirroring what
+        // ConversationPresenter wires for the group pair: coordinator ->
+        // FocusState (including same-value refocus re-assertion) and
+        // FocusState -> coordinator.
+        .onChange(of: agentFocusCoordinator.currentFocus) { _, newFocus in
+            agentFocusState = newFocus
+        }
+        .onChange(of: agentFocusCoordinator.refocusNonce) { _, _ in
+            reassertAgentFocus()
+        }
+        .onChange(of: agentFocusState) { _, newFocus in
+            agentFocusCoordinator.syncFocusState(newFocus)
         }
         // A conversation can lose its Space URL (or never have had one);
         // fall back off the Desktop tab if it disappears from under us.
@@ -613,6 +673,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             session.setAgent(inboxId: primaryAgentInboxId)
             await session.rebindWhenDmAppears()
         }
+    }
+
+    var body: some View {
+        conversationCore
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
             viewModel.checkForAgentShareURL()
@@ -838,7 +902,6 @@ private extension ConversationView {
                     extraBottomInset: transcriptBottomInset,
                     isReadOnly: effectiveReadOnly,
                     isActiveTab: selectedTab == .agent,
-                    keyboardVisible: isKeyboardVisible,
                     contextMenuState: agentContextMenuState,
                     focusState: $agentFocusState,
                     focusCoordinator: agentFocusCoordinator,
@@ -857,6 +920,7 @@ private extension ConversationView {
                     conversationId: viewModel.conversation.id,
                     webURL: viewModel.conversation.spaceURL,
                     sheetHeight: sheetOccupiedHeight,
+                    reloadNonce: desktopReloadNonce,
                     onNavigationRequest: { url in
                         pushDesktopBrowserPage(for: url)
                     }

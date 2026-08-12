@@ -23,13 +23,11 @@ struct AgentDmPageView: View {
     /// device must not be able to send into agent DMs.
     let isReadOnly: Bool
     /// True while the Agent tab is the selected tab. The backing views stay
-    /// mounted across tab switches, so activation drives composer focus and
-    /// the active-DM push lane.
+    /// mounted across tab switches, so activation drives the read state and
+    /// the active-DM push lane. (Composer focus transfers are owned by
+    /// ConversationView's tab-change handler, through the focus
+    /// coordinators.)
     let isActiveTab: Bool
-    /// Whether a composer keyboard was up when this tab became active. Used to
-    /// transfer the keyboard onto the DM composer when the user switches in
-    /// mid-edit, while a keyboard-down glance leaves the keyboard down.
-    let keyboardVisible: Bool
     /// Owned by ConversationView so the sheet can hide while the DM's
     /// long-press context menu is presented.
     @Bindable var contextMenuState: MessageContextMenuState
@@ -91,15 +89,11 @@ struct AgentDmPageView: View {
         }
     }
 
-    /// Transfers composer focus onto the DM when this tab becomes active while
-    /// a keyboard was already up (the user switched in mid-edit), and clears
-    /// focus when the tab is switched away so the DM keyboard doesn't linger
-    /// over the other surfaces. A keyboard-down arrival honors the platform
-    /// default (nil on iPhone), so glancing at the DM doesn't raise the
-    /// keyboard unprompted.
+    /// Activation side effects: the read state and the push-suppression
+    /// lane. Composer focus is not touched here - ConversationView's
+    /// tab-change handler transfers it through the focus coordinators.
     private func handleActiveTabChange(_ active: Bool) {
         guard active else {
-            focusState = nil
             // A right-swipe can both start a reply on a DM message and switch
             // tabs. When the tab changes, cancel the in-flight swipe and clear
             // any reply it already set, so a tab change never leaves the DM
@@ -109,7 +103,6 @@ struct AgentDmPageView: View {
             session.updateActiveDmLane(isActive: false)
             return
         }
-        focusState = keyboardVisible ? .message : focusCoordinator.defaultFocus
         session.markDmAsRead()
         session.updateActiveDmLane(isActive: true)
     }

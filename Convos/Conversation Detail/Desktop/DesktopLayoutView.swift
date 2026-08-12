@@ -15,6 +15,9 @@ struct DesktopLayoutView: View {
     /// skips the inset - it fits the viewport exactly and would otherwise
     /// gain a pointless scroll range.
     var sheetHeight: CGFloat = ConversationSheetMetrics.compactRestingHeight
+    /// Asks the loaded page for an in-place reload when bumped (e.g. on a
+    /// return visit to the Desktop tab).
+    var reloadNonce: Int = 0
     /// Fired when the page requests navigation away from the space URL; the
     /// host presents it in the desktop browser popup.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
@@ -29,6 +32,7 @@ struct DesktopLayoutView: View {
                 url: webURL,
                 topContentInset: webURL != nil ? proxy.safeAreaInsets.top : 0,
                 bottomContentInset: webURL != nil ? sheetHeight : 0,
+                reloadNonce: reloadNonce,
                 onNavigationRequest: onNavigationRequest
             )
             .ignoresSafeArea(edges: .vertical)

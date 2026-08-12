@@ -28,6 +28,11 @@ struct DesktopWebView: UIViewRepresentable {
     /// conversation sheet's occupied height - so page content can scroll
     /// clear of the sheet while the surface itself stays full-bleed.
     var bottomContentInset: CGFloat = 0
+    /// Asks the loaded page for an in-place reload when bumped: the old
+    /// content stays on screen while the fresh page arrives. A page URL is
+    /// stable across the Space's deployments, so returning to the surface
+    /// re-pulls server-side changes this way.
+    var reloadNonce: Int = 0
     /// Fired on the main actor once the page finishes loading.
     var onLoaded: @MainActor () -> Void = {}
     /// Fired on the main actor when the page requests navigation away from
@@ -83,6 +88,15 @@ struct DesktopWebView: UIViewRepresentable {
                 scrollView.contentOffset.y = -topContentInset
             }
         }
+        // An in-place refresh of the already-loaded page, distinct from the
+        // destination change below.
+        if context.coordinator.lastReloadNonce != reloadNonce {
+            context.coordinator.lastReloadNonce = reloadNonce
+            if context.coordinator.hasLoaded, url != nil {
+                context.coordinator.activeNavigation = webView.reload()
+                return
+            }
+        }
         // Reload only when the destination actually changes; SwiftUI calls
         // this on unrelated state churn.
         guard context.coordinator.loadedURL != url || !context.coordinator.hasLoaded else { return }
@@ -110,6 +124,9 @@ struct DesktopWebView: UIViewRepresentable {
         /// stale (e.g. the placeholder finishing after the real Space URL
         /// superseded it) and must not flip the interception state.
         var activeNavigation: WKNavigation?
+        /// The last `reloadNonce` acted on; a changed value asks for an
+        /// in-place reload of the loaded page.
+        var lastReloadNonce: Int = 0
 
         init(
             conversationId: String,
