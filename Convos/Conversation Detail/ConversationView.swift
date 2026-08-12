@@ -703,15 +703,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
 private extension ConversationView {
     /// The conversation's layered layout: the selected tab's backing view
     /// filling the screen, the desktop browser popups above it, and the
-    /// floating conversation sheet over everything. The sheet lives in a
-    /// bottom overlay inside the safe area, so it rides the keyboard while
-    /// the backing views keep their full-screen frames.
+    /// floating conversation sheet over everything. The sheet is a
+    /// bottom-aligned ZStack sibling (not an overlay - safe-area expansion
+    /// doesn't reach overlay children), so it can extend into the bottom
+    /// safe area like the native tab bar while still riding the keyboard.
     var conversationLayout: some View {
-        ZStack {
-            backingViews
-            desktopBrowserPopups
-        }
-        .overlay(alignment: .bottom) {
+        ZStack(alignment: .bottom) {
+            ZStack {
+                backingViews
+                desktopBrowserPopups
+            }
             conversationSheet
         }
     }
@@ -787,10 +788,12 @@ private extension ConversationView {
             tabBar: { ConversationTabBar(selectedTab: $selectedTab) }
         )
         // Like the native floating tab bar, the card rests inside the bottom
-        // safe area (its edge inset is measured from the physical screen
-        // edge). Only the container region is ignored - the keyboard still
-        // lifts the sheet.
-        .ignoresSafeArea(.container, edges: .bottom)
+        // safe area: its edge inset is measured from the physical screen
+        // edge. Positioned by explicit compensation rather than
+        // `.ignoresSafeArea` - the presenter/tab-shell chain above neutralizes
+        // safe-area expansion for this subtree - and dropped while the
+        // keyboard is up, when the card rests directly above it instead.
+        .padding(.bottom, isKeyboardVisible ? 0 : -windowSafeAreaInsets.bottom)
     }
 
     /// The bar the sheet hosts above its tab bar, keyed by the selected tab:

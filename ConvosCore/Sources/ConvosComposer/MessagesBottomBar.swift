@@ -271,8 +271,11 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 }
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
+            // Symmetric 8pt vertical insets: the conversation sheet supplies
+            // the outer rhythm around the bar (Figma 7156:13775 gives the
+            // input row 8pt above and below).
             .padding(.top, DesignConstants.Spacing.step2x)
-            .padding(.bottom, DesignConstants.Spacing.step4x)
+            .padding(.bottom, DesignConstants.Spacing.step2x)
         }
     }
 
