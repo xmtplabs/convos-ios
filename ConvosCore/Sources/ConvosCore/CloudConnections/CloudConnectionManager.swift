@@ -338,8 +338,15 @@ enum CloudConnectionManagerError: LocalizedError {
 extension CloudConnectionStatus {
     static func from(composioStatus raw: String) -> CloudConnectionStatus {
         switch raw.uppercased() {
-        case "ACTIVE", "INITIATED", "INITIALIZING":
+        case "ACTIVE":
             return .active
+        case "INITIATED", "INITIALIZING":
+            // OAuth was started but never finished. Treating these as active
+            // minted phantom-linked providers: the approval sheet trusted the
+            // local snapshot and skipped its OAuth leg, then the grant sat on
+            // a connection with no credential behind it. Not usable until the
+            // flow completes, so surface the (re)connect prompt.
+            return .expired
         case "EXPIRED":
             return .expired
         case "FAILED", "INACTIVE":

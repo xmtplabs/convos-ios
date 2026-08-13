@@ -9,10 +9,15 @@ struct ConnectionStatusMappingTests {
         #expect(CloudConnectionStatus.from(composioStatus: "ACTIVE") == .active)
     }
 
-    @Test("INITIATED and INITIALIZING map to .active (pre-complete states)")
-    func preCompleteStates() {
-        #expect(CloudConnectionStatus.from(composioStatus: "INITIATED") == .active)
-        #expect(CloudConnectionStatus.from(composioStatus: "INITIALIZING") == .active)
+    @Test("INITIATED and INITIALIZING are not active (OAuth never completed)")
+    func preCompleteStatesAreNotActive() {
+        // An OAuth that was started but never completed must not read as a
+        // connected account: treating these as active minted phantom-linked
+        // providers the approval sheet trusted, skipping its OAuth leg
+        // entirely. Expired surfaces the (re)connect prompt.
+        #expect(CloudConnectionStatus.from(composioStatus: "INITIATED") == .expired)
+        #expect(CloudConnectionStatus.from(composioStatus: "INITIALIZING") == .expired)
+        #expect(CloudConnectionStatus.from(composioStatus: "initiated") == .expired)
     }
 
     @Test("EXPIRED maps to .expired")

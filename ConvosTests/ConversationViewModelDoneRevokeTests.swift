@@ -329,6 +329,20 @@ private final class SpyGrantWriter: CloudConnectionGrantWriterProtocol, @uncheck
         }
     }
 
+    func grantConnectionConfirmingBackend(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String,
+        bundleIds: [String]?
+    ) async throws {
+        try await grantConnection(
+            connectionId,
+            to: conversationId,
+            grantedToInboxId: grantedToInboxId,
+            bundleIds: bundleIds
+        )
+    }
+
     func revokeGrant(
         connectionId: String,
         from conversationId: String,

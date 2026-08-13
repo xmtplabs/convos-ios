@@ -57,6 +57,13 @@ public final class MockConnectionGrantWriter: CloudConnectionGrantWriterProtocol
         bundleIds: [String]?
     ) async throws {}
 
+    public func grantConnectionConfirmingBackend(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String,
+        bundleIds: [String]?
+    ) async throws {}
+
     public func revokeGrant(
         connectionId: String,
         from conversationId: String,

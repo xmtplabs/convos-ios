@@ -444,6 +444,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             CapabilityApprovalSheetView(
                 layout: layout,
                 agentName: viewModel.askerDisplayName(for: layout.request),
+                isApproving: viewModel.capabilityApprovalInFlight,
+                approvalErrorMessage: viewModel.capabilityApprovalErrorMessage,
                 onApprove: { providerIds, bundleSelection in
                     viewModel.onCapabilityApprove(
                         providerIds: providerIds,

@@ -927,6 +927,18 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// request, the request was answered here, or observation reset).
     var presentingCapabilityApproval: Bool = false
     var showsCapabilityApprovedToast: Bool = false
+    /// Request id whose approval pipeline (backend grant confirmation + result
+    /// send) is in flight. Re-entrancy guard for the Done tap, and drives the
+    /// sheet's progress state. The request is only consumed once the pipeline
+    /// succeeds; until then the pill stays pending.
+    private(set) var capabilityApprovalInFlightRequestId: String?
+    var capabilityApprovalInFlight: Bool {
+        capabilityApprovalInFlightRequestId != nil
+    }
+    /// Failure the approval sheet surfaces when an approval could not be
+    /// completed -- the backend grant POST or the result send failed. The
+    /// request stays pending and the sheet's button retries the same approval.
+    private(set) var capabilityApprovalErrorMessage: String?
     var presentingProfileForMember: ConversationMember?
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
@@ -1757,6 +1769,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         pendingCapabilityPickerLayout = nil
         latestObservedCapabilityRequest = nil
         locallyHandledCapabilityRequestIds.removeAll()
+        capabilityApprovalInFlightRequestId = nil
+        capabilityApprovalErrorMessage = nil
         capabilityRequestsCancellable?.cancel()
         capabilityRequestsCancellable = session.capabilityRequestRepository(for: conversationId)
             .pendingRequestPublisher
@@ -2043,6 +2057,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         guard prompt.status == .pending else { return }
         guard let layout = pendingCapabilityPickerLayout,
               layout.request.requestId == prompt.requestId else { return }
+        // A failure from an earlier, since-dismissed attempt shouldn't greet
+        // the user on a fresh open; the sheet starts clean.
+        capabilityApprovalErrorMessage = nil
         presentingCapabilityApproval = true
     }
 
@@ -2073,6 +2090,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         guard let layout = pendingCapabilityPickerLayout else { return }
         let request = layout.request
         let conversationId = conversation.id
+        capabilityApprovalErrorMessage = nil
 
         let split = Self.splitCapabilityApproval(
             providerIds: providerIds,
@@ -2228,8 +2246,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// (connection, conversation, agent) and mirror the conversation-info
     /// revoke toggle's side effects in the same order — the user-visible
     /// `connection_event revoked` group-update line first, then resolver
-    /// cleanup (which re-arms `persistApprovedCloudCapabilities`' idempotency
-    /// gate so a later re-approval emits its own granted line). Services
+    /// cleanup (which re-arms `sendCloudGrantedEvents`' resolver-diff gate
+    /// so a later re-approval emits its own granted line). Services
     /// without an existing grant are a pure no-op: nothing is created,
     /// nothing is sent. Returns the service ids actually revoked.
     static func revokeUncheckedCloudGrants( // swiftlint:disable:this function_parameter_count
@@ -2279,128 +2297,263 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         return revokedServiceIds
     }
 
+    /// Runs the approval pipeline for one Done tap. The request is consumed
+    /// (pill resolved, sheet dismissed) only after the `.approved` result
+    /// actually went out — which in turn requires the backend grant POST to
+    /// have confirmed. On failure nothing is broadcast: the sheet stays up
+    /// with a retryable error and the pill stays pending, so a
+    /// successful-looking approval can never wake the agent without a server
+    /// grant behind it. A grant refused with the typed `connection_not_found`
+    /// (stale local connection row) drives the in-sheet OAuth leg and retries
+    /// once instead of surfacing an error; `allowConnectRecovery` is false on
+    /// that retry so a second refusal falls through to the retryable error.
     private func approveCapabilityRequest(
         _ request: CapabilityRequest,
         providerIds: Set<ProviderID>,
         bundleSelection: [String: Set<String>],
-        conversationId: String
+        conversationId: String,
+        allowConnectRecovery: Bool = true
     ) {
-        locallyHandledCapabilityRequestIds.insert(request.requestId)
-        // Only dismiss the picker if it's still showing *this* request — a newer
-        // request might have arrived during the async hop and replaced the layout,
-        // and we mustn't blow that one away on the old request's behalf.
-        if pendingCapabilityPickerLayout?.request.requestId == request.requestId {
-            pendingCapabilityPickerLayout = nil
+        guard capabilityApprovalInFlightRequestId == nil else { return }
+        capabilityApprovalInFlightRequestId = request.requestId
+        capabilityApprovalErrorMessage = nil
+        Task { [weak self] in
+            guard let self else { return }
+            let outcome = await self.sendCapabilityResult(
+                request: request,
+                status: .approved,
+                providerIds: providerIds,
+                bundleSelection: bundleSelection,
+                conversationId: conversationId
+            )
+            // A conversation switch mid-flight resets the in-flight id and may
+            // hand it to a newer approval. A late completion that no longer
+            // owns the id must not clear that approval's re-entrancy guard or
+            // surface its own error in the newer request's sheet.
+            guard self.capabilityApprovalInFlightRequestId == request.requestId else { return }
+            self.capabilityApprovalInFlightRequestId = nil
+            switch outcome {
+            case .sent:
+                self.locallyHandledCapabilityRequestIds.insert(request.requestId)
+                // Only dismiss the picker if it's still showing *this* request — a newer
+                // request might have arrived during the async hop and replaced the layout,
+                // and we mustn't blow that one away on the old request's behalf.
+                if self.pendingCapabilityPickerLayout?.request.requestId == request.requestId {
+                    self.pendingCapabilityPickerLayout = nil
+                }
+            case .needsConnect(let providers) where allowConnectRecovery:
+                self.connectStaleProvidersAndRetryApproval(
+                    providers,
+                    request: request,
+                    providerIds: providerIds,
+                    bundleSelection: bundleSelection,
+                    conversationId: conversationId
+                )
+            case .failed, .needsConnect:
+                self.capabilityApprovalErrorMessage = Constant.capabilityApprovalFailedMessage
+            }
         }
-        sendCapabilityResult(
-            request: request,
-            status: .approved,
-            providerIds: providerIds,
-            bundleSelection: bundleSelection,
-            conversationId: conversationId
-        )
     }
 
+    /// Recovery for the backend's typed `connection_not_found` refusal: the
+    /// local snapshot claimed a linked connection but the server holds no
+    /// live credential (an OAuth that never completed, or a server-side
+    /// revoke/purge). Runs the same in-sheet OAuth leg a Connect tap uses,
+    /// then retries the approval once with recovery disabled. Cancelling the
+    /// OAuth session leaves the sheet up with the retryable error.
+    private func connectStaleProvidersAndRetryApproval(
+        _ providers: [ProviderID],
+        request: CapabilityRequest,
+        providerIds: Set<ProviderID>,
+        bundleSelection: [String: Set<String>],
+        conversationId: String
+    ) {
+        guard connectOnApproveInFlightRequestId != request.requestId else { return }
+        connectOnApproveInFlightRequestId = request.requestId
+        let authorizer = session.deviceConnectionAuthorizer()
+        let registry = session.capabilityProviderRegistry()
+        let manager = session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme)
+        Task { [weak self] in
+            let allLinked = await Self.connectUnlinkedProviders(
+                providers,
+                authorizer: authorizer,
+                registry: registry,
+                cloudConnectionManager: manager
+            )
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.connectOnApproveInFlightRequestId = nil
+                guard allLinked else {
+                    self.capabilityApprovalErrorMessage = Constant.capabilityApprovalFailedMessage
+                    return
+                }
+                self.approveCapabilityRequest(
+                    request,
+                    providerIds: providerIds,
+                    bundleSelection: bundleSelection,
+                    conversationId: conversationId,
+                    allowConnectRecovery: false
+                )
+            }
+        }
+    }
+
+    /// Posts the `capability_request_result` reply for `request`. Deny/cancel
+    /// results always post -- the agent must see the user's intent even when
+    /// local bookkeeping fails. Approved results are contingent: every
+    /// approved cloud provider's grant must be confirmed against the backend
+    /// first, and the result message must actually send. If either fails,
+    /// nothing is broadcast -- no result, and no granted transcript line
+    /// either, since those (with resolver and device bookkeeping) run in
+    /// `finalizeBroadcastApproval` only after the send succeeds. An unbacked
+    /// "approved" would wake the agent only for the backend to deny its tool
+    /// calls, so the caller keeps the request pending. A grant refused with
+    /// the typed `connection_not_found` comes back as `.needsConnect` so the
+    /// caller can drive the in-sheet OAuth leg instead of surfacing an error.
     private func sendCapabilityResult(
         request: CapabilityRequest,
         status: CapabilityRequestResult.Status,
         providerIds: Set<ProviderID>,
         bundleSelection: [String: Set<String>] = [:],
         conversationId: String
-    ) {
+    ) async -> CapabilityResultSendOutcome {
         let resolver = session.capabilityResolver()
         let writer = messagingService.capabilityRequestResultWriter()
-        Task {
-            // The agent's contract is that a result is *always* posted — even cancel
-            // and deny — so we keep going on a resolver-side error and let the agent
-            // see the user's intent. Local persistence failure is logged and surfaced
-            // separately if it ever needs UI surfacing; it must not strand the agent.
-            //
-            // Snapshot the resolver's current providerIds for this (subject, verb,
-            // conversation) tuple before mutating it. The diff (`newlyApprovedProviderIds`)
-            // is what the cloud persist path uses to decide whether to fire a
-            // connection_event — fan-in semantics are per-(provider, verb), so a
-            // second verb approval on a provider already granted at the connection
-            // level still needs its own group-update line.
-            let askerInboxId = request.askerInboxId
-            let previouslyApproved: Set<ProviderID>
-            if status == .approved {
-                previouslyApproved = await resolver.resolution(
+        // Snapshot the resolver's current providerIds for this (subject, verb,
+        // conversation) tuple before mutating it. The diff (`newlyApprovedProviderIds`)
+        // decides which granted connection_events fire after the result send --
+        // fan-in semantics are per-(provider, verb), so a second verb approval
+        // on a provider already granted at the connection level still needs its
+        // own group-update line. The resolver mutates only after a successful
+        // send, so a failed send leaves the diff intact for the retry.
+        let askerInboxId = request.askerInboxId
+        let previouslyApproved: Set<ProviderID>
+        if status == .approved {
+            previouslyApproved = await resolver.resolution(
+                subject: request.subject,
+                capability: request.capability,
+                conversationId: conversationId,
+                grantedToInboxId: askerInboxId
+            )
+        } else {
+            previouslyApproved = []
+        }
+        let newlyApprovedProviderIds = providerIds.subtracting(previouslyApproved)
+        let sortedIds = providerIds.sorted(by: { $0.rawValue < $1.rawValue })
+
+        if status == .approved {
+            let confirmation = await Self.persistApprovedCloudCapabilities(
+                providerIds: sortedIds,
+                bundleSelection: bundleSelection,
+                conversationId: conversationId,
+                grantedToInboxId: askerInboxId,
+                grantWriter: messagingService.connectionGrantWriter(),
+                repository: session.cloudConnectionRepository()
+            )
+            guard confirmation.allConfirmed else {
+                guard confirmation.providersNeedingConnect.isEmpty else {
+                    return .needsConnect(confirmation.providersNeedingConnect)
+                }
+                return .failed
+            }
+        } else {
+            // Resolver errors don't block the result: routing state is local
+            // bookkeeping and a re-approval repairs it, whereas a swallowed
+            // result would strand the agent.
+            do {
+                try await resolver.clearResolution(
                     subject: request.subject,
                     capability: request.capability,
                     conversationId: conversationId,
                     grantedToInboxId: askerInboxId
                 )
-            } else {
-                previouslyApproved = []
-            }
-            let newlyApprovedProviderIds = providerIds.subtracting(previouslyApproved)
-
-            do {
-                switch status {
-                case .approved:
-                    try await resolver.setResolution(
-                        providerIds,
-                        subject: request.subject,
-                        capability: request.capability,
-                        conversationId: conversationId,
-                        grantedToInboxId: askerInboxId
-                    )
-                case .denied, .cancelled, .staleResource, .unknown:
-                    try await resolver.clearResolution(
-                        subject: request.subject,
-                        capability: request.capability,
-                        conversationId: conversationId,
-                        grantedToInboxId: askerInboxId
-                    )
-                }
             } catch {
                 Log.error("Capability resolver update failed (still posting result to agent): \(error.localizedDescription)")
             }
+        }
 
-            let availableActions = await self.availableActions(
-                for: providerIds.sorted(by: { $0.rawValue < $1.rawValue }),
-                capability: request.capability
+        let availableActions = await self.availableActions(
+            for: sortedIds,
+            capability: request.capability
+        )
+        let result = CapabilityRequestResult(
+            requestId: request.requestId,
+            status: status,
+            subject: request.subject,
+            capability: request.capability,
+            providers: sortedIds,
+            availableActions: availableActions
+        )
+        do {
+            try await writer.sendResult(result, in: conversationId)
+        } catch {
+            Log.error("Failed to send capability_request_result: \(error.localizedDescription)")
+            return .failed
+        }
+        if status == .approved {
+            await finalizeBroadcastApproval(
+                request: request,
+                providerIds: providerIds,
+                sortedProviderIds: sortedIds,
+                newlyApprovedProviderIds: newlyApprovedProviderIds,
+                conversationId: conversationId
             )
-            let result = CapabilityRequestResult(
-                requestId: request.requestId,
-                status: status,
+        }
+        return .sent
+    }
+
+    /// How one `sendCapabilityResult` attempt ended. `.needsConnect` carries
+    /// the providers whose grant POST the backend refused with the typed
+    /// `connection_not_found` -- the local connection row is stale and the
+    /// in-sheet OAuth leg must run before the approval can confirm.
+    enum CapabilityResultSendOutcome: Equatable {
+        case sent
+        case failed
+        case needsConnect([ProviderID])
+    }
+
+    /// Post-broadcast bookkeeping for an approval whose `.approved` result
+    /// actually went out: resolver routing state, device enablement, the
+    /// user-visible granted transcript lines, and the toast. Deliberately
+    /// deferred until after `sendResult` succeeds -- a granted line in the
+    /// transcript must imply the agent was woken with the matching result.
+    /// On a failed send nothing here runs; the retry recomputes the same
+    /// resolver diff and runs it then, so the lines still emit exactly once.
+    private func finalizeBroadcastApproval(
+        request: CapabilityRequest,
+        providerIds: Set<ProviderID>,
+        sortedProviderIds: [ProviderID],
+        newlyApprovedProviderIds: Set<ProviderID>,
+        conversationId: String
+    ) async {
+        do {
+            try await session.capabilityResolver().setResolution(
+                providerIds,
                 subject: request.subject,
                 capability: request.capability,
-                providers: providerIds.sorted(by: { $0.rawValue < $1.rawValue }),
-                availableActions: availableActions
+                conversationId: conversationId,
+                grantedToInboxId: request.askerInboxId
             )
-            if status == .approved {
-                let sortedIds = providerIds.sorted(by: { $0.rawValue < $1.rawValue })
-                await Self.persistApprovedDeviceCapabilities(
-                    providerIds: sortedIds,
-                    capability: request.capability,
-                    conversationId: conversationId,
-                    grantedToInboxId: askerInboxId,
-                    session: session
-                )
-                await Self.persistApprovedCloudCapabilities(
-                    providerIds: sortedIds,
-                    newlyApprovedProviderIds: newlyApprovedProviderIds,
-                    bundleSelection: bundleSelection,
-                    capability: request.capability,
-                    conversationId: conversationId,
-                    grantedToInboxId: askerInboxId,
-                    session: session
-                )
-            }
-
-            do {
-                try await writer.sendResult(result, in: conversationId)
-                if status == .approved {
-                    await MainActor.run { [weak self] in
-                        self?.flashCapabilityApprovedToast()
-                    }
-                }
-            } catch {
-                Log.error("Failed to send capability_request_result: \(error.localizedDescription)")
-            }
+        } catch {
+            // Routing state is local bookkeeping; a re-approval repairs it.
+            Log.error("Capability resolver update failed after broadcasting result: \(error.localizedDescription)")
         }
+        await Self.persistApprovedDeviceCapabilities(
+            providerIds: sortedProviderIds,
+            capability: request.capability,
+            conversationId: conversationId,
+            grantedToInboxId: request.askerInboxId,
+            session: session
+        )
+        await Self.sendCloudGrantedEvents(
+            providerIds: sortedProviderIds,
+            newlyApprovedProviderIds: newlyApprovedProviderIds,
+            capability: request.capability,
+            conversationId: conversationId,
+            grantedToInboxId: request.askerInboxId,
+            eventWriter: messagingService.connectionEventWriter()
+        )
+        flashCapabilityApprovedToast()
     }
 
     private func availableActions(
@@ -2484,64 +2637,105 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
 
     /// For each approved `composio.<service>` provider, ensure a per-conversation
-    /// `CloudConnectionGrant` exists against the matching active `CloudConnection` and
-    /// emit a `connection_event granted` if the grant is newly created. Skips providers
-    /// whose CloudConnection isn't active locally — those would have been created by the
-    /// caller (e.g. picker → connectCloudProvider) and the publisher snapshot taken here
-    /// races against that path; if we miss it the next sync corrects state.
-    private static func persistApprovedCloudCapabilities( // swiftlint:disable:this function_parameter_count
+    /// `CloudConnectionGrant` exists against the matching active `CloudConnection`,
+    /// confirmed against the backend grant store. The user-visible granted
+    /// transcript lines are not emitted here -- they follow the `.approved`
+    /// result send (see `sendCloudGrantedEvents`), so a confirmed grant whose
+    /// result never broadcasts leaves no granted line in the transcript.
+    ///
+    /// Returns false when any approved cloud provider's grant could not be
+    /// confirmed -- no active local connection to grant against, or the grant
+    /// write / backend POST failed. The caller must not broadcast an
+    /// `.approved` result in that case: the agent would be woken with an
+    /// approval the backend then denies.
+    ///
+    /// The confirming push runs unconditionally, even when a local grant row
+    /// already carries a `backendGrantId`: a locally cached id is not proof
+    /// of server state (a server-side revoke, reset, or purge leaves the row
+    /// stale, and trusting it would broadcast `.approved` with no server
+    /// grant behind it -- the agent then 403s on every execution). The
+    /// backend upserts the (owner, grantee, conversation, toolkit) tuple, so
+    /// re-approving is idempotent and self-healing, and the pushed scope
+    /// follows the user's latest picker state.
+    static func persistApprovedCloudCapabilities(
         providerIds: [ProviderID],
-        newlyApprovedProviderIds: Set<ProviderID>,
         bundleSelection: [String: Set<String>],
-        capability: ConnectionCapability,
         conversationId: String,
         grantedToInboxId: String,
-        session: any SessionManagerProtocol
-    ) async {
-        let messagingService = session.messagingService()
-        let grantWriter = messagingService.connectionGrantWriter()
-        let eventWriter = messagingService.connectionEventWriter()
-        let repository = session.cloudConnectionRepository()
+        grantWriter: any CloudConnectionGrantWriterProtocol,
+        repository: any CloudConnectionRepositoryProtocol
+    ) async -> CloudGrantConfirmation {
         let activeConnections = (try? await repository.connections()) ?? []
-        let existingGrants = (try? await repository.grants(for: conversationId)) ?? []
-        let existingGrantedKeys = Set(existingGrants.map { GrantKey(connectionId: $0.connectionId, grantedToInboxId: $0.grantedToInboxId) })
+        var allConfirmed = true
+        var providersNeedingConnect: [ProviderID] = []
 
         for providerId in providerIds {
             guard let serviceId = providerId.cloudServiceId else { continue }
-            guard let connection = activeConnections.first(where: { $0.serviceId == serviceId }) else { continue }
+            guard let connection = activeConnections.first(where: { $0.serviceId == serviceId }) else {
+                // Without an active local connection there is nothing to grant
+                // against, so no server grant can back this approval.
+                Log.error("No active connection for approved provider \(providerId.rawValue); approval not confirmed")
+                allConfirmed = false
+                continue
+            }
 
-            // The grant row is per-(connection, conversation, agent). Two agents
-            // approved for the same connection get two rows; the same agent re-
-            // approving the same connection with the same bundle scope is a no-op
-            // for the grant write but still needs its own connection_event. A
-            // re-approval with a *different* bundle selection re-grants so the
-            // backend scope follows the user's latest picker state.
+            // The grant row is per-(connection, conversation, agent); two
+            // agents approved for the same connection get two rows.
             let bundleIds = bundleSelection[serviceId].map { $0.sorted() }
-            let grantKey = GrantKey(connectionId: connection.id, grantedToInboxId: grantedToInboxId)
-            let existingGrant = existingGrants.first {
-                $0.connectionId == connection.id && $0.grantedToInboxId == grantedToInboxId
+            do {
+                try await grantWriter.grantConnectionConfirmingBackend(
+                    connection.id,
+                    to: conversationId,
+                    grantedToInboxId: grantedToInboxId,
+                    bundleIds: bundleIds
+                )
+            } catch CloudConnectionsAPI.GrantError.connectionNotFound {
+                // The backend's live-credential gate refused the grant: the
+                // local row is stale (an OAuth that never completed, or a
+                // server-side revoke/purge). The caller drives the in-sheet
+                // OAuth leg for these providers instead of surfacing an error.
+                Log.warning("Backend holds no live connection for \(providerId.rawValue); routing to the connect flow")
+                allConfirmed = false
+                providersNeedingConnect.append(providerId)
+            } catch {
+                Log.error("Failed to persist cloud grant for \(providerId.rawValue) → \(grantedToInboxId): \(error.localizedDescription)")
+                allConfirmed = false
             }
-            let bundleScopeChanged = existingGrant.map {
-                bundleIds != nil && Set($0.bundleIds ?? []) != Set(bundleIds ?? [])
-            } ?? false
-            if !existingGrantedKeys.contains(grantKey) || bundleScopeChanged {
-                do {
-                    try await grantWriter.grantConnection(
-                        connection.id,
-                        to: conversationId,
-                        grantedToInboxId: grantedToInboxId,
-                        bundleIds: bundleIds
-                    )
-                } catch {
-                    Log.error("Failed to persist cloud grant for \(providerId.rawValue) → \(grantedToInboxId): \(error.localizedDescription)")
-                    continue
-                }
-            }
+        }
+        return CloudGrantConfirmation(
+            allConfirmed: allConfirmed,
+            providersNeedingConnect: providersNeedingConnect
+        )
+    }
 
-            // Fan-in is per-(providerId, verb): if the resolver already had
-            // this providerId for this verb (re-approval after deny, picker
-            // shown twice), don't echo a duplicate group-update message.
-            guard newlyApprovedProviderIds.contains(providerId) else { continue }
+    /// Outcome of confirming the cloud grants behind one approval.
+    struct CloudGrantConfirmation: Equatable {
+        /// Every approved cloud provider's grant is backend-confirmed.
+        let allConfirmed: Bool
+        /// Providers whose grant POST was refused with the typed
+        /// `connection_not_found`: no live credential exists server-side, so
+        /// OAuth must (re)run before the approval can confirm.
+        let providersNeedingConnect: [ProviderID]
+    }
+
+    /// The user-visible `connection_event granted` transcript lines for the
+    /// cloud providers this approval newly resolved. Fan-in is per-(provider,
+    /// verb) via the resolver diff: if the resolver already had a providerId
+    /// for this verb (re-approval after deny, picker shown twice), no
+    /// duplicate group-update message is echoed. Called only after the
+    /// `.approved` result broadcast, so a granted line always implies the
+    /// agent was woken with the matching result.
+    static func sendCloudGrantedEvents(
+        providerIds: [ProviderID],
+        newlyApprovedProviderIds: Set<ProviderID>,
+        capability: ConnectionCapability,
+        conversationId: String,
+        grantedToInboxId: String,
+        eventWriter: any ConnectionEventWriterProtocol
+    ) async {
+        for providerId in providerIds {
+            guard providerId.cloudServiceId != nil,
+                  newlyApprovedProviderIds.contains(providerId) else { continue }
             try? await eventWriter.sendGranted(
                 providerId: providerId.rawValue,
                 capability: capability,
@@ -2549,11 +2743,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 in: conversationId
             )
         }
-    }
-
-    private struct GrantKey: Hashable {
-        let connectionId: String
-        let grantedToInboxId: String
     }
 
     private static func capabilityActionParameter(
@@ -2819,6 +3008,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         /// window in SyncingManager, which itself covers the assistant
         /// backend's roughly two-minute give-up with margin.
         static let assistantJoinWaitWindow: TimeInterval = 150
+        /// Shown in the approval sheet when an approval could not be
+        /// completed (backend grant confirmation or result send failed).
+        static let capabilityApprovalFailedMessage: String =
+            "Couldn't confirm this approval with the server. Check your connection and try again."
     }
 }
 

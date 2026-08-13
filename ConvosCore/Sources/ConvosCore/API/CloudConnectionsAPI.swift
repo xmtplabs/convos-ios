@@ -36,13 +36,23 @@ public enum CloudConnectionsAPI {
         }
     }
 
-    /// Typed failure surfaced by `createConnectionGrant` when the backend
-    /// rejects a bundle id that isn't in its catalog for the toolkit
-    /// (HTTP 400 `{"code": "unknown_bundle", "bundleId": "<the bad id>"}`).
-    /// This is the staleness signal on the HTTP path: callers refetch
-    /// `GET /v2/connections/services`, drop unknown ids, and retry once.
+    /// Typed failures surfaced by `createConnectionGrant`.
+    ///
+    /// `unknownBundle` is the backend rejecting a bundle id that isn't in its
+    /// catalog for the toolkit (HTTP 400 `{"code": "unknown_bundle",
+    /// "bundleId": "<the bad id>"}`). This is the staleness signal on the
+    /// HTTP path: callers refetch `GET /v2/connections/services`, drop
+    /// unknown ids, and retry once.
+    ///
+    /// `connectionNotFound` is the backend's live-credential gate refusing to
+    /// issue a grant for a toolkit with no connected account behind it
+    /// (HTTP 409 `{"code": "connection_not_found"}`). The local connection
+    /// row is stale -- an OAuth that never completed, or a server-side
+    /// revoke/purge -- and the user must (re)connect before the grant can
+    /// confirm.
     public enum GrantError: Error, Sendable, Equatable {
         case unknownBundle(bundleId: String?)
+        case connectionNotFound
     }
 
     // MARK: - Services catalog (GET /v2/connections/services)
