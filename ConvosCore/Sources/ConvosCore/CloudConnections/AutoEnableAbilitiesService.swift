@@ -57,7 +57,10 @@ public final class AutoEnableAbilitiesService: Sendable {
             Log.info("[AutoEnableAbilities] disabled; skipping for conversation \(conversationId)")
             return
         }
-        guard !agentInboxId.isEmpty else { return }
+        guard !agentInboxId.isEmpty else {
+            Log.warning("[AutoEnableAbilities] empty agent inbox id for conversation \(conversationId); skipping")
+            return
+        }
         let connections: [CloudConnection]
         let existingGrants: [CloudConnectionGrant]
         do {
@@ -73,6 +76,10 @@ public final class AutoEnableAbilitiesService: Sendable {
             conversationId: conversationId,
             agentInboxId: agentInboxId
         )
+        // Sequential on purpose: each confirming grant reads the
+        // conversation's current grant rows and republishes the projected
+        // set, so concurrent grants for one conversation would race that
+        // read-project-publish sequence.
         for connection in candidates {
             await grantAndAnnounce(
                 connection: connection,
@@ -112,6 +119,8 @@ public final class AutoEnableAbilitiesService: Sendable {
     ) async {
         let providerId = "composio.\(connection.serviceId)"
         do {
+            // Nil bundle selection is the no-picker consent shape: the writer
+            // materializes the full catalog bundle scope for the service.
             try await grantWriter.grantConnectionConfirmingBackend(
                 connection.id,
                 to: conversationId,

@@ -1584,7 +1584,10 @@ extension SessionManager {
     /// Fire-and-forget fan-out of the user's live cloud connections to a
     /// freshly added agent. Detached from the join so a slow or failing
     /// grant push can never delay or fail adding the agent; the service
-    /// logs every skipped or failed grant.
+    /// logs every skipped or failed grant. The fan-out keys on the
+    /// provisioned agent inbox id handed over by the join and never reads
+    /// conversation membership, so it doesn't depend on the member add
+    /// having become visible to local observation yet.
     private func autoEnableCreatorAbilities(conversationId: String, agentInboxId: String) {
         let service = autoEnableAbilitiesService()
         Task {

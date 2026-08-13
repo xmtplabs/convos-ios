@@ -186,6 +186,40 @@ struct AutoEnableAbilitiesServiceTests {
         ])
     }
 
+    @Test("a failing rollback is swallowed and sibling services still proceed")
+    func failingRollbackContinuesWithSiblings() async {
+        let grantWriter = SpyGrantWriter()
+        grantWriter.errorsByConnectionId = ["conn-cal": CloudConnectionsAPI.GrantError.connectionNotFound]
+        grantWriter.revokeErrorsByConnectionId = ["conn-cal": SpyGrantWriter.Failure()]
+        let eventWriter = SpyEventWriter()
+        let service = makeService(
+            connections: [
+                makeConnection(id: "conn-cal", serviceId: "googlecalendar"),
+                makeConnection(id: "conn-mail", serviceId: "gmail"),
+            ],
+            grants: [],
+            grantWriter: grantWriter,
+            eventWriter: eventWriter
+        )
+
+        await service.autoEnable(conversationId: conversationId, agentInboxId: agentInboxId)
+
+        #expect(grantWriter.revokes == [
+            SpyGrantWriter.Revoke(
+                connectionId: "conn-cal",
+                conversationId: conversationId,
+                grantedToInboxId: agentInboxId
+            ),
+        ])
+        #expect(eventWriter.grantedEvents == [
+            SpyEventWriter.Event(
+                providerId: "composio.gmail",
+                grantedToInboxId: agentInboxId,
+                conversationId: conversationId
+            ),
+        ])
+    }
+
     @Test("a transient failure leaves the row alone and posts no line")
     func transientFailureRollsNothingBack() async {
         let grantWriter = SpyGrantWriter()
@@ -287,12 +321,17 @@ private final class SpyGrantWriter: CloudConnectionGrantWriterProtocol, @uncheck
     private var recordedConfirmingGrants: [Grant] = []
     private var recordedRevokes: [Revoke] = []
     private var errors: [String: Error] = [:]
+    private var revokeErrors: [String: Error] = [:]
 
     var confirmingGrants: [Grant] { lock.withLock { recordedConfirmingGrants } }
     var revokes: [Revoke] { lock.withLock { recordedRevokes } }
     var errorsByConnectionId: [String: Error] {
         get { lock.withLock { errors } }
         set { lock.withLock { errors = newValue } }
+    }
+    var revokeErrorsByConnectionId: [String: Error] {
+        get { lock.withLock { revokeErrors } }
+        set { lock.withLock { revokeErrors = newValue } }
     }
 
     func grantConnection(
@@ -332,6 +371,9 @@ private final class SpyGrantWriter: CloudConnectionGrantWriterProtocol, @uncheck
                 conversationId: conversationId,
                 grantedToInboxId: grantedToInboxId
             ))
+        }
+        if let error = revokeErrorsByConnectionId[connectionId] {
+            throw error
         }
     }
 }
