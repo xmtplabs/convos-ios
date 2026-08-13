@@ -2894,6 +2894,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// toggles from it and treats unchecking as a revoke. Best-effort too: an
     /// unreadable grants table only loses the seeded state (the sheet falls
     /// back to all-ON and a re-approve is an idempotent upsert).
+    /// Nil when the request names providers this client doesn't know: the pill stays
+    /// in the transcript but no approval sheet is offered, rather than a sheet for
+    /// some other provider registered under the same subject.
     static func computeCapabilityPickerLayout( // swiftlint:disable:this function_parameter_count
         request: CapabilityRequest,
         registry: any CapabilityProviderRegistry,
@@ -2902,7 +2905,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         servicesStore: any ConnectionServicesStoreProtocol,
         cloudConnectionRepository: any CloudConnectionRepositoryProtocol,
         conversationId: String
-    ) async -> CapabilityPickerLayout {
+    ) async -> CapabilityPickerLayout? {
         let services = (try? await servicesStore.catalog()) ?? []
         let existingGrants = (try? await cloudConnectionRepository.grants(for: conversationId)) ?? []
         return await handler.computeLayout(

@@ -35,6 +35,12 @@ public struct CapabilityRequest: Codable, Sendable, Hashable {
     public let subject: CapabilitySubject
     public let capability: ConnectionCapability
     public let rationale: String
+    /// Providers the asking agent will actually exec against. When present this
+    /// constrains the approval card: only these providers may be offered, because a
+    /// different provider registered under the same subject would produce a grant the
+    /// agent cannot use for a service the user was never asked about. A request naming
+    /// only providers this client doesn't know resolves to no card at all.
+    /// Nil or empty means "whatever is registered for the subject".
     public let preferredProviders: [ProviderID]?
 
     public init(

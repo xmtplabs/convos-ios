@@ -11,7 +11,7 @@ import XCTest
 /// bundle rows so an approve silently escalated to full-service consent).
 @MainActor
 final class ConversationViewModelCapabilityConnectTests: XCTestCase {
-    func testComputeCapabilityPickerLayoutPopulatesBundleRows() async {
+    func testComputeCapabilityPickerLayoutPopulatesBundleRows() async throws {
         let registry = InMemoryCapabilityProviderRegistry()
         await registry.register(
             CloudCapabilityProvider(
@@ -44,7 +44,7 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
             ])
         })
 
-        let layout = await ConversationViewModel.computeCapabilityPickerLayout(
+        let layout = try XCTUnwrap(await ConversationViewModel.computeCapabilityPickerLayout(
             request: makeRequest(),
             registry: registry,
             resolver: resolver,
@@ -52,7 +52,7 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
             servicesStore: servicesStore,
             cloudConnectionRepository: MockConnectionRepository(),
             conversationId: "test-convo"
-        )
+        ))
 
         XCTAssertEqual(layout.serviceBundles.count, 1,
                        "Catalog-backed services must surface their bundle rows")
