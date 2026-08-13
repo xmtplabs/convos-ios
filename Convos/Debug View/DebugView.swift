@@ -51,6 +51,7 @@ struct DebugViewSection: View {
     @State private var useRealCredits: Bool = CreditsServices.useRealBackend
     @State private var useLiveAbilities: Bool = AbilitiesServices.useLiveBackend
     @State private var abilitiesV1ShimEnabled: Bool = AbilitiesServices.isV1AwarenessShimEnabled
+    @State private var abilitiesEscalationMockEnabled: Bool = AbilitiesServices.isEscalationMockEnabled
     @State private var identity: DeviceIdentitySnapshot?
 
     var body: some View {
@@ -103,9 +104,10 @@ struct DebugViewSection: View {
     }
 
     /// The Abilities V2 flag with its sub-toggles: mock/live backend
-    /// selection (default live) and the V1 awareness shim (default off).
-    /// Sub-toggles only render while the flag is on; both take effect on
-    /// the next read (no relaunch needed).
+    /// selection (default live), the V1 awareness shim (default off), and
+    /// the mock consent flow (default on). Sub-toggles only render while
+    /// the flag is on; all take effect on the next read (no relaunch
+    /// needed).
     @ViewBuilder
     private var abilitiesFeatureToggles: some View {
         Toggle("Abilities v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
@@ -117,6 +119,10 @@ struct DebugViewSection: View {
             Toggle("Abilities: v1 awareness shim", isOn: $abilitiesV1ShimEnabled)
                 .onChange(of: abilitiesV1ShimEnabled) { _, newValue in
                     AbilitiesServices.setV1AwarenessShimEnabled(newValue)
+                }
+            Toggle("Abilities: consent flow (mock)", isOn: $abilitiesEscalationMockEnabled)
+                .onChange(of: abilitiesEscalationMockEnabled) { _, newValue in
+                    AbilitiesServices.setEscalationMockEnabled(newValue)
                 }
         }
     }
