@@ -126,11 +126,14 @@ struct ConversationTabBar: View {
         .accessibilityIdentifier("conversation-tab-\(tab.rawValue)")
     }
 
-    /// The unread indicator, riding the icon's top-right corner.
+    /// The unread indicator, riding the icon's top-right corner. The ring
+    /// in the card's fill color cuts the dot out of the icon beneath it.
     private var unreadDot: some View {
         Circle()
             .fill(Color.colorOrange)
             .frame(width: Constant.unreadDotSize, height: Constant.unreadDotSize)
+            .padding(Constant.unreadDotRingWidth)
+            .background(Color.colorBackgroundRaised, in: .circle)
             .offset(x: Constant.unreadDotOffset, y: -Constant.unreadDotOffset)
             .transition(.scale.combined(with: .opacity))
             .accessibilityHidden(true)
@@ -205,9 +208,11 @@ struct ConversationTabBar: View {
         /// glyph inside it, filling the icon slot like the symbols do.
         static let agentBadgeSize: CGFloat = 24.0
         static let agentGlyphSize: CGFloat = 13.0
-        /// The unread dot on the icon's top-right corner (Figma 7488:14106).
+        /// The unread dot on the icon's top-right corner (Figma 7488:14106),
+        /// cut out of the icon by a ring in the card's fill color.
         static let unreadDotSize: CGFloat = 10.0
-        static let unreadDotOffset: CGFloat = 2.0
+        static let unreadDotRingWidth: CGFloat = 2.0
+        static let unreadDotOffset: CGFloat = 4.0
     }
 }
 
