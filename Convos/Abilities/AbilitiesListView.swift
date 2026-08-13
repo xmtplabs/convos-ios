@@ -1,3 +1,4 @@
+import ConvosComposer
 import ConvosCore
 import SwiftUI
 
@@ -56,7 +57,7 @@ struct AbilitiesListView: View {
             .searchable(text: $viewModel.searchText, prompt: "Search abilities")
             .overlay { listOverlay }
             .task { await viewModel.refresh() }
-            .sheet(item: $viewModel.pendingAuthorization, onDismiss: handleAuthorizationDismissed) { context in
+            .selfSizingSheet(item: $viewModel.pendingAuthorization, onDismiss: handleAuthorizationDismissed) { context in
                 authorizationSheet(context)
             }
     }

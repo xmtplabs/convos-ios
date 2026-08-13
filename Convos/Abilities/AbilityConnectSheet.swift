@@ -42,7 +42,6 @@ struct AbilityConnectSheet: View {
 
     var body: some View {
         content
-            .presentationDetents([.medium])
             .task { await viewModel.refresh() }
             .onChange(of: connectedAbility) { _, newValue in
                 guard let newValue else { return }
