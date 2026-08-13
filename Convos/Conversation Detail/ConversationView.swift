@@ -338,269 +338,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         selectedTab = tab
     }
 
-    /// Focus transfers ride the coordinators - each composer has its own
-    /// (both surfaces stay mounted, so raw FocusState writes would fight) -
-    /// releasing the outgoing composer and, when the user switched mid-edit,
-    /// claiming the incoming one so the keyboard hands over instead of
-    /// dropping.
-    private func handleSelectedTabChange(from oldTab: ConversationTab, to newTab: ConversationTab) {
-        visitedTabs.insert(newTab)
-        let keyboardWasUp: Bool = isKeyboardVisible
-        switch newTab {
-        case .group:
-            if keyboardWasUp {
-                // Claim the incoming composer directly - the outgoing field
-                // resigns implicitly and its sync wiring clears its
-                // coordinator. Explicitly dismissing first leaves a beat
-                // with no first responder and the keyboard visibly dips.
-                focusCoordinator.moveFocus(to: .message)
-            } else {
-                agentFocusCoordinator.dismissMessageComposerIfNeeded()
-            }
-        case .agent:
-            if keyboardWasUp {
-                agentFocusCoordinator.moveFocus(to: .message)
-            } else {
-                focusCoordinator.dismissMessageComposerIfNeeded()
-            }
-        case .home:
-            // No composer: the keyboard drops.
-            focusCoordinator.dismissMessageComposerIfNeeded()
-            agentFocusCoordinator.dismissMessageComposerIfNeeded()
-        }
-        // A right-swipe can both start a reply and switch away; cancel the
-        // in-flight reply swipe so the tab change doesn't fire one.
-        if oldTab == .group {
-            contextMenuState.cancelInFlightSwipe()
-            // The user just had the group on screen: anything that arrived
-            // while they watched is read, so it doesn't badge the tab they
-            // left. (The agent page does the same for its DM.)
-            markGroupAsRead()
-        }
-    }
-
-    private func markGroupAsRead() {
-        let conversationId: String = viewModel.conversation.id
-        let messagingService = viewModel.messagingService
-        Task {
-            do {
-                try await messagingService
-                    .conversationLocalStateWriter()
-                    .setUnread(false, for: conversationId)
-            } catch {
-                Log.warning("Failed marking group as read: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    /// Re-applies the agent composer's `@FocusState` for a same-value
-    /// `moveFocus` request (see `FocusCoordinator.refocusNonce`), bouncing
-    /// through nil when needed so SwiftUI re-acquires the first responder.
-    private func reassertAgentFocus() {
-        let target = agentFocusCoordinator.currentFocus
-        guard agentFocusState == target else {
-            agentFocusState = target
-            return
-        }
-        agentFocusState = nil
-        DispatchQueue.main.async {
-            agentFocusState = target
-        }
-    }
-
-    private func pushHomeBrowserPage(for url: URL) {
-        withAnimation(.easeInOut(duration: 0.25)) {
-            homeBrowserEntries.append(HomeBrowserEntry(url: url))
-        }
-    }
-
-    private func popHomeBrowserPage() {
-        withAnimation(.easeInOut(duration: 0.25)) {
-            _ = homeBrowserEntries.popLast()
-        }
-    }
-
-    /// The native tab bar's re-tap contract: tapping the active tab returns
-    /// to that surface's resting state - the home pops its browsing chain
-    /// to the root view; the transcripts scroll to the latest message.
-    private func handleTabReselect(_ tab: ConversationTab) {
-        switch tab {
-        case .home:
-            withAnimation(.easeInOut(duration: 0.25)) {
-                homeBrowserEntries.removeAll()
-            }
-        case .group:
-            groupScrollToBottom?()
-        case .agent:
-            agentScrollToBottom?()
-        }
-    }
-
-    /// True while the Home tab is showing an open browsing chain: the
-    /// top bar pops pages instead of the conversation, and the add-members
-    /// item hides. Other tabs keep their normal chrome even while a chain
-    /// waits behind the Home tab.
-    private var isBrowsingHome: Bool {
-        selectedTab == .home && !homeBrowserEntries.isEmpty
-    }
-
-    @ToolbarContentBuilder
-    private var topBarTrailing: some ToolbarContent {
-        // Swap the system back button for one that pops browser pages while
-        // the home browsing chain is showing, walking home to the root
-        // home view.
-        if isBrowsingHome {
-            ToolbarItem(placement: .topBarLeading) {
-                Button(action: popHomeBrowserPage) {
-                    Image(systemName: "chevron.left")
-                        .fontWeight(.semibold)
-                }
-                .accessibilityLabel("Back")
-                .accessibilityIdentifier("home-browser-back")
-            }
-        }
-        // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
-        // toolbar item is dropped for that flow. Browser pages hide the
-        // trailing item entirely.
-        if !topBarTrailingHidden && !showsEmbeddedInvite && !isBrowsingHome {
-            ToolbarItem(placement: .topBarTrailing) {
-                if viewModel.isLocked {
-                    lockedInfoButton
-                } else if !isAgentDmPageActive {
-                    switch messagesTopBarTrailingItem {
-                    case .share:
-                        // A full conversation can't mint new invite links, so the
-                        // invite affordance is hidden entirely (mirrors
-                        // `showsTopOfConvoInvite`'s `!isFull` gate).
-                        if !viewModel.isFull {
-                            inviteButton
-                        }
-                    case .scan: scanInviteButton
-                    }
-                }
-            }
-        }
-    }
-
-    private var lockedInfoButton: some View {
-        Button {
-            showingLockedInfo = true
-        } label: {
-            Image(systemName: "lock.fill")
-                .foregroundStyle(.colorTextSecondary)
-        }
-        .accessibilityLabel("Conversation locked")
-        .accessibilityHint("Tap for lock details")
-        .accessibilityIdentifier("lock-info-button")
-    }
-
-    /// The in-conversation top-right invite affordance. Opens the "Invite"
-    /// sheet (Figma node 5562-34019): the contacts picker re-titled "Invite",
-    /// scoped to this conversation, carrying the three convo-scoped invite
-    /// action rows + the scanner. Replaces the former `AddToConversationMenu`
-    /// context menu; the sheet itself is presented by `.addFromContactsPicker`.
-    private var inviteButton: some View {
-        Button(action: handleAddFromContactsTap) {
-            Image(systemName: "person.crop.circle.badge.plus")
-        }
-        .disabled(!messagesTopBarTrailingItemEnabled || effectiveReadOnly)
-        .accessibilityLabel("Invite")
-        .accessibilityIdentifier("add-to-conversation-button")
-    }
-
-    private var handleAddFromContactsTap: () -> Void {
-        { presentingAddFromContactsPicker = true }
-    }
-
-    /// Non-nil only for the agent the Agent tab is bound to (the
-    /// conversation's first verified agent); anyone else falls back to the
-    /// contact card's direct-create path. Hoisted out of the view function
-    /// so it stays a single builder expression.
-    private func startAgentDmAction(for member: ConversationMember) -> ((String) -> Void)? {
-        guard member.profile.inboxId == primaryAgentInboxId else { return nil }
-        return { _ in
-            viewModel.presentingProfileForMember = nil
-            withAnimation(.easeInOut(duration: 0.25)) {
-                selectTab(.agent)
-            }
-        }
-    }
-
-    private func memberContactDetailSheet(for member: ConversationMember) -> some View {
-        MemberContactDetailSheetContent(
-            viewModel: viewModel,
-            member: member,
-            profileSettingsViewModel: profileSettingsViewModel,
-            onStartAgentDm: startAgentDmAction(for: member)
-        )
-    }
-
-    @ViewBuilder
-    private func agentShareContactDetailSheet(for contact: Contact) -> some View {
-        AgentShareContactDetailSheetContent(viewModel: viewModel, contact: contact, profileSettingsViewModel: profileSettingsViewModel)
-    }
-
-    private var scanInviteButton: some View {
-        Button {
-            onScanInviteCode()
-        } label: {
-            Image(systemName: "viewfinder")
-        }
-        .buttonBorderShape(.circle)
-        .disabled(!messagesTopBarTrailingItemEnabled || effectiveReadOnly)
-        .accessibilityLabel("Scan invite code")
-        .accessibilityIdentifier("scan-invite-button")
-    }
-
-    private var debugAttachmentTapHandler: (() -> Void)? {
-        guard FeatureFlags.shared.isDebugInjectorEnabled else { return nil }
-        return { showingDebugInjector = true }
-    }
-
-    private var debugInjectorBinding: Binding<Bool> {
-        guard FeatureFlags.shared.isDebugInjectorEnabled else { return .constant(false) }
-        return $showingDebugInjector
-    }
-
-    private func profileSheetForMember(_ member: ConversationMember) -> AnyView {
-        AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel))
-    }
-
-    /// Approval sheet for the pending capability request, opened from the
-    /// transcript's connect pill. Extracted to keep `body`'s type-check time
-    /// in budget. The layout can clear while the sheet is up (another device
-    /// resolved the request) - the view model auto-dismisses in that case and
-    /// the EmptyView only covers the dismissal animation frame.
-    @ViewBuilder
-    private var capabilityApprovalSheet: some View {
-        if let layout = viewModel.pendingCapabilityPickerLayout {
-            CapabilityApprovalSheetView(
-                layout: layout,
-                agentName: viewModel.askerDisplayName(for: layout.request),
-                onApprove: { providerIds, bundleSelection in
-                    viewModel.onCapabilityApprove(
-                        providerIds: providerIds,
-                        bundleSelection: bundleSelection
-                    )
-                }
-            )
-        } else {
-            EmptyView()
-        }
-    }
-
-    /// Shared content for the invite- and agent-share-driven new-conversation
-    /// sheets. Extracted so neither `.sheet(item:)` closure inflates `body`'s
-    /// type-check past the 300ms budget.
-    @ViewBuilder
-    private func newConversationSheet(_ viewModel: NewConversationViewModel) -> some View {
-        NewConversationView(
-            viewModel: viewModel,
-            profileSettingsViewModel: profileSettingsViewModel
-        )
-        .background(.colorBackgroundSurfaceless)
-    }
-
     /// The agent the Agent tab binds to: the conversation's first verified
     /// agent member, in join order (`_members` is ordered createdAt.asc), so
     /// a newly-added agent never displaces the DM the user already opened.
@@ -865,6 +602,273 @@ struct ConversationView<MessagesBottomBar: View>: View {
             VoiceMemoPlayer.shared.stop()
             viewModel.voiceMemoRecorder.cancelRecording()
         }
+    }
+}
+
+// MARK: - Tab switching
+
+private extension ConversationView {
+    /// Focus transfers ride the coordinators - each composer has its own
+    /// (both surfaces stay mounted, so raw FocusState writes would fight) -
+    /// releasing the outgoing composer and, when the user switched mid-edit,
+    /// claiming the incoming one so the keyboard hands over instead of
+    /// dropping.
+    private func handleSelectedTabChange(from oldTab: ConversationTab, to newTab: ConversationTab) {
+        visitedTabs.insert(newTab)
+        let keyboardWasUp: Bool = isKeyboardVisible
+        switch newTab {
+        case .group:
+            if keyboardWasUp {
+                // Claim the incoming composer directly - the outgoing field
+                // resigns implicitly and its sync wiring clears its
+                // coordinator. Explicitly dismissing first leaves a beat
+                // with no first responder and the keyboard visibly dips.
+                focusCoordinator.moveFocus(to: .message)
+            } else {
+                agentFocusCoordinator.dismissMessageComposerIfNeeded()
+            }
+        case .agent:
+            if keyboardWasUp {
+                agentFocusCoordinator.moveFocus(to: .message)
+            } else {
+                focusCoordinator.dismissMessageComposerIfNeeded()
+            }
+        case .home:
+            // No composer: the keyboard drops.
+            focusCoordinator.dismissMessageComposerIfNeeded()
+            agentFocusCoordinator.dismissMessageComposerIfNeeded()
+        }
+        // A right-swipe can both start a reply and switch away; cancel the
+        // in-flight reply swipe so the tab change doesn't fire one.
+        if oldTab == .group {
+            contextMenuState.cancelInFlightSwipe()
+            // The user just had the group on screen: anything that arrived
+            // while they watched is read, so it doesn't badge the tab they
+            // left. (The agent page does the same for its DM.)
+            markGroupAsRead()
+        }
+    }
+
+    private func markGroupAsRead() {
+        let conversationId: String = viewModel.conversation.id
+        let messagingService = viewModel.messagingService
+        Task {
+            do {
+                try await messagingService
+                    .conversationLocalStateWriter()
+                    .setUnread(false, for: conversationId)
+            } catch {
+                Log.warning("Failed marking group as read: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Re-applies the agent composer's `@FocusState` for a same-value
+    /// `moveFocus` request (see `FocusCoordinator.refocusNonce`), bouncing
+    /// through nil when needed so SwiftUI re-acquires the first responder.
+    private func reassertAgentFocus() {
+        let target = agentFocusCoordinator.currentFocus
+        guard agentFocusState == target else {
+            agentFocusState = target
+            return
+        }
+        agentFocusState = nil
+        DispatchQueue.main.async {
+            agentFocusState = target
+        }
+    }
+
+    private func pushHomeBrowserPage(for url: URL) {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            homeBrowserEntries.append(HomeBrowserEntry(url: url))
+        }
+    }
+
+    private func popHomeBrowserPage() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            _ = homeBrowserEntries.popLast()
+        }
+    }
+
+    /// The native tab bar's re-tap contract: tapping the active tab returns
+    /// to that surface's resting state - the home pops its browsing chain
+    /// to the root view; the transcripts scroll to the latest message.
+    private func handleTabReselect(_ tab: ConversationTab) {
+        switch tab {
+        case .home:
+            withAnimation(.easeInOut(duration: 0.25)) {
+                homeBrowserEntries.removeAll()
+            }
+        case .group:
+            groupScrollToBottom?()
+        case .agent:
+            agentScrollToBottom?()
+        }
+    }
+
+    /// True while the Home tab is showing an open browsing chain: the
+    /// top bar pops pages instead of the conversation, and the add-members
+    /// item hides. Other tabs keep their normal chrome even while a chain
+    /// waits behind the Home tab.
+    private var isBrowsingHome: Bool {
+        selectedTab == .home && !homeBrowserEntries.isEmpty
+    }
+
+    @ToolbarContentBuilder
+    private var topBarTrailing: some ToolbarContent {
+        // Swap the system back button for one that pops browser pages while
+        // the home browsing chain is showing, walking home to the root
+        // home view.
+        if isBrowsingHome {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: popHomeBrowserPage) {
+                    Image(systemName: "chevron.left")
+                        .fontWeight(.semibold)
+                }
+                .accessibilityLabel("Back")
+                .accessibilityIdentifier("home-browser-back")
+            }
+        }
+        // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
+        // toolbar item is dropped for that flow. Browser pages hide the
+        // trailing item entirely.
+        if !topBarTrailingHidden && !showsEmbeddedInvite && !isBrowsingHome {
+            ToolbarItem(placement: .topBarTrailing) {
+                if viewModel.isLocked {
+                    lockedInfoButton
+                } else if !isAgentDmPageActive {
+                    switch messagesTopBarTrailingItem {
+                    case .share:
+                        // A full conversation can't mint new invite links, so the
+                        // invite affordance is hidden entirely (mirrors
+                        // `showsTopOfConvoInvite`'s `!isFull` gate).
+                        if !viewModel.isFull {
+                            inviteButton
+                        }
+                    case .scan: scanInviteButton
+                    }
+                }
+            }
+        }
+    }
+
+    private var lockedInfoButton: some View {
+        Button {
+            showingLockedInfo = true
+        } label: {
+            Image(systemName: "lock.fill")
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .accessibilityLabel("Conversation locked")
+        .accessibilityHint("Tap for lock details")
+        .accessibilityIdentifier("lock-info-button")
+    }
+
+    /// The in-conversation top-right invite affordance. Opens the "Invite"
+    /// sheet (Figma node 5562-34019): the contacts picker re-titled "Invite",
+    /// scoped to this conversation, carrying the three convo-scoped invite
+    /// action rows + the scanner. Replaces the former `AddToConversationMenu`
+    /// context menu; the sheet itself is presented by `.addFromContactsPicker`.
+    private var inviteButton: some View {
+        Button(action: handleAddFromContactsTap) {
+            Image(systemName: "person.crop.circle.badge.plus")
+        }
+        .disabled(!messagesTopBarTrailingItemEnabled || effectiveReadOnly)
+        .accessibilityLabel("Invite")
+        .accessibilityIdentifier("add-to-conversation-button")
+    }
+
+    private var handleAddFromContactsTap: () -> Void {
+        { presentingAddFromContactsPicker = true }
+    }
+
+    /// Non-nil only for the agent the Agent tab is bound to (the
+    /// conversation's first verified agent); anyone else falls back to the
+    /// contact card's direct-create path. Hoisted out of the view function
+    /// so it stays a single builder expression.
+    private func startAgentDmAction(for member: ConversationMember) -> ((String) -> Void)? {
+        guard member.profile.inboxId == primaryAgentInboxId else { return nil }
+        return { _ in
+            viewModel.presentingProfileForMember = nil
+            withAnimation(.easeInOut(duration: 0.25)) {
+                selectTab(.agent)
+            }
+        }
+    }
+
+    private func memberContactDetailSheet(for member: ConversationMember) -> some View {
+        MemberContactDetailSheetContent(
+            viewModel: viewModel,
+            member: member,
+            profileSettingsViewModel: profileSettingsViewModel,
+            onStartAgentDm: startAgentDmAction(for: member)
+        )
+    }
+
+    @ViewBuilder
+    private func agentShareContactDetailSheet(for contact: Contact) -> some View {
+        AgentShareContactDetailSheetContent(viewModel: viewModel, contact: contact, profileSettingsViewModel: profileSettingsViewModel)
+    }
+
+    private var scanInviteButton: some View {
+        Button {
+            onScanInviteCode()
+        } label: {
+            Image(systemName: "viewfinder")
+        }
+        .buttonBorderShape(.circle)
+        .disabled(!messagesTopBarTrailingItemEnabled || effectiveReadOnly)
+        .accessibilityLabel("Scan invite code")
+        .accessibilityIdentifier("scan-invite-button")
+    }
+
+    private var debugAttachmentTapHandler: (() -> Void)? {
+        guard FeatureFlags.shared.isDebugInjectorEnabled else { return nil }
+        return { showingDebugInjector = true }
+    }
+
+    private var debugInjectorBinding: Binding<Bool> {
+        guard FeatureFlags.shared.isDebugInjectorEnabled else { return .constant(false) }
+        return $showingDebugInjector
+    }
+
+    private func profileSheetForMember(_ member: ConversationMember) -> AnyView {
+        AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel))
+    }
+
+    /// Approval sheet for the pending capability request, opened from the
+    /// transcript's connect pill. Extracted to keep `body`'s type-check time
+    /// in budget. The layout can clear while the sheet is up (another device
+    /// resolved the request) - the view model auto-dismisses in that case and
+    /// the EmptyView only covers the dismissal animation frame.
+    @ViewBuilder
+    private var capabilityApprovalSheet: some View {
+        if let layout = viewModel.pendingCapabilityPickerLayout {
+            CapabilityApprovalSheetView(
+                layout: layout,
+                agentName: viewModel.askerDisplayName(for: layout.request),
+                onApprove: { providerIds, bundleSelection in
+                    viewModel.onCapabilityApprove(
+                        providerIds: providerIds,
+                        bundleSelection: bundleSelection
+                    )
+                }
+            )
+        } else {
+            EmptyView()
+        }
+    }
+
+    /// Shared content for the invite- and agent-share-driven new-conversation
+    /// sheets. Extracted so neither `.sheet(item:)` closure inflates `body`'s
+    /// type-check past the 300ms budget.
+    @ViewBuilder
+    private func newConversationSheet(_ viewModel: NewConversationViewModel) -> some View {
+        NewConversationView(
+            viewModel: viewModel,
+            profileSettingsViewModel: profileSettingsViewModel
+        )
+        .background(.colorBackgroundSurfaceless)
     }
 }
 
