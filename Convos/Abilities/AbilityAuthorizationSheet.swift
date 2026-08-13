@@ -14,14 +14,16 @@ struct AbilityAuthorizationSheet: View {
     let onAuthorize: () -> Void
     let onCancel: () -> Void
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
             header
             redirectPreview
             actionButtons
         }
-        .padding(.vertical, DesignConstants.Spacing.step6x)
-        .presentationDetents([.medium])
+        .padding(.top, DesignConstants.Spacing.step6x)
+        .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step6x : 0)
         // Swipe-down stays allowed: the presenting sheet's onDismiss
         // routes it through the same cancel lifecycle as the Cancel
         // button (`AbilitiesListViewModel.handleAuthorizationDismissed`).
