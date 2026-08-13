@@ -57,15 +57,24 @@ execution environment cannot spoof:
   is asking" - a header or field it sets itself - is not a security
   boundary. A prompt-injected agent could simply claim to be the owner.
 
-So the design constraint is: attribute the triggering sender using only
-system-controlled signals, never anything the container asserts about
+So the design constraint is directional rather than blanket: attribute the
+triggering sender using only system-controlled signals, never anything the
+container asserts about itself. The container is permitted to influence the
+attribution window in exactly one direction - container input may only cause
+more denial, never more allowance. A signal from it that would widen
+attribution is ignored; a signal that only narrows attribution can safely be
+acted on, because a container that lies in that direction only denies
 itself.
 
 ### Decision
 
 Owner-only is enforced at the backend using a short-lived, worker-maintained
-record of recent activity - an append-only "attested-dispatch window" that
-the container can neither add to, remove from, nor extend the life of.
+record of recent activity - an append-only "attested-dispatch window" whose
+entries the container cannot create, remove, or shorten. It can lengthen an
+entry in exactly one case: a container-reported turn start may extend a
+proactive marker, which holds attribution suppressed for longer and so can
+only deny more. Human entries are never extended by container input at all -
+their lifetime comes from the worker clock alone.
 
 - The worker/runtime layer appends an entry, at the moment it forwards an
   inbound event for processing (a system-controlled event the container has
@@ -173,7 +182,7 @@ bound.
 
   marker            [==][===============================]
                     recorded at 8, then extended forward to the turn's
-                    actual start at 12; expires at 44
+                    reported actual start at 12; expires at 44
 
   entry C                 [===============================]
                           forwarded at 14 - adds an entry, clears nothing
@@ -198,6 +207,10 @@ call at 45 shows the only way suppression ever ends - the marker reached its
 TTL. And because every entry runs the full bound, a turn triggered by C's
 message at 14 is still inside C's own entry however long it sat queued.
 
+The marker's extension at 12 is the one place in this picture where a
+container-reported signal moves anything, and note which way it moves it:
+later, never earlier. No reported signal shifts entry A, B or C at all.
+
 ### Bounding scheduled-turn attribution
 
 An earlier version of this design had a gap: a proactive marker could be
@@ -205,8 +218,10 @@ outlived by the scheduled turn it was meant to cover, since nothing bounded
 how long that turn could keep running - once the marker expired, the
 ambiguity it existed to prevent could reopen while the turn was still live.
 
-This is closed with three changes, all enforced by the worker/runtime layer
-rather than anything the container reports about itself:
+This is closed with three changes, all enforced by the worker/runtime layer.
+One of them acts on a signal the container reports about itself, and it is
+safe for the directional reason above: that signal can only lengthen
+suppression, never shorten it and never widen attribution.
 
 - **A wall-clock ceiling on every turn.** Every turn now runs under an
   enforced maximum duration (10 minutes), checked inside the execution
@@ -314,8 +329,11 @@ stays worker-attested for now, same trust level as the live-turn header).
   message arriving while a scheduled turn was still running could get that
   turn's tool call misattributed to the human. The fixed-TTL, no-early-removal
   design above closes both: nothing reachable from the container can shorten
-  or extend an entry's life, and a scheduled dispatch blocks attribution for
-  its entire span rather than only until the next human message.
+  an entry's life or lengthen a human entry at all, and the one extension it
+  can cause - lengthening a proactive marker to cover its turn - withholds
+  attribution for longer rather than granting it. A scheduled dispatch also
+  blocks attribution for its entire span rather than only until the next
+  human message.
 - **Trust a container-asserted identity** (a header or field the agent's own
   code sets). Rejected as enforcement - the container is exactly the
   untrusted hop; anything it asserts can be prompt-injected. Fine only as
@@ -335,9 +353,9 @@ stays worker-attested for now, same trust level as the live-turn header).
   into visible group breakage, and it changes delivery semantics on a hot
   path for what is meant to be an interim mitigation. The window reaches
   the same fail-closed outcome without touching delivery semantics at all:
-  entries are TTL-bound regardless of what the container does or does not
-  report, so there is nothing for a withheld or fabricated completion
-  signal to change.
+  entry lifetimes are bound to the worker clock and no completion signal
+  touches them at all, so there is nothing for a withheld or fabricated
+  completion to change.
 
 ### Known limitations
 
@@ -523,7 +541,7 @@ Which component owns which piece:
 |---|---|
 | iOS client app | Auto-enable of the acting member's own live connections at conversation create / agent add (Q2), and the client-side result keying fix (Q3). Nothing for owner-only enforcement. |
 | Assistants worker, and its per-conversation durable object | The attested-dispatch window: recording human dispatch entries and proactive markers at forward time, TTL expiry, and the stamping decision that puts `x-convos-trigger-sender-inbox-id` on both outbound exec paths. |
-| Agent runtime / container | Runs the turn under the enforced wall-clock ceiling and reports its own turn start so a marker can be extended to cover it. It has no attribution authority: nothing it reports can create, clear, or shorten a window entry in a way that widens attribution. |
+| Agent runtime / container | Runs the turn under the enforced wall-clock ceiling and reports its own turn start, which may extend a proactive marker to cover that turn. That report is its only influence on the window, and it runs one way: it can lengthen suppression, never shorten it. It cannot create, remove, or shorten an entry, cannot extend a human entry, and cannot widen attribution. |
 | Backend entitlement service | Reads the optional header, compares it against the owner recorded on the grant, and returns the typed `owner_only` denial carrying the owner's inbox id under the single-distinct-owner rule. |
 | Agent guidance layer | Turns that denial into requester-facing copy: resolves the owner's inbox id to a display name from conversation member profile data, with the generic fallback when no name resolves. |
 
