@@ -63,25 +63,26 @@ itself.
 ### Decision
 
 Enforce owner-only at the backend using a short-lived, worker-maintained
-record of who is currently mid-turn - a "turn-context ledger" - rather than
-trusting the container or inferring intent from message-queue state.
+record of recent activity - an append-only "attested-dispatch window" that
+the container can neither add to, remove from, nor extend the life of.
 
-- The worker/runtime layer records an entry, at the moment it forwards an
-  inbound message for processing (a system-controlled event), containing the
-  sending member's id and a timestamp. Only turn-driving message content
-  counts - typing indicators, reactions, read receipts, profile/metadata
-  updates, and the agent's own echoes are filtered out.
-- Entries are removed when that turn's processing completes, and expire on a
-  short hard TTL (on the order of 10 minutes) regardless, so a stuck or
-  withheld completion signal cannot keep an entry alive indefinitely.
-- Scheduled or proactive dispatches (cron, notifications) are recorded
-  separately and explicitly suppress attribution until the next
-  human-triggered turn, so a scheduled run is never mistakenly attributed to
-  whoever spoke last.
-- When exactly one distinct sender is currently live in the ledger, the
-  outbound call to the backend carries a `x-convos-trigger-sender-inbox-id`
-  header with that sender's id. An ambiguous ledger (more than one live
-  sender) or an empty one omits the header.
+- The worker/runtime layer appends an entry, at the moment it forwards an
+  inbound event for processing (a system-controlled event the container has
+  no path to trigger or influence), recording either a **human dispatch** -
+  the sending member's id, for turn-driving message content and the couple
+  of other attested human-originated events that open a turn - or a
+  **proactive marker** with no sender, whenever the worker fires its own
+  scheduled dispatch (cron, notifications) rather than forwarding a human
+  message.
+- Entries are never removed early; they expire purely on a fixed,
+  worker-controlled TTL - roughly 10 minutes for a human entry, and the
+  scheduled dispatch's own lead time plus that same window for a proactive
+  marker.
+- When exactly one distinct human sender is live in the window **and no
+  proactive marker is currently live**, the outbound call to the backend
+  carries a `x-convos-trigger-sender-inbox-id` header with that sender's id.
+  Any ambiguity - more than one sender, a live proactive marker, or an empty
+  window - omits the header.
 - The backend compares the header, when present, against the inbox id
   recorded on the grant at the time it was created and denies with a typed
   `owner_only` error on a mismatch - including when the header is absent, and
@@ -153,6 +154,20 @@ stays worker-attested for now, same trust level as the live-turn header).
 
 ### Alternatives considered
 
+- **Clear an entry when its turn finishes, and suppress attribution from a
+  scheduled dispatch only until the next human message.** An earlier version
+  of this design worked this way. Two gaps surfaced during implementation:
+  a "this turn is finished" signal that anything downstream of the worker
+  can trigger is not fully outside the container's reach, so a malicious
+  container could clear entries early to narrow attribution, or withhold
+  that signal to keep a stale entry alive past when it should expire; and
+  suppressing attribution only until the next human message does not block
+  attribution for the full span of an in-flight scheduled turn, so a human
+  message arriving while a scheduled turn was still running could get that
+  turn's tool call misattributed to the human. The fixed-TTL, no-early-removal
+  design above closes both: nothing reachable from the container can shorten
+  or extend an entry's life, and a scheduled dispatch blocks attribution for
+  its entire span rather than only until the next human message.
 - **Trust a container-asserted identity** (a header or field the agent's own
   code sets). Rejected as enforcement - the container is exactly the
   untrusted hop; anything it asserts can be prompt-injected. Fine only as
@@ -187,6 +202,15 @@ stays worker-attested for now, same trust level as the live-turn header).
   in an environment at once (membership-sufficient access becomes
   owner-only). That is the intended effect, but it is a behavior change
   worth telling pilot users about rather than a silent tightening.
+- Because entries never clear early, attribution needs the entire trailing
+  TTL window to have had a single human dispatcher, not just the instant of
+  the check - group conversations with mixed traffic deny more often than a
+  clears-on-completion design would have.
+- A live proactive marker blocks attribution for its whole span, so a
+  genuine ask from the owner immediately after a scheduled run can also
+  deny, for a few minutes past that run's start.
+- A scheduled turn that runs longer than its own marker re-opens the
+  ambiguity window for whatever remains of that turn.
 
 ## Q2: Default-enable already-connected abilities in new conversations
 
