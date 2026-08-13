@@ -30,6 +30,11 @@ struct HomeWebView: UIViewRepresentable {
     var bottomContentInset: CGFloat = 0
     /// Fired on the main actor once the page finishes loading.
     var onLoaded: @MainActor () -> Void = {}
+    /// Fired after the page paints, carrying the page's sampled top and
+    /// bottom edge colors. The page's own background cannot paint beyond
+    /// its document, so the host extends these into the chrome-inset and
+    /// overscroll regions behind the transparent web view.
+    var onEdgeColorsSampled: @MainActor (UIColor, UIColor) -> Void = { _, _ in }
     /// Fired on the main actor when the page requests navigation away from
     /// the loaded space URL (link tap, JS redirect, target=_blank). The
     /// navigation is cancelled in place; the host presents it in the home
@@ -37,11 +42,13 @@ struct HomeWebView: UIViewRepresentable {
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(
+        let coordinator = Coordinator(
             conversationId: conversationId,
             onLoaded: onLoaded,
             onNavigationRequest: onNavigationRequest
         )
+        coordinator.onEdgeColorsSampled = onEdgeColorsSampled
+        return coordinator
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -106,6 +113,7 @@ struct HomeWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var conversationId: String
         var onLoaded: @MainActor () -> Void
+        var onEdgeColorsSampled: @MainActor (UIColor, UIColor) -> Void = { _, _ in }
         var onNavigationRequest: @MainActor (URL) -> Void
         var loadedURL: URL?
         var hasLoaded: Bool = false
@@ -174,14 +182,67 @@ struct HomeWebView: UIViewRepresentable {
             let navigation = navigation
             DispatchQueue.main.asyncAfter(deadline: .now() + Constant.snapshotDelay) { [weak self, weak webView] in
                 guard let self, let webView, self.isCurrent(navigation) else { return }
+                let contentInset = webView.scrollView.contentInset
+                let onEdgeColorsSampled = self.onEdgeColorsSampled
                 webView.takeSnapshot(with: nil) { image, error in
                     if let error {
                         Log.error("HomeWebView snapshot failed: \(error)")
                     }
-                    guard let pngData = image?.pngData() else { return }
+                    guard let image else { return }
+                    if let edges = Self.edgeColors(of: image, contentInset: contentInset) {
+                        Task { @MainActor in onEdgeColorsSampled(edges.top, edges.bottom) }
+                    }
+                    guard let pngData = image.pngData() else { return }
                     Task { await HomeSnapshotStore.shared.store(pngData, for: conversationId) }
                 }
             }
+        }
+
+        /// Average colors of the page's top and bottom visible edges,
+        /// sampled just inside the content insets so the rows measured are
+        /// page pixels, not the chrome-inset regions.
+        private static func edgeColors(of image: UIImage, contentInset: UIEdgeInsets) -> (top: UIColor, bottom: UIColor)? {
+            guard let cgImage = image.cgImage else { return nil }
+            let scale = image.scale
+            let width = CGFloat(cgImage.width)
+            let height = CGFloat(cgImage.height)
+            let rowHeight: CGFloat = 4.0 * scale
+            let topY: CGFloat = contentInset.top * scale + rowHeight
+            let bottomY: CGFloat = height - contentInset.bottom * scale - rowHeight * 2.0
+            guard topY >= 0, bottomY > topY, bottomY + rowHeight <= height else { return nil }
+            guard
+                let top = averageColor(of: cgImage, in: CGRect(x: 0, y: topY, width: width, height: rowHeight)),
+                let bottom = averageColor(of: cgImage, in: CGRect(x: 0, y: bottomY, width: width, height: rowHeight))
+            else { return nil }
+            return (top, bottom)
+        }
+
+        /// Downscales a strip of the image to a single pixel to average it.
+        /// Nil for strips that are effectively transparent (an unpainted
+        /// page), so the host keeps its own canvas.
+        private static func averageColor(of cgImage: CGImage, in rect: CGRect) -> UIColor? {
+            guard let strip = cgImage.cropping(to: rect) else { return nil }
+            guard let context = CGContext(
+                data: nil,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return nil }
+            context.interpolationQuality = .medium
+            context.draw(strip, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            guard let data = context.data else { return nil }
+            let pixel = data.bindMemory(to: UInt8.self, capacity: 4)
+            let alpha = CGFloat(pixel[3]) / 255.0
+            guard alpha > 0.5 else { return nil }
+            return UIColor(
+                red: CGFloat(pixel[0]) / 255.0 / alpha,
+                green: CGFloat(pixel[1]) / 255.0 / alpha,
+                blue: CGFloat(pixel[2]) / 255.0 / alpha,
+                alpha: 1.0
+            )
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
