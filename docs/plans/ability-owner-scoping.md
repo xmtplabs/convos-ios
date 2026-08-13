@@ -74,10 +74,14 @@ the container can neither add to, remove from, nor extend the life of.
   **proactive marker** with no sender, whenever the worker fires its own
   scheduled dispatch (cron, notifications) rather than forwarding a human
   message.
-- Entries are never removed early; they expire purely on a fixed,
-  worker-controlled TTL - roughly 10 minutes for a human entry, and the
-  scheduled dispatch's own lead time plus that same window for a proactive
-  marker.
+- Entries are append-only: there is no removal path of any kind, and in
+  particular no completion-driven settlement - if the container reports
+  that a turn has ended, that signal is recorded for telemetry only and is
+  never consulted to decide whether an entry is still live. Every entry
+  expires purely on a fixed, worker-controlled TTL - roughly 10 minutes for
+  a human entry, and the scheduled dispatch's own lead time plus that same
+  window for a proactive marker (see below for how that marker's span is
+  bounded against a long-running turn).
 - When exactly one distinct human sender is live in the window **and no
   proactive marker is currently live**, the outbound call to the backend
   carries a `x-convos-trigger-sender-inbox-id` header with that sender's id.
@@ -98,7 +102,50 @@ who sent the message that opened the current turn, which is transport
 context, not a claim about intent or authorization. A fuller model that
 distinguishes who created a request, who owns the underlying credential, and
 who triggered a specific call is future work (see Non-goals); this header is
-scoped to exactly what the ledger can attest today.
+scoped to exactly what the window can attest today.
+
+### Bounding scheduled-turn attribution
+
+An earlier version of this design had a gap: a proactive marker could be
+outlived by the scheduled turn it was meant to cover, since nothing bounded
+how long that turn could keep running - once the marker expired, the
+ambiguity it existed to prevent could reopen while the turn was still live.
+
+This is closed with three changes, all enforced by the worker/runtime layer
+rather than anything the container reports about itself:
+
+- **A wall-clock ceiling on every turn.** Every turn now runs under an
+  enforced maximum duration (10 minutes), checked inside the execution
+  thread itself at every model call and at every tool/ability-exec boundary
+  - not just at the edges. A turn that overruns the ceiling can no longer
+  execute an ability at all, regardless of what it is doing when the
+  ceiling hits.
+- **The marker's window is anchored to the turn's actual start, and only
+  ever extends.** Rather than a fixed span set when the turn is dispatched,
+  the worker refreshes the marker at the moment the turn actually begins
+  executing, so the suppression window covers the turn's real execution
+  time even if it sat queued for a while first. The marker can only be
+  extended this way, never shortened - nothing the container reports can
+  pull the window in.
+- **The queue of pending triggers is bounded**, so a backlog cannot
+  silently push a turn's actual start arbitrarily far past when its marker
+  was first recorded.
+
+Together these give a plain invariant: a marker's coverage is always at
+least as long as the enforced ceiling from the turn's real start, so a
+scheduled turn can no longer outlive its own suppression window.
+
+**Why not track per-dispatch lineage instead of bounding a marker's span?**
+The transport that carries a dispatch into execution has no notion of
+per-dispatch identity, and every turn - human or scheduled - runs inside
+the same trust domain as the container. Any marker fine-grained enough to
+trace a specific dispatch through to its execution would have to be
+readable, and therefore forgeable, from inside that same domain, which
+reintroduces the exact container-trust problem the rest of this design
+exists to avoid. Bounding how long a marker can possibly need to stay
+valid, and only ever extending it from a worker-controlled signal, achieves
+the same practical guarantee without needing dispatch-level identity at
+all.
 
 ### Owner-name denial copy
 
@@ -133,7 +180,7 @@ Scheduled/proactive execution of owner-only abilities stays off for now
 different answer, since there is no live turn to attribute at fire time:
 
 - **Capture** authority once, at subscription-creation time - that happens
-  inside a live, ledger-attested human turn, so the creating member's id can
+  inside a live, window-attested human turn, so the creating member's id can
   be persisted alongside the subscription record as the point of consent.
 - **Replay** that stored authority at webhook-fire time as a distinct,
   explicitly-typed claim, never conflated with the live-turn header. The
@@ -185,16 +232,17 @@ stays worker-attested for now, same trust level as the live-turn header).
   container-originated completion signal - a withheld completion would then
   stall *other members'* message delivery too, turning a spoofing attempt
   into visible group breakage, and it changes delivery semantics on a hot
-  path for what is meant to be an interim mitigation. The ledger reaches the
-  same fail-closed outcome (ambiguity denies, staleness denies, a withheld
-  completion costs the attacker nothing) without touching delivery
-  semantics.
+  path for what is meant to be an interim mitigation. The window reaches
+  the same fail-closed outcome without touching delivery semantics at all:
+  entries are TTL-bound regardless of what the container does or does not
+  report, so there is nothing for a withheld or fabricated completion
+  signal to change.
 
 ### Known limitations
 
-- If several members are mid-turn at once, the ledger holds more than one
-  live sender and denies rather than guessing. Acceptable at pilot scale;
-  the workaround is asking one at a time.
+- If several members are mid-turn at once, the window holds more than one
+  live sender and denies rather than guessing (multi-sender dilution).
+  Acceptable at pilot scale; the workaround is asking one at a time.
 - The header attests who spoke, not what the model was told to do with that
   fact - it stops other members from *using* an ability through the agent,
   it does not prove the owner specifically wanted a given call.
@@ -207,10 +255,13 @@ stays worker-attested for now, same trust level as the live-turn header).
   the check - group conversations with mixed traffic deny more often than a
   clears-on-completion design would have.
 - A live proactive marker blocks attribution for its whole span, so a
-  genuine ask from the owner immediately after a scheduled run can also
-  deny, for a few minutes past that run's start.
-- A scheduled turn that runs longer than its own marker re-opens the
-  ambiguity window for whatever remains of that turn.
+  genuine ask from the owner right after a scheduled run also denies, for
+  as long as that marker's window covers (post-system-turn attribution
+  denial).
+- If the worker-controlled signal that extends a marker to its turn's
+  actual start ever fails to arrive, the marker is treated as still live
+  for its originally recorded span rather than assumed clear - attribution
+  fails closed on that uncertainty the same as any other ambiguity.
 
 ## Q2: Default-enable already-connected abilities in new conversations
 
