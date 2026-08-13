@@ -153,7 +153,7 @@ struct ConversationTabBar: View {
     private func glyph(for tab: ConversationTab, isSelected: Bool) -> some View {
         switch tab {
         case .home:
-            symbolGlyph("macwindow", isSelected: isSelected)
+            symbolGlyph("house.fill", isSelected: isSelected)
         case .group:
             symbolGlyph("message.fill", isSelected: isSelected)
         case .agent:

@@ -85,9 +85,9 @@ private struct HomeCoverView: View {
             ZStack {
                 Color.colorBackgroundSurfaceless
                 Color.colorBackgroundSubtle
-                Text("Home")
-                    .font(.largeTitle)
-                    .foregroundStyle(.colorTextSecondary)
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(.colorTextSecondary)
             }
         }
     }
