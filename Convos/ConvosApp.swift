@@ -228,6 +228,13 @@ struct ConvosApp: App {
     /// the surfaces refresh again on appear.
     private static func configureAbilities(session: any SessionManagerProtocol, environment: AppEnvironment) {
         AbilitiesServices.configure(session: session, environment: environment)
+        // Auto-enable mirrors the v1 connections toggle, so it runs exactly
+        // when that surface renders: whenever the abilities v2 flag is off.
+        // The flag is re-read on every agent add, so a debug-menu flip takes
+        // effect without a relaunch.
+        session.configureAutoEnableAbilities {
+            await MainActor.run { !FeatureFlags.shared.isAbilitiesV2Enabled }
+        }
         if FeatureFlags.shared.isAbilitiesV2Enabled {
             Task { await AbilitiesServices.refreshCatalogInBackground() }
         }
