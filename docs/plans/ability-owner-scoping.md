@@ -79,10 +79,13 @@ the container can neither add to, remove from, nor extend the life of.
   particular no completion-driven settlement - if the container reports
   that a turn has ended, that signal is recorded for telemetry only and is
   never consulted to decide whether an entry is still live. Every entry
-  expires purely on a fixed, worker-controlled TTL - roughly 10 minutes for
-  a human entry, and the scheduled dispatch's own lead time plus that same
-  window for a proactive marker (see below for how that marker's span is
-  bounded against a long-running turn).
+  expires purely on a fixed, worker-controlled TTL, and every entry lifetime
+  - human dispatches and proactive markers alike - derives from one
+  expression: (the maximum number of queued system turns + 1) times the
+  wall-clock turn ceiling, plus a margin. At the shipped values - a queue
+  cap of 2, a 10-minute ceiling, a 2-minute margin - that is 32 minutes.
+  Drift guards pin the components on either side of the language boundary
+  to the same source for this value, so the two cannot diverge.
 - When exactly one distinct human sender is live in the window **and no
   proactive marker is currently live**, the outbound call to the backend
   carries a `x-convos-trigger-sender-inbox-id` header with that sender's id.
@@ -111,9 +114,9 @@ Two properties of the window are worth stating outright, because they are
 what make the attribution rule safe rather than merely conservative:
 
 - **A proactive/system marker suppresses attribution for its entire
-  lifetime, regardless of what else happens.** That lifetime is the
-  scheduled dispatch's lead time plus its TTL, anchored to the turn's actual
-  start and extend-only. From the moment the marker is recorded until it
+  lifetime, regardless of what else happens.** That lifetime is the single
+  bound above, anchored to the turn's actual start and extend-only. From
+  the moment the marker is recorded until it
   expires, no outbound call carries a trigger-sender header at all. Human
   messages arriving during that span do not change this: they are recorded
   as their own entries and are simply additional live entries. The presence
@@ -127,54 +130,73 @@ what make the attribution rule safe rather than merely conservative:
   remaining life. Entries expire by TTL alone. The only permitted change to
   an existing entry is extending a marker forward to cover its turn's real
   start, which suppresses more, never less.
+- **One bound covers both kinds of entry, because a human entry's clock
+  starts before its turn runs.** The entry is written when the event is
+  forwarded, but the turn that event triggers may execute later if it was
+  queued behind others. Bounding every entry by the worst-case execution
+  latency - which is exactly what the expression above computes -
+  guarantees that a queued human-triggered turn always executes inside its
+  own entry's window, so it can never be stamped with a different member's
+  identity.
+- **Markers may be extended by a container-reported turn start; human
+  entries never are.** The asymmetry is deliberate. Extending a marker
+  denies more, so accepting that signal is safe even when the container is
+  lying. Extending a human entry would allow more - a compromised container
+  could keep one member's attribution alive indefinitely by reporting turn
+  starts - so a human entry's bound is worker-clock only, fixed when the
+  event is forwarded and never touched again.
 
 So suppression is not a state that some later event can lift: there is no
 event a turn can wait for, provoke, or race in order to get its calls
 attributed to a human sender. The window either attests a single human
 dispatcher over its whole trailing span with no marker live, or the call is
-denied.
+denied. Note which way the error runs: longer entry lifetimes mean more
+overlap between entries, and overlap denies under the rule that exactly one
+distinct human sender must be live, so every adjustment to these bounds
+moves the failure mode toward denial and never toward wrong attribution.
 
 ### Timeline of the attested-dispatch window
 
-Minutes are illustrative; what matters is the shape. `[===]` marks the live
-span of an entry.
+Minutes are illustrative and use the shipped 32-minute bound. `[===]` marks
+the live span of an entry; every entry, human or marker, lives for that same
+bound.
 
 ```
-  minute    0       4       8      12      16      20      24
-            |       |       |       |       |       |       |
+  minute    0       8       16      24      32      40      48
+            |   |   |   |   |   |   |   |   |   |   |   |   |
 
-  entry A   [===================]
-            human A's message is forwarded at 0; entry expires at 10
+  entry A   [===============================]
+            forwarded at 0; expires at 32
 
-  entry B               [===================]
-                        human B's message is forwarded at 6
+  entry B         [===============================]
+                  forwarded at 6; expires at 38
 
-  marker                    [======][===================]
-                            recorded at 8 with the dispatch's lead time,
-                            then extended forward to the turn's actual
-                            start at 12; expires at 22
+  marker            [==][===============================]
+                    recorded at 8, then extended forward to the turn's
+                    actual start at 12; expires at 44
 
-  entry C                               [===================]
-                                        human C's message at 14 adds an
-                                        entry and clears nothing
+  entry C                 [===============================]
+                          forwarded at 14 - adds an entry, clears nothing
 
   exec attempts and the stamping decision
 
-    at  2   live: A               stamped, trigger sender = A
-    at  7   live: A, B            not stamped - two distinct human senders
-    at 13   live: B, marker       not stamped - a marker is live
-    at 17   live: C, marker       not stamped - a marker is live, even
-                                  though C is by now the only live sender
-    at 23   live: C               stamped, trigger sender = C - the marker
-                                  expired on its own TTL; nothing cleared
-                                  it early
-    at 25   live: nothing         not stamped - empty window
+    at  2   live: A                stamped, trigger sender = A
+    at  7   live: A, B             not stamped - two distinct human senders
+    at 13   live: A, B, marker     not stamped - a marker is live
+    at 39   live: C, marker        not stamped - a marker is live, even
+                                   though C is by now the only live sender
+    at 45   live: C                stamped, trigger sender = C - the marker
+                                   expired on its own TTL; nothing cleared
+                                   it early
+    at 47   live: nothing          not stamped - empty window
 ```
 
-The call at 17 is the case the explicit rule above exists for: a single
-human sender is live and the ambiguity from B is gone, yet the scheduled
-turn's marker still covers the window, so the call is denied. The call at 23
-shows the only way suppression ever ends - the marker reached its TTL.
+The call at 39 is the case the explicit rule above exists for: a single
+human sender is live and the ambiguity from A and B is gone, yet the
+scheduled turn's marker still covers the window, so the call is denied. The
+call at 45 shows the only way suppression ever ends - the marker reached its
+TTL. And because every entry runs the full bound, a turn triggered by C's
+message at 14 is still inside C's own entry however long it sat queued.
 
 ### Bounding scheduled-turn attribution
 
@@ -200,12 +222,17 @@ rather than anything the container reports about itself:
   extended this way, never shortened - nothing the container reports can
   pull the window in.
 - **The queue of pending triggers is bounded**, so a backlog cannot
-  silently push a turn's actual start arbitrarily far past when its marker
-  was first recorded.
+  silently push a turn's actual start arbitrarily far past when its entry
+  was recorded. Overflow drops the trigger rather than queueing it, which
+  fails closed. That cap is also what makes the entry-lifetime expression
+  computable at all - the bound is a function of it, so the queue cap and
+  the TTL move together.
 
-Together these give a plain invariant: a marker's coverage is always at
-least as long as the enforced ceiling from the turn's real start, so a
-scheduled turn can no longer outlive its own suppression window.
+Together these give a plain invariant: every entry, human or proactive,
+outlives the worst-case execution of the turn it belongs to, so neither a
+scheduled turn nor a queued human turn can outlive the window that covers
+it. Note that only markers get the actual-start extension; human entries
+are bounded by the worker clock alone, for the reason given above.
 
 **Why not track per-dispatch lineage instead of bounding a marker's span?**
 The transport that carries a dispatch into execution has no notion of
@@ -324,10 +351,12 @@ stays worker-attested for now, same trust level as the live-turn header).
   in an environment at once (membership-sufficient access becomes
   owner-only). That is the intended effect, but it is a behavior change
   worth telling pilot users about rather than a silent tightening.
-- Because entries never clear early, attribution needs the entire trailing
-  TTL window to have had a single human dispatcher, not just the instant of
-  the check - group conversations with mixed traffic deny more often than a
-  clears-on-completion design would have.
+- Because entries never clear early and every entry lives the full bound,
+  attribution needs that entire trailing window - 32 minutes at the shipped
+  values - to have had a single human dispatcher, not just the instant of
+  the check. Group conversations with mixed traffic therefore deny
+  considerably more often than a shorter or clears-on-completion design
+  would have. That is the price of the guarantee, paid in availability.
 - A live proactive marker blocks attribution for its whole span, so a
   genuine ask from the owner right after a scheduled run also denies, for
   as long as that marker's window covers (post-system-turn attribution
