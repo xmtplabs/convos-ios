@@ -13,6 +13,10 @@ struct ConversationTabBar: View {
     /// Tabs to render, in order. The full set by default; hosts may trim it
     /// (e.g. a draft conversation with no desktop yet).
     var tabs: [ConversationTab] = ConversationTab.allCases
+    /// Tabs carrying an unread indicator: a dot on the icon's top-right
+    /// corner (Figma 7488:14106). Hosts exclude the active tab - the user
+    /// is looking at it.
+    var badgedTabs: Set<ConversationTab> = []
     /// Fired when a tap lands on the already-selected tab (the native tab
     /// bar's re-tap contract: pop to root / scroll to top). Not fired when a
     /// drag visits other slots before returning.
@@ -102,8 +106,14 @@ struct ConversationTabBar: View {
 
     private func slot(for tab: ConversationTab) -> some View {
         let isSelected: Bool = tab == selectedTab
+        let isBadged: Bool = badgedTabs.contains(tab)
         return VStack(spacing: Constant.glyphLabelSpacing) {
             glyph(for: tab, isSelected: isSelected)
+                .overlay(alignment: .topTrailing) {
+                    if isBadged {
+                        unreadDot
+                    }
+                }
             Text(tab.title)
                 .font(.system(size: Constant.labelPointSize, weight: .bold))
                 .foregroundStyle(labelColor(isSelected: isSelected))
@@ -111,8 +121,19 @@ struct ConversationTabBar: View {
         .frame(width: Constant.slotWidth, height: Constant.slotHeight)
         .animation(.easeInOut(duration: 0.2), value: isSelected)
         .accessibilityLabel(tab.title)
+        .accessibilityValue(isBadged ? "Unread" : "")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier("conversation-tab-\(tab.rawValue)")
+    }
+
+    /// The unread indicator, riding the icon's top-right corner.
+    private var unreadDot: some View {
+        Circle()
+            .fill(Color.colorOrange)
+            .frame(width: Constant.unreadDotSize, height: Constant.unreadDotSize)
+            .offset(x: Constant.unreadDotOffset, y: -Constant.unreadDotOffset)
+            .transition(.scale.combined(with: .opacity))
+            .accessibilityHidden(true)
     }
 
     /// Unselected treatment from the design: tertiary icon over a secondary
@@ -184,6 +205,9 @@ struct ConversationTabBar: View {
         /// glyph inside it, filling the icon slot like the symbols do.
         static let agentBadgeSize: CGFloat = 24.0
         static let agentGlyphSize: CGFloat = 13.0
+        /// The unread dot on the icon's top-right corner (Figma 7488:14106).
+        static let unreadDotSize: CGFloat = 10.0
+        static let unreadDotOffset: CGFloat = 2.0
     }
 }
 

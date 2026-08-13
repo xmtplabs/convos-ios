@@ -372,6 +372,24 @@ struct ConversationView<MessagesBottomBar: View>: View {
         // in-flight reply swipe so the tab change doesn't fire one.
         if oldTab == .group {
             contextMenuState.cancelInFlightSwipe()
+            // The user just had the group on screen: anything that arrived
+            // while they watched is read, so it doesn't badge the tab they
+            // left. (The agent page does the same for its DM.)
+            markGroupAsRead()
+        }
+    }
+
+    private func markGroupAsRead() {
+        let conversationId: String = viewModel.conversation.id
+        let messagingService = viewModel.messagingService
+        Task {
+            do {
+                try await messagingService
+                    .conversationLocalStateWriter()
+                    .setUnread(false, for: conversationId)
+            } catch {
+                Log.warning("Failed marking group as read: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -604,6 +622,21 @@ struct ConversationView<MessagesBottomBar: View>: View {
         viewModel.conversation.spaceURL != nil
             ? ConversationTab.allCases
             : [.group, .agent]
+    }
+
+    /// Per-tab unread indicators, from the surfaces' own conversations. The
+    /// active tab never badges - the user is looking at it, and leaving a
+    /// tab marks its conversation read (see the tab-change handler).
+    private var badgedTabs: Set<ConversationTab> {
+        var badged: Set<ConversationTab> = []
+        if selectedTab != .group, viewModel.conversation.isUnread {
+            badged.insert(.group)
+        }
+        if selectedTab != .agent,
+           agentDmSession?.dmViewModel?.conversation.isUnread == true {
+            badged.insert(.agent)
+        }
+        return badged
     }
 
     /// The sheet's clearance above the *safe-area* bottom line, which is
@@ -931,6 +964,7 @@ private extension ConversationView {
                 ConversationTabBar(
                     selectedTab: $selectedTab,
                     tabs: availableTabs,
+                    badgedTabs: badgedTabs,
                     onReselect: handleTabReselect(_:)
                 )
             }

@@ -100,6 +100,10 @@ struct AgentDmPageView: View {
             // stuck in reply mode.
             contextMenuState.cancelInFlightSwipe()
             session.dmViewModel?.replyingToMessage = nil
+            // The user just had the DM on screen: anything that arrived
+            // while they watched is read, so it doesn't badge the tab they
+            // left.
+            session.markDmAsRead()
             session.updateActiveDmLane(isActive: false)
             return
         }
