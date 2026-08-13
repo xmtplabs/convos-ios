@@ -446,13 +446,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onAppear {
             ensureNavigator()
             navState.markScreenAppeared()
-            // Viewed means the Group tab is on screen; appearing on another
-            // tab (returning from a push, or seeding below onto the agent
-            // page) must not resume the group's read receipts.
+            // Seed before the viewed check: a DM-notification open lands
+            // straight on the agent page, and the group must not count as
+            // viewed (its unread state and read receipts stay untouched
+            // until its tab actually shows). Same when returning from a
+            // push while on a non-Group tab.
+            seedInitialTabIfNeeded()
             if selectedTab == .group {
                 viewModel.onConversationAppeared()
             }
-            seedInitialTabIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
             handleSelectAgentDmPageRequest(note)
@@ -647,21 +649,47 @@ private extension ConversationView {
         // in-flight reply swipe so the tab change doesn't fire one.
         if oldTab == .group {
             contextMenuState.cancelInFlightSwipe()
-            // The user just had the group on screen: anything that arrived
-            // while they watched is read, so it doesn't badge the tab they
-            // left. (The agent page does the same for its DM.)
-            markGroupAsRead()
         }
         // The group is "being viewed" only while its tab is selected. Off
         // the tab, read receipts must stop (the user isn't reading the
         // transcript) and the group has to leave the active-conversation
         // gate so incoming messages mark it unread and badge its tab.
         if oldTab == .group, newTab != .group {
-            viewModel.onConversationDisappeared()
-            updateActiveGroupLane(isActive: false)
+            handleGroupTabLeft()
         } else if oldTab != .group, newTab == .group {
             viewModel.onConversationAppeared()
             updateActiveGroupLane(isActive: true)
+        }
+    }
+
+    /// Leaving the Group tab. When the group was actually on screen,
+    /// anything that arrived while the user watched is read, so it doesn't
+    /// badge the tab they left - and that write has to land before the
+    /// group leaves the active-conversation gate, or a message arriving
+    /// between the two would badge and then be wiped by the stale write.
+    /// When the group was never viewed (opening seeded straight onto the
+    /// agent page), its unread state is left untouched.
+    private func handleGroupTabLeft() {
+        guard viewModel.isViewingConversation else {
+            updateActiveGroupLane(isActive: false)
+            return
+        }
+        viewModel.onConversationDisappeared()
+        let conversationId: String = viewModel.conversation.id
+        let messagingService = viewModel.messagingService
+        Task {
+            do {
+                try await messagingService
+                    .conversationLocalStateWriter()
+                    .setUnread(false, for: conversationId)
+            } catch {
+                Log.warning("Failed marking group as read: \(error.localizedDescription)")
+            }
+            // The user may have returned to the group while the write was
+            // in flight; deactivating now would unregister a viewed tab.
+            if selectedTab != .group {
+                updateActiveGroupLane(isActive: false)
+            }
         }
     }
 
@@ -677,20 +705,6 @@ private extension ConversationView {
             object: nil,
             userInfo: isActive ? ["conversationId": conversationId] : [:]
         )
-    }
-
-    private func markGroupAsRead() {
-        let conversationId: String = viewModel.conversation.id
-        let messagingService = viewModel.messagingService
-        Task {
-            do {
-                try await messagingService
-                    .conversationLocalStateWriter()
-                    .setUnread(false, for: conversationId)
-            } catch {
-                Log.warning("Failed marking group as read: \(error.localizedDescription)")
-            }
-        }
     }
 
     /// Re-applies the agent composer's `@FocusState` for a same-value
