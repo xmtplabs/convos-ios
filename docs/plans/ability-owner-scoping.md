@@ -1,6 +1,7 @@
 # Ability Owner Scoping, Default-Enable, and Request Visibility
 
-> **Status:** Decided design, fast-follow implementation
+> **Status:** Decided design. Owner scoping (Q1) is implemented; the
+> default-enable and request-visibility work is scoped as described below.
 > **Scope:** convos-ios (client) and the assistants worker/backend (cross-repo)
 
 ## Overview
@@ -62,7 +63,7 @@ itself.
 
 ### Decision
 
-Enforce owner-only at the backend using a short-lived, worker-maintained
+Owner-only is enforced at the backend using a short-lived, worker-maintained
 record of recent activity - an append-only "attested-dispatch window" that
 the container can neither add to, remove from, nor extend the life of.
 
@@ -103,6 +104,77 @@ context, not a claim about intent or authorization. A fuller model that
 distinguishes who created a request, who owns the underlying credential, and
 who triggered a specific call is future work (see Non-goals); this header is
 scoped to exactly what the window can attest today.
+
+### Suppression is unconditional and expires only by TTL
+
+Two properties of the window are worth stating outright, because they are
+what make the attribution rule safe rather than merely conservative:
+
+- **A proactive/system marker suppresses attribution for its entire
+  lifetime, regardless of what else happens.** That lifetime is the
+  scheduled dispatch's lead time plus its TTL, anchored to the turn's actual
+  start and extend-only. From the moment the marker is recorded until it
+  expires, no outbound call carries a trigger-sender header at all. Human
+  messages arriving during that span do not change this: they are recorded
+  as their own entries and are simply additional live entries. The presence
+  of any live marker is on its own sufficient to omit the header. A
+  scheduled turn's tool calls therefore can never carry a human sender's
+  header, no matter what arrives while that turn is running.
+- **Human messages can only add entries; nothing removes them.** Appending
+  is the only write the window has. No event of any kind - a human message,
+  a container-reported turn completion, another dispatch, an operator
+  action - removes an entry, clears the window, or shortens any entry's
+  remaining life. Entries expire by TTL alone. The only permitted change to
+  an existing entry is extending a marker forward to cover its turn's real
+  start, which suppresses more, never less.
+
+So suppression is not a state that some later event can lift: there is no
+event a turn can wait for, provoke, or race in order to get its calls
+attributed to a human sender. The window either attests a single human
+dispatcher over its whole trailing span with no marker live, or the call is
+denied.
+
+### Timeline of the attested-dispatch window
+
+Minutes are illustrative; what matters is the shape. `[===]` marks the live
+span of an entry.
+
+```
+  minute    0       4       8      12      16      20      24
+            |       |       |       |       |       |       |
+
+  entry A   [===================]
+            human A's message is forwarded at 0; entry expires at 10
+
+  entry B               [===================]
+                        human B's message is forwarded at 6
+
+  marker                    [======][===================]
+                            recorded at 8 with the dispatch's lead time,
+                            then extended forward to the turn's actual
+                            start at 12; expires at 22
+
+  entry C                               [===================]
+                                        human C's message at 14 adds an
+                                        entry and clears nothing
+
+  exec attempts and the stamping decision
+
+    at  2   live: A               stamped, trigger sender = A
+    at  7   live: A, B            not stamped - two distinct human senders
+    at 13   live: B, marker       not stamped - a marker is live
+    at 17   live: C, marker       not stamped - a marker is live, even
+                                  though C is by now the only live sender
+    at 23   live: C               stamped, trigger sender = C - the marker
+                                  expired on its own TTL; nothing cleared
+                                  it early
+    at 25   live: nothing         not stamped - empty window
+```
+
+The call at 17 is the case the explicit rule above exists for: a single
+human sender is live and the ambiguity from B is gone, yet the scheduled
+turn's marker still covers the window, so the call is denied. The call at 23
+shows the only way suppression ever ends - the marker reached its TTL.
 
 ### Bounding scheduled-turn attribution
 
@@ -149,7 +221,7 @@ all.
 
 ### Owner-name denial copy
 
-A denial should say whose ability it is, not just refuse. The backend's
+A denial says whose ability it is rather than just refusing. The backend's
 `owner_only` error carries the owner's inbox id when the denied grants share
 a single, unambiguous owner (omitted otherwise). The layer that talks to the
 model resolves that id to a display name using conversation member profile
@@ -162,16 +234,17 @@ ambiguous/absent owner id - it falls back to:
 
 > "Only the ability owner can ask me to use this."
 
-The raw inbox id should never appear in text a user sees.
+The raw inbox id never appears in text a user sees.
 
 ### Deploy-order constraint
 
-The component that stamps the header must be deployed before the component
+The component that stamps the header has to be deployed before the component
 that enforces on it; enforcement live with no stamping means every
-owner-only check sees no header and denies everything. In practice this
-means shipping and confirming the stamping change first, then shipping
-enforcement - rather than coordinating the two through a shared feature
-flag. Production promotion should follow the same order.
+owner-only check sees no header and denies everything. The work is therefore
+split into two sequenced changes rather than coordinated through a shared
+feature flag: the stamping change deploys and is confirmed first, then
+enforcement. Production promotion follows the same order, and rollback runs
+the reverse - enforcement comes out before stamping does.
 
 ### Forward design: webhook-triggered execution
 
@@ -202,8 +275,9 @@ stays worker-attested for now, same trust level as the live-turn header).
 ### Alternatives considered
 
 - **Clear an entry when its turn finishes, and suppress attribution from a
-  scheduled dispatch only until the next human message.** An earlier version
-  of this design worked this way. Two gaps surfaced during implementation:
+  scheduled dispatch only until the next human message. Rejected - this was
+  an earlier version of this design, and no part of it survives in what
+  shipped.** Two gaps surfaced during implementation:
   a "this turn is finished" signal that anything downstream of the worker
   can trigger is not fully outside the container's reach, so a malicious
   container could clear entries early to narrow attribution, or withhold
@@ -412,15 +486,27 @@ rollout.
   request-record work that belongs with the group-rollout shape above, not
   a 1:1-scope fast-follow.
 
+## Implementation map
+
+Which component owns which piece:
+
+| Component | Owns |
+|---|---|
+| iOS client app | Auto-enable of the acting member's own live connections at conversation create / agent add (Q2), and the client-side result keying fix (Q3). Nothing for owner-only enforcement. |
+| Assistants worker, and its per-conversation durable object | The attested-dispatch window: recording human dispatch entries and proactive markers at forward time, TTL expiry, and the stamping decision that puts `x-convos-trigger-sender-inbox-id` on both outbound exec paths. |
+| Agent runtime / container | Runs the turn under the enforced wall-clock ceiling and reports its own turn start so a marker can be extended to cover it. It has no attribution authority: nothing it reports can create, clear, or shorten a window entry in a way that widens attribution. |
+| Backend entitlement service | Reads the optional header, compares it against the owner recorded on the grant, and returns the typed `owner_only` denial carrying the owner's inbox id under the single-distinct-owner rule. |
+| Agent guidance layer | Turns that denial into requester-facing copy: resolves the owner's inbox id to a display name from conversation member profile data, with the generic fallback when no name resolves. |
+
 ## Sequencing
 
 1. Q2's client implementation can start now; enabling it for users waits on
    the backend liveness gate landing. The disconnect-hardening fix has
    standalone value and can ship independently and immediately.
-2. Q1 ships as two sequenced changes: the worker/runtime stamping change
-   first, backend enforcement second, deployed in that order (see
-   deploy-order constraint above). The owner-name denial copy ships
-   alongside enforcement.
+2. Q1 is implemented as two sequenced changes: the worker/runtime stamping
+   change first, backend enforcement second, deployed in that order (see
+   deploy-order constraint above). The owner-name denial copy rides with
+   enforcement.
 3. Q3's request-keying fix ships as a small, independent fast-follow; the
    1:1-posture note is documentation, not code.
 4. Group-conversation default-on for Q2 follows only once Q1 enforcement is
