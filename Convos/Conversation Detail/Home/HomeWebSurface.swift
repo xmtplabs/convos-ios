@@ -1,21 +1,21 @@
 import SwiftUI
 
-/// Wraps `DesktopWebView` with a cover that hides the reloading page. The cover
-/// is the last persisted snapshot of this conversation's desktop, or a neutral
+/// Wraps `HomeWebView` with a cover that hides the reloading page. The cover
+/// is the last persisted snapshot of this conversation's home, or a neutral
 /// placeholder the first time it opens (or after the OS purges the cache). It
 /// sits on top until the live page finishes loading, then cross-fades out to
 /// reveal it.
-struct DesktopWebSurface: View {
+struct HomeWebSurface: View {
     let conversationId: String
     var url: URL?
     var isScrollEnabled: Bool = true
-    /// Forwarded to `DesktopWebView`: top clearance (the navigation chrome)
+    /// Forwarded to `HomeWebView`: top clearance (the navigation chrome)
     /// for the page and its scroll indicator.
     var topContentInset: CGFloat = 0
-    /// Forwarded to `DesktopWebView`: bottom clearance (the floating sheet's
+    /// Forwarded to `HomeWebView`: bottom clearance (the floating sheet's
     /// occupied height) for the page and its scroll indicator.
     var bottomContentInset: CGFloat = 0
-    /// Forwarded to `DesktopWebView`; fired when the page requests navigation
+    /// Forwarded to `HomeWebView`; fired when the page requests navigation
     /// away from the space URL.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
@@ -24,7 +24,7 @@ struct DesktopWebSurface: View {
 
     var body: some View {
         ZStack {
-            DesktopWebView(
+            HomeWebView(
                 conversationId: conversationId,
                 url: url,
                 isScrollEnabled: isScrollEnabled,
@@ -41,12 +41,12 @@ struct DesktopWebSurface: View {
                 },
                 onNavigationRequest: onNavigationRequest
             )
-            DesktopCoverView(image: coverImage)
+            HomeCoverView(image: coverImage)
                 .opacity(isLoaded ? 0 : 1)
                 .allowsHitTesting(!isLoaded)
         }
         .task(id: conversationId) {
-            let data: Data? = await DesktopSnapshotStore.shared.snapshotData(for: conversationId)
+            let data: Data? = await HomeSnapshotStore.shared.snapshotData(for: conversationId)
             coverImage = data.flatMap { UIImage(data: $0) }
         }
     }
@@ -59,10 +59,10 @@ struct DesktopWebSurface: View {
     }
 }
 
-/// The cover drawn over the reloading desktop: the persisted snapshot when one
+/// The cover drawn over the reloading home: the persisted snapshot when one
 /// exists, otherwise a neutral placeholder matching the web view's own empty
 /// state.
-private struct DesktopCoverView: View {
+private struct HomeCoverView: View {
     let image: UIImage?
 
     var body: some View {
@@ -81,11 +81,11 @@ private struct DesktopCoverView: View {
                 .clipped()
         } else {
             // Opaque canvas fill (it must hide the loading page beneath),
-            // layered the same way the desktop layout paints its background.
+            // layered the same way the home layout paints its background.
             ZStack {
                 Color.colorBackgroundSurfaceless
                 Color.colorBackgroundSubtle
-                Text("Desktop")
+                Text("Home")
                     .font(.largeTitle)
                     .foregroundStyle(.colorTextSecondary)
             }

@@ -3,7 +3,7 @@ import UIKit
 import WebKit
 
 /// Warms a WKWebView (and its out-of-process WebContent backing) at launch so
-/// the first real desktop surface renders without paying the cold WebKit
+/// the first real home surface renders without paying the cold WebKit
 /// spin-up cost. Loads a blank page into an offscreen, non-interactive web
 /// view parked behind the app UI; it never becomes visible.
 ///
@@ -11,7 +11,7 @@ import WebKit
 /// the contention-heavy launch path (mirrors
 /// `ConvosApp.startMetricsIdentification`). Everything that can run off the
 /// main thread does; only the UIKit/WebKit touches hop to the main actor.
-enum DesktopWebViewPrewarmer {
+enum HomeWebViewPrewarmer {
     /// Retains the offscreen web view for the lifetime of the process so its
     /// backing WebContent process stays warm.
     @MainActor private static var warmWebView: WKWebView?

@@ -17,7 +17,7 @@ enum ConversationSheetDetent: CaseIterable {
     case full
 }
 
-/// Sheet metrics shared with the backing views (e.g. `DesktopLayoutView`),
+/// Sheet metrics shared with the backing views (e.g. `HomeLayoutView`),
 /// which reserve bottom clearance against the compact resting height until
 /// the live measurement lands.
 enum ConversationSheetMetrics {
@@ -92,13 +92,13 @@ struct ConversationBottomSheet<BarContent: View, TabBarContent: View>: View {
     /// themselves.
     var onOccupiedHeightChanged: (CGFloat) -> Void = { _ in }
     /// The selected tab's bar, e.g. the group or agent composer. May resolve
-    /// to nothing (the Desktop tab hides its bar).
+    /// to nothing (the Home tab hides its bar).
     @ViewBuilder let barContent: () -> BarContent
     @ViewBuilder let tabBar: () -> TabBarContent
 
     @State private var dragOffset: CGFloat = 0
     /// The card's live height, used to clamp the top corner radius: on the
-    /// compact Desktop tab (no composer) the ideal top+bottom radii exceed
+    /// compact Home tab (no composer) the ideal top+bottom radii exceed
     /// the card height and SwiftUI would compress BOTH corners, pulling the
     /// bottom out of bezel concentricity. The bottom radius never yields;
     /// the top shrinks instead.

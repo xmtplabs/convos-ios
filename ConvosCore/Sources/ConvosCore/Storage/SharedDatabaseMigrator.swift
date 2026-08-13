@@ -228,7 +228,7 @@ extension SharedDatabaseMigrator {
     /// The deployed Space web URL for the conversation, mirrored from the
     /// group's appData (the Assistant Worker publishes it; clients only read).
     /// Nullable with no default: a null column is a conversation no Space has
-    /// been published for yet, which the desktop tab renders as a placeholder.
+    /// been published for yet, which the Home tab renders as a placeholder.
     static func addConversationSpaceURLString(_ db: Database) throws {
         try db.alter(table: "conversation") { t in
             t.add(column: "spaceURLString", .text)

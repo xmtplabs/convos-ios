@@ -62,7 +62,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// The conversation sheet's selected tab, the single source of truth for
     /// both the backing view behind the sheet and the bar the sheet hosts.
     @State private var selectedTab: ConversationTab = .group
-    /// Tabs the user has visited. The Desktop web view and the agent DM
+    /// Tabs the user has visited. The Home web view and the agent DM
     /// mount on first visit and stay mounted (hidden, not torn down) so tab
     /// switches never reload them.
     @State private var visitedTabs: Set<ConversationTab> = [.group]
@@ -99,11 +99,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// sheet-hosted composers to fire on send.
     @State private var groupScrollToBottom: (() -> Void)?
     @State private var agentScrollToBottom: (() -> Void)?
-    /// The desktop browsing chain, layered over the desktop and below the
+    /// The home browsing chain, layered over the home and below the
     /// floating sheet so browsing never leaves the conversation screen.
     /// While non-empty, the top bar swaps the system back button for one
     /// that pops pages, and hides the add-members item.
-    @State private var desktopBrowserEntries: [DesktopBrowserEntry] = []
+    @State private var homeBrowserEntries: [HomeBrowserEntry] = []
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -363,7 +363,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             } else {
                 focusCoordinator.dismissMessageComposerIfNeeded()
             }
-        case .desktop:
+        case .home:
             // No composer: the keyboard drops.
             focusCoordinator.dismissMessageComposerIfNeeded()
             agentFocusCoordinator.dismissMessageComposerIfNeeded()
@@ -408,26 +408,26 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
     }
 
-    private func pushDesktopBrowserPage(for url: URL) {
+    private func pushHomeBrowserPage(for url: URL) {
         withAnimation(.easeInOut(duration: 0.25)) {
-            desktopBrowserEntries.append(DesktopBrowserEntry(url: url))
+            homeBrowserEntries.append(HomeBrowserEntry(url: url))
         }
     }
 
-    private func popDesktopBrowserPage() {
+    private func popHomeBrowserPage() {
         withAnimation(.easeInOut(duration: 0.25)) {
-            _ = desktopBrowserEntries.popLast()
+            _ = homeBrowserEntries.popLast()
         }
     }
 
     /// The native tab bar's re-tap contract: tapping the active tab returns
-    /// to that surface's resting state - the desktop pops its browsing chain
+    /// to that surface's resting state - the home pops its browsing chain
     /// to the root view; the transcripts scroll to the latest message.
     private func handleTabReselect(_ tab: ConversationTab) {
         switch tab {
-        case .desktop:
+        case .home:
             withAnimation(.easeInOut(duration: 0.25)) {
-                desktopBrowserEntries.removeAll()
+                homeBrowserEntries.removeAll()
             }
         case .group:
             groupScrollToBottom?()
@@ -436,33 +436,33 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
     }
 
-    /// True while the Desktop tab is showing an open browsing chain: the
+    /// True while the Home tab is showing an open browsing chain: the
     /// top bar pops pages instead of the conversation, and the add-members
     /// item hides. Other tabs keep their normal chrome even while a chain
-    /// waits behind the Desktop tab.
-    private var isBrowsingDesktop: Bool {
-        selectedTab == .desktop && !desktopBrowserEntries.isEmpty
+    /// waits behind the Home tab.
+    private var isBrowsingHome: Bool {
+        selectedTab == .home && !homeBrowserEntries.isEmpty
     }
 
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
         // Swap the system back button for one that pops browser pages while
-        // the desktop browsing chain is showing, walking home to the root
-        // desktop view.
-        if isBrowsingDesktop {
+        // the home browsing chain is showing, walking home to the root
+        // home view.
+        if isBrowsingHome {
             ToolbarItem(placement: .topBarLeading) {
-                Button(action: popDesktopBrowserPage) {
+                Button(action: popHomeBrowserPage) {
                     Image(systemName: "chevron.left")
                         .fontWeight(.semibold)
                 }
                 .accessibilityLabel("Back")
-                .accessibilityIdentifier("desktop-browser-back")
+                .accessibilityIdentifier("home-browser-back")
             }
         }
         // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
         // toolbar item is dropped for that flow. Browser pages hide the
         // trailing item entirely.
-        if !topBarTrailingHidden && !showsEmbeddedInvite && !isBrowsingDesktop {
+        if !topBarTrailingHidden && !showsEmbeddedInvite && !isBrowsingHome {
             ToolbarItem(placement: .topBarTrailing) {
                 if viewModel.isLocked {
                     lockedInfoButton
@@ -614,7 +614,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             .profile.inboxId
     }
 
-    /// Tabs available for this conversation: the Desktop tab exists only
+    /// Tabs available for this conversation: the Home tab exists only
     /// once a Space URL has been published into the group's appData. The
     /// synced conversation re-emits on appData updates, so the tab appears
     /// live the moment the Assistant Worker publishes one.
@@ -678,10 +678,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             agentFocusCoordinator.syncFocusState(newFocus)
         }
         // A conversation can lose its Space URL (or never have had one);
-        // fall back off the Desktop tab if it disappears from under us.
+        // fall back off the Home tab if it disappears from under us.
         .onChange(of: viewModel.conversation.spaceURL) { _, newURL in
-            if newURL == nil, selectedTab == .desktop {
-                desktopBrowserEntries.removeAll()
+            if newURL == nil, selectedTab == .home {
+                homeBrowserEntries.removeAll()
                 selectTab(.group)
             }
         }
@@ -727,7 +727,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         // While browser pages are showing, the pop-a-page back button in
         // `topBarTrailing` stands in for the system one.
-        .navigationBarBackButtonHidden(isBrowsingDesktop)
+        .navigationBarBackButtonHidden(isBrowsingHome)
         .modifier(metricsObserversPart1)
         .modifier(metricsObserversPart2)
         .modifier(metricsObserversPart3)
@@ -881,37 +881,37 @@ private extension ConversationView {
         ZStack(alignment: .bottom) {
             ZStack {
                 backingViews
-                desktopBrowserLayers
+                homeBrowserLayers
             }
             conversationSheet
         }
     }
 
-    /// The desktop browsing chain: full-screen pages sliding in above the
-    /// desktop, below the floating sheet. Like the backing views, the chain
+    /// The home browsing chain: full-screen pages sliding in above the
+    /// home, below the floating sheet. Like the backing views, the chain
     /// stays mounted across tab switches (hidden, not torn down) so
-    /// returning to the Desktop tab lands back on the same page.
+    /// returning to the Home tab lands back on the same page.
     @ViewBuilder
-    var desktopBrowserLayers: some View {
+    var homeBrowserLayers: some View {
         ZStack {
-            ForEach(desktopBrowserEntries) { entry in
-                DesktopBrowserPageView(
+            ForEach(homeBrowserEntries) { entry in
+                HomeBrowserPageView(
                     entry: entry,
                     sheetHeight: sheetOccupiedHeight,
                     onNavigationRequest: { url in
-                        pushDesktopBrowserPage(for: url)
+                        pushHomeBrowserPage(for: url)
                     }
                 )
                 .transition(.move(edge: .trailing))
             }
         }
-        .opacity(selectedTab == .desktop ? 1 : 0)
-        .allowsHitTesting(selectedTab == .desktop)
+        .opacity(selectedTab == .home ? 1 : 0)
+        .allowsHitTesting(selectedTab == .home)
     }
 
     /// One backing view per tab, all kept mounted once visited: switching
     /// flips opacity and hit-testing instead of tearing views down, so the
-    /// UIKit transcripts keep their scroll state and the desktop web view
+    /// UIKit transcripts keep their scroll state and the home web view
     /// never reloads on a tab hop.
     var backingViews: some View {
         ZStack {
@@ -937,17 +937,17 @@ private extension ConversationView {
                 .opacity(selectedTab == .agent ? 1 : 0)
                 .allowsHitTesting(selectedTab == .agent)
             }
-            if visitedTabs.contains(.desktop), availableTabs.contains(.desktop) {
-                DesktopLayoutView(
+            if visitedTabs.contains(.home), availableTabs.contains(.home) {
+                HomeLayoutView(
                     conversationId: viewModel.conversation.id,
                     webURL: viewModel.conversation.spaceURL,
                     sheetHeight: sheetOccupiedHeight,
                     onNavigationRequest: { url in
-                        pushDesktopBrowserPage(for: url)
+                        pushHomeBrowserPage(for: url)
                     }
                 )
-                .opacity(selectedTab == .desktop ? 1 : 0)
-                .allowsHitTesting(selectedTab == .desktop)
+                .opacity(selectedTab == .home ? 1 : 0)
+                .allowsHitTesting(selectedTab == .home)
             }
         }
     }
@@ -980,11 +980,11 @@ private extension ConversationView {
 
     /// The bar the sheet hosts above its tab bar, keyed by the selected tab:
     /// the group composer, the agent-DM composer (disabled until the DM
-    /// exists), or nothing on the Desktop tab.
+    /// exists), or nothing on the Home tab.
     @ViewBuilder
     var sheetBarContent: some View {
         switch selectedTab {
-        case .desktop:
+        case .home:
             EmptyView()
         case .group:
             if !effectiveReadOnly {

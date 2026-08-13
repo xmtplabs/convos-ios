@@ -1,21 +1,21 @@
 import CryptoKit
 import Foundation
 
-/// Per-conversation cache of the last-rendered desktop web view. The stored
+/// Per-conversation cache of the last-rendered home web view. The stored
 /// PNG is shown as a cover while that conversation's live web view reloads, so
 /// the surface never flashes empty. Backed by files under `Caches/` (the OS
 /// may evict them under storage pressure; the next load simply re-captures),
 /// keyed by conversation id. The store trades in `Data` rather than images so
 /// nothing non-`Sendable` crosses the actor boundary.
-actor DesktopSnapshotStore {
-    static let shared: DesktopSnapshotStore = DesktopSnapshotStore()
+actor HomeSnapshotStore {
+    static let shared: HomeSnapshotStore = HomeSnapshotStore()
 
     private let cacheDirectory: URL
     private let fileManager: FileManager = .default
 
     private init() {
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        cacheDirectory = cacheDir.appendingPathComponent("DesktopSnapshots", isDirectory: true)
+        cacheDirectory = cacheDir.appendingPathComponent("HomeSnapshots", isDirectory: true)
         try? FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
 
@@ -25,7 +25,7 @@ actor DesktopSnapshotStore {
         try? Data(contentsOf: fileURL(for: conversationId))
     }
 
-    /// Persists the latest desktop capture for a conversation, replacing any
+    /// Persists the latest home capture for a conversation, replacing any
     /// prior one.
     func store(_ pngData: Data, for conversationId: String) {
         try? pngData.write(to: fileURL(for: conversationId), options: .atomic)

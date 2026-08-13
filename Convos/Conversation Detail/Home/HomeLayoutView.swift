@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The Desktop tab's backing view: the conversation's Space web surface
+/// The Home tab's backing view: the conversation's Space web surface
 /// filling the screen behind the floating conversation sheet, with the
 /// snapshot cover hiding reloads. The page owns its own vertical scrolling.
-struct DesktopLayoutView: View {
+struct HomeLayoutView: View {
     /// Keys the web section's persisted cover snapshot.
     var conversationId: String = ""
     var webURL: URL?
@@ -16,7 +16,7 @@ struct DesktopLayoutView: View {
     /// gain a pointless scroll range.
     var sheetHeight: CGFloat = ConversationSheetMetrics.compactRestingHeight
     /// Fired when the page requests navigation away from the space URL; the
-    /// host presents it in the desktop browser popup.
+    /// host presents it in the home browser popup.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
     var body: some View {
@@ -24,7 +24,7 @@ struct DesktopLayoutView: View {
         // that the surface is about to ignore, so the page insets by it and
         // can scroll fully below the floating top bar.
         GeometryReader { proxy in
-            DesktopWebSurface(
+            HomeWebSurface(
                 conversationId: conversationId,
                 url: webURL,
                 topContentInset: webURL != nil ? proxy.safeAreaInsets.top : 0,
@@ -44,10 +44,10 @@ struct DesktopLayoutView: View {
             }
             .ignoresSafeArea()
         }
-        .accessibilityIdentifier("desktop-web-section")
+        .accessibilityIdentifier("home-web-section")
     }
 }
 
 #Preview {
-    DesktopLayoutView()
+    HomeLayoutView()
 }

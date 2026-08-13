@@ -71,7 +71,7 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// The deployed Space web URL for this conversation, mirrored from the
     /// group's appData. The Assistant Worker publishes it and is the sole
     /// authority - clients never construct one. Nil while no Space has been
-    /// published; the desktop tab shows its placeholder until it lands.
+    /// published; the Home tab shows its placeholder until it lands.
     public var spaceURL: URL?
     /// Summary of the separate agent-DM conversation (self + this group's
     /// verified agent) that folds into this group's row. Populated by the

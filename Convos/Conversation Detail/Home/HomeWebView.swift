@@ -2,22 +2,22 @@ import SwiftUI
 import UIKit
 import WebKit
 
-/// The desktop web surface rendered behind the conversation sheet on the
-/// Desktop tab. Loads the conversation's Space web URL when one has been
+/// The home web surface rendered behind the conversation sheet on the
+/// Home tab. Loads the conversation's Space web URL when one has been
 /// published into the group's appData; until then it shows an inline
 /// placeholder page.
 ///
 /// On every finished load it captures a snapshot of the rendered page and
-/// hands it to `DesktopSnapshotStore`, keyed by `conversationId`, so the next
-/// time this conversation's desktop opens it can show that image as a cover
+/// hands it to `HomeSnapshotStore`, keyed by `conversationId`, so the next
+/// time this conversation's home opens it can show that image as a cover
 /// while the live page reloads. `onLoaded` fires at the same moment so the
 /// cover can cross-fade out.
-struct DesktopWebView: UIViewRepresentable {
+struct HomeWebView: UIViewRepresentable {
     /// Identifies which conversation's snapshot this load should persist under.
     var conversationId: String
     /// The conversation's Space web URL; nil loads the inline placeholder.
     var url: URL?
-    /// False when an outer scroll view (the desktop layout) owns the
+    /// False when an outer scroll view (the home layout) owns the
     /// vertical gesture.
     var isScrollEnabled: Bool = true
     /// Top clearance for the page and its scroll indicator - the navigation
@@ -32,7 +32,7 @@ struct DesktopWebView: UIViewRepresentable {
     var onLoaded: @MainActor () -> Void = {}
     /// Fired on the main actor when the page requests navigation away from
     /// the loaded space URL (link tap, JS redirect, target=_blank). The
-    /// navigation is cancelled in place; the host presents it in the desktop
+    /// navigation is cancelled in place; the host presents it in the home
     /// browser popup instead.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
@@ -48,7 +48,7 @@ struct DesktopWebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
-        // Transparent web chrome: the SwiftUI host paints the desktop canvas
+        // Transparent web chrome: the SwiftUI host paints the home canvas
         // (the conversation background), and the placeholder page leaves its
         // body transparent so both stay one surface until a Space page with
         // its own background loads.
@@ -130,14 +130,14 @@ struct DesktopWebView: UIViewRepresentable {
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction
         ) async -> WKNavigationActionPolicy {
-            guard let url = DesktopWebNavigation.interceptedURL(
+            guard let url = HomeWebNavigation.interceptedURL(
                 for: navigationAction,
                 loadedURL: loadedURL,
                 hasFinishedInitialLoad: hasFinishedInitialLoad
             ) else {
                 return .allow
             }
-            DesktopWebNavigation.route(url, toHost: onNavigationRequest)
+            HomeWebNavigation.route(url, toHost: onNavigationRequest)
             return .cancel
         }
 
@@ -150,7 +150,7 @@ struct DesktopWebView: UIViewRepresentable {
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
             if let url = navigationAction.request.url {
-                DesktopWebNavigation.route(url, toHost: onNavigationRequest)
+                HomeWebNavigation.route(url, toHost: onNavigationRequest)
             }
             return nil
         }
@@ -165,7 +165,7 @@ struct DesktopWebView: UIViewRepresentable {
             let onLoaded = onLoaded
             Task { @MainActor in onLoaded() }
             // Pushed browser pages pass no conversation id; only the
-            // conversation's own desktop persists a cover snapshot.
+            // conversation's own home persists a cover snapshot.
             let conversationId = conversationId
             guard !conversationId.isEmpty else { return }
             // The Space page is a JS app: at didFinish it hasn't painted
@@ -176,10 +176,10 @@ struct DesktopWebView: UIViewRepresentable {
                 guard let self, let webView, self.isCurrent(navigation) else { return }
                 webView.takeSnapshot(with: nil) { image, error in
                     if let error {
-                        Log.error("DesktopWebView snapshot failed: \(error)")
+                        Log.error("HomeWebView snapshot failed: \(error)")
                     }
                     guard let pngData = image?.pngData() else { return }
-                    Task { await DesktopSnapshotStore.shared.store(pngData, for: conversationId) }
+                    Task { await HomeSnapshotStore.shared.store(pngData, for: conversationId) }
                 }
             }
         }
@@ -201,7 +201,7 @@ struct DesktopWebView: UIViewRepresentable {
             guard isCurrent(navigation) else { return }
             let nsError = error as NSError
             guard nsError.code != NSURLErrorCancelled else { return }
-            Log.warning("DesktopWebView load failed: \(error.localizedDescription)")
+            Log.warning("HomeWebView load failed: \(error.localizedDescription)")
             hasLoaded = false
             let onLoaded = onLoaded
             Task { @MainActor in onLoaded() }
@@ -238,17 +238,17 @@ struct DesktopWebView: UIViewRepresentable {
         }
         </style>
         </head>
-        <body><div>Desktop</div></body>
+        <body><div>Home</div></body>
         </html>
         """
     }
 }
 
-/// Navigation interception shared by the desktop web surface and the browser
+/// Navigation interception shared by the home web surface and the browser
 /// popups it spawns: each pins the page it initially loaded and hands any
 /// user-driven navigation to the host, which stacks a new popup for it.
 @MainActor
-enum DesktopWebNavigation {
+enum HomeWebNavigation {
     /// The URL to intercept for `navigationAction`, or nil to let the
     /// navigation proceed in place. Allows subframe (iframe) loads, the
     /// initial load and its redirect chain, and same-URL reloads.

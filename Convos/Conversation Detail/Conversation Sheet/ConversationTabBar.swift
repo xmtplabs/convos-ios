@@ -1,7 +1,7 @@
 import ConvosComposer
 import SwiftUI
 
-/// The conversation sheet's tab bar: Desktop | Group | Agent slots that
+/// The conversation sheet's tab bar: Home | Group | Agent slots that
 /// drive the selected conversation surface. Styled after the system tab
 /// bar's equal-width icon-over-label items, with native segmented-control
 /// mechanics: one selection thumb that slides between slots, live tracking
@@ -11,7 +11,7 @@ import SwiftUI
 struct ConversationTabBar: View {
     @Binding var selectedTab: ConversationTab
     /// Tabs to render, in order. The full set by default; hosts may trim it
-    /// (e.g. a draft conversation with no desktop yet).
+    /// (e.g. a draft conversation with no home yet).
     var tabs: [ConversationTab] = ConversationTab.allCases
     /// Tabs carrying an unread indicator: a dot on the icon's top-right
     /// corner (Figma 7488:14106). Hosts exclude the active tab - the user
@@ -152,7 +152,7 @@ struct ConversationTabBar: View {
     @ViewBuilder
     private func glyph(for tab: ConversationTab, isSelected: Bool) -> some View {
         switch tab {
-        case .desktop:
+        case .home:
             symbolGlyph("macwindow", isSelected: isSelected)
         case .group:
             symbolGlyph("message.fill", isSelected: isSelected)

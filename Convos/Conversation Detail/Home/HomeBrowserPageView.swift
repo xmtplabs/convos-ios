@@ -1,22 +1,22 @@
 import SwiftUI
 
-/// One page in the desktop browsing chain. Each intercepted navigation
+/// One page in the home browsing chain. Each intercepted navigation
 /// pushes a fresh entry; identity is per-tap so tapping the same link twice
 /// still pushes.
-struct DesktopBrowserEntry: Identifiable, Hashable {
+struct HomeBrowserEntry: Identifiable, Hashable {
     let id: UUID = UUID()
     let url: URL
 }
 
-/// An external web page layered over the desktop, below the floating
+/// An external web page layered over the home, below the floating
 /// conversation sheet - browsing never leaves the conversation screen, so
 /// the sheet stays up and the top bar's back button (swapped in by
 /// `ConversationView` while pages are open) walks the chain home to the
-/// root desktop view. Mirrors the desktop surface's full-bleed geometry:
+/// root home view. Mirrors the home surface's full-bleed geometry:
 /// the page insets by the navigation chrome and the sheet so content
 /// scrolls clear of both.
-struct DesktopBrowserPageView: View {
-    let entry: DesktopBrowserEntry
+struct HomeBrowserPageView: View {
+    let entry: HomeBrowserEntry
     /// The sheet's live occupied height, measured from the physical screen
     /// bottom; applied as the page's bottom content/indicator inset.
     var sheetHeight: CGFloat = ConversationSheetMetrics.compactRestingHeight
@@ -26,9 +26,9 @@ struct DesktopBrowserPageView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            DesktopWebView(
+            HomeWebView(
                 // An empty conversation id keeps browser pages from
-                // overwriting the conversation's desktop cover snapshot.
+                // overwriting the conversation's home cover snapshot.
                 conversationId: "",
                 url: entry.url,
                 topContentInset: proxy.safeAreaInsets.top,
@@ -41,6 +41,6 @@ struct DesktopBrowserPageView: View {
             Color.colorBackgroundRaised
                 .ignoresSafeArea()
         }
-        .accessibilityIdentifier("desktop-browser-page")
+        .accessibilityIdentifier("home-browser-page")
     }
 }

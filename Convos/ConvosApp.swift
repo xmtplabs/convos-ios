@@ -161,7 +161,7 @@ struct ConvosApp: App {
             metricsDelegate: metricsDelegate
         )
 
-        DesktopWebViewPrewarmer.prewarmIfNeeded(session: convos.session)
+        HomeWebViewPrewarmer.prewarmIfNeeded(session: convos.session)
 
         Self.configureTabBarItemColors()
     }
