@@ -446,7 +446,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onAppear {
             ensureNavigator()
             navState.markScreenAppeared()
-            viewModel.onConversationAppeared()
+            // Viewed means the Group tab is on screen; appearing on another
+            // tab (returning from a push, or seeding below onto the agent
+            // page) must not resume the group's read receipts.
+            if selectedTab == .group {
+                viewModel.onConversationAppeared()
+            }
             seedInitialTabIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
@@ -647,6 +652,31 @@ private extension ConversationView {
             // left. (The agent page does the same for its DM.)
             markGroupAsRead()
         }
+        // The group is "being viewed" only while its tab is selected. Off
+        // the tab, read receipts must stop (the user isn't reading the
+        // transcript) and the group has to leave the active-conversation
+        // gate so incoming messages mark it unread and badge its tab.
+        if oldTab == .group, newTab != .group {
+            viewModel.onConversationDisappeared()
+            updateActiveGroupLane(isActive: false)
+        } else if oldTab != .group, newTab == .group {
+            viewModel.onConversationAppeared()
+            updateActiveGroupLane(isActive: true)
+        }
+    }
+
+    /// Registers (or clears) the group as the on-screen conversation. The
+    /// conversations list posts the group id when this screen opens; leaving
+    /// the Group tab hands the slot back so the stream's unread gate and
+    /// push suppression treat the group like any background conversation.
+    /// (The agent page does the same for its DM lane.)
+    private func updateActiveGroupLane(isActive: Bool) {
+        let conversationId: String = viewModel.conversation.id
+        NotificationCenter.default.post(
+            name: .activeConversationChanged,
+            object: nil,
+            userInfo: isActive ? ["conversationId": conversationId] : [:]
+        )
     }
 
     private func markGroupAsRead() {

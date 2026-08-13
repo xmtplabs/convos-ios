@@ -251,7 +251,9 @@ struct HomeWebView: UIViewRepresentable {
 enum HomeWebNavigation {
     /// The URL to intercept for `navigationAction`, or nil to let the
     /// navigation proceed in place. Allows subframe (iframe) loads, the
-    /// initial load and its redirect chain, and same-URL reloads.
+    /// initial load and its redirect chain, same-URL reloads, and
+    /// same-document fragment jumps (an anchor link scrolls the page; it
+    /// isn't outbound navigation).
     static func interceptedURL(
         for navigationAction: WKNavigationAction,
         loadedURL: URL?,
@@ -260,7 +262,20 @@ enum HomeWebNavigation {
         guard navigationAction.targetFrame?.isMainFrame == true else { return nil }
         guard let url = navigationAction.request.url else { return nil }
         if !hasFinishedInitialLoad || url == loadedURL { return nil }
+        if isSameDocument(url, as: loadedURL) { return nil }
         return url
+    }
+
+    /// Whether two URLs differ only by fragment (`page` vs `page#section`).
+    private static func isSameDocument(_ url: URL, as loadedURL: URL?) -> Bool {
+        guard let loadedURL else { return false }
+        return strippingFragment(url) == strippingFragment(loadedURL)
+    }
+
+    private static func strippingFragment(_ url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        components.fragment = nil
+        return components.url ?? url
     }
 
     /// Routes an intercepted URL: http(s) to the popup host, other schemes
