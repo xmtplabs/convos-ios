@@ -21,22 +21,9 @@ struct HomeWebSurface: View {
 
     @State private var isLoaded: Bool = false
     @State private var coverImage: UIImage?
-    /// The page's sampled edge colors, drawn as a backdrop gradient behind
-    /// the transparent web view: the page's own background cannot paint
-    /// beyond its document, so these extend it through the chrome-inset and
-    /// overscroll regions to the physical screen edges.
-    @State private var topEdgeColor: Color?
-    @State private var bottomEdgeColor: Color?
 
     var body: some View {
         ZStack {
-            if let topEdgeColor, let bottomEdgeColor {
-                LinearGradient(
-                    colors: [topEdgeColor, bottomEdgeColor],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
             HomeWebView(
                 conversationId: conversationId,
                 url: url,
@@ -50,12 +37,6 @@ struct HomeWebSurface: View {
                     // cleared layer shows through.
                     withAnimation(.easeInOut(duration: Constant.coverFadeDuration).delay(Constant.revealDelay)) {
                         isLoaded = true
-                    }
-                },
-                onEdgeColorsSampled: { top, bottom in
-                    withAnimation(.easeInOut(duration: Constant.coverFadeDuration)) {
-                        topEdgeColor = Color(top)
-                        bottomEdgeColor = Color(bottom)
                     }
                 },
                 onNavigationRequest: onNavigationRequest
