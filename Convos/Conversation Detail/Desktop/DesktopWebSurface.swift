@@ -15,9 +15,6 @@ struct DesktopWebSurface: View {
     /// Forwarded to `DesktopWebView`: bottom clearance (the floating sheet's
     /// occupied height) for the page and its scroll indicator.
     var bottomContentInset: CGFloat = 0
-    /// Forwarded to `DesktopWebView`: asks the loaded page for an in-place
-    /// reload when bumped.
-    var reloadNonce: Int = 0
     /// Forwarded to `DesktopWebView`; fired when the page requests navigation
     /// away from the space URL.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
@@ -33,7 +30,6 @@ struct DesktopWebSurface: View {
                 isScrollEnabled: isScrollEnabled,
                 topContentInset: topContentInset,
                 bottomContentInset: bottomContentInset,
-                reloadNonce: reloadNonce,
                 onLoaded: {
                     // The reveal waits a beat past didFinish - a JS page
                     // hasn't painted yet at that moment - and only the
@@ -42,13 +38,6 @@ struct DesktopWebSurface: View {
                     withAnimation(.easeInOut(duration: Constant.coverFadeDuration).delay(Constant.revealDelay)) {
                         isLoaded = true
                     }
-                },
-                onWillReload: { image in
-                    // A capture of exactly what's on screen, delivered right
-                    // before the reload clears the content layer: identical
-                    // pixels hold the frame through the refresh.
-                    coverImage = image
-                    isLoaded = false
                 },
                 onNavigationRequest: onNavigationRequest
             )

@@ -104,10 +104,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// While non-empty, the top bar swaps the system back button for one
     /// that pops pages, and hides the add-members item.
     @State private var desktopBrowserEntries: [DesktopBrowserEntry] = []
-    /// Bumped when the user returns to the Desktop tab, asking the loaded
-    /// Space page for an in-place reload so it picks up server-side changes
-    /// without leaving the conversation.
-    @State private var desktopReloadNonce: Int = 0
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -348,14 +344,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// claiming the incoming one so the keyboard hands over instead of
     /// dropping.
     private func handleSelectedTabChange(from oldTab: ConversationTab, to newTab: ConversationTab) {
-        let isReturnVisit: Bool = visitedTabs.contains(newTab)
         visitedTabs.insert(newTab)
-        // Returning to a loaded desktop refreshes the page (an in-place
-        // reload - the old content stays up while the new arrives); the
-        // first visit performs the initial load anyway.
-        if newTab == .desktop, oldTab != .desktop, isReturnVisit {
-            desktopReloadNonce += 1
-        }
         let keyboardWasUp: Bool = isKeyboardVisible
         switch newTab {
         case .group:
@@ -920,7 +909,6 @@ private extension ConversationView {
                     conversationId: viewModel.conversation.id,
                     webURL: viewModel.conversation.spaceURL,
                     sheetHeight: sheetOccupiedHeight,
-                    reloadNonce: desktopReloadNonce,
                     onNavigationRequest: { url in
                         pushDesktopBrowserPage(for: url)
                     }

@@ -28,18 +28,8 @@ struct DesktopWebView: UIViewRepresentable {
     /// conversation sheet's occupied height - so page content can scroll
     /// clear of the sheet while the surface itself stays full-bleed.
     var bottomContentInset: CGFloat = 0
-    /// Asks the loaded page for an in-place reload when bumped: the old
-    /// content stays on screen while the fresh page arrives. A page URL is
-    /// stable across the Space's deployments, so returning to the surface
-    /// re-pulls server-side changes this way.
-    var reloadNonce: Int = 0
     /// Fired on the main actor once the page finishes loading.
     var onLoaded: @MainActor () -> Void = {}
-    /// Fired right before an in-place reload starts, carrying a capture of
-    /// exactly what's on screen. The host raises its cover with it; the
-    /// reload begins one runloop tick later, so the cover is rendered
-    /// before WebKit clears the content layer.
-    var onWillReload: @MainActor (UIImage) -> Void = { _ in }
     /// Fired on the main actor when the page requests navigation away from
     /// the loaded space URL (link tap, JS redirect, target=_blank). The
     /// navigation is cancelled in place; the host presents it in the desktop
@@ -97,31 +87,6 @@ struct DesktopWebView: UIViewRepresentable {
                 scrollView.contentOffset.y = -topContentInset
             }
         }
-        // An in-place refresh of the already-loaded page, distinct from the
-        // destination change below. The page is fully painted right now -
-        // unlike at didFinish, where a JS app hasn't rendered yet - so THIS
-        // is the moment to capture the cover; the reload starts only after
-        // the host has it on screen.
-        if context.coordinator.lastReloadNonce != reloadNonce {
-            context.coordinator.lastReloadNonce = reloadNonce
-            if context.coordinator.hasLoaded, url != nil {
-                let coordinator = context.coordinator
-                let onWillReload = onWillReload
-                webView.takeSnapshot(with: nil) { [weak webView] image, _ in
-                    Task { @MainActor in
-                        if let image {
-                            onWillReload(image)
-                        }
-                        // One tick for the cover to render, then reload.
-                        DispatchQueue.main.async {
-                            guard let webView else { return }
-                            coordinator.activeNavigation = webView.reload()
-                        }
-                    }
-                }
-                return
-            }
-        }
         // Reload only when the destination actually changes; SwiftUI calls
         // this on unrelated state churn.
         guard context.coordinator.loadedURL != url || !context.coordinator.hasLoaded else { return }
@@ -149,9 +114,6 @@ struct DesktopWebView: UIViewRepresentable {
         /// stale (e.g. the placeholder finishing after the real Space URL
         /// superseded it) and must not flip the interception state.
         var activeNavigation: WKNavigation?
-        /// The last `reloadNonce` acted on; a changed value asks for an
-        /// in-place reload of the loaded page.
-        var lastReloadNonce: Int = 0
 
         init(
             conversationId: String,
