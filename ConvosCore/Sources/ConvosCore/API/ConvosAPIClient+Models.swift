@@ -436,7 +436,92 @@ public enum ConvosAPI {
             }
         }
     }
+}
 
+extension ConvosAPI {
+    // MARK: - v2/conversations/:conversationId/debug/space-share
+
+    /// The paste-ready Space share payload. `message` is the exact clipboard
+    /// text: one sentence naming the receiving agent's `space-import` skill,
+    /// then a clone URL whose userinfo carries an expiring read-only
+    /// repository credential — treat the whole value as a secret and never
+    /// log it.
+    public struct SpaceShareLink: Decodable, Equatable, Sendable {
+        public let conversationId: String
+        public let message: String
+        public let expiresAt: String
+
+        public init(conversationId: String, message: String, expiresAt: String) {
+            self.conversationId = conversationId
+            self.message = message
+            self.expiresAt = expiresAt
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            guard try container.decode(Bool.self, forKey: .success) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .success,
+                    in: container,
+                    debugDescription: "Space share success envelope must set success to true"
+                )
+            }
+            conversationId = try container.decode(String.self, forKey: .conversationId)
+            message = try container.decode(String.self, forKey: .message)
+            expiresAt = try container.decode(String.self, forKey: .expiresAt)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case success
+            case conversationId
+            case message
+            case expiresAt
+        }
+    }
+
+    public enum SpaceShareError: Error, Equatable, Sendable {
+        case invalidRequest
+        case spaceNotFound
+        case repositoryUnavailable
+        case variantUnavailable
+        case unavailable
+        case timeout
+        case failed
+        case rateLimited
+
+        init?(body: Data) {
+            struct ErrorBody: Decodable {
+                let success: Bool
+                let error: String
+                let message: String
+            }
+            guard let response = try? JSONDecoder().decode(ErrorBody.self, from: body),
+                  !response.success else { return nil }
+            switch response.error {
+            case "INVALID_REQUEST":
+                self = .invalidRequest
+            case "SPACE_NOT_FOUND":
+                self = .spaceNotFound
+            case "SPACE_REPOSITORY_UNAVAILABLE":
+                self = .repositoryUnavailable
+            case "VARIANT_UNAVAILABLE":
+                self = .variantUnavailable
+            case "SPACE_SHARE_UNAVAILABLE":
+                self = .unavailable
+            case "SPACE_SHARE_TIMEOUT":
+                self = .timeout
+            case "SPACE_SHARE_FAILED":
+                self = .failed
+            case "RATE_LIMITED":
+                self = .rateLimited
+            default:
+                return nil
+            }
+        }
+    }
+}
+
+extension ConvosAPI {
     // MARK: - v2/agent-templates/:id
 
     // Subset of the agent-template object the backend returns from the

@@ -115,6 +115,7 @@ struct ConversationInfoView: View {
     @State private var showingRestoreInviteTagAlert: Bool = false
     @State private var restoreInviteTagText: String = ""
     @State private var showingLeaveConfirmation: Bool = false
+    @State private var spaceShareCoordinator: ConversationSpaceShareCoordinator = .init()
     @State private var navState: ConversationInfoNavigatorImpl = .init()
     @State private var navigator: ConversationInfoCollector?
 
@@ -658,13 +659,16 @@ struct ConversationInfoView: View {
 // MARK: - Support and debug section
 
 extension ConversationInfoView {
-    // The support rows ship in every environment so production users can
-    // send on-device diagnostics to support; the remaining rows are internal
-    // debugging tools and stay out of production builds.
+    // The support rows ship in every environment so production users can send
+    // on-device diagnostics to support. The Space share row follows its
+    // explicit opt-in flag; the remaining debug rows stay out of production.
     @ViewBuilder
     private var debugInfoSection: some View {
         let isProduction = ConfigManager.shared.currentEnvironment.isProduction
         Section {
+            if FeatureFlags.shared.isSpaceShareEnabled {
+                spaceShareRow
+            }
             if !isProduction {
                 internalDebugRows
             }
@@ -737,6 +741,49 @@ extension ConversationInfoView {
         } label: {
             Text("Restore invite tag")
         }
+    }
+
+    private var spaceShareRow: some View {
+        Button {
+            Task {
+                await spaceShareCoordinator.share(
+                    conversationId: viewModel.conversation.id,
+                    variantId: viewModel.conversation.agentVariant?.slug
+                )
+            }
+        } label: {
+            HStack {
+                Text("Share Space")
+                    .foregroundStyle(.colorTextPrimary)
+                Spacer()
+                if spaceShareCoordinator.isBusy {
+                    ProgressView()
+                }
+            }
+        }
+        .disabled(spaceShareCoordinator.isBusy)
+        .accessibilityIdentifier("share-space-button")
+        .accessibilityLabel("Copy Space share message")
+        .alert(
+            spaceShareCoordinator.alert?.title ?? "",
+            isPresented: spaceShareAlertIsPresented,
+            presenting: spaceShareCoordinator.alert
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { payload in
+            Text(payload.message)
+        }
+    }
+
+    private var spaceShareAlertIsPresented: Binding<Bool> {
+        Binding(
+            get: { spaceShareCoordinator.alert != nil },
+            set: { isPresented in
+                if !isPresented {
+                    spaceShareCoordinator.alert = nil
+                }
+            }
+        )
     }
 
     @ViewBuilder

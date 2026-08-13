@@ -127,6 +127,15 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
         variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse
 
+    /// Mints the paste-ready Space share message for a conversation: one
+    /// sentence naming the receiving agent's import skill plus a clone URL
+    /// carrying an expiring read-only repository credential. The caller puts
+    /// `message` on the clipboard verbatim and must never log it.
+    func shareSpace(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.SpaceShareLink
+
     // Agent templates
     /// Public detail fetch for a published agent template, keyed by its
     /// template id (UUID) or hashed url slug (e.g. `gandalf.felpl`). Backs the

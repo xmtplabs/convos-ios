@@ -81,6 +81,7 @@ struct DebugViewSection: View {
             agentVariantToggles
             Toggle("Listen (agent participation)", isOn: Bindable(FeatureFlags.shared).isListenParticipationEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
+            Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
             abilitiesFeatureToggles
 
             let showInfoAction = { showingAgentsInfoSheet = true }

@@ -10,6 +10,35 @@ import XCTest
 /// without leaving and re-entering the screen.
 @MainActor
 final class FeatureFlagsObservationTests: XCTestCase {
+    func testSpaceShareDefaultsOffPersistsAndNotifiesObservers() {
+        let key = "featureFlags.spaceShareEnabled"
+        let defaults = UserDefaults.standard
+        let original = defaults.object(forKey: key)
+        defer {
+            if let original {
+                defaults.set(original, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        defaults.removeObject(forKey: key)
+
+        let flags = FeatureFlags.shared
+        XCTAssertFalse(flags.isSpaceShareEnabled)
+
+        let changed = expectation(description: "Space share flag observation fired")
+        withObservationTracking {
+            _ = flags.isSpaceShareEnabled
+        } onChange: {
+            changed.fulfill()
+        }
+
+        flags.isSpaceShareEnabled = true
+        wait(for: [changed], timeout: 1.0)
+        XCTAssertTrue(defaults.bool(forKey: key))
+        XCTAssertTrue(flags.isSpaceShareEnabled)
+    }
+
     func testTogglingAbilitiesV2NotifiesObservers() {
         let flags = FeatureFlags.shared
         let initial = flags.isAbilitiesV2Enabled
