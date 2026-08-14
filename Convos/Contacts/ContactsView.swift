@@ -43,11 +43,11 @@ struct ContactsView: View {
     /// Whether to render the contacts-scoped compose button. The Contacts
     /// tab hides it because the shell's shared toolbar already provides a
     /// compose button (whose `onStartConvo` opens the same contacts picker),
-    /// so the tab's top bar matches Chats and Things exactly.
+    /// so the tab's top bar matches Chats exactly.
     private let showsComposeButton: Bool
     /// Optional request from the shell to scroll the list to a given section
     /// id once it appears. Used by the "See suggested agents" button in the
-    /// empty Things state; consumed (set back to nil) after the scroll lands.
+    /// empty chats state; consumed (set back to nil) after the scroll lands.
     private let scrollTarget: Binding<String?>?
     /// Launches the agent builder for the "Make an agent" top-three action.
     /// Make-agent presents from the shell (`MainTabView`), which can't be

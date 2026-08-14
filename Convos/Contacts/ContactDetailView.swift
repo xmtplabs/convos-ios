@@ -217,7 +217,7 @@ struct ContactDetailView: View {
     /// the system back button instead of nesting a second stack. The tab bar
     /// is hidden here (mirroring `ThingDetailView`) because the Contacts tab
     /// entry point pushes onto a tab stack whose shell only hides the bar for
-    /// Chats/Things selections; without this the bar overlaps the composer.
+    /// chats selections; without this the bar overlaps the composer.
     /// Harmless in sheet entry points, which have no tab bar.
     @ViewBuilder
     private func pushedConversationView(_ viewModel: NewConversationViewModel) -> some View {

@@ -3,14 +3,14 @@ import ConvosCore
 import ConvosMetrics
 import SwiftUI
 
-/// Root tab shell for the app. Hosts the existing `ConversationsView` under
-/// the "Convos" tab, `ThingsTabView` under "Things", and `ContactsView` under
-/// "Contacts", in a standard SwiftUI `TabView` with the system tab bar.
+/// Root tab shell for the app. Hosts `ConversationsView` under the "Convos"
+/// tab and `ContactsView` under "Contacts", in a standard SwiftUI `TabView`
+/// with the system tab bar.
 ///
 /// The agent builder bar is pinned via a `safeAreaInset` on the edge
 /// opposite the tab bar (top on iPhone, where the tab bar is at the bottom;
-/// bottom on iPad, where the standard tab bar is at the top), shared across
-/// the Chats and Things tabs. It fades out on scroll and is replaced by a
+/// bottom on iPad, where the standard tab bar is at the top). It fades out
+/// on scroll and is replaced by a
 /// compact "add agent" button in the nav bar. The Contacts tab never shows
 /// the builder bar -- its search bar owns the top -- so the "add agent"
 /// button stays in the nav bar there regardless of scroll. The compose
@@ -23,30 +23,17 @@ struct MainTabView: View {
 
     /// Tracks which tab is currently active and drives the standard
     /// `TabView` selection. The system tab bar is hidden only while a
-    /// conversation / Things detail is pushed (so the detail owns the full
-    /// screen) via `.toolbar(_:for: .tabBar)`. It stays visible during the
+    /// conversation is pushed (so it owns the full screen) via
+    /// `.toolbar(_:for: .tabBar)`. It stays visible during the
     /// empty-state CTA so the user can still switch tabs.
     @State private var activeTab: ConvosTab = .chats
-    /// NavigationStack path for the Things tab. Lifted to this shell so
-    /// the bottom chrome can hide when Things has a detail pushed, same
-    /// way it hides when Chats has a conversation selected.
-    @State private var thingsPushedItems: [ThingOverviewItem] = []
-    /// Hydrated VM for the topmost pushed Things item, so the shared
-    /// overlay can render the centered conversation indicator for it
-    /// (same morph as a chats push). Synced via `.onChange` on
-    /// `thingsPushedItems` — created lazily, cleared on pop.
-    @State private var thingsPushedConvoVM: ConversationViewModel?
-    /// Member whose contact card is presented when the user taps the
-    /// centered conversation indicator while a Things detail is pushed:
-    /// the agent that sent the pushed item's attachment.
-    @State private var thingsAgentContactMember: ConversationMember?
     /// NavigationStack path for the Contacts tab, lifted here so the shared
     /// app-indicator overlay can tell when a contact detail is pushed and
-    /// re-center the pill (mirrors how `thingsPushedItems` lifts the Things
-    /// path). `ContactsView` pushes onto it via value-based `NavigationLink`s.
+    /// re-center the pill. `ContactsView` pushes onto it via value-based
+    /// `NavigationLink`s.
     @State private var contactsPath: [Contact] = []
     /// Section the Contacts tab should scroll to once it appears. Set when the
-    /// user taps "See suggested agents" in the empty Things state; `ContactsView`
+    /// user taps "See suggested agents" in the empty chats state; `ContactsView`
     /// consumes it (scrolling to the suggested-agents section once it has
     /// loaded) and clears it back to nil.
     @State private var contactsScrollTarget: String?
@@ -64,7 +51,6 @@ struct MainTabView: View {
     /// state against the new tab's scroll position immediately, instead
     /// of waiting for the user to scroll.
     @State private var chatsScrollOffset: CGFloat = 0
-    @State private var thingsScrollOffset: CGFloat = 0
     /// Measured height of the top chrome (the agent builder bar under the
     /// nav bar) published via a `PreferenceKey`. Used to push an explicit
     /// additional top inset down into `ConversationsViewController`,
@@ -73,8 +59,8 @@ struct MainTabView: View {
     @State private var builderBarHeight: CGFloat = 0
     /// Drives the app-settings sheet that the `AppIndicatorPill` (in
     /// every tab that renders one) presents on tap. Lives at this shell
-    /// level so both the Chats and Things tabs share a single sheet
-    /// instance — the alternative (a sheet per tab) would mean tapping
+    /// level so every tab shares a single sheet instance — the
+    /// alternative (a sheet per tab) would mean tapping
     /// the pill on the wrong tab wouldn't work after a tab swap and
     /// would duplicate the `AppSettingsView` view-model wiring.
     @State private var presentingAppSettings: Bool = false
@@ -97,8 +83,6 @@ struct MainTabView: View {
     @State var tabRootNavigator: TabRootCollector?
     @State var conversationsNavState: ConversationsNavigatorImpl = .init()
     @State var conversationsNavigator: ConversationsCollector?
-    @State var stuffOverviewNavState: StuffOverviewNavigatorImpl = .init()
-    @State var stuffOverviewNavigator: StuffOverviewCollector?
     @State var contactsNavState: ContactsNavigatorImpl = .init()
     @State var contactsNavigator: ContactsCollector?
     @Environment(\.scenePhase) private var scenePhase: ScenePhase
@@ -197,7 +181,6 @@ struct MainTabView: View {
     /// because the selection model lives there.
     private var isConversationSelected: Bool {
         conversationsViewModel.selectedConversationViewModel != nil
-            || !thingsPushedItems.isEmpty
     }
 
     /// Mirrors [[ConversationsViewModel.isEmptyCTAActive]]. When true the
@@ -218,7 +201,6 @@ struct MainTabView: View {
     private var activeTabScrollOffset: CGFloat {
         switch activeTab {
         case .chats: chatsScrollOffset
-        case .things: thingsScrollOffset
         case .contacts: 0
         }
     }
@@ -252,7 +234,7 @@ struct MainTabView: View {
     /// Tapping a message notification selects the conversation in
     /// `ConversationsViewModel`, but that conversation only lives under the
     /// Chats tab. Switch to Chats and dismiss any shell-level modal first so
-    /// the user isn't left on the Things tab or behind the App Settings sheet
+    /// the user isn't left on another tab or behind the App Settings sheet
     /// looking at a corrupted hierarchy.
     private func handleConversationNotificationTapped() {
         activeTab = .chats
@@ -304,23 +286,6 @@ struct MainTabView: View {
                         topChromeInset: chromeTopInset,
                         bottomChromeInset: chromeBottomInset,
                         onExploreAgents: showSuggestedAgents
-                    )
-                }
-            }
-
-            Tab(ConvosTab.things.title, systemImage: ConvosTab.things.symbol, value: ConvosTab.things) {
-                tabContainer(for: .things) {
-                    ThingsTabView(
-                        appIndicatorContext: appIndicatorContext,
-                        conversationsViewModel: conversationsViewModel,
-                        pushedItems: $thingsPushedItems,
-                        onScrollOffsetChange: { offset in
-                            thingsScrollOffset = offset
-                            if activeTab == .things {
-                                updateBuilderBarReveal(forOffset: offset)
-                            }
-                        },
-                        onSeeSuggestedAgents: showSuggestedAgents
                     )
                 }
             }
@@ -460,7 +425,7 @@ struct MainTabView: View {
     /// so it sits flush with the leading edge of the nav-bar zone.
     /// Native toolbars clip ToolbarItem height to ~44pt; the pill is
     /// taller than that, so it must be an overlay rather than a
-    /// ToolbarItem. Hidden when a conversation / Things detail is
+    /// ToolbarItem. Hidden when a conversation is
     /// pushed onto the outer NavigationStack — the centered
     /// conversation indicator inside the pushed view's
     /// `ConversationPresenter` morphs into place via the
@@ -569,10 +534,6 @@ struct MainTabView: View {
             : DesignConstants.Spacing.step3x
     }
 
-    /// Shared with `AttachmentPreviewSheet`'s sender pill so the Things
-    /// detail indicator subtitle uses the same sent-date wording.
-    private static let sentDateFormatter: SentDateFormatter = SentDateFormatter()
-
     @ViewBuilder
     private func centeredConversationIndicator(for convoVM: ConversationViewModel) -> some View {
         let pendingAgentOverride: AgentVerification? = convoVM.shouldRenderAsPendingAgent
@@ -580,26 +541,14 @@ struct MainTabView: View {
             : nil
         let pendingAgentIdentity: PendingAgentAvatarIdentity? = convoVM.pendingAgentPresentation?.avatarIdentity
         let isReadOnly: Bool = conversationsViewModel.staleDeviceObserver.isDeviceRemoved || convoVM.conversation.wasRemoved
-        // While a Things item is pushed (no chats selection), tapping the
-        // indicator opens the contact card of the agent that made the thing
-        // instead of the conversation quick editor / info sheet.
-        let isThingsIndicator: Bool = conversationsViewModel.selectedConversationViewModel == nil
-        let thingsAgentTapOverride: (() -> Void)? = isThingsIndicator ? { presentThingsAgentContact() } : nil
-        // On a Things push the indicator subtitle shows when the thing was
-        // sent (same label as the in-conversation preview sheet's sender
-        // pill) instead of the member count.
-        let thingsSentDateSubtitle: String? = isThingsIndicator
-            ? thingsPushedItems.last.map { Self.sentDateFormatter.string(for: $0.date) }
-            : nil
         HStack {
             ConversationIndicatorWrapper(
                 viewModel: convoVM,
                 placeholderOverride: nil,
-                subtitleOverride: thingsSentDateSubtitle,
+                subtitleOverride: nil,
                 allowsEditing: !isReadOnly,
                 focusState: $liftedIndicatorFocus,
-                focusCoordinator: liftedIndicatorFocusCoordinator,
-                onTapOverride: thingsAgentTapOverride
+                focusCoordinator: liftedIndicatorFocusCoordinator
             )
             .environment(\.forcedAgentVerification, pendingAgentOverride)
             .environment(\.pendingAgentIdentity, pendingAgentIdentity)
@@ -627,48 +576,15 @@ struct MainTabView: View {
         }
     }
 
-    /// Resolves the currently-displayed conversation across tabs: chats
-    /// `selectedConversationViewModel` if a chat row is selected, else
-    /// a VM hydrated for the topmost Things push, else nil. Drives the
-    /// shared overlay's morph between leading pill (when nil) and
-    /// centered conversation indicator (when non-nil).
+    /// The conversation the shared overlay is showing, if any. Drives its
+    /// morph between the leading pill (when nil) and the centered
+    /// conversation indicator (when non-nil).
     private var activeConvoVM: ConversationViewModel? {
-        conversationsViewModel.selectedConversationViewModel ?? thingsPushedConvoVM
+        conversationsViewModel.selectedConversationViewModel
     }
 
-    /// Opens the contact card of the agent that sent the pushed Things
-    /// item's attachment. Falls back to the default conversation-info tap
-    /// if the sender is no longer a member of the convo.
-    private func presentThingsAgentContact() {
-        guard let convoVM = thingsPushedConvoVM else { return }
-        let senderInboxId: String? = thingsPushedItems.last?.senderInboxId
-        let senderMember: ConversationMember? = convoVM.conversation.members
-            .first { $0.profile.inboxId == senderInboxId }
-        guard let senderMember else {
-            convoVM.onConversationInfoTap(focusCoordinator: liftedIndicatorFocusCoordinator)
-            return
-        }
-        thingsAgentContactMember = senderMember
-    }
-
-    /// Keeps `thingsPushedConvoVM` aligned with `thingsPushedItems.last`
-    /// so the shared indicator overlay can render its centered
-    /// conversation pill for the pushed Things item.
-    private func syncThingsPushedConvoVM(with items: [ThingOverviewItem]) {
-        guard let item = items.last else {
-            thingsPushedConvoVM = nil
-            thingsAgentContactMember = nil
-            return
-        }
-        guard thingsPushedConvoVM?.conversation.id != item.conversation.id else { return }
-        thingsPushedConvoVM = ConversationViewModel.createSync(
-            conversation: item.conversation,
-            session: conversationsViewModel.session
-        )
-    }
-
-    /// The agent builder bar, shared across the Chats and Things tabs, on the
-    /// edge opposite the tab bar. Its scroll behavior differs by platform:
+    /// The agent builder bar, on the edge opposite the tab bar. Its scroll
+    /// behavior differs by platform:
     /// on iPhone (compact) the expanded bar blurs/fades out and a compact
     /// "add agent" button takes its place in the nav bar; on iPad (regular)
     /// the bar stays visible and morphs to the collapsed circle instead. Its
@@ -762,9 +678,6 @@ extension MainTabView {
         if conversationsNavigator == nil {
             conversationsNavigator = ConversationsCollector(instance: conversationsNavState, delegate: delegate)
         }
-        if stuffOverviewNavigator == nil {
-            stuffOverviewNavigator = StuffOverviewCollector(instance: stuffOverviewNavState, delegate: delegate)
-        }
         if contactsNavigator == nil {
             contactsNavigator = ContactsCollector(instance: contactsNavState, delegate: delegate)
         }
@@ -778,7 +691,6 @@ extension MainTabView {
     func navStateForTab(_ tab: ConvosTab) -> any NavigatorLifecycle {
         switch tab {
         case .chats: return conversationsNavState
-        case .things: return stuffOverviewNavState
         case .contacts: return contactsNavState
         }
     }
@@ -786,7 +698,6 @@ extension MainTabView {
     func closeActiveTabNavigator(_ tab: ConvosTab, context: ScreenContext) {
         switch tab {
         case .chats: conversationsNavigator?.closed(context: context)
-        case .things: stuffOverviewNavigator?.closed(context: context)
         case .contacts: contactsNavigator?.closed(context: context)
         }
     }
@@ -800,8 +711,6 @@ extension MainTabView {
         switch newTab {
         case .chats:
             tabRootNavigator?.navigateTo(conversations: ConversationsNavigatorArgs())
-        case .things:
-            tabRootNavigator?.navigateTo(stuffOverview: StuffOverviewNavigatorArgs())
         case .contacts:
             tabRootNavigator?.navigateTo(contacts: ContactsNavigatorArgs())
         }
@@ -823,11 +732,6 @@ extension MainTabView {
         }
     }
 
-    func handleThingsPushChanged(from oldId: String?, to newId: String?) {
-        guard oldId == nil, let newId, let item = thingsPushedItems.last, item.id == newId else { return }
-        stuffOverviewNavigator?.navigateTo(stuffDetail: StuffDetailNavigatorArgs(itemId: newId))
-    }
-
     func handleContactsPushChanged(from oldId: String?, to newId: String?) {
         guard oldId == nil, let newId else { return }
         contactsNavigator?.navigateTo(contactCard: ContactCardNavigatorArgs(inboxId: newId))
@@ -839,7 +743,6 @@ extension MainTabView {
         appSettingsSource = nil
         switch source {
         case .chats: conversationsNavigator?.present(appSettings: AppSettingsNavigatorArgs())
-        case .things: stuffOverviewNavigator?.present(appSettings: AppSettingsNavigatorArgs())
         case .contacts: contactsNavigator?.present(appSettings: AppSettingsNavigatorArgs())
         }
     }
@@ -883,8 +786,6 @@ struct MainTabSheetsModifier: ViewModifier {
     let profileSettingsViewModel: ProfileSettingsViewModel
     let coreActions: any CoreActions
     @Binding var presentingAppSettings: Bool
-    @Binding var thingsAgentContactMember: ConversationMember?
-    let thingsPushedConvoVM: ConversationViewModel?
     let namespace: Namespace.ID
 
     /// Routes every dismissal of the incoming-pairing sheet through
@@ -954,24 +855,6 @@ struct MainTabSheetsModifier: ViewModifier {
                     .zoom(sourceID: "composer-transition-source", in: namespace)
                 )
             }
-            .sheet(item: $thingsAgentContactMember) { member in
-                thingsAgentContactSheet(for: member)
-            }
-    }
-
-    /// Contact card for the agent that made the pushed Things item,
-    /// presented when the user taps the centered conversation indicator
-    /// on the Things detail. Same content the member-avatar tap inside a
-    /// chat presents.
-    @ViewBuilder
-    private func thingsAgentContactSheet(for member: ConversationMember) -> some View {
-        if let thingsPushedConvoVM {
-            MemberContactDetailSheetContent(
-                viewModel: thingsPushedConvoVM,
-                member: member,
-                profileSettingsViewModel: profileSettingsViewModel
-            )
-        }
     }
 }
 
@@ -985,9 +868,6 @@ extension MainTabView {
         }
         .animation(.smooth(duration: 0.35), value: isConversationSelected)
         .animation(.smooth(duration: 0.35), value: isEmptyChatsCTAActive)
-        .onChange(of: thingsPushedItems) { _, newItems in
-            syncThingsPushedConvoVM(with: newItems)
-        }
         .onReceive(SubscriptionServices.shared.subscriptionPublisher) { newSubscription in
             userSubscription = newSubscription
         }
@@ -1004,7 +884,6 @@ extension MainTabView {
         MetricsObservers(
             activeTab: activeTab,
             scenePhase: scenePhase,
-            thingsPushedItemId: thingsPushedItems.last?.id,
             contactsPushedItemId: contactsPath.last?.id,
             presentingAppSettings: presentingAppSettings,
             selectedConversationId: conversationsViewModel.selectedConversationId,
@@ -1012,7 +891,6 @@ extension MainTabView {
             newConversationPresenting: conversationsViewModel.newConversationViewModel != nil,
             onActiveTabChanged: handleActiveTabChanged(from:to:),
             onScenePhaseChanged: handleScenePhaseChanged(to:),
-            onThingsPushChanged: handleThingsPushChanged(from:to:),
             onContactsPushChanged: handleContactsPushChanged(from:to:),
             onAppSettingsPresented: handleAppSettingsPresented(_:),
             onSelectedConversationChanged: handleSelectedConversationChanged(from:to:),
@@ -1029,8 +907,6 @@ extension MainTabView {
             profileSettingsViewModel: profileSettingsViewModel,
             coreActions: coreActions,
             presentingAppSettings: $presentingAppSettings,
-            thingsAgentContactMember: $thingsAgentContactMember,
-            thingsPushedConvoVM: thingsPushedConvoVM,
             namespace: namespace
         )
     }

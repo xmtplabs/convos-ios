@@ -132,31 +132,6 @@ struct ConversationsEmptyStateView: View {
     }
 }
 
-/// Things-tab empty state: the mock slot cycles through mock thing cells
-/// whose previews are rendered from real example HTML files.
-struct ThingsEmptyStateView: View {
-    let onMakeAgent: () -> Void
-    var onExploreAgents: (() -> Void)?
-
-    var body: some View {
-        EmptyStateCTAView(
-            headline: "Agents make things for the chat",
-            subtitle: "Plans, lists, notes, apps and more",
-            onMakeAgent: onMakeAgent,
-            onExploreAgents: onExploreAgents
-        ) {
-            EmptyStateMockThingCarousel(mocks: EmptyStateMocksProvider.shared.things)
-        }
-        .task {
-            await EmptyStateMocksProvider.shared.refreshFromRemoteIfNeeded()
-        }
-    }
-}
-
 #Preview("Conversations") {
     ConversationsEmptyStateView(onMakeAgent: {}, onExploreAgents: {})
-}
-
-#Preview("Things") {
-    ThingsEmptyStateView(onMakeAgent: {}, onExploreAgents: {})
 }
