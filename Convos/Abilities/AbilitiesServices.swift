@@ -36,10 +36,11 @@ struct AbilitiesSelection {
 /// app-wide so state changes carry across surfaces (connecting an ability
 /// in settings is immediately visible in conversation info).
 ///
-/// `configure(...)` wires the live transport at app start; the Debug menu's
-/// mock/live sub-toggle (default live) picks which pair `selection`
-/// serves. Previews and tests never call `configure`, so they fall back to
-/// the mock, mirroring `CreditsServices`.
+/// `configure(...)` wires the live transport at app start; `useLiveBackend`
+/// (always true whenever `FeatureFlags.isAbilitiesV2Enabled` is on, see
+/// below) picks which pair `selection` serves. Previews and tests never
+/// call `configure`, so they fall back to the mock, mirroring
+/// `CreditsServices`.
 enum AbilitiesServices {
     /// Set once during `ConvosApp.init` before any surface can read them;
     /// the actor-based service handles its own concurrency.
@@ -58,6 +59,7 @@ enum AbilitiesServices {
     /// The atomic (service, authorizer) pair for the current mode. Resolve
     /// once per screen/view-model lifetime and pass the whole value down;
     /// never read the halves at different times.
+    @MainActor
     static var selection: AbilitiesSelection {
         guard let liveService, useLiveBackend else {
             return AbilitiesSelection(service: mockService, escalation: escalationService)
@@ -102,6 +104,7 @@ enum AbilitiesServices {
     /// before touching the network or the cache, so a cold-launch call
     /// simply waits for identity instead of writing an accountless
     /// catalog. No-op in mock mode or before `configure`.
+    @MainActor
     static func refreshCatalogInBackground() async {
         guard useLiveBackend, let liveService else { return }
         await liveService.refreshCatalog()
@@ -119,21 +122,37 @@ enum AbilitiesServices {
     }
 
     /// Debug sub-toggle under the Abilities V2 flag: live backend versus
-    /// the in-memory mock. Defaults to live; production always reads live
-    /// (the stored override is only writable from the Debug menu, which
-    /// dev/local builds alone can reach -- runtime-gated rather than
-    /// `#if DEBUG` for the same reason documented on `CreditsServices`).
+    /// the in-memory mock. Coupled to `FeatureFlags.isAbilitiesV2Enabled` in
+    /// both directions so the two can never disagree: enabling V2 forces
+    /// this on (write-time, in the flag's setter); turning this off forces
+    /// V2 off (write-time, below). This getter also reports live whenever
+    /// V2 is on regardless of what is stored, so a combination saved before
+    /// this coupling existed self-heals on the next read instead of
+    /// resurfacing after a relaunch -- there is no user-visible control for
+    /// this flag on its own; the Debug menu exposes a single "Abilities v2"
+    /// toggle. Defaults to live; production always reads live (the stored
+    /// override is only writable from the Debug menu, which dev/local
+    /// builds alone can reach -- runtime-gated rather than `#if DEBUG` for
+    /// the same reason documented on `CreditsServices`).
+    @MainActor
     static var useLiveBackend: Bool {
         guard !ConfigManager.shared.currentEnvironment.isProduction else { return true }
+        if FeatureFlags.shared.isAbilitiesV2Enabled {
+            return true
+        }
         if let stored = UserDefaults.standard.object(forKey: Constant.useLiveBackendKey) as? Bool {
             return stored
         }
         return true
     }
 
+    @MainActor
     static func setUseLiveBackend(_ value: Bool) {
         guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
         UserDefaults.standard.set(value, forKey: Constant.useLiveBackendKey)
+        if !value {
+            FeatureFlags.shared.isAbilitiesV2Enabled = false
+        }
     }
 
     /// Debug sub-toggle for the V1 awareness shim (ProfileUpdate metadata
