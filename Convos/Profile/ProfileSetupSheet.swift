@@ -143,6 +143,11 @@ struct ProfileSetupSheet: View {
         // first launch) the sheet can only be completed, not swiped away.
         .interactiveDismissDisabled(!canSave)
         .presentationBackground(.colorBackgroundRaisedSecondary)
+        // Expose the sheet as an accessibility container so its identifier
+        // stays on the container node instead of propagating down and
+        // overwriting the child ids (name field, terms toggle, save button),
+        // which the interactive elements set directly below.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("profile-setup-sheet")
         .sheet(isPresented: $isImagePickerPresented) {
             PhotoLibraryPicker(
