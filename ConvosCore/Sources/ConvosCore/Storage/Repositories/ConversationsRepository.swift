@@ -218,29 +218,15 @@ fileprivate extension Database {
             .fetchAll(self)
         let conversations = try dbConversationDetails.composeConversations(from: self)
         // Fold each group's separate agent DM into its row so the list can
-        // render a combined preview and a DM-aware unread indicator. Only
-        // groups with a verified-agent member resolve a DM; the extra
-        // `composeOneToOne` read runs inside this same `db` transaction so
-        // GRDB's ValueObservation tracks the DM and keeps the list reactive.
+        // render a combined preview and a DM-aware unread indicator.
+        let summaries = try agentDmSummaries(forGroupIds: conversations.map(\.id), consent: consent)
         let folded = try conversations.map { (conversation: Conversation) -> Conversation in
-            guard let agentMember = conversation.members.first(where: { $0.isVerifiedAgent }) else {
-                return conversation
-            }
-            guard let dm = try composeOneToOne(
-                with: agentMember.profile.inboxId,
-                excluding: nil,
-                consent: consent,
-                onlyAgentDms: true
-            ) else {
+            guard let summary = try summaries[conversation.id]
+                ?? agentDmSummaryFromGroupMembers(of: conversation, consent: consent) else {
                 return conversation
             }
             var row = conversation
-            row.agentDm = Conversation.AgentDmSummary(
-                inboxId: agentMember.profile.inboxId,
-                displayName: agentMember.displayName,
-                lastMessage: dm.lastMessage,
-                isUnread: dm.isUnread
-            )
+            row.agentDm = summary
             return row
         }
         // The SQL order only knows each group's own messages; a reply in the
@@ -257,6 +243,96 @@ fileprivate extension Database {
                 return lhs.offset < rhs.offset
             }
             .map(\.element)
+    }
+
+    /// The folded agent DM for each of `groupIds`, keyed by the group's id.
+    ///
+    /// Resolved through `agent_dm_origin`, the link the DM records about itself
+    /// at creation and re-records on every save. The group's own member list is
+    /// deliberately not consulted: it is rewritten wholesale by member sync, and
+    /// a group whose agent member row is missing still has a perfectly good DM
+    /// carrying the messages this preview is made of. Deriving the link from the
+    /// group's members made the row's preview track the volatility of those rows
+    /// rather than the existence of the DM, so it came and went.
+    ///
+    /// Two queries for the whole list rather than a lookup per group, run in
+    /// this same transaction so ValueObservation tracks the DMs and keeps the
+    /// list reactive.
+    func agentDmSummaries(
+        forGroupIds groupIds: [String],
+        consent: [Consent]
+    ) throws -> [String: Conversation.AgentDmSummary] {
+        guard !groupIds.isEmpty else { return [:] }
+        let links = try DBAgentDmOrigin
+            .filter(groupIds.contains(DBAgentDmOrigin.Columns.originConversationId))
+            .fetchAll(self)
+        guard !links.isEmpty else { return [:] }
+
+        let dmIds: [String] = links.map(\.conversationId)
+        let dmDetails = try DBConversation
+            .filter(dmIds.contains(DBConversation.Columns.id))
+            .filter(DBConversation.Columns.isAgentDm == true)
+            .filter(consent.contains(DBConversation.Columns.consent))
+            .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
+            .filter(DBConversation.Columns.isUnused == false)
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
+            .detailedConversationQuery()
+            .fetchAll(self)
+        guard !dmDetails.isEmpty else { return [:] }
+
+        let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
+        let contactNameResolver = try ContactsRepository.contactNameResolverInTransaction(db: self)
+        var dmsById: [String: Conversation] = [:]
+        for details in dmDetails {
+            let dm = details.hydrateConversation(
+                currentInboxId: currentInboxId,
+                contactNameResolver: contactNameResolver
+            )
+            dmsById[dm.id] = dm
+        }
+
+        var summaries: [String: Conversation.AgentDmSummary] = [:]
+        for link in links {
+            guard let dm = dmsById[link.conversationId],
+                  let summary = dm.agentDmSummary else {
+                continue
+            }
+            // A group is normally the origin of exactly one DM. If it somehow
+            // owns more, the most recently active one wins, matching how the
+            // row sorts.
+            if let existing = summaries[link.originConversationId],
+               (existing.lastMessage?.createdAt ?? .distantPast) >= (summary.lastMessage?.createdAt ?? .distantPast) {
+                continue
+            }
+            summaries[link.originConversationId] = summary
+        }
+        return summaries
+    }
+
+    /// Legacy path for a DM saved before `agent_dm_origin` existed, which has no
+    /// link row until its next save. Finds the DM from the group's verified-agent
+    /// member instead, which is what every row used to do.
+    func agentDmSummaryFromGroupMembers(
+        of conversation: Conversation,
+        consent: [Consent]
+    ) throws -> Conversation.AgentDmSummary? {
+        guard let agentMember = conversation.members.first(where: { $0.isVerifiedAgent }) else {
+            return nil
+        }
+        guard let dm = try composeOneToOne(
+            with: agentMember.profile.inboxId,
+            excluding: nil,
+            consent: consent,
+            onlyAgentDms: true
+        ) else {
+            return nil
+        }
+        return Conversation.AgentDmSummary(
+            inboxId: agentMember.profile.inboxId,
+            displayName: agentMember.displayName,
+            lastMessage: dm.lastMessage,
+            isUnread: dm.isUnread
+        )
     }
 
     func composeAgentTemplateConversations(templateId: String, consent: [Consent]) throws -> AgentTemplateConversations {
@@ -361,6 +437,19 @@ fileprivate extension Conversation {
         let groupDate: Date = lastMessage?.createdAt ?? createdAt
         guard let dmDate = agentDm?.lastMessage?.createdAt else { return groupDate }
         return max(groupDate, dmDate)
+    }
+
+    /// This agent DM rendered as the summary its origin group's row carries.
+    /// The agent is the DM's other member, so the name comes from the DM's own
+    /// membership rather than the group's.
+    var agentDmSummary: AgentDmSummary? {
+        guard let agent = members.first(where: { !$0.isCurrentUser }) else { return nil }
+        return AgentDmSummary(
+            inboxId: agent.profile.inboxId,
+            displayName: agent.displayName,
+            lastMessage: lastMessage,
+            isUnread: isUnread
+        )
     }
 }
 
