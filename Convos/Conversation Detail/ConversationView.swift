@@ -106,6 +106,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var homeBrowserEntries: [HomeBrowserEntry] = []
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
+    /// Drives the system share sheet behind the top bar's invite-link button.
+    @State private var presentingInviteShareSheet: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
     @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -506,6 +508,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isPresented: $presentingAddFromContactsPicker,
             onInviteShared: onInviteShared
         )
+        .shareSheet(
+            isPresented: $presentingInviteShareSheet,
+            items: inviteShareItems,
+            onCompletion: handleInviteShareCompletion
+        )
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             newConversationSheet(viewModel)
         }
@@ -808,18 +815,48 @@ private extension ConversationView {
         .accessibilityIdentifier("lock-info-button")
     }
 
-    /// The in-conversation top-right invite affordance. Opens the "Invite"
-    /// sheet (Figma node 5562-34019): the contacts picker re-titled "Invite",
-    /// scoped to this conversation, carrying the three convo-scoped invite
-    /// action rows + the scanner. Replaces the former `AddToConversationMenu`
-    /// context menu; the sheet itself is presented by `.addFromContactsPicker`.
+    /// The in-conversation top-right invite affordance: hands this
+    /// conversation's signed invite link to the system share sheet. Bringing
+    /// people in is a link hand-off rather than a contacts pick, so the
+    /// button shares rather than opening the picker (which the chat still
+    /// reaches through `.requestAddFromContactsInCurrentConversation`).
     private var inviteButton: some View {
-        Button(action: handleAddFromContactsTap) {
-            Image(systemName: "person.crop.circle.badge.plus")
+        Button(action: handleShareInviteTap) {
+            Image(systemName: "square.and.arrow.up")
         }
-        .disabled(!messagesTopBarTrailingItemEnabled || effectiveReadOnly)
-        .accessibilityLabel("Invite")
-        .accessibilityIdentifier("add-to-conversation-button")
+        .disabled(shareInviteDisabled)
+        .accessibilityLabel("Share invite link")
+        .accessibilityIdentifier("share-invite-button")
+    }
+
+    /// Disabled until there is a link to hand over: a read-only chat can't
+    /// invite, and a freshly claimed conversation has no invite until it
+    /// hydrates.
+    private var shareInviteDisabled: Bool {
+        !messagesTopBarTrailingItemEnabled || effectiveReadOnly || viewModel.invite.isEmpty
+    }
+
+    private var handleShareInviteTap: () -> Void {
+        { presentingInviteShareSheet = true }
+    }
+
+    /// The payload of the top bar's share button: this conversation's signed
+    /// invite link. Empty until the invite hydrates, which is also when the
+    /// button is disabled.
+    private var inviteShareItems: [Any] {
+        let invite = viewModel.invite
+        guard !invite.isEmpty else { return [] }
+        return [invite.inviteURLString]
+    }
+
+    /// A completed share is what keeps a brand-new conversation alive: the
+    /// link is out in the world, so the empty-convo teardown must not
+    /// reclaim it (see `onInviteShared`).
+    private var handleInviteShareCompletion: (UIActivity.ActivityType?, Bool, Error?) -> Void {
+        { _, completed, _ in
+            guard completed else { return }
+            onInviteShared?()
+        }
     }
 
     private var handleAddFromContactsTap: () -> Void {

@@ -173,12 +173,6 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
-    /// Drives the Compose flow sheet (`ComposeFlowView`): the contacts picker
-    /// is the root, and every conversation is minted on intent inside the flow
-    /// (Continue / Send-invite / Show-code) -- nothing is claimed just by
-    /// opening it. Distinct from `newConversationViewModel` (scanner / join /
-    /// template), so the two never drive overlapping presentations.
-    var presentingComposeFlow: Bool = false
     var presentingExplodeInfo: Bool = false
     var presentingPinLimitInfo: Bool = false
 
@@ -459,26 +453,16 @@ final class ConversationsViewModel {
         }
     }
 
-    /// Compose opens the contacts picker first (optional selection); the flow
-    /// mints a conversation only on intent (`ComposeFlowView`), so opening and
-    /// cancelling the picker claims nothing. With no contacts to pick from,
-    /// the picker would be pointless -- so we skip it and open the
-    /// new-conversation view directly, like the pre-picker flow.
+    /// Compose drops straight into the new conversation, with no contacts
+    /// step in front of it: the conversation is claimed on entry and people
+    /// are brought in from inside it, by sharing its invite link. Picking
+    /// contacts up front was a detour on the way to the same place.
     func onStartConvo() {
-        // Count the contacts the picker would actually show (excludes agents,
-        // blocked, and unnamed) -- the raw contact count includes those, so
-        // it can't decide whether the picker is worth showing.
-        let contacts = (try? session.messagingServiceSync().contactsRepository().fetchAll()) ?? []
-        let pickable = ContactsPickerViewModel.pickableContacts(contacts)
-        guard !pickable.isEmpty else {
-            newConversationViewModel = NewConversationViewModel(
-                session: session,
-                mode: .newConversation,
-                coreActions: coreActions
-            )
-            return
-        }
-        presentingComposeFlow = true
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversation,
+            coreActions: coreActions
+        )
     }
 
     /// The home scan button lands on the embedded Scan/Invite screen with the

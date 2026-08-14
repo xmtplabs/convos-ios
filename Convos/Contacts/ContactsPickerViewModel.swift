@@ -13,25 +13,15 @@ import Observation
 /// shape (mode enum + parameterized view) over duplicating the view.
 enum ContactsPickerMode: Hashable {
     case newConversation
-    /// First step of the compose flow (`ComposeFlowView`): the picker is the
-    /// root of the host navigation stack and selecting contacts is optional
-    /// (the bottom CTA stays hidden until a contact is picked, then reads
-    /// "Continue"), then the new conversation is pushed rather than presented.
-    case compose
     case addToConversation(conversationId: String, conversationTitle: String?)
 
     var isAddToConversation: Bool {
         switch self {
-        case .newConversation, .compose:
+        case .newConversation:
             return false
         case .addToConversation:
             return true
         }
-    }
-
-    var isCompose: Bool {
-        if case .compose = self { return true }
-        return false
     }
 }
 
@@ -151,19 +141,12 @@ final class ContactsPickerViewModel {
     }
 
     var canConfirm: Bool {
-        // Compose allows proceeding once a contact is picked (its CTA is hidden
-        // while empty); other modes need at least one contact too.
-        switch mode {
-        case .compose:
-            return true
-        case .newConversation, .addToConversation:
-            return !selectedInboxIds.isEmpty
-        }
+        !selectedInboxIds.isEmpty
     }
 
     var headerTitle: String {
         switch mode {
-        case .newConversation, .compose:
+        case .newConversation:
             return "New conversation"
         case .addToConversation(_, let title):
             if let title, !title.isEmpty {
@@ -178,7 +161,7 @@ final class ContactsPickerViewModel {
     /// the picker is scoped to an existing chat.
     var pillTitle: String {
         switch mode {
-        case .newConversation, .compose:
+        case .newConversation:
             return "New Convo"
         case .addToConversation(_, let title):
             if let title, !title.isEmpty {
@@ -201,15 +184,6 @@ final class ContactsPickerViewModel {
 
     var confirmButtonTitle: String {
         return "Continue"
-    }
-
-    /// The compose picker hides its bottom CTA until something is selected --
-    /// there is no "Skip" affordance; an empty compose picker is left via the
-    /// top-three invite actions or Cancel. Other modes always show the button
-    /// (disabled until a contact is picked).
-    var showsConfirmButton: Bool {
-        guard case .compose = mode else { return true }
-        return !selectedInboxIds.isEmpty
     }
 
     // MARK: - Mutations
@@ -256,12 +230,6 @@ final class ContactsPickerViewModel {
     /// starting (or adding to) a conversation spawns a fresh instance.
     static func isPickable(_ contact: Contact) -> Bool {
         !contact.isBlocked && contact.isVisibleInContactsList
-    }
-
-    /// Contacts selectable in the picker, used by `ConversationsViewModel` to
-    /// size its compose entry point.
-    static func pickableContacts(_ contacts: [Contact]) -> [Contact] {
-        contacts.filter(isPickable)
     }
 
     // MARK: - Section building
