@@ -1,0 +1,43 @@
+seed: 42
+env: dev
+concurrency: 6
+
+groups:
+  count: 50
+  duringRunPerHour: 0
+  sizeDistribution:
+    - { weight: 20, members: 0 }
+    - { weight: 45, members: [2, 8] }
+    - { weight: 25, members: [9, 25] }
+    - { weight: 10, members: [26, 60] }
+  nameLength: { min: 4, max: 50 }
+  agents: { perGroupProbability: 0.1, maxPerGroup: 1, verified: false }
+
+backfill:
+  messagesPerGroup:
+    - { weight: 20, count: 0 }
+    - { weight: 45, count: [20, 100] }
+    - { weight: 25, count: [100, 300] }
+    - { weight: 10, count: [300, 600] }
+  contentMix:
+    textShort: 45
+    textMedium: 22
+    textLong: 5
+    emojiOnly: 10
+    link: 8
+    reply: 5
+    reaction: 5
+    attachmentImage: 0
+    attachmentVideo: 0
+  longTextMaxChars: 49000
+  rate:
+    perGroupMsgsPerSec: 2
+    globalMsgsPerSec: 5
+    jitter: 0.4
+
+churn:
+  durationMin: 0
+
+measurement:
+  cxdb: true
+  runLabel: medium

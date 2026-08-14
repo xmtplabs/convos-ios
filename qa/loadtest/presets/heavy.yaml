@@ -1,0 +1,67 @@
+seed: 42
+env: local           # fully-local XMTP node; device must share the Mac's Wi-Fi
+concurrency: 8
+
+groups:
+  count: 120
+  duringRunPerHour: 6
+  sizeDistribution:
+    - { weight: 15, members: 0 }
+    - { weight: 40, members: [2, 8] }
+    - { weight: 30, members: [9, 40] }
+    - { weight: 10, members: [41, 120] }
+    - { weight: 5,  members: 150 }        # the app's member cap
+  nameLength: { min: 4, max: 50 }
+  agents: { perGroupProbability: 0.3, maxPerGroup: 2, verified: false }
+
+backfill:
+  messagesPerGroup:
+    - { weight: 20, count: 0 }
+    - { weight: 40, count: [20, 100] }
+    - { weight: 30, count: [100, 500] }
+    - { weight: 10, count: [500, 2000] }  # exercises the 50-msg pagination window
+  contentMix:
+    textShort: 45
+    textMedium: 20
+    textLong: 5
+    emojiOnly: 8
+    link: 5
+    reply: 8
+    reaction: 7
+    attachmentImage: 2
+    attachmentVideo: 0
+  longTextMaxChars: 49000
+  rate:
+    perGroupMsgsPerSec: 2
+    globalMsgsPerSec: 20
+    jitter: 0.4
+
+churn:
+  durationMin: 60
+  aggregateMsgsPerSec: 5
+  bursts: { everyMin: 10, multiplier: 8, durationS: 30 }
+  hotGroupFraction: 0.15
+  metadataChurnPerHour: 12
+  profileChurnPerHour: 20
+  typingNoisePerMin: 10
+  readReceiptsPerMin: 15
+  membershipGrowthPerHour: 10
+
+measurement:
+  cxdb: true
+  runLabel: heavy
+
+# Image attachments need an upload provider. Without one they fall back to text.
+# On the local stack, point at MinIO (verify creds/bucket against your
+# dev/local-stack/stack.env) or the backend's convos-api. Uncomment one:
+#
+# upload:
+#   provider: s3
+#   s3Endpoint: http://localhost:9000
+#   s3Bucket: attachments-local
+#   s3Region: us-east-1
+#   token: "convos:assistants"      # <accessKeyId>:<secretAccessKey>
+#
+# upload:
+#   provider: convos-api
+#   convosApiKey: "<CONVOS_API_KEY>"   # or set the CONVOS_API_KEY env var

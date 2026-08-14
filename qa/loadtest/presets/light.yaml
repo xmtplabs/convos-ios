@@ -1,0 +1,41 @@
+seed: 42
+env: dev            # hosted XMTP dev network; be gentle on shared infra
+concurrency: 4
+
+groups:
+  count: 15
+  duringRunPerHour: 0
+  sizeDistribution:
+    - { weight: 30, members: 0 }        # empty: controller + phone only
+    - { weight: 50, members: [2, 5] }
+    - { weight: 20, members: [6, 10] }
+  nameLength: { min: 4, max: 50 }
+  agents: { perGroupProbability: 0, maxPerGroup: 0, verified: false }
+
+backfill:
+  messagesPerGroup:
+    - { weight: 30, count: 0 }           # some groups stay empty
+    - { weight: 50, count: [10, 40] }
+    - { weight: 20, count: [40, 100] }
+  contentMix:
+    textShort: 55
+    textMedium: 20
+    textLong: 3
+    emojiOnly: 12
+    link: 10
+    reply: 0
+    reaction: 0
+    attachmentImage: 0
+    attachmentVideo: 0
+  longTextMaxChars: 49000
+  rate:
+    perGroupMsgsPerSec: 1.5
+    globalMsgsPerSec: 5           # shared-infra budget
+    jitter: 0.4
+
+churn:
+  durationMin: 0
+
+measurement:
+  cxdb: true
+  runLabel: light

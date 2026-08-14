@@ -1,0 +1,52 @@
+seed: 42
+env: local           # fully-local XMTP node only — do not point this at shared infra
+concurrency: 12
+
+groups:
+  count: 400
+  duringRunPerHour: 20
+  sizeDistribution:
+    - { weight: 10, members: 0 }
+    - { weight: 30, members: [2, 10] }
+    - { weight: 30, members: [10, 50] }
+    - { weight: 20, members: [50, 120] }
+    - { weight: 10, members: 150 }
+  nameLength: { min: 4, max: 50 }
+  agents: { perGroupProbability: 0.4, maxPerGroup: 3, verified: false }
+
+backfill:
+  messagesPerGroup:
+    - { weight: 10, count: 0 }
+    - { weight: 30, count: [50, 200] }
+    - { weight: 35, count: [200, 800] }
+    - { weight: 25, count: [800, 3000] }
+  contentMix:
+    textShort: 40
+    textMedium: 20
+    textLong: 8
+    emojiOnly: 8
+    link: 6
+    reply: 8
+    reaction: 8
+    attachmentImage: 2
+    attachmentVideo: 0
+  longTextMaxChars: 49000
+  rate:
+    perGroupMsgsPerSec: 3
+    globalMsgsPerSec: 40
+    jitter: 0.5
+
+churn:
+  durationMin: 120
+  aggregateMsgsPerSec: 20
+  bursts: { everyMin: 10, multiplier: 20, durationS: 30 }
+  hotGroupFraction: 0.1
+  metadataChurnPerHour: 30
+  profileChurnPerHour: 40
+  typingNoisePerMin: 30
+  readReceiptsPerMin: 30
+  membershipGrowthPerHour: 30
+
+measurement:
+  cxdb: true
+  runLabel: extreme
