@@ -90,7 +90,6 @@ private struct AddFromContactsPickerModifier: ViewModifier {
             title: "Invite",
             onShowInviteCode: handleShowInviteCode,
             onSendInvite: handleSendInvite,
-            onScanInvite: handleScanInvite,
             onConfirm: handleConfirm
         )
         // Hosted inside the picker sheet so "Send an invite" presents the share
@@ -125,12 +124,6 @@ private struct AddFromContactsPickerModifier: ViewModifier {
         presentShareOverlay()
     }
 
-    private func handleScanInvite() {
-        isPresented = false
-        viewModel.shareViewInitialSegment = .scan
-        presentShareOverlay()
-    }
-
     private func presentShareOverlay() {
         if let onPresentShareOverlay {
             onPresentShareOverlay()
@@ -139,8 +132,8 @@ private struct AddFromContactsPickerModifier: ViewModifier {
         }
     }
 
-    /// The picker can dismiss into the Scan/Invite overlay (its scan button or
-    /// "Show an invite code" row). UIKit restores the composer's first
+    /// The picker can dismiss into the Scan/Invite overlay ("Show an invite
+    /// code"). UIKit restores the composer's first
     /// responder when the sheet finishes dismissing, which popped the keyboard
     /// up under the overlay -- resign it again once the dismissal settles so
     /// the keyboard stays down. A plain cancel keeps the default restoration.
