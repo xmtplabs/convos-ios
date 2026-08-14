@@ -343,6 +343,10 @@ final class ConversationsViewModel {
     let session: any SessionManagerProtocol
     let coreActions: any CoreActions
     private let conversationsPager: any ConversationsPagerProtocol
+    /// Kept alongside the pager for targeted reads the pager doesn't cover
+    /// (agent-DM tap routing). Its list observation is never subscribed
+    /// here, so holding it costs nothing.
+    private let conversationsRepository: any ConversationsRepositoryProtocol
     private let conversationsCountRepository: any ConversationsCountRepositoryProtocol
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = .init()
@@ -409,6 +413,7 @@ final class ConversationsViewModel {
         self.focusCoordinator = coordinator
         self.appSettingsViewModel = AppSettingsViewModel(session: session)
         self.conversationsPager = session.conversationsPager(for: .allowed)
+        self.conversationsRepository = session.conversationsRepository(for: .allowed)
         // Bind the stale-device observer to the session's state manager
         // so the banner appears when this device's installation is
         // revoked from the network. Done asynchronously because
@@ -744,16 +749,23 @@ final class ConversationsViewModel {
     /// outside the active filter. A targeted list-scoped fetch
     /// disambiguates: found means keep the selection alive (refreshing the
     /// cached copy the getter serves), nil means genuinely gone, so clear.
+    /// A thrown read is neither - it says nothing about the row - so the
+    /// selection and its cached copy survive; the next page emission
+    /// re-runs this check.
     private func refreshSelectionAfterPageChange() {
         guard let selectedId = _selectedConversationId else { return }
         if conversationInPage(id: selectedId) != nil {
             outOfWindowSelectedConversation = nil
             return
         }
-        if let fetched = try? conversationsPager.fetchConversation(id: selectedId) {
-            outOfWindowSelectedConversation = fetched
-        } else {
-            selectedConversationId = nil
+        do {
+            if let fetched = try conversationsPager.fetchConversation(id: selectedId) {
+                outOfWindowSelectedConversation = fetched
+            } else {
+                selectedConversationId = nil
+            }
+        } catch {
+            Log.warning("Failed to fetch out-of-window selected conversation \(selectedId), keeping selection: \(error)")
         }
     }
 
@@ -763,11 +775,19 @@ final class ConversationsViewModel {
 
     /// The window lookup, falling back to a list-scoped by-id fetch for
     /// rows beyond the LIMIT (notification taps, deep links, scans).
+    /// A thrown fetch resolves to nil - callers treat that as "not
+    /// resolvable right now", which for these one-shot navigation entry
+    /// points is the only available answer.
     private func resolveConversation(id: String) -> Conversation? {
         if let inPage = conversationInPage(id: id) {
             return inPage
         }
-        return try? conversationsPager.fetchConversation(id: id)
+        do {
+            return try conversationsPager.fetchConversation(id: id)
+        } catch {
+            Log.warning("Failed to fetch conversation \(id) for navigation: \(error)")
+            return nil
+        }
     }
 
     /// Selects a conversation by id, caching an out-of-window row first so
