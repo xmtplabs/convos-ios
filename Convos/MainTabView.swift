@@ -25,11 +25,6 @@ struct MainTabView: View {
     /// re-center the pill. `ContactsView` pushes onto it via value-based
     /// `NavigationLink`s.
     @State private var contactsPath: [Contact] = []
-    /// Section the Contacts tab should scroll to once it appears. Set when the
-    /// user taps "See suggested agents" in the empty chats state; `ContactsView`
-    /// consumes it (scrolling to the suggested-agents section once it has
-    /// loaded) and clears it back to nil.
-    @State private var contactsScrollTarget: String?
     /// Drives the app-settings sheet that the `AppIndicatorPill` (in
     /// every tab that renders one) presents on tap. Lives at this shell
     /// level so every tab shares a single sheet instance — the
@@ -154,15 +149,6 @@ struct MainTabView: View {
         presentingAppSettings = false
     }
 
-    /// "Explore agents in Contacts" from either tab's empty-state CTA: jump to
-    /// the Contacts tab and ask it to scroll to the suggested-agents section.
-    /// `ContactsView` performs the scroll once the section has loaded, then
-    /// clears the target.
-    private func showSuggestedAgents() {
-        activeTab = .contacts
-        contactsScrollTarget = SuggestedAgentsSection.id
-    }
-
     var body: some View {
         bodyCore
             .profilesRepository(conversationsViewModel.session.messagingServiceSync().profilesRepository())
@@ -185,8 +171,7 @@ struct MainTabView: View {
                         viewModel: conversationsViewModel,
                         profileSettingsViewModel: profileSettingsViewModel,
                         appIndicatorContext: appIndicatorContext,
-                        sidebarBottomAccessory: nil,
-                        onExploreAgents: showSuggestedAgents
+                        sidebarBottomAccessory: nil
                     )
                 }
             }
@@ -219,8 +204,6 @@ struct MainTabView: View {
             coreActions: coreActions,
             profileSettingsViewModel: profileSettingsViewModel,
             showsComposeButton: false,
-            suggestedAgentsService: SuggestedAgentsService.live(),
-            scrollTarget: $contactsScrollTarget,
             onScanJoinedConversation: handleContactsScanJoinedConversation,
             hasPushedContactDetail: !contactsPath.isEmpty
         )

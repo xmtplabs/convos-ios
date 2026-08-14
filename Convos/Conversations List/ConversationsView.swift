@@ -15,10 +15,6 @@ struct ConversationsView: View {
     /// the conversation list only; `MainTabView` does not use it, but the
     /// hook stays in case downstream callers need it.
     var sidebarBottomAccessory: AnyView?
-    /// Invoked when the user taps "Explore agents in Contacts" in the
-    /// empty-state CTA. The shell switches to the Contacts tab and scrolls
-    /// it to the "Suggested agents" section. Nil hides the link (previews).
-    var onExploreAgents: (() -> Void)?
 
     @Namespace private var namespace: Namespace.ID
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -62,12 +58,9 @@ struct ConversationsView: View {
     }
 
     /// Empty chats state: the new-user CTA (animated mock conversations,
-    /// headline, "New convo", "Explore agents in Contacts").
+    /// headline, "New convo").
     var emptyConversationsView: some View {
-        ConversationsEmptyStateView(
-            onNewConvo: { viewModel.onStartConvo() },
-            onExploreAgents: onExploreAgents
-        )
+        ConversationsEmptyStateView(onNewConvo: { viewModel.onStartConvo() })
     }
 
     /// Bridges `selectedConversationViewModel` (driven by the

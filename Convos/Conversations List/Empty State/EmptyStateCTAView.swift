@@ -1,8 +1,7 @@
 import SwiftUI
 
 /// Scaffold for the new-user empty state: an animated mock area on top, a
-/// headline, a subtitle, the primary CTA, and an "Explore agents in
-/// Contacts" link.
+/// headline, a subtitle, and the primary CTA.
 ///
 /// The slots are fixed-size (the mock area has a fixed height and the
 /// headline reserves two lines) so the button never moves or resizes as the
@@ -11,7 +10,6 @@ struct EmptyStateCTAView<MockContent: View>: View {
     let headline: String
     let subtitle: String
     let onNewConvo: () -> Void
-    var onExploreAgents: (() -> Void)?
     @ViewBuilder var mockContent: () -> MockContent
 
     var body: some View {
@@ -27,7 +25,6 @@ struct EmptyStateCTAView<MockContent: View>: View {
                 .padding(.top, DesignConstants.Spacing.step2x)
             newConvoButton
                 .padding(.top, DesignConstants.Spacing.step5x)
-            exploreAgentsButton
             Spacer(minLength: 0)
         }
         // The block sits step6x above true vertical center, per design.
@@ -73,23 +70,6 @@ struct EmptyStateCTAView<MockContent: View>: View {
         .accessibilityIdentifier("empty-state-new-convo-button")
     }
 
-    @ViewBuilder
-    private var exploreAgentsButton: some View {
-        if let onExploreAgents {
-            let action = { onExploreAgents() }
-            Button(action: action) {
-                HStack(spacing: DesignConstants.Spacing.stepX) {
-                    Text("Explore agents in Contacts")
-                    Image(systemName: "chevron.right")
-                        .font(.footnote)
-                        .foregroundStyle(.colorTextTertiary)
-                }
-            }
-            .convosButtonStyle(.text)
-            .accessibilityIdentifier("empty-state-explore-agents-button")
-        }
-    }
-
     // Computed because generic types do not support static stored
     // properties.
     private enum Constant {
@@ -110,14 +90,12 @@ struct EmptyStateCTAView<MockContent: View>: View {
 /// unread message.
 struct ConversationsEmptyStateView: View {
     let onNewConvo: () -> Void
-    var onExploreAgents: (() -> Void)?
 
     var body: some View {
         EmptyStateCTAView(
             headline: "Private convos for everyday life",
             subtitle: "To use with friends and family",
-            onNewConvo: onNewConvo,
-            onExploreAgents: onExploreAgents
+            onNewConvo: onNewConvo
         ) {
             EmptyStateMockConversationCarousel(mocks: EmptyStateMocksProvider.shared.conversations)
         }
@@ -128,5 +106,5 @@ struct ConversationsEmptyStateView: View {
 }
 
 #Preview("Conversations") {
-    ConversationsEmptyStateView(onNewConvo: {}, onExploreAgents: {})
+    ConversationsEmptyStateView(onNewConvo: {})
 }
