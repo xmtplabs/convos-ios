@@ -117,16 +117,6 @@ public extension Conversation {
         members.filter { !$0.isCurrentUser }
     }
 
-    /// The variant marker of this conversation's variant-built agent member, if
-    /// any. Drives the dev-only 🧪 name badge (conversations list) and header
-    /// badge; `nil` for default agents and human-only conversations. The stamp
-    /// itself is the signal -- only a variant-built agent carries
-    /// `profile.variant` -- so the internal-build gate is applied at the call
-    /// site, not here.
-    var agentVariant: AgentVariantStamp? {
-        members.first(where: { $0.profile.variant != nil })?.profile.variant
-    }
-
     /// Copy of this conversation with `leftHostedInviteSession` replaced.
     /// Used to optimistically end a hosted invite session in memory while the
     /// persisting GRDB write is still in flight, so an instant back-out and
