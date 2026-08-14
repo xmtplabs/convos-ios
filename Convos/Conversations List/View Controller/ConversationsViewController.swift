@@ -8,7 +8,7 @@ import UIKit
 final class ConversationsViewController: UIViewController {
     // MARK: - Types
 
-    struct State {
+    struct State: Equatable {
         var pinnedConversations: [Conversation]
         var unpinnedConversations: [Conversation]
         var selectedConversationId: String?
@@ -160,6 +160,11 @@ final class ConversationsViewController: UIViewController {
     // MARK: - Public API
 
     func updateState(_ state: State) {
+        // SwiftUI calls updateUIViewController on every render of the
+        // conversations screen, most of which change nothing list-related.
+        // Applying a snapshot for those is pure waste - during boot each
+        // one is a full reload that re-configures every visible cell.
+        guard state != currentState else { return }
         let oldState = currentState
         let oldPinnedIds = Set(oldState.pinnedConversations.map(\.id))
         let newPinnedIds = Set(state.pinnedConversations.map(\.id))
