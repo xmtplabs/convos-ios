@@ -36,6 +36,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// backing new-convo flow can mark its invite as shared and skip the
     /// empty-conversation teardown that would otherwise break the shared link.
     var onInviteShared: (() -> Void)?
+    /// Fires as the Home tab's browsing chain fills and empties. While a page
+    /// is pushed this view puts its own back button in the leading slot, so a
+    /// host that renders one too (the new-convo sheet's close) hides its own
+    /// and the bar keeps a single leading button.
+    var onHomeBrowsingChanged: ((Bool) -> Void)?
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
@@ -513,6 +518,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         // While browser pages are showing, the pop-a-page back button in
         // `topBarTrailing` stands in for the system one.
         .navigationBarBackButtonHidden(isBrowsingHome)
+        .modifier(HomeBrowsingReporter(isBrowsing: isBrowsingHome, onChanged: onHomeBrowsingChanged))
         .modifier(metricsObserversPart1)
         .modifier(metricsObserversPart2)
         .modifier(metricsObserversPart3)
