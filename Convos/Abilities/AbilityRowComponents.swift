@@ -6,6 +6,10 @@ import SwiftUI
 /// ability id (the backend omits icons until its asset story lands).
 struct AbilityIconView: View {
     let ability: AbilitiesAPI.Ability
+    /// Defaults preserve every existing call site's 40pt chip.
+    var iconSize: CGFloat = Constant.iconSize
+    /// Defaults preserve every existing call site's filled background.
+    var showsBackground: Bool = true
 
     var body: some View {
         Group {
@@ -21,11 +25,16 @@ struct AbilityIconView: View {
                 symbolImage
             }
         }
-        .frame(width: Constant.iconSize, height: Constant.iconSize)
-        .background(
+        .frame(width: iconSize, height: iconSize)
+        .background(backgroundChip)
+    }
+
+    @ViewBuilder
+    private var backgroundChip: some View {
+        if showsBackground {
             RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
                 .fill(Color.colorFillMinimal)
-        )
+        }
     }
 
     private var iconUrl: URL? {

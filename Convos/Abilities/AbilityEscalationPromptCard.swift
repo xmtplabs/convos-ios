@@ -16,6 +16,12 @@ struct AbilityEscalationPromptCard: View {
     /// Display name resolved from the catalog; falls back to the raw
     /// ability id only if the fixture and catalog ever diverge.
     let abilityDisplayName: String
+    /// The catalog entry backing this ask, when it has resolved. Nil in
+    /// the brief window between the card appearing and the async catalog
+    /// lookup completing, and whenever the catalog carries no `icon` for
+    /// this ability -- either way, `pillContent` falls back to the local
+    /// symbol.
+    let ability: AbilitiesAPI.Ability?
     let onTap: () -> Void
 
     var body: some View {
@@ -45,10 +51,7 @@ struct AbilityEscalationPromptCard: View {
 
     private var pillContent: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            Image(systemName: AbilityIconView.symbolName(for: request.abilityId))
-                .font(.body)
-                .foregroundStyle(.colorTextPrimary)
-                .frame(width: Constant.iconSize, height: Constant.iconSize)
+            pillIcon
 
             Text(abilityDisplayName)
                 .font(.callout)
@@ -66,6 +69,21 @@ struct AbilityEscalationPromptCard: View {
                 .fill(Color.colorFillMinimal)
         )
         .contentShape(.rect)
+    }
+
+    /// The catalog icon once resolved, matching `AbilityEscalationApprovalSheet`'s
+    /// header; falls back to today's local SF Symbol otherwise -- including
+    /// while the backend has not yet populated `icon.iosUrl` for any ability.
+    @ViewBuilder
+    private var pillIcon: some View {
+        if let ability {
+            AbilityIconView(ability: ability, iconSize: Constant.iconSize, showsBackground: false)
+        } else {
+            Image(systemName: AbilityIconView.symbolName(for: request.abilityId))
+                .font(.body)
+                .foregroundStyle(.colorTextPrimary)
+                .frame(width: Constant.iconSize, height: Constant.iconSize)
+        }
     }
 
     private enum Constant {
@@ -87,6 +105,7 @@ struct AbilityEscalationPromptSurface: View {
                 AbilityEscalationPromptCard(
                     request: request,
                     abilityDisplayName: abilityDisplayName(for: request),
+                    ability: matchedAbility(for: request),
                     onTap: handleCardTap
                 )
             }
@@ -97,10 +116,19 @@ struct AbilityEscalationPromptSurface: View {
     }
 
     private func abilityDisplayName(for request: AbilityDelegationRequest) -> String {
-        guard let ability = viewModel.pendingAbility, ability.id == request.abilityId else {
+        guard let ability = matchedAbility(for: request) else {
             return request.abilityId
         }
         return ability.displayName.resolved()
+    }
+
+    /// The resolved catalog entry for `request`, or nil if the async
+    /// catalog lookup hasn't landed yet (or resolved a different ask).
+    private func matchedAbility(for request: AbilityDelegationRequest) -> AbilitiesAPI.Ability? {
+        guard let ability = viewModel.pendingAbility, ability.id == request.abilityId else {
+            return nil
+        }
+        return ability
     }
 
     private func handleCardTap() {
@@ -125,11 +153,50 @@ struct AbilityEscalationPromptSurface: View {
     }
 }
 
-#Preview("Prompt card") {
+#Preview("Prompt card - symbol fallback") {
     AbilityEscalationPromptCard(
         request: MockAbilityEscalationService.scriptedRequest(conversationId: "mock-conversation-1"),
         abilityDisplayName: "Google Calendar",
+        ability: nil,
         onTap: {}
     )
     .padding(DesignConstants.Spacing.step4x)
+}
+
+#Preview("Prompt card - catalog icon") {
+    // Constructed inline with a self-contained data: URI rather than a
+    // shared fixture: the backend does not populate `icon.iosUrl` yet (see
+    // MockAbilitiesService's googlecalendar entry), so this is preview-only
+    // stand-in data for the day it does, kept off the shared catalog to
+    // avoid changing every other mock-mode surface's rendering.
+    let previewIcon: AbilitiesAPI.AbilityIcon? = try? AbilitiesAPI.AbilityIcon(
+        iosUrl: PreviewData.calendarIconDataUrl,
+        androidUrl: PreviewData.calendarIconDataUrl
+    )
+    let ability: AbilitiesAPI.Ability? = try? AbilitiesAPI.Ability(
+        id: "googlecalendar",
+        version: 1,
+        displayName: AbilitiesAPI.LocalizedText(en: "Google Calendar"),
+        subtitle: AbilitiesAPI.LocalizedText(en: "View and edit events"),
+        icon: previewIcon,
+        auth: AbilitiesAPI.AbilityAuth(type: .oauth),
+        bundles: []
+    )
+    if let ability {
+        AbilityEscalationPromptCard(
+            request: MockAbilityEscalationService.scriptedRequest(conversationId: "mock-conversation-1"),
+            abilityDisplayName: ability.displayName.resolved(),
+            ability: ability,
+            onTap: {}
+        )
+        .padding(DesignConstants.Spacing.step4x)
+    }
+}
+
+/// Self-contained preview fixtures: a data: URI so `AsyncImage` has a real
+/// image to decode without any network dependency.
+private enum PreviewData {
+    static let calendarIconDataUrl: String = """
+    data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR42mOQKn5BU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULACYM1EwIDQXQAAAAAElFTkSuQmCC
+    """
 }
