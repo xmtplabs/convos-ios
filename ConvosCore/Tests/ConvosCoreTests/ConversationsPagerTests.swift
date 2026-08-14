@@ -269,6 +269,38 @@ struct ConversationsPagerTests {
         #expect(collector.latest?.unpinned.count == 70)
         #expect(collector.latest?.hasMore == false)
     }
+
+    @Test("An observation error never blanks the list and the pager recovers")
+    func observationErrorRecovers() async throws {
+        // A bare queue without the schema: every page fetch throws until
+        // the migrations run, standing in for a transient read failure.
+        let queue = try DatabaseQueue()
+        let pager = ConversationsPager(
+            dbReader: queue,
+            consent: [.allowed],
+            pageSize: 60,
+            throttleInterval: 0,
+            observationRetryDelay: 0.1
+        )
+        let collector = PageCollector()
+        let cancellable = pager.pagePublisher.sink { page in collector.append(page) }
+        defer { cancellable.cancel() }
+
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(collector.latest == nil, "An errored observation must not substitute an empty page")
+
+        try SharedDatabaseMigrator.shared.migrate(database: queue)
+        try await queue.write { db in
+            try self.seedBase(db)
+            try self.seedConversation(db, id: "conv-1", createdAt: Date(timeIntervalSince1970: 10_000))
+        }
+
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        #expect(
+            collector.latest?.unpinned.map(\.id) == ["conv-1"],
+            "A scheduled retry should resubscribe once the database heals"
+        )
+    }
 }
 
 private final class PageCollector: @unchecked Sendable {
