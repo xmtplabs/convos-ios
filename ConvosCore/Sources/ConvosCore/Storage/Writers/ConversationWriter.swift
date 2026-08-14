@@ -265,9 +265,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     /// Callers with no other freshness source (the NSE message paths, the
     /// stream processor) must leave it on: it is the only thing pulling new
     /// commits before the group's roster and metadata are read. The batch
-    /// catch-up path passes `false` because it runs a client-wide
-    /// `syncAllConversations` first - the per-group sync would be redundant
-    /// network work multiplied by every conversation in the batch.
+    /// catch-up path passes `false` when its client-wide
+    /// `syncAllConversations` completed - the per-group sync would be
+    /// redundant network work multiplied by every conversation in the
+    /// batch - and `true` when that sync failed or timed out.
     func prepare(
         conversation: XMTPiOS.Group,
         inboxId: String,

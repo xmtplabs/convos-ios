@@ -304,8 +304,8 @@ actor SyncingManager: SyncingManagerProtocol {
     /// actor. The stream-resume that follows is unaffected because it goes
     /// through the actor's normal `enqueueAction(.resume)` path.
     nonisolated func runBatchCatchUp(client: AnyClientProvider, since: Date?) async {
-        await runGlobalSync(client: client)
-        await runMessageBatch(client: client, since: since)
+        let globalSyncCompleted = await runGlobalSync(client: client)
+        await runMessageBatch(client: client, since: since, syncPerConversation: !globalSyncCompleted)
         await runInviteBatch(client: client, since: since)
     }
 
@@ -315,11 +315,14 @@ actor SyncingManager: SyncingManagerProtocol {
     /// which is why the batch's prepare phase can skip its per-group
     /// `conversation.sync()` (`syncFirst: false`): the backlog is already in
     /// libxmtp's local store by the time `listGroups` + `messages(afterNs:)`
-    /// read it. Time-boxed so a hung sync cannot stall boot; on timeout or
-    /// failure the batch still runs against whatever local state exists, and
-    /// the stream-start sync plus the next catch-up are the safety net
-    /// (cursors only advance for data actually applied).
-    private nonisolated func runGlobalSync(client: AnyClientProvider) async {
+    /// read it. Time-boxed so a hung sync cannot stall boot.
+    ///
+    /// Returns whether the sync completed. On timeout or failure the batch
+    /// still runs, but with per-conversation syncs restored: fetching from
+    /// an unsynced local store could advance catch-up cursors past backlog
+    /// that the still-running sync materializes later, permanently skipping
+    /// it (streams only deliver forward from connection time).
+    private nonisolated func runGlobalSync(client: AnyClientProvider) async -> Bool {
         let box = UncheckedClientBox(client: client)
         let started = CFAbsoluteTimeGetCurrent()
         do {
@@ -330,10 +333,13 @@ actor SyncingManager: SyncingManagerProtocol {
             }
             let elapsed = CFAbsoluteTimeGetCurrent() - started
             Log.info("[PERF] catchup.global_sync: \(Int(elapsed * 1000))ms")
+            return true
         } catch is BatchCatchUpPrepareTimeout {
-            Log.warning("[PERF] catchup.global_sync timed out after \(Int(Constant.globalSyncTimeout))s; running batch on local state")
+            Log.warning("[PERF] catchup.global_sync timed out after \(Int(Constant.globalSyncTimeout))s; running batch with per-conversation syncs")
+            return false
         } catch {
-            Log.error("catchup.global_sync failed: \(error.localizedDescription); running batch on local state")
+            Log.error("catchup.global_sync failed: \(error.localizedDescription); running batch with per-conversation syncs")
+            return false
         }
     }
 
@@ -347,11 +353,17 @@ actor SyncingManager: SyncingManagerProtocol {
         }
     }
 
+    /// `syncPerConversation` is passed through to `BatchCatchUp.run`; see
+    /// its doc for the cursor-safety contract. Callers other than
+    /// `runBatchCatchUp` leave it off because their paths sync beforehand
+    /// (the agent-join poll syncs every tick) or read data that never came
+    /// from the network (the history-archive backfill).
     @discardableResult
     private nonisolated func runMessageBatch(
         client: AnyClientProvider,
         since: Date?,
-        fetchFromBeginning: Bool = false
+        fetchFromBeginning: Bool = false,
+        syncPerConversation: Bool = false
     ) async -> BatchCatchUpResult? {
         do {
             guard let identity = try await identityStore.load() else {
@@ -375,7 +387,8 @@ actor SyncingManager: SyncingManagerProtocol {
                 inboxId: identity.inboxId,
                 since: since,
                 activeConversationId: await activeConversationId,
-                fetchFromBeginning: fetchFromBeginning
+                fetchFromBeginning: fetchFromBeginning,
+                syncPerConversation: syncPerConversation
             )
         } catch {
             Log.error("catchup.batch.messages failed: \(error.localizedDescription)")

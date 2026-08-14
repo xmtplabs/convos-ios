@@ -25,7 +25,8 @@ struct BatchCatchUpPrepareTimeout: Error {}
 ///
 /// Flow (the caller runs one client-wide `syncAllConversations` first -
 /// see `SyncingManager.runGlobalSync` - so everything below reads local
-/// libxmtp state):
+/// libxmtp state; when that sync fails or times out the caller sets
+/// `syncPerConversation` and each prepare syncs its own group instead):
 /// 1. `client.conversationsProvider.listGroups(lastActivityAfterNs:)`
 ///    discovers conversations that had activity since the cursor.
 /// 2. Per conversation, in bounded parallel (sliding window):
@@ -108,12 +109,22 @@ struct BatchCatchUp {
     /// pairing time, and the import emits no stream events — a forward-
     /// only fetch would never see them. Redelivery of already-persisted
     /// rows is free (no-op diff short-circuit + primary-key upserts).
+    ///
+    /// `syncPerConversation` restores the per-group network sync inside
+    /// each prepare. Callers pass true when the client-wide sync that
+    /// normally precedes the batch did not complete: fetching from an
+    /// unsynced local store could advance a cursor past backlog messages
+    /// that the still-running sync materializes later, and a forward-only
+    /// fetch would then never see them. The per-conversation timeout
+    /// bounds each fallback sync, same as before the client-wide sync
+    /// existed.
     func run(
         client: any XMTPClientProvider,
         inboxId: String,
         since: Date?,
         activeConversationId: String?,
-        fetchFromBeginning: Bool = false
+        fetchFromBeginning: Bool = false,
+        syncPerConversation: Bool = false
     ) async throws -> BatchCatchUpResult {
         let started = CFAbsoluteTimeGetCurrent()
         let cursorNs: Int64? = since.map { Int64($0.nanosecondsSince1970) }
@@ -140,7 +151,10 @@ struct BatchCatchUp {
         let (prepared, skippedCount) = await prepareAll(
             groups: groups,
             inboxId: inboxId,
-            fetchFromBeginning: fetchFromBeginning
+            mode: PrepareMode(
+                fetchFromBeginning: fetchFromBeginning,
+                syncPerConversation: syncPerConversation
+            )
         )
 
         // Phase 2: single-transaction persist of conversations + regular
@@ -260,6 +274,14 @@ struct BatchCatchUp {
 
     // MARK: - Private
 
+    /// The two prepare-phase switches `run` accepts, bundled so they travel
+    /// through the prepare fan-out as one value. See `run` for what each
+    /// flag means and when callers set it.
+    private struct PrepareMode: Sendable {
+        let fetchFromBeginning: Bool
+        let syncPerConversation: Bool
+    }
+
     private struct PreparedEntry {
         let group: XMTPiOS.Group
         let conversation: ConversationWriter.PreparedConversation
@@ -350,15 +372,16 @@ struct BatchCatchUp {
     /// catch-up retries it. Before this isolation, a single throwing
     /// prepare cancelled every sibling task and failed the whole batch.
     ///
-    /// A sliding window caps concurrent prepares. Prepare is local work
-    /// (the network sync happens once, client-wide, before the batch), so
-    /// the bound exists to keep N conversations from stampeding the GRDB
-    /// reader pool and libxmtp's SQLite connections at boot; same pattern
-    /// as `ConversationConsentReconciler.reconcileBatch`.
+    /// A sliding window caps concurrent prepares. Prepare is normally
+    /// local work (the network sync happens once, client-wide, before the
+    /// batch), so the bound exists to keep N conversations from stampeding
+    /// the GRDB reader pool and libxmtp's SQLite connections at boot; same
+    /// pattern as `ConversationConsentReconciler.reconcileBatch`. On the
+    /// `syncPerConversation` fallback it also caps the network fan-out.
     private func prepareAll(
         groups: [XMTPiOS.Group],
         inboxId: String,
-        fetchFromBeginning: Bool
+        mode: PrepareMode
     ) async -> (entries: [PreparedEntry], skipped: Int) {
         let timeout = perConversationPrepareTimeout
         return await withTaskGroup(of: PreparedEntry?.self) { [conversationWriter, messageWriter, databaseWriter] taskGroup in
@@ -368,7 +391,7 @@ struct BatchCatchUp {
                         try await Self.prepareEntry(
                             group: group,
                             inboxId: inboxId,
-                            fetchFromBeginning: fetchFromBeginning,
+                            mode: mode,
                             conversationWriter: conversationWriter,
                             messageWriter: messageWriter,
                             databaseWriter: databaseWriter
@@ -415,22 +438,24 @@ struct BatchCatchUp {
     private static func prepareEntry(
         group: XMTPiOS.Group,
         inboxId: String,
-        fetchFromBeginning: Bool,
+        mode: PrepareMode,
         conversationWriter: ConversationWriter,
         messageWriter: IncomingMessageWriter,
         databaseWriter: any DatabaseWriter
     ) async throws -> PreparedEntry {
-        // No per-group network sync: the caller runs a client-wide
-        // syncAllConversations before the batch (see
+        // The per-group network sync is normally skipped: the caller runs
+        // a client-wide syncAllConversations before the batch (see
         // SyncingManager.runGlobalSync), so the backlog is already local.
+        // When that sync failed or timed out, syncPerConversation restores
+        // it so the cursor cannot advance past a not-yet-synced backlog.
         let preparedConv = try await conversationWriter.prepare(
             conversation: group,
             inboxId: inboxId,
-            syncFirst: false
+            syncFirst: mode.syncPerConversation
         )
 
         let perConvCursorNs: Int64
-        if fetchFromBeginning {
+        if mode.fetchFromBeginning {
             perConvCursorNs = 0
         } else {
             perConvCursorNs = try await Self.readCatchUpCursorNs(
