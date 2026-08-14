@@ -54,6 +54,13 @@ final class AgentDmSession {
 
     /// Attaches the DM's view model when the DM conversation already exists.
     /// Safe to call repeatedly; a no-op once bound or while no agent is set.
+    ///
+    /// The messaging service comes from the session rather than from
+    /// `originViewModel`: a conversation opened through the new-convo flow
+    /// starts on a placeholder view model backed by a mock service, and
+    /// handing that mock to the DM points its writer (and, through the mock's
+    /// conversation publisher, the DM view model itself) at a draft that goes
+    /// nowhere - the DM would render and accept sends that silently vanish.
     func bindIfNeeded() {
         guard dmViewModel == nil, let agentInboxId else { return }
         guard let existing = try? originViewModel.session
@@ -64,7 +71,7 @@ final class AgentDmSession {
         dmViewModel = ConversationViewModel(
             conversation: existing,
             session: originViewModel.session,
-            messagingService: originViewModel.messagingService,
+            messagingService: originViewModel.session.messagingServiceSync(),
             coreActions: originViewModel.coreActions
         )
     }
