@@ -860,7 +860,50 @@ struct MessagesListProcessorAgentJoinTests {
         #expect(ajItems.isEmpty)
     }
 
-    @Test("Agent join request hidden and joined update remains visible")
+    /// Every conversation gets a Convos agent provisioned into it silently,
+    /// so its arrival must leave no row in the transcript - while a human
+    /// joining, or a mixed add, still reads normally.
+    @Test("Agent-only join rows are hidden; human joins still show")
+    func agentOnlyJoinRowsAreHidden() {
+        let now = Date()
+        let human: ConversationMember = .mock(isCurrentUser: false, name: "Alice")
+        let messages = [
+            makeUpdate(id: "agent-joined", date: now, addedMembers: [verifiedAgentMember]),
+            makeUpdate(id: "human-joined", date: now.addingTimeInterval(10), addedMembers: [human]),
+        ]
+        let result = MessagesListProcessor.process(messages)
+        let updates = result.compactMap { item -> ConversationUpdate? in
+            guard case .update(_, let update, _) = item else { return nil }
+            return update
+        }
+        #expect(updates.count == 1)
+        #expect(updates.first?.addedMembers.first?.profile.inboxId == human.profile.inboxId)
+    }
+
+    @Test("A join adding an agent alongside a person stays visible")
+    func mixedJoinRowStaysVisible() {
+        let human: ConversationMember = .mock(isCurrentUser: false, name: "Alice")
+        let messages = [
+            makeUpdate(id: "both-joined", addedMembers: [verifiedAgentMember, human]),
+        ]
+        let result = MessagesListProcessor.process(messages)
+        #expect(agentJoinUpdateIndex(in: result) != nil)
+    }
+
+    @Test("A row removing an agent stays visible")
+    func agentRemovalRowStaysVisible() {
+        let messages = [
+            makeUpdate(id: "agent-left", addedMembers: [], removedMembers: [verifiedAgentMember]),
+        ]
+        let result = MessagesListProcessor.process(messages)
+        let updates = result.compactMap { item -> ConversationUpdate? in
+            guard case .update(_, let update, _) = item else { return nil }
+            return update
+        }
+        #expect(updates.count == 1)
+    }
+
+    @Test("Agent join request and the agent-joined row are both hidden")
     func hiddenAfterAgentJoinedWhileUpdateStillShown() {
         let now = Date()
         let agentMember = ConversationMember(
@@ -904,9 +947,11 @@ struct MessagesListProcessorAgentJoinTests {
             return nil
         }
 
+        // Neither the join-request bubble nor the "agent joined" row is
+        // shown: every conversation gets its agent silently, and the agent
+        // announces itself with its contact card and greeting instead.
         #expect(agentJoinStatuses.isEmpty)
-        #expect(updates.count == 1)
-        #expect(updates.first?.addedVerifiedAgent == true)
+        #expect(updates.isEmpty)
     }
 
     @Test("Agent join request hidden when an unverified agent joined after")
@@ -1455,6 +1500,13 @@ private let verifiedAgentMember: ConversationMember = .mock(
     agentVerification: .verified(.convos)
 )
 
+private func agentJoinUpdateIndex(in items: [MessagesListItemType]) -> Int? {
+    items.firstIndex {
+        guard case .update(_, let update, _) = $0 else { return false }
+        return update.addedVerifiedAgent
+    }
+}
+
 private func contactCardIndex(in items: [MessagesListItemType]) -> Int? {
     items.firstIndex {
         if case .messages(let group) = $0 { return group.agentContactCard != nil }
@@ -1553,13 +1605,17 @@ struct MessagesListProcessorContactCardPlacementTests {
             messages,
             verifiedAgent: verifiedAgentMember
         )
-        let joinIndex = result.firstIndex {
-            guard case .update(_, let update, _) = $0 else { return false }
-            return update.addedVerifiedAgent
+        // The agent's join row is stripped once the card has anchored on it,
+        // so the card itself now occupies the spot the join row held: above
+        // the agent's first message group.
+        #expect(agentJoinUpdateIndex(in: result) == nil)
+        let greetingIndex = result.firstIndex {
+            guard case .messages(let group) = $0 else { return false }
+            return group.messages.contains { $0.messageId == "greeting" }
         }
-        #expect(joinIndex != nil)
-        if let joinIndex {
-            #expect(contactCardIndex(in: result) == joinIndex + 1)
+        #expect(greetingIndex != nil)
+        if let greetingIndex {
+            #expect(contactCardIndex(in: result) == greetingIndex - 1)
         }
         // Adjacent pair renders as one run: the card defers its avatar and
         // the group below hides its duplicate sender label.
@@ -1658,13 +1714,17 @@ struct MessagesListProcessorContactCardPlacementTests {
             messages,
             verifiedAgent: verifiedAgentMember
         )
-        let agentJoinIndex = result.firstIndex {
-            guard case .update(_, let update, _) = $0 else { return false }
-            return update.addedMembers.contains { $0.profile.inboxId == verifiedAgentMember.profile.inboxId }
+        // Both join rows are stripped (agent-only joins), so the card's
+        // position proves it anchored on this agent's join rather than the
+        // other agent's: it sits after the user's message, not above it.
+        #expect(agentJoinUpdateIndex(in: result) == nil)
+        let userMessageIndex = result.firstIndex {
+            guard case .messages(let group) = $0 else { return false }
+            return group.messages.contains { $0.messageId == "user-text" }
         }
-        #expect(agentJoinIndex != nil)
-        if let agentJoinIndex {
-            #expect(contactCardIndex(in: result) == agentJoinIndex + 1)
+        #expect(userMessageIndex != nil)
+        if let userMessageIndex, let cardIndex = contactCardIndex(in: result) {
+            #expect(cardIndex > userMessageIndex)
         }
         #expect(contactCardCount(in: result) == 1)
     }
@@ -1681,13 +1741,16 @@ struct MessagesListProcessorContactCardPlacementTests {
             messages,
             verifiedAgent: verifiedAgentMember
         )
-        let joinIndices = result.indices.filter {
-            guard case .update(_, let update, _) = result[$0] else { return false }
-            return update.addedVerifiedAgent
+        // Both join rows are stripped; the card anchored on the later one,
+        // which is what puts it below the agent's older messages.
+        #expect(agentJoinUpdateIndex(in: result) == nil)
+        let oldMessageIndex = result.firstIndex {
+            guard case .messages(let group) = $0 else { return false }
+            return group.messages.contains { $0.messageId == "old-msg" }
         }
-        #expect(joinIndices.count == 2)
-        if let latestJoin = joinIndices.last {
-            #expect(contactCardIndex(in: result) == latestJoin + 1)
+        #expect(oldMessageIndex != nil)
+        if let oldMessageIndex, let cardIndex = contactCardIndex(in: result) {
+            #expect(cardIndex > oldMessageIndex)
         }
         #expect(contactCardCount(in: result) == 1)
     }

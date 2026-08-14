@@ -325,8 +325,31 @@ public final class MessagesListProcessor: Sendable {
             items.append(.agentActivating(agentActivating))
         }
 
+        // After the contact card has anchored on it: a join row that only ever
+        // added agents is the silent default agent arriving, which the user
+        // never asked for and shouldn't have to read about. Removed here
+        // rather than at emission so the card still anchors where the agent
+        // actually joined, and keyed on the row's own added members so it
+        // stays hidden once real people arrive later.
+        items = removingAgentOnlyJoinUpdates(from: items)
+
         items = reconcilingFullBleedAdjacency(in: items)
         return clearingDuplicatedLastGroupFlags(in: items)
+    }
+
+    /// Drops membership updates whose only added members are Convos-verified
+    /// agents (and which removed nobody). The agent's arrival is announced by
+    /// its contact card and its own first message; the terse "joined ·
+    /// Invited by" row adds nothing and, for the silently provisioned default
+    /// agent, is a member the user never added.
+    private static func removingAgentOnlyJoinUpdates(
+        from items: [MessagesListItemType]
+    ) -> [MessagesListItemType] {
+        items.filter { item in
+            guard case .update(_, let update, _) = item else { return true }
+            guard update.removedMembers.isEmpty, !update.addedMembers.isEmpty else { return true }
+            return !update.addedMembers.allSatisfy(\.isVerifiedConvosAgent)
+        }
     }
 
     /// Strip date separators that no longer precede a message group. A

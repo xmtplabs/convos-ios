@@ -370,6 +370,25 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
     }
 
+    /// Whether this conversation's verified agent should have a contact card
+    /// at all. The silently-provisioned default agent stays invisible while
+    /// it is the only other member: no card for someone the user never added.
+    /// A real member joining reveals it like any other agent.
+    ///
+    /// Static because the initializers seed the repository's agent before
+    /// `self` exists; routing every assignment through here is what keeps the
+    /// card from rendering on the first frame and being pulled a moment later.
+    static func showsContactCard(in conversation: Conversation) -> Bool {
+        !conversation.isDefaultAgentOnly
+    }
+
+    /// The agent the transcript should draw a contact card for, or nil when
+    /// there is none to show.
+    static func contactCardAgent(in conversation: Conversation) -> ConversationMember? {
+        guard showsContactCard(in: conversation) else { return nil }
+        return conversation.members.first(where: \.isVerifiedConvosAgent)
+    }
+
     /// Forwards the verified Convos agent from the conversation members
     /// to the messages-list repository — gated by `allowsContactCard` so the
     /// caller can defer the card without changing the underlying conversation.
@@ -399,7 +418,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         } else {
             agent = nil
         }
-        messagesListRepository.verifiedAgent = allowsContactCard ? agent : nil
+        let showsCard: Bool = allowsContactCard && Self.showsContactCard(in: conversation)
+        messagesListRepository.verifiedAgent = showsCard ? agent : nil
         // The built agent has joined and verified: clear the persisted
         // generation so the activating card can't resurrect if the agent is
         // later removed (membership going back to no-agent would otherwise
@@ -1224,7 +1244,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
         messagesListRepo.currentOtherMemberCount = conversation.membersWithoutCurrent.count
-        messagesListRepo.verifiedAgent = conversation.members.first(where: \.isVerifiedConvosAgent)
+        messagesListRepo.verifiedAgent = Self.contactCardAgent(in: conversation)
         self.messagesListRepository = messagesListRepo
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
@@ -1316,7 +1336,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
         messagesListRepo2.currentOtherMemberCount = conversation.membersWithoutCurrent.count
-        messagesListRepo2.verifiedAgent = conversation.members.first(where: \.isVerifiedConvosAgent)
+        messagesListRepo2.verifiedAgent = Self.contactCardAgent(in: conversation)
         self.messagesListRepository = messagesListRepo2
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter

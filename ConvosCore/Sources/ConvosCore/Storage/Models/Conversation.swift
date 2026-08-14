@@ -247,12 +247,38 @@ public extension Conversation {
         wasCreatedFromAgentBuilder && !hasHadVerifiedAgent
     }
 
+    /// True while the only other member is a Convos-verified agent - that is,
+    /// the conversation is "just you and the default agent". Every new
+    /// conversation gets that agent provisioned into it silently (see
+    /// `SessionManager.ensureDefaultAgentInConversation`), and until a real
+    /// person arrives the conversation should still read as the untouched
+    /// new convo it is: its own name and emoji rather than the agent's, and
+    /// no member avatars, contact card, or join row for a member the user
+    /// never added.
+    ///
+    /// A conversation built around a specific agent is excluded: the user
+    /// chose that agent, so the chat keeps its name and face. Everything else
+    /// with a lone verified agent is treated as silently provisioned, which is
+    /// approximate - there is no member-level marker distinguishing the
+    /// default agent from one the user picked. That approximation is why this
+    /// lives in one place: give the default agent a marker and only this
+    /// property changes.
+    var isDefaultAgentOnly: Bool {
+        guard !wasCreatedFromAgentBuilder else { return false }
+        let otherMembers = membersWithoutCurrent
+        guard otherMembers.count == 1, let other = otherMembers.first else { return false }
+        return other.isVerifiedConvosAgent
+    }
+
     func computedDisplayName(memberNameOverride: (String) -> String?) -> String {
         if let name, !name.isEmpty {
             return name
         }
         if isPendingAgentBuilderDraft {
             return "New Agent"
+        }
+        if isDefaultAgentOnly {
+            return "New Convo"
         }
         if kind == .dm {
             if let other = otherMember {
@@ -291,6 +317,11 @@ public extension Conversation {
         }
         if imageURL != nil {
             return .customImage
+        }
+        // Just you and the silently-added default agent: keep the
+        // conversation's own emoji instead of adopting the agent's face.
+        if isDefaultAgentOnly {
+            return .emoji(defaultEmoji)
         }
         let otherMembers = membersWithoutCurrent
         if otherMembers.count == 1, let member = otherMembers.first {

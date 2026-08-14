@@ -31,7 +31,7 @@ enum CaughtUpMessageKind {
     case regular
 
     static func of(_ message: XMTPiOS.DecodedMessage) -> CaughtUpMessageKind {
-        if message.isProfileMessage || message.isTypingIndicator {
+        if message.isProfileMessage || message.isTypingIndicator || message.isConversationReady {
             return .ignore
         }
         if message.isReadReceipt {

@@ -225,6 +225,11 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// acquire; the cache-miss path defers by creating the conversation
     /// with `startsUnused: true`.
     private let defersVisibilityUntilCommit: Bool
+    /// Whether this flow's conversation should carry the default agent and
+    /// receive the `conversation_ready` greeting cue. True for the plain
+    /// new-convo modes; false for joins, existing conversations, and
+    /// template spawns (which bring their own agent).
+    private let wantsDefaultAgent: Bool
 
     /// Set when `commitConversationVisibility()` runs before the
     /// auto-created conversation reaches `.ready` (no id to flip yet).
@@ -430,6 +435,8 @@ class NewConversationViewModel: Identifiable, Hashable {
 
         self.isExistingConversation = if case .existingConversation = mode { true } else { false }
 
+        self.wantsDefaultAgent = mode.wantsDefaultAgent
+
         self.isCreatingConversation = mode.isNewConversation
         self.messagesTopBarTrailingItem = showsEmbeddedInvite ? .scan : .share
         createPlaceholderConversationViewModel()
@@ -472,6 +479,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.seededMemberInboxIds = []
         self.seededAgentTemplateIds = []
         self.defersVisibilityUntilCommit = false
+        self.wantsDefaultAgent = false
         // Tests-only init - the warm-cache flow goes through the
         // public init. Existing-conversation cleanup guard stays off.
         self.isExistingConversation = false
@@ -1379,6 +1387,8 @@ extension NewConversationViewModel {
                 claimedConversationId = result.conversationId
             }
 
+            notifyDefaultAgentConversationReadyIfNeeded(result)
+
             // Agent-template spawn: the conversation now exists with a
             // shareable invite, so request a fresh instance for each
             // pending templateId (see `requestPendingAgentJoinsIfReady`).
@@ -1605,5 +1615,38 @@ private extension NewConversationViewModel {
             )
         }
         return .draft(id: id, seededMembers: members)
+    }
+}
+
+// MARK: - Default agent readiness
+
+extension NewConversationViewModel {
+    /// Cache-miss fallback for the default agent: a conversation the state
+    /// machine created fresh never passes through
+    /// `commitClaimedConversation`, so ensure the agent and fire its greeting
+    /// cue here. Idempotent for warm-cache conversations (the commit path
+    /// already latched the ready signal); deferred-visibility flows wait for
+    /// their commit instead.
+    fileprivate func notifyDefaultAgentConversationReadyIfNeeded(_ result: ConversationReadyResult) {
+        guard result.origin == .created, wantsDefaultAgent, !defersVisibilityUntilCommit else { return }
+        let readyConversationId = result.conversationId
+        Task { [session] in
+            await session.ensureDefaultAgentConversationReady(id: readyConversationId)
+        }
+    }
+}
+
+extension NewConversationMode {
+    /// Whether this mode's conversation should carry the default agent and
+    /// receive the `conversation_ready` greeting cue. False for joins,
+    /// existing conversations, and template spawns (which bring their own
+    /// agent).
+    var wantsDefaultAgent: Bool {
+        switch self {
+        case .newConversation, .newConversationWithMembers:
+            return true
+        case .newAgent, .newConversationWithTemplate, .existingConversation, .scanner, .joinInvite:
+            return false
+        }
     }
 }
