@@ -23,7 +23,12 @@ enum SentryConfiguration {
         SentrySDK.start { options in
             options.dsn = dsn
             options.debug = !isProduction
-            options.enableSigtermReporting = true
+            // The OS sends SIGTERM as a routine prelude to termination, including
+            // when it replaces the app on install. SentryCrash's handler
+            // symbolicates through dladdr while the other threads are suspended,
+            // which deadlocks on dyld's loader lock, so the process never exits
+            // and the next launch re-foregrounds the frozen one.
+            options.enableSigtermReporting = false
             options.attachStacktrace = true
 
             if isProduction {
