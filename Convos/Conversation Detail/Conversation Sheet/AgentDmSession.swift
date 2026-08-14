@@ -27,6 +27,11 @@ final class AgentDmSession {
     /// the tap itself. Cleared when the agent lands, or by the timeout below
     /// when it never does.
     private(set) var isRequestingAgent: Bool = false
+    /// True when the session is already provisioning this conversation's
+    /// silent default agent - every conversation claimed from the warm cache
+    /// has one on the way, so the tab must wait on it rather than offer to add
+    /// another. Refreshed by `refreshDefaultAgentProvisioning()`.
+    private(set) var isProvisioningDefaultAgent: Bool = false
     @ObservationIgnored
     private var requestTimeoutTask: Task<Void, Never>?
 
@@ -44,6 +49,13 @@ final class AgentDmSession {
         agent?.profile.displayName ?? "Assistant"
     }
 
+    /// The conversation the tab belongs to. Its id changes when a new-convo
+    /// flow settles from its placeholder draft onto the real conversation,
+    /// which is the id any default-agent provision was registered under.
+    var originConversationId: String {
+        originViewModel.conversation.id
+    }
+
     /// True while a join requested from this conversation is still in flight -
     /// the agent isn't a member yet, so there is nothing to bind to. Together
     /// with `agentInboxId` and `dmViewModel` this is what the Agent tab reads
@@ -54,7 +66,21 @@ final class AgentDmSession {
     /// registers, so on its own the tab would sit on the offer for a beat
     /// after the tap.
     var isJoiningAgent: Bool {
-        isRequestingAgent || originViewModel.isAgentJoinPending
+        isRequestingAgent || isProvisioningDefaultAgent || originViewModel.isAgentJoinPending
+    }
+
+    /// Asks the session whether this conversation's default agent is already
+    /// being provisioned. Cheap, and worth re-running whenever the answer
+    /// could have changed: on the conversation settling into its real id, and
+    /// when the tab is shown.
+    func refreshDefaultAgentProvisioning() async {
+        guard agentInboxId == nil else {
+            isProvisioningDefaultAgent = false
+            return
+        }
+        let conversationId: String = originViewModel.conversation.id
+        isProvisioningDefaultAgent = await originViewModel.session
+            .isProvisioningDefaultAgent(id: conversationId)
     }
 
     /// Brings the conversation's default agent in - the Agent tab's "Add an
@@ -90,6 +116,7 @@ final class AgentDmSession {
             requestTimeoutTask?.cancel()
             requestTimeoutTask = nil
             isRequestingAgent = false
+            isProvisioningDefaultAgent = false
         }
         dmViewModel = nil
         bindIfNeeded()

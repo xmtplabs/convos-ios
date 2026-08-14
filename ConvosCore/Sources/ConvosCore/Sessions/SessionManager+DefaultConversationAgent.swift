@@ -29,6 +29,14 @@ actor DefaultConversationAgentCoordinator {
         provisionTasks[conversationId] = nil
     }
 
+    /// Whether a provision has been started for this conversation and hasn't
+    /// been forgotten as failed - that is, its default agent is on the way.
+    /// The UI reads this so a conversation whose silent join is already in
+    /// flight doesn't also offer to add an agent.
+    func isProvisioning(_ conversationId: String) -> Bool {
+        provisionTasks[conversationId] != nil
+    }
+
     /// The idempotency key for the conversation's current logical join,
     /// minted on first use and stable across retries so the backend adopts
     /// the in-flight instance instead of provisioning a duplicate.
@@ -92,6 +100,13 @@ extension SessionManager {
             await self?.runDefaultAgentProvision(conversationId: conversationId)
         }
         await task.value
+    }
+
+    /// Whether this conversation's default agent is already being provisioned
+    /// (see `SessionManagerProtocol`).
+    public func isProvisioningDefaultAgent(id conversationId: String) async -> Bool {
+        guard Self.defaultAgentProvisioningEnabled(environment) else { return false }
+        return await defaultAgentCoordinator.isProvisioning(conversationId)
     }
 
     /// Cache-miss entry point (see `SessionManagerProtocol`): a conversation

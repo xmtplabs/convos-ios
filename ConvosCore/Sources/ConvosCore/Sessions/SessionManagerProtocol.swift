@@ -133,6 +133,12 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// `conversation_ready` greeting cue. Best-effort and idempotent.
     func ensureDefaultAgentConversationReady(id conversationId: String) async
 
+    /// True while this conversation's silent default-agent join is in flight
+    /// (or has already landed) - the conversation was claimed from the warm
+    /// cache, which provisions an agent into it. Surfaces so the Agent tab
+    /// waits on that join instead of offering to add another agent.
+    func isProvisioningDefaultAgent(id conversationId: String) async -> Bool
+
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 

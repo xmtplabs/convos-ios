@@ -79,6 +79,14 @@ struct AgentDmPageView: View {
         .onChange(of: isActiveTab) { _, active in
             handleActiveTabChange(active)
         }
+        // Every conversation claimed from the warm cache already has a silent
+        // default agent on the way. Ask whether this one does, so the tab
+        // waits on that join instead of offering to add a second agent - and
+        // ask again when the conversation settles into its real id, which is
+        // the id that join was registered under.
+        .task(id: provisioningRefreshKey) {
+            await session.refreshDefaultAgentProvisioning()
+        }
         // The DM can bind while this tab is already active (the reconciler
         // created it while the user waited here); the on-activate hook fired
         // before the view model existed, so mark it read and register the
@@ -126,6 +134,12 @@ struct AgentDmPageView: View {
         case noAgent
         case preparing
         case ready(ConversationViewModel)
+    }
+
+    /// Re-asks about provisioning when the conversation settles into its real
+    /// id, when an agent binds, and when the tab is shown.
+    private var provisioningRefreshKey: String {
+        "\(session.originConversationId)-\(session.agentInboxId ?? "")-\(isActiveTab)"
     }
 
     private var phase: Phase {
