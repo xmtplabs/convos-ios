@@ -36,6 +36,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Scan segment routes decoded codes to `onScannedInviteCode`, opening a
     /// brand-new convo rather than scanning into this one.
     var showsEmbeddedInvite: Bool = false
+    /// Suppresses the top-of-convo Invite/Scan card. The conversation still
+    /// offers its invite - the message list's QR header and the top bar's
+    /// share button both stay - but the "you just made this, here is your
+    /// code" session card is not what compose opens on.
+    var suppressesInviteSessionCard: Bool = false
     /// Segment the embedded Scan/Invite toggle starts on. The home scan entry
     /// passes `.scan`; "Show an invite code" and normal convos keep `.invite`.
     var embeddedInviteInitialSegment: ScanInviteSegment = .invite
@@ -78,6 +83,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Window safe-area insets, used to convert the sheet's physical-edge
     /// clearance into the safe-area-relative inset the transcripts take.
     @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
+    /// The scheme the conversation is presented in, sampled while the Agent
+    /// tab is not forcing its own. See `preferredScheme`.
+    @Environment(\.colorScheme) private var presentedColorScheme: ColorScheme
+    @State private var ambientColorScheme: ColorScheme?
     /// Binds the Agent tab to the agent's real DM conversation; shared by the
     /// backing transcript and the sheet's agent composer.
     @State private var agentDmSession: AgentDmSession?
@@ -378,6 +387,26 @@ struct ConversationView<MessagesBottomBar: View>: View {
         return badged
     }
 
+    /// The Agent tab is a dark surface, and its composer's materials resolve
+    /// against the UIKit trait collection rather than SwiftUI's environment,
+    /// so the whole presentation is driven dark while that tab is up.
+    ///
+    /// Leaving the other tabs at "no preference" (nil) looks equivalent but
+    /// isn't: inside a sheet the forced trait sticks, and the group chat comes
+    /// back dark. Handing back the scheme the conversation was presented in
+    /// restores it explicitly.
+    private var preferredScheme: ColorScheme? {
+        selectedTab == .agent ? .dark : ambientColorScheme
+    }
+
+    /// Samples the presented scheme, ignoring the value the Agent tab forces -
+    /// sampling that would feed the forced scheme back in as the ambient one
+    /// and leave every tab dark.
+    private func captureAmbientScheme(_ scheme: ColorScheme) {
+        guard selectedTab != .agent else { return }
+        ambientColorScheme = scheme
+    }
+
     /// The sheet's clearance above the *safe-area* bottom line, which is
     /// what the transcripts inset by (their controllers add the safe area
     /// and keyboard themselves). The card extends into the bottom safe
@@ -448,6 +477,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onAppear {
             ensureNavigator()
             navState.markScreenAppeared()
+            captureAmbientScheme(presentedColorScheme)
             // Seed before the viewed check: a DM-notification open lands
             // straight on the agent page, and the group must not count as
             // viewed (its unread state and read receipts stay untouched
@@ -490,6 +520,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // the old onProfileSettingsDismissed re-saved from the stale
             // myProfileViewModel and clobbered the just-saved profile.
             ProfileSetupSheet(mode: .edit)
+        }
+        .preferredColorScheme(preferredScheme)
+        .onChange(of: presentedColorScheme) { _, scheme in
+            captureAmbientScheme(scheme)
         }
         .toolbar { topBarTrailing }
         .debugConnectionInjectorSheet(
@@ -1363,6 +1397,7 @@ extension ConversationView {
     /// `effectiveHeaderMode -> .hidden`.
     var showsTopOfConvoInvite: Bool {
         if showsEmbeddedInvite { return true }
+        guard !suppressesInviteSessionCard else { return false }
         guard !effectiveReadOnly, headerMode == .standard else { return false }
         let conversation = viewModel.conversation
         guard !conversation.isDraft else { return false }

@@ -59,11 +59,6 @@ struct AgentDmPageView: View {
             }
         }
         .environment(\.colorScheme, .dark)
-        // `.environment(colorScheme)` only flips SwiftUI semantic colors; the
-        // composer's materials/background resolve against the UIKit trait
-        // collection, so drive the window trait to dark while this tab is the
-        // active one to force the whole hierarchy dark.
-        .preferredColorScheme(isActiveTab ? .dark : nil)
         // The agent-participation ("listen") control governs how much agents
         // speak in the group room; it has no meaning in a 1:1 agent DM, so clear
         // the inherited participation context to hide the control here.
