@@ -22,4 +22,28 @@ enum ConversationTab: String, CaseIterable, Identifiable, Hashable {
         case .agent: "Agent"
         }
     }
+
+    /// The tab a conversation opens on.
+    ///
+    /// A conversation with nothing waiting to be read opens on Home, where the
+    /// space itself is the point; anything unread opens on the transcript
+    /// holding it, so a backlog is never buried behind another tab. A tap that
+    /// specifically asked for the agent DM (a DM notification, or a list row
+    /// whose most recent unread is in the DM) wins outright.
+    ///
+    /// Home exists only once a Space URL has been published, so a conversation
+    /// without one opens on the group whether or not it has unread messages.
+    static func initial(
+        available: [ConversationTab],
+        hasUnread: Bool,
+        agentDmRequested: Bool
+    ) -> ConversationTab {
+        if agentDmRequested, available.contains(.agent) {
+            return .agent
+        }
+        if !hasUnread, available.contains(.home) {
+            return .home
+        }
+        return .group
+    }
 }

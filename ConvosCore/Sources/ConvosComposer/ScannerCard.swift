@@ -79,15 +79,10 @@ public struct ScannerCard: View {
     }
 
     private var captionBlock: some View {
-        VStack(spacing: DesignConstants.Spacing.stepX) {
-            Text("Scan to invite an agent or join a new convo")
-                .font(.footnote)
-                .foregroundStyle(.colorTextPrimary)
-            Text("New member will be added to your Contacts")
-                .font(.caption)
-                .foregroundStyle(.colorTextSecondary)
-        }
-        .multilineTextAlignment(.center)
+        Text("Scan to join a new convo")
+            .font(.footnote)
+            .foregroundStyle(.colorTextPrimary)
+            .multilineTextAlignment(.center)
     }
 
     /// Without this, `QRScannerView.checkCameraAuthorization` maps a

@@ -295,16 +295,30 @@ struct ConversationView<MessagesBottomBar: View>: View {
         selectedTab == .agent
     }
 
-    /// Opens the Agent tab once, when the view was pushed from a
-    /// conversations-list row whose most-recent unread is in the DM.
+    /// Chooses the tab this conversation opens on, once. See
+    /// `ConversationTab.initial(available:hasUnread:agentDmRequested:)`.
     private func seedInitialTabIfNeeded() {
         guard !didSeedInitialTab else { return }
         didSeedInitialTab = true
-        guard let inboxId = initialAgentDmInboxId,
-              inboxId == primaryAgentInboxId else {
-            return
-        }
-        selectTab(.agent)
+        let agentDmRequested: Bool = initialAgentDmInboxId != nil
+            && initialAgentDmInboxId == primaryAgentInboxId
+        let tab: ConversationTab = ConversationTab.initial(
+            available: availableTabs,
+            hasUnread: hasUnreadToRead,
+            agentDmRequested: agentDmRequested
+        )
+        guard tab != selectedTab else { return }
+        selectTab(tab)
+    }
+
+    /// Whether anything in this conversation is waiting to be read, across the
+    /// group and the agent DM. The DM's own view model may not have bound yet
+    /// when the tab is seeded, so a list row that opened us *because* the DM
+    /// was unread counts on its own.
+    private var hasUnreadToRead: Bool {
+        if viewModel.conversation.isUnread { return true }
+        if initialAgentDmInboxId != nil { return true }
+        return agentDmSession?.dmViewModel?.conversation.isUnread == true
     }
 
     /// Switches to the Agent tab when a DM notification is tapped while this
