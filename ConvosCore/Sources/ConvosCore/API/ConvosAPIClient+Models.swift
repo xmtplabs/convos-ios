@@ -277,10 +277,8 @@ public enum ConvosAPI {
         /// the worker.
         public let variantId: String?
         /// Asks the assistant runtime to hold its greeting after attaching.
-        /// The default-convo flow joins the agent into a hidden warm-cache
-        /// conversation long before the user enters it; the greeting is cued
-        /// later by the `conversation_ready` content type. Omitted from the
-        /// encoded body when `nil` so existing joins stay byte-identical.
+        /// Omitted from the encoded body when `nil` so existing joins stay
+        /// byte-identical.
         public let skipGreeting: Bool?
 
         public init(onboarding: String?, variantId: String? = nil, skipGreeting: Bool? = nil) {
@@ -292,15 +290,20 @@ public enum ConvosAPI {
         public static let agentBuilder: AgentJoinOptions = AgentJoinOptions(onboarding: "agent-builder")
 
         /// Join options for the silent bare default agent pre-added to every
-        /// new conversation: no onboarding arc — the Desktop screen owns the
-        /// welcome, and the agent speaks only when addressed. Silence needs no
-        /// flag: a bare join (no template) defaults to skipGreeting as
-        /// platform policy on the assistant worker. `variantId` (dev only)
-        /// routes the join to an ephemeral variant runtime.
+        /// new conversation: no onboarding arc - the Home screen owns the
+        /// welcome, and the agent speaks only when addressed.
+        ///
+        /// `skipGreeting` is sent explicitly rather than left to the worker's
+        /// bare-join default: runtimes that predate that default greet the
+        /// group on attach, and the user meets a conversation they never
+        /// spoke in with a message already in it. Asking costs nothing where
+        /// the default already holds. `variantId` (dev only) routes the join
+        /// to an ephemeral variant runtime.
         public static func defaultConversationAgent(variantId: String? = nil) -> AgentJoinOptions {
             AgentJoinOptions(
                 onboarding: nil,
-                variantId: variantId
+                variantId: variantId,
+                skipGreeting: true
             )
         }
     }
