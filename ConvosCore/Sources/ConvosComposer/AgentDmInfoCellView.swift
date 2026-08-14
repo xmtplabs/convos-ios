@@ -30,8 +30,14 @@ public struct AgentDmInfoCellView: View {
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
-        .padding(.top, DesignConstants.Spacing.step6x)
+        .padding(.vertical, Constant.verticalPadding)
         .padding(.horizontal, DesignConstants.Spacing.step6x)
+    }
+
+    private enum Constant {
+        /// Keeps the header clear of the nav chrome above and the first
+        /// message below; off the shared scale, which steps 48 to 64.
+        static let verticalPadding: CGFloat = 52.0
     }
 }
 #endif
