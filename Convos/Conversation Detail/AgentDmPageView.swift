@@ -39,16 +39,23 @@ struct AgentDmPageView: View {
     /// composer, which fires it on send.
     var onScrollToBottomAvailable: ((@escaping () -> Void) -> Void)?
 
+    /// Fill of the preparing bar. Creeps while the agent is on its way; it
+    /// tracks elapsed time, not real progress, since nothing reports any.
+    @State private var preparingProgress: Double = Constant.progressStart
+
     private var agent: ConversationMember? { session.agent }
 
     private var agentName: String { session.agentName }
 
     var body: some View {
         Group {
-            if let dmViewModel = session.dmViewModel {
+            switch phase {
+            case .ready(let dmViewModel):
                 dmMessagesViewWithSheets(dmViewModel)
-            } else {
-                emptyState
+            case .preparing:
+                preparingState
+            case .noAgent:
+                addAgentState
             }
         }
         .environment(\.colorScheme, .dark)
@@ -113,17 +120,100 @@ struct AgentDmPageView: View {
 
     // MARK: - Pre-creation
 
-    /// The same disclosure cell the transcript leads with, standing alone
-    /// before the DM exists - so the empty state is literally the list's
-    /// first cell. The sheet's disabled composer sits below.
-    private var emptyState: some View {
-        ScrollView {
-            AgentDmInfoCellView(agentProfile: agent?.profile, agentVerification: agent?.agentVerification ?? .unverified, agentName: agentName)
-                .padding(.top, DesignConstants.Spacing.step16x)
+    /// What the tab has to show, in the order a conversation moves through
+    /// it: no agent to talk to, an agent on its way, then the DM itself.
+    private enum Phase {
+        case noAgent
+        case preparing
+        case ready(ConversationViewModel)
+    }
+
+    private var phase: Phase {
+        if let dmViewModel = session.dmViewModel {
+            return .ready(dmViewModel)
+        }
+        // An agent that is already a member is only missing its DM, which the
+        // agent creates moments later; a join still in flight is the same wait
+        // one step earlier. Both read as "preparing".
+        if session.agentInboxId != nil || session.isJoiningAgent {
+            return .preparing
+        }
+        return .noAgent
+    }
+
+    /// Offered when the conversation has no agent at all (Figma 7488:14502).
+    /// Centered in the space above the sheet rather than the full view, so it
+    /// reads as centered on screen.
+    private var addAgentState: some View {
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            Button(action: session.requestAgentJoin) {
+                Text("Add an agent")
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    .frame(height: Constant.addAgentButtonHeight)
+                    .background(.colorLava, in: .rect(cornerRadius: Constant.addAgentButtonRadius))
+            }
+            .accessibilityIdentifier("agent-dm-add-agent-button")
+            Text("To help the group out")
+                .font(.footnote)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.colorLava)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.bottom, extraBottomInset)
         .background(.colorBackgroundSurfaceless)
-        .contentMargins(.bottom, extraBottomInset, for: .scrollContent)
+    }
+
+    /// Shown from the moment an agent is on its way until its DM lands. The
+    /// bar carries no real progress - nothing reports any - so it creeps
+    /// toward a cap and stops there, the way the old join card did.
+    private var preparingState: some View {
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            Text("Preparing your agent chat")
+                .font(.footnote)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.colorLava)
+            progressBar
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.bottom, extraBottomInset)
+        .background(.colorBackgroundSurfaceless)
+        .task(id: isPreparing) {
+            await rampPreparingProgress()
+        }
+        .accessibilityIdentifier("agent-dm-preparing")
+    }
+
+    private var isPreparing: Bool {
+        if case .preparing = phase { return true }
+        return false
+    }
+
+    /// Figma 7488:14256: a 120x8 track in 30% lava with a lava fill; the
+    /// design's still frame shows it about a third full.
+    private var progressBar: some View {
+        let fillWidth: CGFloat = Constant.progressWidth * preparingProgress
+        return ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: Constant.progressHeight)
+                .fill(Color.colorLava.opacity(Constant.progressTrackOpacity))
+                .frame(width: Constant.progressWidth, height: Constant.progressHeight)
+            RoundedRectangle(cornerRadius: Constant.progressHeight)
+                .fill(Color.colorLava)
+                .frame(width: fillWidth, height: Constant.progressHeight)
+        }
+    }
+
+    private func rampPreparingProgress() async {
+        guard isPreparing else { return }
+        while !Task.isCancelled, preparingProgress < Constant.progressCap {
+            try? await Task.sleep(for: .seconds(Constant.progressTick))
+            guard !Task.isCancelled else { return }
+            let next: Double = min(preparingProgress + Constant.progressStep, Constant.progressCap)
+            withAnimation(.easeOut(duration: Constant.progressTick)) {
+                preparingProgress = next
+            }
+        }
     }
 
     /// The DM transcript: membership, invite, and agent-presence cells are
@@ -341,5 +431,18 @@ struct AgentDmPageView: View {
                 focusCoordinator.moveFocus(to: .message)
             }
         )
+    }
+
+    private enum Constant {
+        /// The design's still frame fills 39 of the track's 120 points.
+        static let progressStart: Double = 0.325
+        static let progressCap: Double = 0.9
+        static let progressStep: Double = 0.05
+        static let progressTick: Double = 0.8
+        static let progressWidth: CGFloat = 120.0
+        static let progressHeight: CGFloat = 8.0
+        static let progressTrackOpacity: Double = 0.3
+        static let addAgentButtonHeight: CGFloat = 36.0
+        static let addAgentButtonRadius: CGFloat = 24.0
     }
 }

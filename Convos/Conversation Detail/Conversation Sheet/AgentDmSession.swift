@@ -23,6 +23,12 @@ final class AgentDmSession {
     private(set) var agentInboxId: String?
     /// The agent DM's own view model once the DM conversation exists.
     private(set) var dmViewModel: ConversationViewModel?
+    /// Set the moment the user asks for an agent, so the tab shows progress on
+    /// the tap itself. Cleared when the agent lands, or by the timeout below
+    /// when it never does.
+    private(set) var isRequestingAgent: Bool = false
+    @ObservationIgnored
+    private var requestTimeoutTask: Task<Void, Never>?
 
     init(originViewModel: ConversationViewModel) {
         self.originViewModel = originViewModel
@@ -38,6 +44,38 @@ final class AgentDmSession {
         agent?.profile.displayName ?? "Assistant"
     }
 
+    /// True while a join requested from this conversation is still in flight -
+    /// the agent isn't a member yet, so there is nothing to bind to. Together
+    /// with `agentInboxId` and `dmViewModel` this is what the Agent tab reads
+    /// to decide between offering an agent, waiting on one, and showing the DM.
+    ///
+    /// `isRequestingAgent` is the near half of that: the view model's own
+    /// pending flag is `@ObservationIgnored` and only turns over once the join
+    /// registers, so on its own the tab would sit on the offer for a beat
+    /// after the tap.
+    var isJoiningAgent: Bool {
+        isRequestingAgent || originViewModel.isAgentJoinPending
+    }
+
+    /// Brings the conversation's default agent in - the Agent tab's "Add an
+    /// agent" action, for a conversation that has none (one created before
+    /// agents joined by default, or whose silent provision never landed).
+    /// Takeable once: the tab moves to its progress state on the tap, and a
+    /// second request is refused, so a double tap can't seat two agents.
+    func requestAgentJoin() {
+        guard !isRequestingAgent, agentInboxId == nil else { return }
+        isRequestingAgent = true
+        originViewModel.requestAgentJoin()
+        // A join that never lands must not pin the progress bar forever; the
+        // offer comes back so the user can try again.
+        requestTimeoutTask?.cancel()
+        requestTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Constant.requestTimeout))
+            guard let self, !Task.isCancelled, self.agentInboxId == nil else { return }
+            self.isRequestingAgent = false
+        }
+    }
+
     /// Points the session at an agent (or at none). A change tears down the
     /// current DM binding so the new agent's DM can bind in its place.
     func setAgent(inboxId: String?) {
@@ -48,6 +86,11 @@ final class AgentDmSession {
             updateActiveDmLane(isActive: false)
         }
         agentInboxId = inboxId
+        if inboxId != nil {
+            requestTimeoutTask?.cancel()
+            requestTimeoutTask = nil
+            isRequestingAgent = false
+        }
         dmViewModel = nil
         bindIfNeeded()
     }
@@ -125,5 +168,11 @@ final class AgentDmSession {
             object: nil,
             userInfo: conversationId.map { ["conversationId": $0] } ?? [:]
         )
+    }
+
+    private enum Constant {
+        /// Comfortably past the join's own registration deadline, so the offer
+        /// only returns once the attempt has really failed.
+        static let requestTimeout: Double = 90.0
     }
 }
