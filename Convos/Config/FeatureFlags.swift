@@ -173,6 +173,27 @@ final class FeatureFlags {
         }
     }
 
+    /// The agent variant slug every agent call routes to: the join itself, the
+    /// join-status poll, and the participation read and mirror.
+    ///
+    /// A build-time pin from config wins outright, so a pinned build lands on
+    /// the same variant worker no matter what the dev selector holds. Builds
+    /// that pin nothing fall back to the selector, and to the default worker
+    /// when it is off or empty.
+    ///
+    /// The pin is a registry *slug*: the backend builds the worker host as
+    /// `ephemeral-<slug>.convos.fun`, so `spaces` routes to
+    /// `ephemeral-spaces.convos.fun`. It is stripped on production by the API
+    /// client, and an unknown slug degrades to the default worker rather than
+    /// failing the join.
+    var effectiveAgentVariantSlug: String? {
+        if let pinned = ConfigManager.shared.pinnedAgentVariantSlug {
+            return pinned
+        }
+        guard isAgentVariantSelectorEnabled else { return nil }
+        return selectedAgentVariant?.slug
+    }
+
     private enum Constant {
         static let debugInjectorEnabledKey: String = "featureFlags.debugInjectorEnabled"
         static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"

@@ -1564,7 +1564,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             )
             let response = try await client.getAgentParticipation(
                 conversationId: conversation.id,
-                variantId: FeatureFlags.shared.selectedAgentVariant?.slug
+                variantId: FeatureFlags.shared.effectiveAgentVariantSlug
             )
             // A newer refresh started while this one was in flight; its
             // response is the fresher truth, so this one must not land.
@@ -4084,18 +4084,10 @@ extension ConversationViewModel {
     /// `.noAgentsAvailable`) on error. Static + parameterized so both the
     /// single-flight and batched callers can share the same body without
     /// holding `self`.
-    /// The dev-selected agent variant slug to route an agent join, or `nil`.
-    /// Gated on the selector flag so a stale persisted selection can't route
-    /// joins once the dev toggle is off (mirrors the builder's commit).
-    /// A selector pick (when the selector is enabled) wins; otherwise fall back to
-    /// a build-time pinned slug from config so a prototype build routes to its
-    /// paired variant with no manual selection. Nil when neither is set.
+    /// The agent variant slug an agent join routes to. See
+    /// `FeatureFlags.effectiveAgentVariantSlug`.
     private static func selectedAgentVariantSlug() -> String? {
-        if FeatureFlags.shared.isAgentVariantSelectorEnabled,
-           let selected = FeatureFlags.shared.selectedAgentVariant?.slug {
-            return selected
-        }
-        return ConfigManager.shared.pinnedAgentVariantSlug
+        FeatureFlags.shared.effectiveAgentVariantSlug
     }
 
     private static func performAgentJoinCall(
