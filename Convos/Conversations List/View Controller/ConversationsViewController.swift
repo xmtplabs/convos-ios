@@ -15,6 +15,11 @@ final class ConversationsViewController: UIViewController {
         var isFilteredResultEmpty: Bool
         var filterEmptyMessage: String
         var horizontalSizeClass: UserInterfaceSizeClass?
+        var hasMoreConversations: Bool
+        /// False while the boot catch-up burst is still landing. Snapshots
+        /// apply via `applySnapshotUsingReloadData` (no diffing, no
+        /// animation) until this flips true.
+        var isBootSettled: Bool
 
         static let empty: State = State(
             pinnedConversations: [],
@@ -22,7 +27,9 @@ final class ConversationsViewController: UIViewController {
             selectedConversationId: nil,
             isFilteredResultEmpty: false,
             filterEmptyMessage: "",
-            horizontalSizeClass: nil
+            horizontalSizeClass: nil,
+            hasMoreConversations: false,
+            isBootSettled: false
         )
     }
 
@@ -76,6 +83,7 @@ final class ConversationsViewController: UIViewController {
     }()
     private lazy var dataSource: UICollectionViewDiffableDataSource<ConversationsSection, Item> = makeDataSource()
     private var currentState: State = .empty
+    private var hasAppliedInitialSnapshot: Bool = false
 
     /// Inbox → user-contact override applied to auto-generated cell
     /// titles and avatar substitution. Set by the SwiftUI parent
@@ -100,6 +108,9 @@ final class ConversationsViewController: UIViewController {
     /// builder bar between expanded and collapsed states based on whether
     /// the list is at the top.
     var onScrollOffsetChange: ((CGFloat) -> Void)?
+    /// Fired when the list approaches its end and `hasMoreConversations`
+    /// is set - asks the view model to grow the paged window.
+    var onLoadMoreConversations: (() -> Void)?
 
     /// Extra top inset to clear the SwiftUI top chrome (the agent builder
     /// bar that lives under the nav bar in the host's safe-area inset
@@ -154,8 +165,12 @@ final class ConversationsViewController: UIViewController {
             collectionView.setCollectionViewLayout(createLayout(), animated: false)
         }
 
-        let changedIds = changedConversationIds(old: oldState, new: state, selectionChanged: selectionChanged)
-        applySnapshot(animated: !pinnedMembershipChanged, changedIds: changedIds)
+        // Pre-settle applies go through the reload path, which re-dequeues
+        // every visible cell, so computing per-row changes would be wasted work.
+        let changedIds = state.isBootSettled
+            ? changedConversationIds(old: oldState, new: state, selectionChanged: selectionChanged)
+            : []
+        applySnapshot(animated: state.isBootSettled && !pinnedMembershipChanged, changedIds: changedIds)
     }
 
     private func changedConversationIds(old: State, new: State, selectionChanged: Bool) -> Set<String> {
@@ -451,23 +466,31 @@ final class ConversationsViewController: UIViewController {
             snapshot.appendItems(listItems, toSection: .list)
         }
 
-        dataSource.apply(snapshot, animatingDifferences: animated)
+        if currentState.isBootSettled && hasAppliedInitialSnapshot {
+            dataSource.apply(snapshot, animatingDifferences: animated)
 
-        if !changedIds.isEmpty {
-            var applied = dataSource.snapshot()
-            let itemsToReconfigure = applied.itemIdentifiers.filter { item in
-                switch item {
-                case .pinned(let c), .conversation(let c):
-                    return changedIds.contains(c.id)
-                case .filteredEmpty:
-                    return false
+            if !changedIds.isEmpty {
+                var applied = dataSource.snapshot()
+                let itemsToReconfigure = applied.itemIdentifiers.filter { item in
+                    switch item {
+                    case .pinned(let c), .conversation(let c):
+                        return changedIds.contains(c.id)
+                    case .filteredEmpty:
+                        return false
+                    }
+                }
+                if !itemsToReconfigure.isEmpty {
+                    applied.reconfigureItems(itemsToReconfigure)
+                    dataSource.apply(applied, animatingDifferences: false)
                 }
             }
-            if !itemsToReconfigure.isEmpty {
-                applied.reconfigureItems(itemsToReconfigure)
-                dataSource.apply(applied, animatingDifferences: false)
-            }
+        } else {
+            // Boot burst (or the very first apply): skip diffing entirely.
+            // The reload re-dequeues every visible cell, so the reconfigure
+            // pass above has no stale-cell case to fix.
+            dataSource.applySnapshotUsingReloadData(snapshot)
         }
+        hasAppliedInitialSnapshot = true
 
         updateSelection()
     }
@@ -657,6 +680,14 @@ extension ConversationsViewController: UICollectionViewDelegate {
         onSelectConversation?(conversation)
     }
 
+    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        guard currentState.hasMoreConversations else { return }
+        guard let item = dataSource.itemIdentifier(for: indexPath), case .conversation = item else { return }
+        let listCount = currentState.unpinnedConversations.count
+        guard listCount > 0, indexPath.item >= listCount - Constant.loadMoreThreshold else { return }
+        onLoadMoreConversations?()
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         // Report scrolled distance from the natural top — zero when the
         // list is at rest at the top, positive when scrolled down,
@@ -802,4 +833,9 @@ extension ConversationsViewController: UICollectionViewDelegate {
 
         return UIMenu(title: "", children: actions)
     }
+}
+
+private enum Constant {
+    /// How many rows before the end of the list the next page is requested.
+    static let loadMoreThreshold: Int = 10
 }

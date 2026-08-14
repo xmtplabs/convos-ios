@@ -198,6 +198,10 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func inviteMembershipResolver() -> any InviteMembershipResolving
 
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol
+    /// Windowed variant of `conversationsRepository` for the conversations
+    /// list screen: pinned rows unlimited, unpinned rows behind a growing
+    /// LIMIT window. Full-list consumers keep using `conversationsRepository`.
+    func conversationsPager(for consent: [Consent]) -> any ConversationsPagerProtocol
     func conversationsCountRepo(
         for consent: [Consent],
         kinds: [ConversationKind]

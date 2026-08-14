@@ -178,6 +178,8 @@ struct ConversationsView: View {
             selectedConversationId: viewModel.selectedConversationId,
             isFilteredResultEmpty: viewModel.isFilteredResultEmpty,
             filterEmptyMessage: viewModel.activeFilter.emptyStateMessage,
+            hasMoreConversations: viewModel.hasMoreConversations,
+            isBootSettled: viewModel.bootSettlement.isSettled,
             onSelectConversation: { conversation in
                 viewModel.select(conversation)
             },
@@ -198,6 +200,7 @@ struct ConversationsView: View {
             },
             onShowAllFilter: { viewModel.activeFilter = .all },
             onScrollOffsetChange: onScrollOffsetChange,
+            onLoadMoreConversations: { viewModel.loadMoreConversationsIfNeeded() },
             topChromeInset: topChromeInset,
             bottomChromeInset: bottomChromeInset
         )

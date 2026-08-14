@@ -778,6 +778,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         ConversationsRepository(dbReader: databaseReader, consent: consent)
     }
 
+    public func conversationsPager(for consent: [Consent]) -> any ConversationsPagerProtocol {
+        ConversationsPager(dbReader: databaseReader, consent: consent)
+    }
+
     public func conversationsCountRepo(for consent: [Consent], kinds: [ConversationKind]) -> any ConversationsCountRepositoryProtocol {
         ConversationsCountRepository(databaseReader: databaseReader, consent: consent, kinds: kinds)
     }

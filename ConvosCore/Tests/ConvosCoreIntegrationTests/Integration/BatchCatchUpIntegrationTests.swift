@@ -66,8 +66,11 @@ struct BatchCatchUpIntegrationTests {
         for i in 1...messageCount {
             _ = try await group.send(content: "Batch msg \(i)")
         }
-        // Critically: do NOT sync B again. The next sync runs inside
-        // `BatchCatchUp.run` and feeds messages into the batched persist.
+        // Pull the backlog into B's local libxmtp store the way production
+        // does: one client-wide sync before the batch (see
+        // `SyncingManager.runGlobalSync`). The batch's prepare phase reads
+        // local state only and no longer syncs per group.
+        _ = try await clientB.conversations.syncAllConversations(consentStates: nil)
 
         // Wire writers + coordinator the way SyncingManager does for the
         // foreground hook (commit d09e7639). Stateless wrappers around the
@@ -173,6 +176,10 @@ struct BatchCatchUpIntegrationTests {
         for i in 1...messageCount {
             _ = try await group.send(content: "Backfill msg \(i)")
         }
+        // Land the messages in B's local libxmtp store (the batch reads
+        // local state only) - the analog of the history-archive import
+        // having populated the store.
+        _ = try await clientB.conversations.syncAllConversations(consentStates: nil)
         // Cursor comes from the actual max message timestamp, not the host
         // wall clock - libxmtp stamps sentNs server-side, and clock skew on
         // CI put wall-clock cursors behind freshly sent messages.
@@ -240,6 +247,7 @@ struct BatchCatchUpIntegrationTests {
         for i in 1...messageCount {
             _ = try await group.send(content: "Active msg \(i)")
         }
+        _ = try await clientB.conversations.syncAllConversations(consentStates: nil)
 
         let messageWriter = IncomingMessageWriter(databaseWriter: fixtures.databaseManager.dbWriter)
         let conversationWriter = ConversationWriter(
@@ -315,6 +323,7 @@ struct BatchCatchUpIntegrationTests {
         let thinkingMessageId = try await group.send(
             encodedContent: try ThinkingCodec().encode(content: thinking)
         )
+        _ = try await clientB.conversations.syncAllConversations(consentStates: nil)
 
         let messageWriter = IncomingMessageWriter(databaseWriter: fixtures.databaseManager.dbWriter)
         let conversationWriter = ConversationWriter(
@@ -421,6 +430,7 @@ struct BatchCatchUpIntegrationTests {
         // Seed: one message from A, then a first catch-up so the
         // conversation, members, and catch-up cursor all exist locally.
         _ = try await group.send(content: "seed")
+        _ = try await clientB.conversations.syncAllConversations(consentStates: nil)
 
         let messageWriter = IncomingMessageWriter(databaseWriter: fixtures.databaseManager.dbWriter)
         let conversationWriter = ConversationWriter(
@@ -447,6 +457,7 @@ struct BatchCatchUpIntegrationTests {
         // MAX(message.dateNs) and skipped the receipt forever.
         _ = try await group.send(encodedContent: ReadReceiptCodec().encode(content: ReadReceipt()))
         _ = try await group.send(content: "newer than the receipt")
+        _ = try await clientB.conversations.syncAllConversations(consentStates: nil)
 
         let pushedDate = Date(timeIntervalSinceNow: 60)
         try await fixtures.databaseManager.dbWriter.write { db in
