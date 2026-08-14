@@ -304,6 +304,10 @@ extension Database {
     func composeListConversation(id: String, consent: [Consent]) throws -> Conversation? {
         let details = try baseListConversationsRequest(consent: consent)
             .filter(DBConversation.Columns.id == id)
+            // Same kind predicate as composeConversationsPage: the list
+            // renders groups only, so the by-id fallback must not resolve
+            // a join-request DM the paged list would never show.
+            .filter([ConversationKind.group].contains(DBConversation.Columns.kind))
             .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
             .detailedConversationQuery()
             .fetchOne(self)

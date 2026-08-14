@@ -19,14 +19,15 @@ struct ConversationsPagerTests {
         isUnread: Bool = false,
         expiresAt: Date? = nil,
         wasRemoved: Bool = false,
-        isAgentDm: Bool = false
+        isAgentDm: Bool = false,
+        kind: ConversationKind = .group
     ) throws {
         try DBConversation(
             id: id,
             clientConversationId: "client-\(id)",
             inviteTag: "tag-\(id)",
             creatorId: "me",
-            kind: .group,
+            kind: kind,
             consent: .allowed,
             createdAt: createdAt,
             name: nil,
@@ -316,12 +317,14 @@ struct ConversationsPagerTests {
             try self.seedBase(db)
             try self.seedConversation(db, id: "eligible", createdAt: Date(timeIntervalSince1970: 10_000))
             try self.seedConversation(db, id: "removed", createdAt: Date(timeIntervalSince1970: 10_001), wasRemoved: true)
+            try self.seedConversation(db, id: "join-request-dm", createdAt: Date(timeIntervalSince1970: 10_002), kind: .dm)
         }
 
         let pager = ConversationsPager(dbReader: writer, consent: [.allowed], pageSize: 60, throttleInterval: 0)
 
         #expect(try pager.fetchConversation(id: "eligible")?.id == "eligible")
         #expect(try pager.fetchConversation(id: "removed") == nil, "A removed conversation is gone from the list's perspective")
+        #expect(try pager.fetchConversation(id: "join-request-dm") == nil, "A DM is never a list row, so the by-id fallback must not resolve it")
         #expect(try pager.fetchConversation(id: "missing") == nil)
     }
 
