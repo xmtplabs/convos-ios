@@ -31,8 +31,9 @@ enum ConversationTab: String, CaseIterable, Identifiable, Hashable {
     /// specifically asked for the agent DM (a DM notification, or a list row
     /// whose most recent unread is in the DM) wins outright.
     ///
-    /// Home exists only once a Space URL has been published, so a conversation
-    /// without one opens on the group whether or not it has unread messages.
+    /// Home is offered on every conversation, including one whose space has
+    /// not been published yet - it opens there and shows the preparing state.
+    /// `available` still gates it so a caller that drops the tab is honored.
     static func initial(
         available: [ConversationTab],
         hasUnread: Bool,

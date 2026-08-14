@@ -31,6 +31,11 @@ struct HomeWebSurface: View {
                 topContentInset: topContentInset,
                 bottomContentInset: bottomContentInset,
                 onLoaded: {
+                    // Without a URL the web view loads its inline placeholder,
+                    // which finishes immediately. That is not the space
+                    // arriving, and revealing it would replace the preparing
+                    // state with a bare "Home".
+                    guard url != nil else { return }
                     // The reveal waits a beat past didFinish - a JS page
                     // hasn't painted yet at that moment - and only the
                     // fade animates: the cover must never fade IN, or the
@@ -41,13 +46,20 @@ struct HomeWebSurface: View {
                 },
                 onNavigationRequest: onNavigationRequest
             )
-            HomeCoverView(image: coverImage)
+            HomeCoverView(image: coverImage, hasSpaceURL: url != nil)
                 .opacity(isLoaded ? 0 : 1)
                 .allowsHitTesting(!isLoaded)
         }
         .task(id: conversationId) {
             let data: Data? = await HomeSnapshotStore.shared.snapshotData(for: conversationId)
             coverImage = data.flatMap { UIImage(data: $0) }
+        }
+        // A conversation that loses its space goes back to waiting for one, so
+        // the cover comes back rather than leaving the last page on screen.
+        .onChange(of: url) { _, newURL in
+            if newURL == nil {
+                isLoaded = false
+            }
         }
     }
 
@@ -64,6 +76,9 @@ struct HomeWebSurface: View {
 /// state.
 private struct HomeCoverView: View {
     let image: UIImage?
+    /// False until the worker publishes the space URL, which the preparing
+    /// state uses to decide how far its bar may advance.
+    let hasSpaceURL: Bool
 
     var body: some View {
         if let image {
@@ -85,9 +100,7 @@ private struct HomeCoverView: View {
             ZStack {
                 Color.colorBackgroundSurfaceless
                 Color.colorBackgroundSubtle
-                ProgressView()
-                    .controlSize(.large)
-                    .tint(.colorTextSecondary)
+                HomePreparingView(stage: hasSpaceURL ? .loadingPage : .awaitingSpace)
             }
         }
     }

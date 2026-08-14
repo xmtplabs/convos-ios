@@ -97,8 +97,10 @@ struct HomeWebView: UIViewRepresentable {
         // completions from a superseded load.
         context.coordinator.hasFinishedInitialLoad = false
         if let url {
+            context.coordinator.isShowingPlaceholder = false
             context.coordinator.activeNavigation = webView.load(URLRequest(url: url))
         } else {
+            context.coordinator.isShowingPlaceholder = true
             context.coordinator.activeNavigation = webView.loadHTMLString(Constant.placeholderHTML, baseURL: nil)
         }
     }
@@ -108,6 +110,11 @@ struct HomeWebView: UIViewRepresentable {
         var onLoaded: @MainActor () -> Void
         var onNavigationRequest: @MainActor (URL) -> Void
         var loadedURL: URL?
+        /// True while the inline placeholder is what is loaded. It is not this
+        /// conversation's home, so it must never be persisted as the cover
+        /// snapshot: doing so caches an image reading "Home" that then shows on
+        /// every later open in place of the preparing state.
+        var isShowingPlaceholder: Bool = false
         var hasLoaded: Bool = false
         var hasFinishedInitialLoad: Bool = false
         /// The most recently started load; completions for anything else are
@@ -167,7 +174,7 @@ struct HomeWebView: UIViewRepresentable {
             // Pushed browser pages pass no conversation id; only the
             // conversation's own home persists a cover snapshot.
             let conversationId = conversationId
-            guard !conversationId.isEmpty else { return }
+            guard !conversationId.isEmpty, !isShowingPlaceholder else { return }
             // The Space page is a JS app: at didFinish it hasn't painted
             // yet, and an immediate capture stores a blank cover. Give it a
             // beat to render before persisting.

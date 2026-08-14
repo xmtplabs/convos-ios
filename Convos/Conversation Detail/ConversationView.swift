@@ -354,14 +354,27 @@ struct ConversationView<MessagesBottomBar: View>: View {
             .profile.inboxId
     }
 
-    /// Tabs available for this conversation: the Home tab exists only
-    /// once a Space URL has been published into the group's appData. The
-    /// synced conversation re-emits on appData updates, so the tab appears
-    /// live the moment the Assistant Worker publishes one.
+    /// Identity of the agent binding: which agent, and which view model it is
+    /// resolved against. The host can replace the latter without the former
+    /// changing.
+    private struct AgentBindingKey: Equatable {
+        let conversationViewModel: ObjectIdentifier
+        let agentInboxId: String?
+    }
+
+    private var agentBindingKey: AgentBindingKey {
+        AgentBindingKey(
+            conversationViewModel: ObjectIdentifier(viewModel),
+            agentInboxId: primaryAgentInboxId
+        )
+    }
+
+    /// Every conversation has all three tabs. Home is offered before a Space
+    /// URL exists in appData: a brand-new convo lands there and shows the
+    /// preparing state, so the space reads as something being built rather
+    /// than a tab that appears out of nowhere once the worker publishes.
     private var availableTabs: [ConversationTab] {
-        viewModel.conversation.spaceURL != nil
-            ? ConversationTab.allCases
-            : [.group, .agent]
+        ConversationTab.allCases
     }
 
     /// Per-tab unread indicators, from the surfaces' own conversations. The
@@ -437,21 +450,25 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onChange(of: agentFocusState) { _, newFocus in
             agentFocusCoordinator.syncFocusState(newFocus)
         }
-        // A conversation can lose its Space URL (or never have had one);
-        // fall back off the Home tab if it disappears from under us.
+        // Losing the Space URL drops any pages browsed from it, but the tab
+        // stays: without a URL the Home shows its preparing state rather than
+        // moving the user somewhere they did not ask to go.
         .onChange(of: viewModel.conversation.spaceURL) { _, newURL in
-            if newURL == nil, selectedTab == .home {
+            if newURL == nil {
                 homeBrowserEntries.removeAll()
-                selectTab(.group)
             }
         }
         // Keeps the Agent tab bound to the conversation's current agent, and
         // keeps retrying the DM bind until the agent-created DM syncs in.
-        .task(id: primaryAgentInboxId) {
+        // Keyed on the view model too: the new-convo flow swaps a placeholder
+        // for the real conversation, and the session must follow it even when
+        // the agent itself has not changed.
+        .task(id: agentBindingKey) {
             let session = agentDmSession ?? AgentDmSession(originViewModel: viewModel)
             if agentDmSession == nil {
                 agentDmSession = session
             }
+            session.updateOrigin(viewModel)
             session.setAgent(inboxId: primaryAgentInboxId)
             await session.rebindWhenDmAppears()
         }
