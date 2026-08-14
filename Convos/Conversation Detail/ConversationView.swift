@@ -823,29 +823,17 @@ private extension ConversationView {
         .accessibilityIdentifier("lock-info-button")
     }
 
-    /// The in-conversation top-right invite affordance: hands this
-    /// conversation's signed invite link to the system share sheet. Bringing
-    /// people in is a link hand-off rather than a contacts pick, so the
-    /// button shares rather than opening the picker (which the chat still
-    /// reaches through `.requestAddFromContactsInCurrentConversation`).
+    /// The in-conversation top-right invite affordance: opens the contacts
+    /// invite sheet scoped to this conversation. A single tap, not a menu -
+    /// picking who to add is the one thing this button is for, and the invite
+    /// sheet carries the link hand-off alongside the picker anyway.
     private var inviteButton: some View {
-        Button(action: handleShareInviteTap) {
-            Image(systemName: "square.and.arrow.up")
+        Button(action: handleAddFromContactsTap) {
+            Image(systemName: "person.crop.circle.badge.plus")
         }
-        .disabled(shareInviteDisabled)
-        .accessibilityLabel("Share invite link")
-        .accessibilityIdentifier("share-invite-button")
-    }
-
-    /// Disabled until there is a link to hand over: a read-only chat can't
-    /// invite, and a freshly claimed conversation has no invite until it
-    /// hydrates.
-    private var shareInviteDisabled: Bool {
-        !messagesTopBarTrailingItemEnabled || effectiveReadOnly || viewModel.invite.isEmpty
-    }
-
-    private var handleShareInviteTap: () -> Void {
-        { presentingInviteShareSheet = true }
+        .disabled(!messagesTopBarTrailingItemEnabled || effectiveReadOnly)
+        .accessibilityLabel("Invite")
+        .accessibilityIdentifier("add-to-conversation-button")
     }
 
     /// The payload of the top bar's share button: this conversation's signed
