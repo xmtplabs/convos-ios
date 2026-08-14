@@ -79,6 +79,13 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// the cache claim dropped, `releaseClaimedConversation`.
     func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?)
 
+    /// The id `prepareNewConversation` is expected to hand out next, or nil
+    /// when nothing is pooled. Readable synchronously so a new-conversation
+    /// screen can paint the identity the conversation will actually have -
+    /// its emoji is derived from this id - rather than a placeholder's, then
+    /// changing it a frame later. A best guess: the claim still decides.
+    nonisolated func peekPreparedConversationId() -> String?
+
     /// Promotes a row previously claimed via `prepareNewConversation()`
     /// into a real visible conversation: flips `isUnused = false` and
     /// refreshes its `createdAt` so it sorts at the top of the chats

@@ -571,9 +571,28 @@ class NewConversationViewModel: Identifiable, Hashable {
         }
     }
 
+    /// The emoji the conversation this flow is about to claim will carry.
+    /// Emoji are derived from the conversation id, and this screen opens on a
+    /// placeholder whose id is a throwaway draft, so without this the header
+    /// paints one emoji and swaps to another the moment the real conversation
+    /// binds. Nil when the pool is empty, which is the one case that still
+    /// swaps - there is no id to derive from yet.
+    /// The emoji the conversation this flow is about to claim will carry.
+    /// Emoji are derived from the conversation id, and this screen opens on a
+    /// placeholder whose id is a throwaway draft, so without this the header
+    /// paints one emoji and swaps to another the moment the real conversation
+    /// binds. Nil when the pool is empty, which is the one case that still
+    /// swaps - there is no id to derive from yet.
+    private var pooledConversationEmoji: String? {
+        session.peekPreparedConversationId().map(EmojiSelector.emoji(for:))
+    }
+
     private func createPlaceholderConversationViewModel() {
         let draftId: String = "draft-\(UUID().uuidString)"
-        let draftConversation: Conversation = makeDraftConversation(id: draftId)
+        let draftConversation: Conversation = makeDraftConversation(
+            id: draftId,
+            emoji: pooledConversationEmoji
+        )
         let messagesRepo = MockMessagesRepository(conversationId: draftId)
         let draftRepo = MockDraftConversationRepository(conversation: draftConversation, messagesRepository: messagesRepo)
         let stateManager = MockConversationStateManager(
@@ -1563,10 +1582,10 @@ private extension NewConversationViewModel {
     /// synthetic human members with the real ones keyed by the same
     /// `inboxId`, so the transition is a no-op re-render rather than a
     /// flicker.
-    func makeDraftConversation(id: String) -> Conversation {
+    func makeDraftConversation(id: String, emoji: String? = nil) -> Conversation {
         guard startedWithSeededMembers,
               !(seededMemberInboxIds.isEmpty && seededAgentTemplateIds.isEmpty) else {
-            return .empty(id: id)
+            return .empty(id: id, emoji: emoji)
         }
         let contactsRepository = session.messagingServiceSync().contactsRepository()
         let seededContacts: [Contact] = seededMemberInboxIds.compactMap { contactsRepository.contact(for: $0) }

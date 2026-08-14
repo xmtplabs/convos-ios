@@ -744,6 +744,32 @@ struct DefaultConversationDisplayTests {
         #expect(profiles.formattedNamesString == "Alice, Bob, Charlie and 2 others")
     }
 
+    /// A new conversation opens on a placeholder before the real one is
+    /// claimed. The emoji is derived from the conversation id, so a
+    /// placeholder carrying its own throwaway id paints one emoji and swaps
+    /// to another a frame later; seeding it with the pooled conversation's
+    /// emoji is what keeps the identity still.
+    @Test("A seeded placeholder emoji survives into the conversation it is claiming")
+    func seededPlaceholderEmojiMatchesClaimedConversation() {
+        let pooledId = "983734543f071fe5e33a416663fd9adc"
+        let pooledEmoji = EmojiSelector.emoji(for: pooledId)
+
+        let placeholder = Conversation.empty(id: "draft-CD8C84D1", emoji: pooledEmoji)
+        let claimed = Conversation.empty(id: pooledId)
+
+        #expect(placeholder.defaultEmoji == claimed.defaultEmoji)
+    }
+
+    @Test("An unseeded placeholder is the case that still changes emoji")
+    func unseededPlaceholderDiffersFromClaimedConversation() {
+        let pooledId = "983734543f071fe5e33a416663fd9adc"
+        let placeholder = Conversation.empty(id: "draft-CD8C84D1")
+        let claimed = Conversation.empty(id: pooledId)
+
+        #expect(placeholder.defaultEmoji != claimed.defaultEmoji,
+                "Guards the premise: the two ids really do hash to different emoji")
+    }
+
     // MARK: - Default Agent Only Tests
 
     /// Every new conversation gets a Convos agent provisioned into it

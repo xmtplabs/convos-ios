@@ -502,6 +502,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Inbox Management
 
+    public nonisolated func peekPreparedConversationId() -> String? {
+        unusedConversationCache.peekPreparedConversationId()
+    }
+
     public func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?) {
         let service = loadOrCreateService()
         let conversationId = await unusedConversationCache.consumeUnusedConversationId(

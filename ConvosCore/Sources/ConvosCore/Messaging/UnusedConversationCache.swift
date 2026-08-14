@@ -3,6 +3,26 @@ import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
 
+/// Lock-guarded holder for the pooled conversation id, so it can be read
+/// from any isolation without awaiting the cache actor.
+private final class PreparedConversationIdBox: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var storage: String?
+
+    var value: String? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            storage = newValue
+        }
+    }
+}
+
 // MARK: - UnusedConversationCacheProtocol
 
 /// Pre-creates an XMTP group on the authorized messaging service so the first
@@ -55,6 +75,14 @@ public protocol UnusedConversationCacheProtocol: Actor {
     /// clears the claim, which makes an abandoned row consumable again.
     func registerClaimedConversation(id conversationId: String) async
 
+    /// The id of the conversation the next `consumeUnusedConversationId` is
+    /// expected to hand out, or nil when the pool is empty. Readable without
+    /// awaiting the actor so a view opening a new conversation can paint the
+    /// identity that conversation will actually have (its emoji is derived
+    /// from this id) instead of a placeholder's, then swapping a frame later.
+    /// A best guess by nature: the claim itself still decides.
+    nonisolated func peekPreparedConversationId() -> String?
+
     /// Cancels any in-flight preparation task and awaits its unwind. Call
     /// during inbox teardown so a late-resolving prewarm can't land a stale
     /// row in a fresh DB after teardown returns.
@@ -78,6 +106,9 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     /// same row isn't handed to two callers and the prewarmer correctly
     /// treats them as drained (prepares a replacement).
     private var claimedConversationIds: Set<String> = []
+    /// Lock-guarded mirror of the pooled id, so `peekPreparedConversationId`
+    /// can answer without hopping onto the actor.
+    private let preparedIdBox: PreparedConversationIdBox = PreparedConversationIdBox()
     private var agentProvisioner: (@Sendable (String) async -> Void)?
     private static let preparationCooldown: TimeInterval = 30
 
@@ -123,6 +154,10 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         backgroundCreationTask = nil
     }
 
+    public nonisolated func peekPreparedConversationId() -> String? {
+        preparedIdBox.value
+    }
+
     public func consumeUnusedConversationId(
         databaseWriter: any DatabaseWriter
     ) async -> String? {
@@ -137,6 +172,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             }
             if let claimedId {
                 claimedConversationIds.insert(claimedId)
+                preparedIdBox.value = nil
             }
             return claimedId
         } catch {
@@ -211,7 +247,11 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     ) async -> Bool {
         let claimedSnapshot = claimedConversationIds
         do {
-            return try await databaseReader.read { db in
+            // Fetches the row rather than counting so the pooled id can seed
+            // `preparedIdBox`: a pool inherited from a previous launch is
+            // never prepared this session, and would otherwise leave the
+            // peek empty until the next preparation runs.
+            let pooledId: String? = try await databaseReader.read { db -> String? in
                 // Mirrors `consumeUnusedConversationId`'s eligibility so a
                 // row consume would skip (builder stub, half-prepared row)
                 // can't suppress preparing a fresh consumable one.
@@ -219,8 +259,10 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 if !claimedSnapshot.isEmpty {
                     request = request.filter(!claimedSnapshot.contains(DBConversation.Columns.id))
                 }
-                return try request.fetchCount(db) > 0
+                return try request.fetchOne(db)?.id
             }
+            preparedIdBox.value = pooledId
+            return pooledId != nil
         } catch {
             Log.error("Failed to query existing unused conversation: \(error)")
             return false
@@ -319,6 +361,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
 
             lastPreparationFailure = nil
             claimedConversationIds.remove(group.id)
+            preparedIdBox.value = group.id
             Log.debug("Pre-created unused conversation: \(group.id)")
 
             // Best-effort, off the preparation path: the row is already

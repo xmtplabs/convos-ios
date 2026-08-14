@@ -50,6 +50,10 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         false
     }
 
+    public nonisolated func peekPreparedConversationId() -> String? {
+        nil
+    }
+
     public func deleteAllInboxes() async throws {
     }
 
