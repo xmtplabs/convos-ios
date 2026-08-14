@@ -17,7 +17,7 @@ import SwiftUI
 final class AgentDmSession {
     /// The origin conversation's view model; supplies session, messaging
     /// service, and the member roster the agent is resolved from.
-    private let originViewModel: ConversationViewModel
+    private var originViewModel: ConversationViewModel
     /// The agent this tab is bound to; nil while the conversation has no
     /// verified agent member yet.
     private(set) var agentInboxId: String?
@@ -39,14 +39,35 @@ final class AgentDmSession {
         self.originViewModel = originViewModel
     }
 
+    /// Re-points the session at the host's current conversation view model,
+    /// keeping the bound DM in place.
+    ///
+    /// The new-convo flow opens on a placeholder view model and swaps in the
+    /// real one once the conversation binds. Everything read from the origin -
+    /// the agent's member row, the conversation id, the session, the
+    /// join-pending flag - comes through this reference, so holding the
+    /// placeholder leaves the tab describing a conversation the user is no
+    /// longer in: the agent it cannot find there falls back to a generic name
+    /// while the DM, bound separately, keeps working.
+    func updateOrigin(_ viewModel: ConversationViewModel) {
+        guard viewModel !== originViewModel else { return }
+        originViewModel = viewModel
+    }
+
     /// The bound agent's member row in the origin conversation, if present.
     var agent: ConversationMember? {
         guard let agentInboxId else { return nil }
         return originViewModel.conversation.members.first { $0.profile.inboxId == agentInboxId }
     }
 
+    /// The name every line of the Agent tab is written around: the header, the
+    /// two explainer lines, the composer placeholder, and the avatar monogram.
+    ///
+    /// The fallback carries all of them for the window where the agent has
+    /// joined but its profile has not synced a name yet, which is most of a
+    /// brand-new conversation's first moments.
     var agentName: String {
-        agent?.profile.displayName ?? "Assistant"
+        agent?.profile.displayName ?? "Agent"
     }
 
     /// The conversation the tab belongs to. Its id changes when a new-convo

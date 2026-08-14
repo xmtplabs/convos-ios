@@ -475,7 +475,7 @@ private func previewRequest() -> CapabilityRequest {
             defaultSelection: [ProviderID(rawValue: "composio.googlecalendar")],
             serviceBundles: previewBundles()
         ),
-        agentName: "Assistant",
+        agentName: "Agent",
         onApprove: { _, _ in }
     )
 }
@@ -489,7 +489,7 @@ private func previewRequest() -> CapabilityRequest {
             defaultSelection: [],
             serviceBundles: previewBundles()
         ),
-        agentName: "Assistant",
+        agentName: "Agent",
         onApprove: { _, _ in }
     )
 }
@@ -503,7 +503,7 @@ private func previewRequest() -> CapabilityRequest {
             defaultSelection: [ProviderID(rawValue: "composio.googlecalendar")],
             serviceBundles: previewBundles(grantedBundleIds: ["calendar.events"])
         ),
-        agentName: "Assistant",
+        agentName: "Agent",
         onApprove: { _, _ in }
     )
 }
@@ -516,7 +516,7 @@ private func previewRequest() -> CapabilityRequest {
             providers: [previewProvider(linked: true)],
             defaultSelection: [ProviderID(rawValue: "composio.googlecalendar")]
         ),
-        agentName: "Assistant",
+        agentName: "Agent",
         onApprove: { _, _ in }
     )
 }
@@ -537,7 +537,7 @@ private func previewRequest() -> CapabilityRequest {
             defaultSelection: [ProviderID(rawValue: "composio.googlecalendar")],
             serviceBundles: previewBundles()
         ),
-        agentName: "Assistant",
+        agentName: "Agent",
         onApprove: { _, _ in }
     )
 }
