@@ -363,6 +363,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.hasAnyUsedConversations()
     }
 
+    nonisolated func peekPreparedConversationId() -> String? {
+        base.peekPreparedConversationId()
+    }
+
     func commitClaimedConversation(id conversationId: String) async {
         await base.commitClaimedConversation(id: conversationId)
     }

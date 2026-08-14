@@ -158,7 +158,7 @@ final class ConversationsViewController: UIViewController {
         applySnapshot(animated: !pinnedMembershipChanged, changedIds: changedIds)
     }
 
-    private func changedConversationIds(old: State, new: State, selectionChanged: Bool) -> Set<String> {
+    func changedConversationIds(old: State, new: State, selectionChanged: Bool) -> Set<String> {
         let oldMap = Dictionary(
             uniqueKeysWithValues: (old.pinnedConversations + old.unpinnedConversations).map { ($0.id, $0) }
         )
@@ -178,12 +178,19 @@ final class ConversationsViewController: UIViewController {
             // avatar update re-emits a fresh conversation but no tracked field
             // here changes, so every group showing that member keeps a stale
             // cluster until something else about the row changes.
+            // `agentDm` is the folded-in agent DM lane, which the row renders as
+            // the preview text, the sender prefix, and the unread badge. An
+            // agent reply lands only in that lane and changes nothing else
+            // compared here, so omitting it left the row showing its previous
+            // content, and its previous timestamp, until a scroll recycled the
+            // cell.
             if oldConvo.isMuted != newConvo.isMuted ||
                 oldConvo.isUnread != newConvo.isUnread ||
                 oldConvo.isPinned != newConvo.isPinned ||
                 oldConvo.scheduledExplosionDate != newConvo.scheduledExplosionDate ||
                 oldConvo.displayName != newConvo.displayName ||
                 oldConvo.lastMessage != newConvo.lastMessage ||
+                oldConvo.agentDm != newConvo.agentDm ||
                 oldConvo.avatarType != newConvo.avatarType {
                 changed.insert(id)
             }

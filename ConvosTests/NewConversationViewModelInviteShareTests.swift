@@ -100,8 +100,7 @@ final class NewConversationViewModelInviteShareTests: XCTestCase {
         let session = MockInboxesService(mockMessagingService: messagingService)
         let viewModel = NewConversationViewModel(
             session: session,
-            messagingService: messagingService,
-            showsEmbeddedInvite: true
+            messagingService: messagingService
         )
         return Fixtures(
             viewModel: viewModel,
