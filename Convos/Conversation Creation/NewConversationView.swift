@@ -81,6 +81,7 @@ struct NewConversationView: View {
                             messagesTopBarTrailingItemEnabled: viewModel.messagesTopBarTrailingItemEnabled,
                             messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled,
                             showsEmbeddedInvite: viewModel.showsEmbeddedInvite,
+                            suppressesInviteSessionCard: viewModel.suppressesInviteSessionCard,
                             embeddedInviteInitialSegment: viewModel.embeddedInviteInitialSegment,
                             onScannedInviteCode: viewModel.handleScannedCode,
                             onInviteShared: viewModel.markInviteShared

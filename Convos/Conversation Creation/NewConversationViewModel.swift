@@ -188,6 +188,11 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// a brand-new conversation (via `onScanInviteCode`) rather than scanning
     /// into this one. Drives `trailingItemForReadyState`.
     let showsEmbeddedInvite: Bool
+    /// True for the plain compose flow. "+" opens the conversation itself -
+    /// its QR header and the top bar's share button carry the invite - rather
+    /// than the Invite/Scan session card, which belongs to the flows that
+    /// exist to show a code ("Show an invite code", the home scan entry).
+    let suppressesInviteSessionCard: Bool
     /// Segment the embedded Scan/Invite toggle starts on. `.scan` for the
     /// home scan entry (so the viewfinder + "Or scan from camera roll" are the first
     /// thing shown); `.invite` for "Show an invite code" and normal convos.
@@ -368,6 +373,11 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.session = session
         self.coreActions = coreActions
         self.showsEmbeddedInvite = showsEmbeddedInvite
+        if case .newConversation = mode {
+            self.suppressesInviteSessionCard = !showsEmbeddedInvite
+        } else {
+            self.suppressesInviteSessionCard = false
+        }
         self.embeddedInviteInitialSegment = embeddedInviteInitialSegment
         self.qrScannerViewModel = QRScannerViewModel()
         switch mode {
@@ -472,6 +482,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.session = session
         self.coreActions = coreActions
         self.showsEmbeddedInvite = showsEmbeddedInvite
+        self.suppressesInviteSessionCard = false
         self.qrScannerViewModel = QRScannerViewModel()
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
@@ -875,9 +886,16 @@ class NewConversationViewModel: Identifiable, Hashable {
         let actions: any CoreActions = coreActions
         Task { await actions.joinedConversation(verificationDuration: waitDuration, memberCount: nil, hasAssistant: nil, source: source, isSuccess: false) }
     }
+}
 
-    // MARK: - Private
+// MARK: - Join handling
 
+/// Join success / failure handling and its timeout bookkeeping. Split into
+/// an extension purely to keep the type body within SwiftLint's
+/// `type_body_length` budget; everything stays `@MainActor`-isolated
+/// (inherited from the type), so behavior is identical to when these lived
+/// inline.
+extension NewConversationViewModel {
     @MainActor
     private func handleJoinSuccess() {
         joinTimeoutTask?.cancel()

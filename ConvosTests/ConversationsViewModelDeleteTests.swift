@@ -387,6 +387,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.ensureDefaultAgentConversationReady(id: conversationId)
     }
 
+    func isProvisioningDefaultAgent(id conversationId: String) async -> Bool {
+        await base.isProvisioningDefaultAgent(id: conversationId)
+    }
+
     func pendingInviteDetails() throws -> [PendingInviteDetail] {
         try base.pendingInviteDetails()
     }
