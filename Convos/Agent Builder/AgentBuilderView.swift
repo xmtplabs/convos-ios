@@ -5,8 +5,8 @@ import ConvosMetrics
 import SwiftUI
 
 /// Where the [[AgentBuilderView]] is being rendered. Drives whether it
-/// shows a close button (`.sheet` — the default presentation from the
-/// bottom builder bar) and whether the post-Make morph stays in-tree
+/// shows a close button (`.sheet` — the default presentation) and
+/// whether the post-Make morph stays in-tree
 /// (`.sheet`) or fires `onCommitted` so a parent can present the
 /// resulting conversation in a fresh sheet (`.inline` — used as the
 /// chats-list empty state).
@@ -186,9 +186,8 @@ struct AgentBuilderView: View {
         return .agentBuilder
     }
 
-    /// On first appear, if the user opened the builder via the
-    /// `AgentBuilderBar`'s waveform button, resolve mic permission and
-    /// then start the recording. The recorder lives directly on
+    /// On first appear, if the builder was entered in voice-memo mode,
+    /// resolve mic permission and then start the recording. The recorder lives directly on
     /// `AgentBuilderViewModel` (not proxied through the inner conversation
     /// VM), so it's stable across the placeholder-to-real inner-VM swap
     /// and the only timing constraint is the permission prompt: a

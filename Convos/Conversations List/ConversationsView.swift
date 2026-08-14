@@ -12,27 +12,9 @@ struct ConversationsView: View {
     let appIndicatorContext: AppIndicatorContext
     /// Optional accessory rendered as an overlay at the bottom of the
     /// sidebar. Reserved for callers that want extra chrome scoped to
-    /// the conversation list only; `MainTabView` no longer uses this
-    /// (the builder bar moved into the global bottom chrome), but the
+    /// the conversation list only; `MainTabView` does not use it, but the
     /// hook stays in case downstream callers need it.
     var sidebarBottomAccessory: AnyView?
-    /// Fired with the conversation list's current scroll content-offset Y
-    /// on every scroll tick, forwarded from `ConversationsViewController`.
-    /// `MainTabView` uses this to reveal the top agent builder bar at the
-    /// top of the list and fade it out (revealing a nav-bar button) once
-    /// the user scrolls down.
-    var onScrollOffsetChange: ((CGFloat) -> Void)?
-    /// Extra top inset (in points) for the conversation list to clear the
-    /// SwiftUI top chrome (the agent builder bar rendered by `MainTabView`
-    /// as a `safeAreaInset(.top)` under the nav bar). SwiftUI's safe-area
-    /// chain doesn't reliably propagate that inset to the UIKit collection
-    /// view, so we plumb it through explicitly. The list still scrolls
-    /// *under* the bar (so it can blur/fade over the content); this inset
-    /// just sets where the content rests at the top.
-    var topChromeInset: CGFloat = 0
-    /// Bottom counterpart to `topChromeInset`, used when the builder bar
-    /// pins to the bottom edge (iPad, where the tab bar is at the top).
-    var bottomChromeInset: CGFloat = 0
     /// Invoked when the user taps "Explore agents in Contacts" in the
     /// empty-state CTA. The shell switches to the Contacts tab and scrolls
     /// it to the "Suggested agents" section. Nil hides the link (previews).
@@ -80,8 +62,7 @@ struct ConversationsView: View {
     }
 
     /// Empty chats state: the new-user CTA (animated mock conversations,
-    /// headline, "Make an agent", "Explore agents in Contacts"). The Make
-    /// button opens the same agent-builder sheet the builder bar opens.
+    /// headline, "Make an agent", "Explore agents in Contacts").
     var emptyConversationsView: some View {
         ConversationsEmptyStateView(
             onMakeAgent: { viewModel.onStartAgent() },
@@ -153,14 +134,10 @@ struct ConversationsView: View {
     }
 
     var conversationsCollectionView: some View {
-        // The builder bar is rendered as a `safeAreaInset` by `MainTabView`
-        // (reserving its edge) *and* its height is re-applied here as the
-        // collection view's `additionalSafeAreaInsets`. To avoid counting it
-        // twice we ignore the system safe area on the bar's edge: `.top` on
-        // iPhone (bar pins to the top) and `.bottom` on iPad (bar pins to the
-        // bottom, signalled by a non-zero bottom inset).
+        // `.top` is ignored so the list scrolls under the floating
+        // app-indicator pill rather than starting below it.
         //
-        // We ignore `.bottom` unconditionally so the collection view's frame
+        // We ignore `.bottom` so the collection view's frame
         // reaches the physical screen bottom (under the floating tab bar)
         // rather than stopping at the bottom safe-area line. The list cell
         // hosting view has `clipsToBounds = false`, so cells render in the
@@ -196,10 +173,7 @@ struct ConversationsView: View {
             onTogglePin: { conversation in
                 viewModel.togglePin(conversation: conversation)
             },
-            onShowAllFilter: { viewModel.activeFilter = .all },
-            onScrollOffsetChange: onScrollOffsetChange,
-            topChromeInset: topChromeInset,
-            bottomChromeInset: bottomChromeInset
+            onShowAllFilter: { viewModel.activeFilter = .all }
         )
         .ignoresSafeArea(edges: ignoredSafeAreaEdges)
     }
@@ -336,8 +310,8 @@ private struct ConversationsSheetModifier: ViewModifier {
         content
             // The `NewConversationView` and `AgentBuilderView` sheets
             // are both presented from `MainTabView` so the compose
-            // button (top-trailing on every tab) and the agent
-            // builder bar can zoom into them with a shared namespace.
+            // button (top-trailing on every tab) can zoom into them with
+            // a shared namespace.
             .sheet(item: $viewModel.pendingGrantRequest) { request in
                 let dismissAction = { viewModel.pendingGrantRequest = nil }
                 CloudConnectionGrantRequestSheet(

@@ -95,48 +95,12 @@ final class ConversationsViewController: UIViewController {
     var onToggleReadState: ((Conversation) -> Void)?
     var onTogglePin: ((Conversation) -> Void)?
     var onShowAllFilter: (() -> Void)?
-    /// Fired on every scroll tick with the latest content offset Y. Used
-    /// by the host SwiftUI shell (`MainTabView`) to flip the agent
-    /// builder bar between expanded and collapsed states based on whether
-    /// the list is at the top.
-    var onScrollOffsetChange: ((CGFloat) -> Void)?
-
-    /// Extra top inset to clear the SwiftUI top chrome (the agent builder
-    /// bar that lives under the nav bar in the host's safe-area inset
-    /// chain). The chain doesn't always propagate to UIKit-hosted
-    /// collection views, so the SwiftUI host pushes this value down and
-    /// we apply it via `additionalSafeAreaInsets`.
-    var topChromeInset: CGFloat = 0 {
-        didSet {
-            guard isViewLoaded, oldValue != topChromeInset else { return }
-            additionalSafeAreaInsets.top = topChromeInset
-        }
-    }
-
-    /// Bottom counterpart to `topChromeInset`, used when the agent builder
-    /// bar pins to the bottom edge (iPad, where the standard tab bar is at
-    /// the top).
-    var bottomChromeInset: CGFloat = 0 {
-        didSet {
-            guard isViewLoaded, oldValue != bottomChromeInset else { return }
-            additionalSafeAreaInsets.bottom = bottomChromeInset
-        }
-    }
 
     // MARK: - Lifecycle
 
     override func viewDidLoad() {
         super.viewDidLoad()
         setupCollectionView()
-        // Apply any inset values that landed before the view loaded —
-        // the `didSet`s short-circuit while `isViewLoaded` is false, so
-        // without this the values silently vanish.
-        if topChromeInset != 0 {
-            additionalSafeAreaInsets.top = topChromeInset
-        }
-        if bottomChromeInset != 0 {
-            additionalSafeAreaInsets.bottom = bottomChromeInset
-        }
         _ = dataSource
     }
 
@@ -662,16 +626,6 @@ extension ConversationsViewController: UICollectionViewDelegate {
 
         guard let conversation = conversation(for: indexPath) else { return }
         onSelectConversation?(conversation)
-    }
-
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        // Report scrolled distance from the natural top — zero when the
-        // list is at rest at the top, positive when scrolled down,
-        // negative on overscroll bounce past the top. Without adding the
-        // adjusted top inset back in, the "at top" position is whatever
-        // `-adjustedContentInset.top` happens to be, which the host can't
-        // compare against a fixed threshold cleanly.
-        onScrollOffsetChange?(scrollView.contentOffset.y + scrollView.adjustedContentInset.top)
     }
 
     func collectionView(

@@ -20,9 +20,6 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
     var onToggleReadState: ((Conversation) -> Void)?
     var onTogglePin: ((Conversation) -> Void)?
     var onShowAllFilter: (() -> Void)?
-    var onScrollOffsetChange: ((CGFloat) -> Void)?
-    var topChromeInset: CGFloat = 0
-    var bottomChromeInset: CGFloat = 0
 
     func makeUIViewController(context: Context) -> ConversationsViewController {
         let viewController = ConversationsViewController()
@@ -42,8 +39,6 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
         )
         viewController.memberContactOverride = memberContactOverride
         viewController.updateState(state)
-        viewController.topChromeInset = topChromeInset
-        viewController.bottomChromeInset = bottomChromeInset
 
         // Update callbacks in case they changed
         configureCallbacks(viewController)
@@ -57,6 +52,5 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
         viewController.onToggleReadState = onToggleReadState
         viewController.onTogglePin = onTogglePin
         viewController.onShowAllFilter = onShowAllFilter
-        viewController.onScrollOffsetChange = onScrollOffsetChange
     }
 }

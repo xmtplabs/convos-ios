@@ -95,9 +95,8 @@ enum AgentBuilderConnection: String, CaseIterable, Identifiable {
 /// How the builder was entered. Drives which surface (composer text
 /// field vs. voice-memo recorder) gets attention on first appear.
 /// `composer` is the default - the builder appears with its text field
-/// focused and the keyboard up. `voiceMemo` is the
-/// `AgentBuilderBar`'s waveform-button path: the builder appears
-/// without focusing the text field (so the keyboard stays down while
+/// focused and the keyboard up. `voiceMemo` opens straight into
+/// recording: the builder appears without focusing the text field (so the keyboard stays down while
 /// the system mic-permission prompt resolves) and the view kicks off
 /// `startVoiceMemoRecording` on appear.
 enum AgentBuilderEntryMode {

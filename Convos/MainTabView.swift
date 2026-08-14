@@ -7,15 +7,8 @@ import SwiftUI
 /// tab and `ContactsView` under "Contacts", in a standard SwiftUI `TabView`
 /// with the system tab bar.
 ///
-/// The agent builder bar is pinned via a `safeAreaInset` on the edge
-/// opposite the tab bar (top on iPhone, where the tab bar is at the bottom;
-/// bottom on iPad, where the standard tab bar is at the top). It fades out
-/// on scroll and is replaced by a
-/// compact "add agent" button in the nav bar. The Contacts tab never shows
-/// the builder bar -- its search bar owns the top -- so the "add agent"
-/// button stays in the nav bar there regardless of scroll. The compose
-/// button lives in the shared toolbar; the app-indicator pill is a
-/// top-leading overlay (see `sharedAppIndicatorOverlay`).
+/// The compose button lives in the shared toolbar; the app-indicator pill is
+/// a top-leading overlay (see `sharedAppIndicatorOverlay`).
 struct MainTabView: View {
     @Bindable var conversationsViewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
@@ -37,26 +30,6 @@ struct MainTabView: View {
     /// consumes it (scrolling to the suggested-agents section once it has
     /// loaded) and clears it back to nil.
     @State private var contactsScrollTarget: String?
-    /// Whether the top `AgentBuilderBar` is revealed (shown under the nav
-    /// bar) versus faded out. Held in state with hysteresis thresholds
-    /// rather than derived purely from scroll offset so a bouncy scroll
-    /// near the boundary doesn't flicker the bar: once hidden it stays
-    /// hidden until the list returns to the top; once revealed it stays
-    /// revealed until the user has scrolled `Constant.hideScrollThreshold`
-    /// past the top. While hidden, a compact "add agent" button takes its
-    /// place in the nav bar.
-    @State private var isBuilderBarRevealed: Bool = true
-    /// Latest scroll content offset from each tab's primary scroll view.
-    /// Tracked per-tab so swapping tabs can re-evaluate the builder bar
-    /// state against the new tab's scroll position immediately, instead
-    /// of waiting for the user to scroll.
-    @State private var chatsScrollOffset: CGFloat = 0
-    /// Measured height of the top chrome (the agent builder bar under the
-    /// nav bar) published via a `PreferenceKey`. Used to push an explicit
-    /// additional top inset down into `ConversationsViewController`,
-    /// because SwiftUI's safe-area inset chain doesn't reliably propagate
-    /// to the UIKit collection view.
-    @State private var builderBarHeight: CGFloat = 0
     /// Drives the app-settings sheet that the `AppIndicatorPill` (in
     /// every tab that renders one) presents on tap. Lives at this shell
     /// level so every tab shares a single sheet instance — the
@@ -98,9 +71,8 @@ struct MainTabView: View {
     /// builder sheet and in builders presented from descendant conversation
     /// screens -- can read the cached hints.
     @State private var promptHints: PromptHintsModel = .live()
-    /// Shared namespace for the agent-builder bar -> sheet zoom
-    /// transition and the app-settings pill -> sheet zoom transition.
-    /// The bar / pill apply
+    /// Shared namespace for the app-settings pill -> sheet zoom transition.
+    /// The pill applies
     /// `.matchedTransitionSource(id: ..., in: namespace)` and the
     /// matching sheet uses `.navigationTransition(.zoom(sourceID: ..., in: namespace))`
     /// to get the same source-to-sheet morph the compose button uses in
@@ -127,23 +99,6 @@ struct MainTabView: View {
     /// window chrome) and on iPad in fullscreen.
     @State private var isInTrafficLightWindow: Bool = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
-
-    /// Which edge the agent builder bar pins to. The standard `TabView`
-    /// puts the tab bar at the bottom in compact width (iPhone) and at the
-    /// top in regular width (iPad); the builder bar goes on the opposite
-    /// edge so the two never collide.
-    private var builderBarEdge: VerticalEdge {
-        horizontalSizeClass == .compact ? .top : .bottom
-    }
-
-    /// The measured builder-bar height applied to the conversation list as a
-    /// top or bottom content inset, depending on which edge the bar pins to.
-    private var chromeTopInset: CGFloat {
-        builderBarEdge == .top ? builderBarHeight : 0
-    }
-    private var chromeBottomInset: CGFloat {
-        builderBarEdge == .bottom ? builderBarHeight : 0
-    }
 
     private var appIndicatorContext: AppIndicatorContext {
         AppIndicatorContext(
@@ -175,10 +130,8 @@ struct MainTabView: View {
 
     /// `true` once a conversation has been pushed onto the Chats tab's
     /// navigation stack. Hides the nav bar and the tab bar so the
-    /// conversation detail can use the full screen. The builder bar is not
-    /// keyed to this: it stays in the tab root's safe-area inset and slides
-    /// away with the root during the push. Bound to `conversationsViewModel`
-    /// because the selection model lives there.
+    /// conversation detail can use the full screen. Bound to
+    /// `conversationsViewModel` because the selection model lives there.
     private var isConversationSelected: Bool {
         conversationsViewModel.selectedConversationViewModel != nil
     }
@@ -195,40 +148,6 @@ struct MainTabView: View {
     /// detail is on screen.
     private var isContactDetailPushed: Bool {
         activeTab == .contacts && !contactsPath.isEmpty
-    }
-
-    /// Scroll offset for whichever tab is currently active.
-    private var activeTabScrollOffset: CGFloat {
-        switch activeTab {
-        case .chats: chatsScrollOffset
-        case .contacts: 0
-        }
-    }
-
-    /// Apply hysteresis to the bar reveal state in response to a scroll
-    /// offset update from the active tab. Hides the bar (fade on iPhone /
-    /// collapse to the circle on iPad) only once the user has scrolled at
-    /// least the full builder-bar height past the top, and reveals it again
-    /// once the list is back near the top (within `revealScrollThreshold`).
-    /// The gap between the two thresholds prevents a bouncing scroll near
-    /// the boundary from flickering the bar.
-    private func updateBuilderBarReveal(forOffset offset: CGFloat) {
-        // Fall back to a small fixed threshold until the bar has been
-        // measured (otherwise a zero height would hide it immediately).
-        let hideThreshold = builderBarHeight > 0 ? builderBarHeight : Constant.hideScrollThreshold
-        if isBuilderBarRevealed {
-            if offset >= hideThreshold {
-                withAnimation(.smooth(duration: 0.25)) {
-                    isBuilderBarRevealed = false
-                }
-            }
-        } else {
-            if offset <= Constant.revealScrollThreshold {
-                withAnimation(.smooth(duration: 0.25)) {
-                    isBuilderBarRevealed = true
-                }
-            }
-        }
     }
 
     /// Tapping a message notification selects the conversation in
@@ -277,14 +196,6 @@ struct MainTabView: View {
                         profileSettingsViewModel: profileSettingsViewModel,
                         appIndicatorContext: appIndicatorContext,
                         sidebarBottomAccessory: nil,
-                        onScrollOffsetChange: { offset in
-                            chatsScrollOffset = offset
-                            if activeTab == .chats {
-                                updateBuilderBarReveal(forOffset: offset)
-                            }
-                        },
-                        topChromeInset: chromeTopInset,
-                        bottomChromeInset: chromeBottomInset,
                         onExploreAgents: showSuggestedAgents
                     )
                 }
@@ -298,7 +209,6 @@ struct MainTabView: View {
         }
         .tint(Color.colorTextPrimary)
         .onChange(of: activeTab) { _, newTab in
-            updateBuilderBarReveal(forOffset: activeTabScrollOffset)
             // Fires after SwiftUI has applied the tab switch, so a parked
             // scan navigation gated on the Chats tab consumes only once the
             // switch has actually committed.
@@ -337,7 +247,7 @@ struct MainTabView: View {
     }
 
     /// Wraps each tab's content in its own `NavigationStack` carrying the
-    /// shared chrome (compose toolbar + agent builder bar). Making the
+    /// shared chrome (compose toolbar). Making the
     /// `TabView` the root and giving each tab its own stack is the native
     /// iPad pattern: iOS 26 renders the tab bar and the nav-bar toolbar in
     /// one merged top bar (tabs centered, toolbar items on the sides),
@@ -360,24 +270,11 @@ struct MainTabView: View {
         }
     }
 
-    /// Shared chrome (builder bar + toolbars) wrapped around each tab's root
-    /// content inside its `NavigationStack`.
+    /// Shared chrome (toolbars) wrapped around each tab's root content inside
+    /// its `NavigationStack`.
     @ViewBuilder
     private func tabChrome(_ content: some View, for tab: ConvosTab) -> some View {
         content
-            .safeAreaInset(edge: builderBarEdge, spacing: 0) {
-                // Intentionally not keyed to `isConversationSelected`: the
-                // inset belongs to the tab root's layout, so a pushed detail
-                // covers it and the bar rides offscreen with the root during
-                // the push. Removing it here instead collapsed the inset and
-                // reflowed the list mid-transition. The bar also stays up
-                // during the empty-state CTA (it is the same builder entry
-                // point the CTA's "Make an agent" button opens).
-                if tab != .contacts {
-                    builderBar
-                        .transition(.blurReplace)
-                }
-            }
             .toolbar { sharedToolbar() }
             .toolbar(isConversationSelected ? .hidden : .visible, for: .navigationBar)
             // `.automatic`, not `.visible`, when no conversation is selected:
@@ -577,73 +474,9 @@ struct MainTabView: View {
         conversationsViewModel.selectedConversationViewModel
     }
 
-    /// The agent builder bar, on the edge opposite the tab bar. Its scroll
-    /// behavior differs by platform:
-    /// on iPhone (compact) the expanded bar blurs/fades out and a compact
-    /// "add agent" button takes its place in the nav bar; on iPad (regular)
-    /// the bar stays visible and morphs to the collapsed circle instead. Its
-    /// measured height is published so the UIKit list can inset its content.
-    @ViewBuilder
-    private var builderBar: some View {
-        let revealed = isBuilderBarRevealed
-        let isCompactWidth = horizontalSizeClass == .compact
-        // iPhone keeps the expanded bar and fades it out; iPad morphs between
-        // the expanded capsule and the collapsed circle on scroll.
-        let expanded = isCompactWidth ? true : revealed
-        let faded = isCompactWidth && !revealed
-        AgentBuilderBar(
-            isExpanded: expanded,
-            onTap: openBuilder,
-            onTapVoiceMemo: openBuilderInVoiceMemoMode,
-            transitionSourceNamespace: namespace,
-            transitionSourceId: Constant.builderTransitionId
-        )
-        .opacity(faded ? 0 : 1)
-        .blur(radius: faded ? Constant.builderBarHiddenBlur : 0)
-        .allowsHitTesting(!faded)
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.top, DesignConstants.Spacing.step2x)
-        .padding(.bottom, DesignConstants.Spacing.step3x)
-        .background(
-            GeometryReader { proxy in
-                Color.clear
-                    .preference(key: BuilderBarHeightKey.self, value: proxy.size.height)
-            }
-        )
-        .onPreferenceChange(BuilderBarHeightKey.self) { value in
-            builderBarHeight = value
-        }
-    }
-
-    private func openBuilder() {
-        conversationsViewModel.onStartAgent()
-    }
-
-    /// Open the builder pre-configured to start a voice-memo recording.
-    /// `AgentBuilderView` reads `viewModel.entryMode` on appear and skips
-    /// the initial composer-focus (so the keyboard doesn't pop up
-    /// alongside the mic-permission prompt) before calling
-    /// `startVoiceMemoRecording`. The view also owns the timing of the
-    /// `record()` call, so we don't need the previous racy 50ms sleep
-    /// to wait for the inner conversation VM's recorder to materialize.
-    private func openBuilderInVoiceMemoMode() {
-        conversationsViewModel.onStartAgent(entryMode: .voiceMemo)
-    }
-
     private enum Constant {
-        static let builderTransitionId: String = "agent-builder-transition-source"
         static let appSettingsTransitionId: String = "app-settings-transition-source"
         static let composerTransitionId: String = "composer-transition-source"
-        /// Fallback hide threshold used only before the builder bar's
-        /// height has been measured; once measured, the bar hides after
-        /// scrolling past its full height. `revealScrollThreshold` brings
-        /// it back near the top; the gap eats overscroll bounce noise so
-        /// the bar doesn't flicker at the boundary.
-        static let hideScrollThreshold: CGFloat = 20.0
-        static let revealScrollThreshold: CGFloat = 4.0
-        /// Blur radius applied to the top builder bar while it's hidden, so
-        /// it dissolves rather than hard-cutting as the list scrolls.
-        static let builderBarHiddenBlur: CGFloat = 8.0
         /// Leading inset on the app-indicator pill when the iPad app is
         /// in a windowed (non-fullscreen) state. iPadOS 26 renders
         /// window chrome ("traffic lights": close / minimize /
@@ -759,16 +592,6 @@ extension MainTabView {
         guard !wasPresenting, isPresenting else { return }
         let mode: ConvosMetrics.NewConversationMode = .create
         conversationsNavigator?.present(newConversation: NewConversationNavigatorArgs(mode: mode))
-    }
-}
-
-/// Carries the measured height of `MainTabView.builderBar` up via the
-/// SwiftUI preference system so the host can plumb it into UIKit-hosted
-/// scroll views that don't see SwiftUI's safe-area inset.
-private struct BuilderBarHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
     }
 }
 
