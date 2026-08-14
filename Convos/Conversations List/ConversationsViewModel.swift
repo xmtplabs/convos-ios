@@ -156,23 +156,6 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
-    var agentBuilderViewModel: AgentBuilderViewModel? {
-        didSet {
-            // Mirrors `newConversationViewModel.didSet`'s cleanup: when
-            // an Agent Builder VM is dropped without committing (e.g.
-            // the host view sets this to nil on tab swap), discard the
-            // outgoing one so its draft XMTP group is torn down. Skip
-            // when the user committed — that conversation has shipped
-            // and should stay on the server.
-            if let outgoing = oldValue,
-               oldValue !== agentBuilderViewModel,
-               !outgoing.hasCommitted,
-               !outgoing.didDiscard {
-                outgoing.discard()
-            }
-            updateListVisibility()
-        }
-    }
     /// Drives the scanner sheet the home's scan button presents.
     var presentingScanner: Bool = false
     /// Owned here so the sheet's viewfinder survives re-renders and can be
@@ -405,7 +388,6 @@ final class ConversationsViewModel {
         let isFocusedOnList = isVisible
             && selectedConversationViewModel == nil
             && newConversationViewModel == nil
-            && agentBuilderViewModel == nil
         session.setIsOnConversationsList(isFocusedOnList)
     }
 
@@ -486,10 +468,6 @@ final class ConversationsViewModel {
         presentingScanner = false
         guard let url = URL(string: code) else { return }
         handleURL(url)
-    }
-
-    func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {
-        agentBuilderViewModel = AgentBuilderViewModel(session: session, entryMode: entryMode, coreActions: coreActions)
     }
 
     private func join(from inviteCode: String) {

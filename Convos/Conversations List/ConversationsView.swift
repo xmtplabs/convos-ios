@@ -62,10 +62,10 @@ struct ConversationsView: View {
     }
 
     /// Empty chats state: the new-user CTA (animated mock conversations,
-    /// headline, "Make an agent", "Explore agents in Contacts").
+    /// headline, "New convo", "Explore agents in Contacts").
     var emptyConversationsView: some View {
         ConversationsEmptyStateView(
-            onMakeAgent: { viewModel.onStartAgent() },
+            onNewConvo: { viewModel.onStartConvo() },
             onExploreAgents: onExploreAgents
         )
     }
@@ -308,10 +308,9 @@ private struct ConversationsSheetModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            // The `NewConversationView` and `AgentBuilderView` sheets
-            // are both presented from `MainTabView` so the compose
-            // button (top-trailing on every tab) can zoom into them with
-            // a shared namespace.
+            // The `NewConversationView` sheet is presented from
+            // `MainTabView` so the compose button (top-trailing on every
+            // tab) can zoom into it with a shared namespace.
             .sheet(item: $viewModel.pendingGrantRequest) { request in
                 let dismissAction = { viewModel.pendingGrantRequest = nil }
                 CloudConnectionGrantRequestSheet(

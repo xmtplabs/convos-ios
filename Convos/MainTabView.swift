@@ -65,12 +65,6 @@ struct MainTabView: View {
     /// `.onReceive` on the publisher.
     @State private var userSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
-    /// Curated agent-builder prompt hints, hydrated from disk on init and
-    /// refreshed once on launch (see `body`'s `.task`). Injected into the
-    /// environment so the agent builder's dice control -- in this view's
-    /// builder sheet and in builders presented from descendant conversation
-    /// screens -- can read the cached hints.
-    @State private var promptHints: PromptHintsModel = .live()
     /// Shared namespace for the app-settings pill -> sheet zoom transition.
     /// The pill applies
     /// `.matchedTransitionSource(id: ..., in: namespace)` and the
@@ -172,10 +166,6 @@ struct MainTabView: View {
     var body: some View {
         bodyCore
             .profilesRepository(conversationsViewModel.session.messagingServiceSync().profilesRepository())
-            .environment(promptHints)
-            .task {
-                await promptHints.loadOnLaunch()
-            }
             .onAppear {
                 ensureNavigators()
                 tabRootNavState.markScreenAppeared()
@@ -231,7 +221,6 @@ struct MainTabView: View {
             showsComposeButton: false,
             suggestedAgentsService: SuggestedAgentsService.live(),
             scrollTarget: $contactsScrollTarget,
-            onMakeAgent: { conversationsViewModel.onStartAgent() },
             onScanJoinedConversation: handleContactsScanJoinedConversation,
             hasPushedContactDetail: !contactsPath.isEmpty
         )
@@ -579,15 +568,6 @@ extension MainTabView {
         conversationsNavigator?.navigateTo(conversation: ConversationNavigatorArgs(conversationId: newId))
     }
 
-    func handleAgentBuilderPresented(_ isPresenting: Bool, wasPresenting: Bool) {
-        guard !wasPresenting, isPresenting else { return }
-        let conversationId: String = conversationsViewModel.agentBuilderViewModel?.newConversationViewModel.conversationViewModel?.conversation.id ?? ""
-        conversationsNavigator?.present(agentBuilder: AgentBuilderNavigatorArgs(
-            conversationId: conversationId,
-            entryMode: .sheet
-        ))
-    }
-
     func handleNewConversationPresented(_ isPresenting: Bool, wasPresenting: Bool) {
         guard !wasPresenting, isPresenting else { return }
         let mode: ConvosMetrics.NewConversationMode = .create
@@ -630,17 +610,6 @@ struct MainTabSheetsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $conversationsViewModel.agentBuilderViewModel) { builderViewModel in
-                AgentBuilderView(
-                    viewModel: builderViewModel,
-                    profileSettingsViewModel: profileSettingsViewModel
-                )
-                .background(.colorBackgroundSurfaceless)
-                .presentationSizing(.page)
-                .navigationTransition(
-                    .zoom(sourceID: "agent-builder-transition-source", in: namespace)
-                )
-            }
             .sheet(isPresented: $presentingAppSettings) {
                 AppSettingsView(
                     viewModel: conversationsViewModel.appSettingsViewModel,
@@ -715,14 +684,12 @@ extension MainTabView {
             contactsPushedItemId: contactsPath.last?.id,
             presentingAppSettings: presentingAppSettings,
             selectedConversationId: conversationsViewModel.selectedConversationId,
-            agentBuilderPresenting: conversationsViewModel.agentBuilderViewModel != nil,
             newConversationPresenting: conversationsViewModel.newConversationViewModel != nil,
             onActiveTabChanged: handleActiveTabChanged(from:to:),
             onScenePhaseChanged: handleScenePhaseChanged(to:),
             onContactsPushChanged: handleContactsPushChanged(from:to:),
             onAppSettingsPresented: handleAppSettingsPresented(_:),
             onSelectedConversationChanged: handleSelectedConversationChanged(from:to:),
-            onAgentBuilderPresented: handleAgentBuilderPresented(_:wasPresenting:),
             onNewConversationPresented: handleNewConversationPresented(_:wasPresenting:)
         )
     }

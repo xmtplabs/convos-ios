@@ -13,7 +13,6 @@ extension ConversationView {
         let presentingInviteCode: Bool
         let presentingConversationForked: Bool
         let presentingExplodedInviteInfo: Bool
-        let presentingAgentsIntro: Bool
         let presentingPaywall: Bool
         let showingAgentsInfo: Bool
         let showingLockedInfo: Bool
@@ -23,7 +22,6 @@ extension ConversationView {
         let onInviteCodeChanged: (Bool, Bool) -> Void
         let onConversationForkedChanged: (Bool, Bool) -> Void
         let onExplodedInviteInfoChanged: (Bool, Bool) -> Void
-        let onAgentsIntroChanged: (Bool, Bool) -> Void
         let onPaywallChanged: (Bool, Bool) -> Void
         let onAgentsInfoChanged: (Bool, Bool) -> Void
         let onLockedInfoChanged: (Bool, Bool) -> Void
@@ -35,7 +33,6 @@ extension ConversationView {
                 .onChange(of: presentingInviteCode) { o, n in onInviteCodeChanged(o, n) }
                 .onChange(of: presentingConversationForked) { o, n in onConversationForkedChanged(o, n) }
                 .onChange(of: presentingExplodedInviteInfo) { o, n in onExplodedInviteInfoChanged(o, n) }
-                .onChange(of: presentingAgentsIntro) { o, n in onAgentsIntroChanged(o, n) }
                 .onChange(of: presentingPaywall) { o, n in onPaywallChanged(o, n) }
                 .onChange(of: showingAgentsInfo) { o, n in onAgentsInfoChanged(o, n) }
                 .onChange(of: showingLockedInfo) { o, n in onLockedInfoChanged(o, n) }
@@ -45,13 +42,11 @@ extension ConversationView {
     struct MetricsObserversPart2: ViewModifier {
         let showingFullInfo: Bool
         let presentingPhotosInfo: Bool
-        let presentingAgentBuilder: Bool
         let presentingNewConvoForInvite: Bool
         let presentingAddFromContactsPicker: Bool
 
         let onFullInfoChanged: (Bool, Bool) -> Void
         let onPhotosInfoChanged: (Bool, Bool) -> Void
-        let onAgentBuilderChanged: (Bool, Bool) -> Void
         let onNewConvoInviteChanged: (Bool, Bool) -> Void
         let onAddFromContactsChanged: (Bool, Bool) -> Void
 
@@ -59,7 +54,6 @@ extension ConversationView {
             content
                 .onChange(of: showingFullInfo) { o, n in onFullInfoChanged(o, n) }
                 .onChange(of: presentingPhotosInfo) { o, n in onPhotosInfoChanged(o, n) }
-                .onChange(of: presentingAgentBuilder) { o, n in onAgentBuilderChanged(o, n) }
                 .onChange(of: presentingNewConvoForInvite) { o, n in onNewConvoInviteChanged(o, n) }
                 .onChange(of: presentingAddFromContactsPicker) { o, n in onAddFromContactsChanged(o, n) }
         }

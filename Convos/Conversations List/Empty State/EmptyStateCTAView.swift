@@ -1,17 +1,16 @@
 import SwiftUI
 
-/// Shared scaffold for the new-user empty states on the Chats and Things
-/// tabs: an animated mock area on top, a headline, a subtitle, the
-/// "Make an agent" CTA, and an "Explore agents in Contacts" link.
+/// Scaffold for the new-user empty state: an animated mock area on top, a
+/// headline, a subtitle, the primary CTA, and an "Explore agents in
+/// Contacts" link.
 ///
-/// Both tabs render this exact structure with fixed-size slots (the mock
-/// area has a fixed height and the headline reserves two lines), so
-/// switching tabs never moves or resizes the button or any other
-/// component; only the slot contents and copy change.
+/// The slots are fixed-size (the mock area has a fixed height and the
+/// headline reserves two lines) so the button never moves or resizes as the
+/// slot contents cycle.
 struct EmptyStateCTAView<MockContent: View>: View {
     let headline: String
     let subtitle: String
-    let onMakeAgent: () -> Void
+    let onNewConvo: () -> Void
     var onExploreAgents: (() -> Void)?
     @ViewBuilder var mockContent: () -> MockContent
 
@@ -26,7 +25,7 @@ struct EmptyStateCTAView<MockContent: View>: View {
                 .padding(.top, DesignConstants.Spacing.step4x)
             subtitleText
                 .padding(.top, DesignConstants.Spacing.step2x)
-            makeAgentButton
+            newConvoButton
                 .padding(.top, DesignConstants.Spacing.step5x)
             exploreAgentsButton
             Spacer(minLength: 0)
@@ -61,20 +60,17 @@ struct EmptyStateCTAView<MockContent: View>: View {
             .foregroundStyle(.colorTextSecondary)
     }
 
-    private var makeAgentButton: some View {
-        Button(action: onMakeAgent) {
+    private var newConvoButton: some View {
+        Button(action: onNewConvo) {
             HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image("addAgentIcon")
-                    .renderingMode(.template)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: Constant.agentIconSize, height: Constant.agentIconSize)
-                Text("Make an agent")
+                Image(systemName: "plus")
+                    .font(.callout)
+                Text("New convo")
                     .font(.callout)
             }
         }
         .convosButtonStyle(.rounded(fullWidth: false, backgroundColor: .colorLava))
-        .accessibilityIdentifier("empty-state-make-agent-button")
+        .accessibilityIdentifier("empty-state-new-convo-button")
     }
 
     @ViewBuilder
@@ -106,7 +102,6 @@ struct EmptyStateCTAView<MockContent: View>: View {
         static var headlineLineHeight: CGFloat { 40.0 }
         /// Two lines at the tight 40pt line height.
         static var headlineHeight: CGFloat { 80.0 }
-        static var agentIconSize: CGFloat { 18.0 }
     }
 }
 
@@ -114,14 +109,14 @@ struct EmptyStateCTAView<MockContent: View>: View {
 /// rendered as a larger pinned-conversation item, each animating in an
 /// unread message.
 struct ConversationsEmptyStateView: View {
-    let onMakeAgent: () -> Void
+    let onNewConvo: () -> Void
     var onExploreAgents: (() -> Void)?
 
     var body: some View {
         EmptyStateCTAView(
-            headline: "Make little agents for everyday life",
+            headline: "Private convos for everyday life",
             subtitle: "To use with friends and family",
-            onMakeAgent: onMakeAgent,
+            onNewConvo: onNewConvo,
             onExploreAgents: onExploreAgents
         ) {
             EmptyStateMockConversationCarousel(mocks: EmptyStateMocksProvider.shared.conversations)
@@ -133,5 +128,5 @@ struct ConversationsEmptyStateView: View {
 }
 
 #Preview("Conversations") {
-    ConversationsEmptyStateView(onMakeAgent: {}, onExploreAgents: {})
+    ConversationsEmptyStateView(onNewConvo: {}, onExploreAgents: {})
 }

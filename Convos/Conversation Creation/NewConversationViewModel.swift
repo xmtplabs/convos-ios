@@ -205,7 +205,7 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// `session.prepareNewConversation()`, or - for deferred-visibility
     /// modes when the pool was empty - the row the state machine created
     /// on demand (`startsUnused`), captured at `.ready`. Kept here so
-    /// wrapping VMs (e.g. `AgentBuilderViewModel`) can promote the row at
+    /// wrapping VMs can promote the row at
     /// their own commit moment via `commitConversationVisibility()` without
     /// re-deriving the id from the draft-vs-real
     /// `conversationViewModel.conversation.id`.
@@ -253,7 +253,7 @@ class NewConversationViewModel: Identifiable, Hashable {
     }
 
     /// Fires exactly once when the state machine first reaches `.ready`.
-    /// Wrappers (e.g. `AgentBuilderViewModel`) use this to kick off
+    /// Wrappers use this to kick off
     /// follow-on work like inviting an agent once the conversation
     /// has an invite slug.
     var onReachedReady: (() -> Void)?
@@ -520,7 +520,7 @@ class NewConversationViewModel: Identifiable, Hashable {
                 Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
                 claimedConversationId = existingConversationId
                 // `.newAgent` defers commit until the user actually taps Make
-                // in the Agent Builder (`AgentBuilderViewModel.commit`) so the
+                // in the Agent Builder so the
                 // claimed cache row stays hidden from the chats list during
                 // compose. The other modes drop straight into a chat composer
                 // — committing here mirrors the previous behavior of making
@@ -1123,7 +1123,7 @@ extension NewConversationViewModel {
     }
 
     /// Send a first message through the state machine. Used by wrapping
-    /// flows (e.g. AgentBuilderViewModel) that commit a draft before
+    /// flows that commit a draft before
     /// the user sees the chat view. If the state machine hasn't reached
     /// `.ready` yet, the existing message-stream queue inside
     /// `ConversationStateMachine.sendMessage` holds the send until it does.

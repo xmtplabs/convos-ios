@@ -36,10 +36,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// backing new-convo flow can mark its invite as shared and skip the
     /// empty-conversation teardown that would otherwise break the shared link.
     var onInviteShared: (() -> Void)?
-    /// Shared SwiftUI namespace used by the Agent Builder commit morph.
-    /// Set by `AgentBuilderView` so its composer card and the in-stream
-    /// summary cell can match-geometry into each other via `glassEffectID`.
-    var agentBuilderTransitionNamespace: Namespace.ID?
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
@@ -242,7 +238,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     presentingInviteShareSheet = true
                 }
             },
-            onInviteAgent: { viewModel.presentAgentBuilder() },
+            onInviteAgent: {},
             onRetryTranscript: { item in
                 viewModel.retryTranscript(for: item)
             },
@@ -251,7 +247,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isAgentJoinPending: viewModel.isAgentJoinPending,
             headerMode: effectiveHeaderMode,
             agentBuilderSummary: viewModel.agentBuilderSummary,
-            agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
             onVoiceMemoTap: { viewModel.onVoiceMemoTapped() },
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
@@ -539,24 +534,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
             ExplodeInfoView()
         }
-        .sheet(item: $viewModel.presentingAgentBuilder, onDismiss: {
-            // Coming out of the in-chat maker, don't reopen the conversation
-            // keyboard: the agent still has to build and join before anything
-            // can be sent, so landing back here with the input focused isn't
-            // useful. Clear focus instead of letting it restore to `.message`.
-            focusCoordinator.moveFocus(to: nil)
-        }, content: { builderViewModel in
-            AgentBuilderView(
-                viewModel: builderViewModel,
-                profileSettingsViewModel: profileSettingsViewModel
-            )
-        })
-        .selfSizingSheet(isPresented: $viewModel.presentingAgentsIntro, onDismiss: {
-            viewModel.presentAgentBuilderAfterIntroIfNeeded()
-        }, content: {
-            AgentsInfoView(onMakeAgent: { viewModel.pendingAgentBuilderAfterIntro = true })
-                .padding(.top, 20)
-        })
         .sheet(isPresented: $viewModel.presentingPaywall) {
             let paywallViewModel = PaywallViewModel(
                 subscriptionService: SubscriptionServices.shared,
@@ -1183,11 +1160,6 @@ private extension ConversationView {
         navigator?.present(explodedInviteInfo: ExplodedInviteInfoNavigatorArgs())
     }
 
-    func handleAgentsIntroChanged(from oldValue: Bool, to newValue: Bool) {
-        guard !oldValue, newValue else { return }
-        navigator?.present(assistantConfirmation: AssistantConfirmationNavigatorArgs(conversationId: conversationIdForMetrics))
-    }
-
     func handlePaywallChanged(from oldValue: Bool, to newValue: Bool) {
         guard !oldValue, newValue else { return }
         navigator?.present(paywall: PaywallNavigatorArgs(source: .lowBalanceBanner))
@@ -1211,11 +1183,6 @@ private extension ConversationView {
     func handlePhotosInfoChanged(from oldValue: Bool, to newValue: Bool) {
         guard !oldValue, newValue else { return }
         navigator?.present(photosInfo: PhotosInfoNavigatorArgs())
-    }
-
-    func handleAgentBuilderChanged(from wasPresenting: Bool, to isPresenting: Bool) {
-        guard !wasPresenting, isPresenting else { return }
-        navigator?.present(agentBuilder: AgentBuilderNavigatorArgs(conversationId: conversationIdForMetrics, entryMode: .sheet))
     }
 
     func handleNewConvoInviteChanged(from wasPresenting: Bool, to isPresenting: Bool) {
@@ -1400,7 +1367,6 @@ extension ConversationView {
             presentingInviteCode: viewModel.presentingInviteCode,
             presentingConversationForked: viewModel.presentingConversationForked,
             presentingExplodedInviteInfo: viewModel.presentingExplodedInviteInfo,
-            presentingAgentsIntro: viewModel.presentingAgentsIntro,
             presentingPaywall: viewModel.presentingPaywall,
             showingAgentsInfo: showingAgentsInfo,
             showingLockedInfo: showingLockedInfo,
@@ -1409,7 +1375,6 @@ extension ConversationView {
             onInviteCodeChanged: handleInviteCodeChanged(from:to:),
             onConversationForkedChanged: handleConversationForkedChanged(from:to:),
             onExplodedInviteInfoChanged: handleExplodedInviteInfoChanged(from:to:),
-            onAgentsIntroChanged: handleAgentsIntroChanged(from:to:),
             onPaywallChanged: handlePaywallChanged(from:to:),
             onAgentsInfoChanged: handleAgentsInfoChanged(from:to:),
             onLockedInfoChanged: handleLockedInfoChanged(from:to:)
@@ -1433,12 +1398,10 @@ extension ConversationView {
         MetricsObserversPart2(
             showingFullInfo: showingFullInfo,
             presentingPhotosInfo: viewModel.presentingPhotosInfoSheet,
-            presentingAgentBuilder: viewModel.presentingAgentBuilder != nil,
             presentingNewConvoForInvite: viewModel.presentingNewConversationForInvite != nil,
             presentingAddFromContactsPicker: presentingAddFromContactsPicker,
             onFullInfoChanged: handleFullInfoChanged(from:to:),
             onPhotosInfoChanged: handlePhotosInfoChanged(from:to:),
-            onAgentBuilderChanged: handleAgentBuilderChanged(from:to:),
             onNewConvoInviteChanged: handleNewConvoInviteChanged(from:to:),
             onAddFromContactsChanged: handleAddFromContactsChanged(from:to:)
         )

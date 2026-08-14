@@ -59,7 +59,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         hasher.combine(_identifiableId)
     }
 
-    /// Set by `AgentBuilderViewModel.commit` at the moment of Make. Drives
+    /// Written when an agent was made through the builder. Drives
     /// the in-stream summary cell at the top of the messages list and filters
     /// out any messages with `sentAt < summary.cutoffDate` (so the user's
     /// prompt messages and any pre-Make agent chatter don't double-up
@@ -625,7 +625,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             guard !Task.isCancelled else { return }
             self?.agentBuilderPlaceholderExpired = true
         }
-        // The builder's agents/join call happens in AgentBuilderViewModel,
+        // The builder's agents/join call happened in the agent builder,
         // so the wait measurement is anchored here instead, on the summary's
         // persisted Make commit time. Only within the placeholder window -
         // a stale rehydrated summary isn't a join the user is watching.
@@ -988,17 +988,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// conversation.
     var presentingInviteCode: Bool = false
     var presentingPhotosInfoSheet: Bool = false
-    /// Drives the "New Agent" context-menu builder sheet, scoped to this
-    /// existing conversation. The builder defers the agent join until the
-    /// user taps Make (see `AgentBuilderViewModel.existingConversationId`),
-    /// so we only add the agent once they confirm.
-    var presentingAgentBuilder: AgentBuilderViewModel?
-    /// Drives the first-run agents explainer shown before the builder. Its
-    /// "Make an agent" button sets `pendingAgentBuilderAfterIntro` and dismisses;
-    /// the sheet's onDismiss then opens the builder. Dismissing without the
-    /// button leaves the builder unopened.
-    var presentingAgentsIntro: Bool = false
-    var pendingAgentBuilderAfterIntro: Bool = false
     var presentingExplodedInviteInfo: Bool = false
     /// Drives the upsell sheet shown when the user taps the
     /// "<agent> is out of processing power" cell. Surfaces `PaywallView`
@@ -1080,12 +1069,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     // Orphaned reveal-mode keys cleared opportunistically on launch.
     private static let legacyRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
     private static let legacyRevealToastKeyPrefix: String = "hasShownRevealToast_"
+    /// First-run gate for the agents explainer that preceded the agent
+    /// builder. Both are gone; the key is still cleared so it does not linger
+    /// on installs that set it.
+    private static let legacyAgentsIntroKey: String = "hasShownAgentsIntro"
 
     static func resetUserDefaults() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
         defaults.removeObject(forKey: legacyRevealInfoSheetKey)
-        defaults.removeObject(forKey: hasShownAgentsIntroKey)
+        defaults.removeObject(forKey: legacyAgentsIntroKey)
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(legacyRevealToastKeyPrefix) {
             defaults.removeObject(forKey: key)
         }
@@ -1095,52 +1088,6 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         // The "Pics are personal" first-attachment info sheet is disabled
         // for now — neither the agent-builder flow nor the regular
         // composer should interrupt the user with it on attach.
-    }
-
-    /// A fresh agent builder scoped to this conversation. The "New Agent"
-    /// entries take the user through the same builder flow as the home screen
-    /// but defer the agent join until they tap Make, so the brief they compose
-    /// is what the agent receives. Surfaces nested inside another sheet (the
-    /// Info sheet, Members list) present this from their own `.sheet` so it
-    /// stacks on top; the top-level chat menu uses `presentAgentBuilder()`.
-    func makeAgentBuilderViewModel() -> AgentBuilderViewModel {
-        AgentBuilderViewModel(session: session, existingConversationId: conversation.id, coreActions: coreActions)
-    }
-
-    private static let hasShownAgentsIntroKey: String = "hasShownAgentsIntro"
-
-    /// First-run gate for the "New Agent" agents explainer: returns `true`
-    /// exactly once (the first "New Agent" tap, from any in-chat surface) and
-    /// marks it shown. Callers present `AgentsInfoView` when this is true and
-    /// open the builder only if the user taps its "Make an agent" button.
-    func consumeAgentsIntroGate() -> Bool {
-        let defaults = UserDefaults.standard
-        guard !defaults.bool(forKey: Self.hasShownAgentsIntroKey) else { return false }
-        defaults.set(true, forKey: Self.hasShownAgentsIntroKey)
-        return true
-    }
-
-    /// Present the agent builder from the top-level `ConversationView` (the
-    /// in-chat "+"/context menu and the new-convo "Invite members" capsule,
-    /// neither of which has another sheet up). On the first-ever tap, show the
-    /// agents explainer first; the builder opens only if the user taps
-    /// "Make an agent" (handled by `presentAgentBuilderAfterIntroIfNeeded()`
-    /// from the intro sheet's onDismiss).
-    func presentAgentBuilder() {
-        guard presentingAgentBuilder == nil, !presentingAgentsIntro else { return }
-        if consumeAgentsIntroGate() {
-            presentingAgentsIntro = true
-        } else {
-            presentingAgentBuilder = makeAgentBuilderViewModel()
-        }
-    }
-
-    /// Called from the intro sheet's onDismiss: opens the builder only if the
-    /// user opted in via "Make an agent" (which sets the pending flag).
-    func presentAgentBuilderAfterIntroIfNeeded() {
-        guard pendingAgentBuilderAfterIntro else { return }
-        pendingAgentBuilderAfterIntro = false
-        presentingAgentBuilder = makeAgentBuilderViewModel()
     }
 
     // MARK: - Onboarding
@@ -4139,7 +4086,7 @@ extension ConversationViewModel {
     /// holding `self`.
     /// The dev-selected agent variant slug to route an agent join, or `nil`.
     /// Gated on the selector flag so a stale persisted selection can't route
-    /// joins once the dev toggle is off (mirrors `AgentBuilderViewModel.commit`).
+    /// joins once the dev toggle is off (mirrors the builder's commit).
     /// A selector pick (when the selector is enabled) wins; otherwise fall back to
     /// a build-time pinned slug from config so a prototype build routes to its
     /// paired variant with no manual selection. Nil when neither is set.

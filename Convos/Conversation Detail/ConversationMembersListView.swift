@@ -36,15 +36,6 @@ struct ConversationMembersListView: View {
             )
         )
     }
-    /// "New Agent" builder, presented from here so it stacks on top of the
-    /// Members list (itself inside the Info sheet) rather than racing the
-    /// chat view's own builder sheet.
-    @State private var presentingAgentBuilder: AgentBuilderViewModel?
-    /// First-run agents explainer shown before the builder; its "Make an agent"
-    /// button sets `pendingAgentBuilderAfterIntro` and the sheet's onDismiss
-    /// then opens the builder. Stacks over the Members list like the builder.
-    @State private var presentingAgentsIntro: Bool = false
-    @State private var pendingAgentBuilderAfterIntro: Bool = false
 
     /// Same pattern as `ConversationView`. Substitutes contact-list
     /// display names for members whose per-conversation profile name is
@@ -54,19 +45,6 @@ struct ConversationMembersListView: View {
     private var contactNameOverride: @Sendable (String) -> String? {
         let resolver: @Sendable (String) -> Contact? = viewModel.messagingService.contactsRepository().contact(for:)
         return { resolver($0)?.displayName }
-    }
-
-    /// Opens the agent builder from this view's own `.sheet(item:)` so it
-    /// stacks over the Members list (itself inside the Info sheet) -- the chat
-    /// view's builder sheet (`viewModel.presentAgentBuilder()`) would present
-    /// beneath the still-visible Info sheet. On the first-ever tap, shows the
-    /// agents explainer first (local mirror of the chat view's intro flow).
-    private func presentAgentBuilderLocally() {
-        if viewModel.consumeAgentsIntroGate() {
-            presentingAgentsIntro = true
-        } else {
-            presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
-        }
     }
 
     var body: some View {
@@ -79,20 +57,6 @@ struct ConversationMembersListView: View {
                 isPresented: $presentingInviteShareSheet,
                 items: inviteShareItems
             )
-            .sheet(item: $presentingAgentBuilder) { builderViewModel in
-                AgentBuilderView(
-                    viewModel: builderViewModel,
-                    profileSettingsViewModel: .shared
-                )
-            }
-            .selfSizingSheet(isPresented: $presentingAgentsIntro, onDismiss: {
-                guard pendingAgentBuilderAfterIntro else { return }
-                pendingAgentBuilderAfterIntro = false
-                presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
-            }, content: {
-                AgentsInfoView(onMakeAgent: { pendingAgentBuilderAfterIntro = true })
-                    .padding(.top, 20)
-            })
             .onAppear {
                 ensureNavigator()
                 navState.markScreenAppeared()
