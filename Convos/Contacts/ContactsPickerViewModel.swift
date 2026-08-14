@@ -23,6 +23,14 @@ enum ContactsPickerMode: Hashable {
             return true
         }
     }
+
+    /// Whether agents belong in the list. Inviting someone into an existing
+    /// conversation is about people: that conversation already has its agent,
+    /// and adding another is not something the picker offers. Drives the
+    /// search placeholder too ("People" rather than "Contacts").
+    var showsAgents: Bool {
+        !isAddToConversation
+    }
 }
 
 /// View model backing the contact picker. Subscribes to the contacts
@@ -257,7 +265,8 @@ final class ContactsPickerViewModel {
         // valid target. Unlike the browse list (which exposes a "Show blocked"
         // toggle so the user can reach the unblock CTA on the contact card),
         // the picker always filters them out via `Self.isPickable`.
-        let visible = allContacts.filter(Self.isPickable)
+        let pickable = allContacts.filter(Self.isPickable)
+        let visible = mode.showsAgents ? pickable : pickable.filter { !$0.isAgent }
         let filtered = filterByQuery(filterByAudience(visible))
         let grouped: [String: [Contact]] = Dictionary(
             grouping: filtered,
@@ -284,7 +293,7 @@ final class ContactsPickerViewModel {
             return Section(id: key, title: key, rows: rows)
         }
 
-        if let suggested = buildSuggestedAgentsSection() {
+        if mode.showsAgents, let suggested = buildSuggestedAgentsSection() {
             rebuilt.append(suggested)
         }
         sections = rebuilt

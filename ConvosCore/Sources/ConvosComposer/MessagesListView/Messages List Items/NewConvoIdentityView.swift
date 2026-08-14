@@ -23,7 +23,7 @@ struct NewConvoIdentityView: View {
                     }
                     Button(action: addFromContactsAction) {
                         Text("Contacts")
-                        Text("People and agents")
+                        Text("People on convos")
                         Image(systemName: "person.crop.circle.badge.plus")
                     }
                     .accessibilityIdentifier("new-convo-add-from-contacts")

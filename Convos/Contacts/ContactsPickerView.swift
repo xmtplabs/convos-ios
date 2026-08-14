@@ -187,8 +187,10 @@ struct ContactsPickerView: View {
         }
     }
 
+    /// "People" where agents are hidden (inviting into an existing convo),
+    /// "Contacts" where the list still holds both.
     private var searchPlaceholder: String {
-        "Contacts"
+        viewModel.mode.showsAgents ? "Contacts" : "People"
     }
 
     /// Bundles the optional top-three closures into the list's actions model.

@@ -63,8 +63,7 @@ struct ConversationMembersListView: View {
         membersList
             .addFromContactsPicker(
                 viewModel: viewModel,
-                isPresented: $presentingAddFromContactsPicker,
-                onPresentAgentBuilder: presentAgentBuilderLocally
+                isPresented: $presentingAddFromContactsPicker
             )
             .sheet(item: $presentingAgentBuilder) { builderViewModel in
                 AgentBuilderView(
