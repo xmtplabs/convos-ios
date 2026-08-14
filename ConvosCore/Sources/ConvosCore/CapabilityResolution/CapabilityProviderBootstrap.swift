@@ -61,7 +61,13 @@ public enum CapabilityProviderBootstrap {
         var seenServiceIds: Set<String> = []
         var desiredProviders: [(ProviderID, CloudCapabilityProvider)] = []
         for connection in connections {
-            guard let provider = CloudCapabilityProvider.from(connection) else { continue }
+            guard let provider = CloudCapabilityProvider.from(connection) else {
+                // The user linked a service this build can't route to a subject. Without a
+                // provider the service is invisible to every agent ask, so say so rather
+                // than dropping it silently.
+                Log.warning("CapabilityProviderBootstrap: no subject mapping for serviceId \(connection.serviceId) — not registered")
+                continue
+            }
             if !seenIds.insert(provider.id).inserted {
                 Log.warning("CapabilityProviderBootstrap: duplicate ProviderID \(provider.id.rawValue) — only one connection will be registered")
                 desiredProviders.removeAll { $0.0 == provider.id }
