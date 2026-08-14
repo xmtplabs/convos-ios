@@ -84,6 +84,12 @@ final class ConversationsViewController: UIViewController {
     private lazy var dataSource: UICollectionViewDiffableDataSource<ConversationsSection, Item> = makeDataSource()
     private var currentState: State = .empty
     private var hasAppliedInitialSnapshot: Bool = false
+    /// Whether a snapshot containing at least one conversation row has been
+    /// applied. Until then the layout keeps UIKit's standard appearing-item
+    /// attributes, so the initial population can never be stranded at the
+    /// insert animation's alpha-0 starting state (see
+    /// `ConversationsCompositionalLayout.animatesAppearingItems`).
+    private var hasAppliedPopulatedSnapshot: Bool = false
 
     /// Inbox → user-contact override applied to auto-generated cell
     /// titles and avatar substitution. Set by the SwiftUI parent
@@ -183,10 +189,11 @@ final class ConversationsViewController: UIViewController {
 
         var changed = Set<String>()
         for (id, newConvo) in newMap {
-            guard let oldConvo = oldMap[id] else {
-                changed.insert(id)
-                continue
-            }
+            // A row with no old counterpart is inserted by this apply, so its
+            // cell is dequeued fresh with current content. Reconfiguring it is
+            // redundant and the follow-up non-animated apply interrupts the
+            // row's in-flight insert animation.
+            guard let oldConvo = oldMap[id] else { continue }
             // `avatarType` encodes the rendered avatar (the clustered member
             // profiles and their avatar URLs), so comparing it reconfigures the
             // cell when a member changes their photo. Without this, a member
@@ -206,7 +213,9 @@ final class ConversationsViewController: UIViewController {
 
         if selectionChanged {
             if let id = old.selectedConversationId { changed.insert(id) }
-            if let id = new.selectedConversationId { changed.insert(id) }
+            // Same inserted-row exemption as above: a newly inserted selected
+            // row already renders with the current selection state.
+            if let id = new.selectedConversationId, oldMap[id] != nil { changed.insert(id) }
         }
 
         return changed
@@ -235,7 +244,7 @@ final class ConversationsViewController: UIViewController {
     }
 
     private func createLayout() -> UICollectionViewLayout {
-        ConversationsCompositionalLayout { [weak self] sectionIndex, environment in
+        let layout = ConversationsCompositionalLayout { [weak self] sectionIndex, environment in
             guard let self = self else { return nil }
 
             // Determine section based on current state and index
@@ -254,6 +263,11 @@ final class ConversationsViewController: UIViewController {
                 return self.createListSectionLayout(environment: environment)
             }
         }
+        // Layout recreations (pinned-section bucket changes) must carry the
+        // flag forward, otherwise a recreation would re-suppress the insert
+        // animation mid-session.
+        layout.animatesAppearingItems = hasAppliedPopulatedSnapshot
+        return layout
     }
 
     private func createPinnedSectionLayout(environment: NSCollectionLayoutEnvironment) -> NSCollectionLayoutSection? {
@@ -491,6 +505,18 @@ final class ConversationsViewController: UIViewController {
             dataSource.applySnapshotUsingReloadData(snapshot)
         }
         hasAppliedInitialSnapshot = true
+
+        // Enable the insert fade-in only after the apply that populated the
+        // list has completed, so the initial rows themselves never start at
+        // alpha 0. Flipped after the apply on purpose: the flag must not
+        // affect the apply that is landing the first rows.
+        let hasConversationRows = !currentState.pinnedConversations.isEmpty
+            || (!currentState.isFilteredResultEmpty && !currentState.unpinnedConversations.isEmpty)
+        if !hasAppliedPopulatedSnapshot && hasConversationRows {
+            hasAppliedPopulatedSnapshot = true
+            let layout = collectionView.collectionViewLayout as? ConversationsCompositionalLayout
+            layout?.animatesAppearingItems = true
+        }
 
         updateSelection()
     }
