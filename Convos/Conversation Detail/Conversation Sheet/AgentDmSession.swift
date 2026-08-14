@@ -88,10 +88,19 @@ final class AgentDmSession {
     /// agents joined by default, or whose silent provision never landed).
     /// Takeable once: the tab moves to its progress state on the tap, and a
     /// second request is refused, so a double tap can't seat two agents.
+    ///
+    /// Routed through the session's own default-agent path rather than the
+    /// view model's join, so it shares whatever provision is already in
+    /// flight for this conversation - same task, same idempotency key. Asking
+    /// separately would start a second, competing join against a conversation
+    /// that is usually already being provisioned from the warm cache, and the
+    /// loser of that race is what times out waiting for an agent inbox.
     func requestAgentJoin() {
         guard !isRequestingAgent, agentInboxId == nil else { return }
         isRequestingAgent = true
-        originViewModel.requestAgentJoin()
+        let conversationId: String = originViewModel.conversation.id
+        let session = originViewModel.session
+        Task { await session.ensureDefaultAgentConversationReady(id: conversationId) }
         // A join that never lands must not pin the progress bar forever; the
         // offer comes back so the user can try again.
         requestTimeoutTask?.cancel()

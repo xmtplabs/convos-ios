@@ -188,11 +188,6 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// a brand-new conversation (via `onScanInviteCode`) rather than scanning
     /// into this one. Drives `trailingItemForReadyState`.
     let showsEmbeddedInvite: Bool
-    /// True for the plain compose flow. "+" opens the conversation itself -
-    /// its QR header and the top bar's share button carry the invite - rather
-    /// than the Invite/Scan session card, which belongs to the flows that
-    /// exist to show a code ("Show an invite code", the home scan entry).
-    let suppressesInviteSessionCard: Bool
     /// Segment the embedded Scan/Invite toggle starts on. `.scan` for the
     /// home scan entry (so the viewfinder + "Or scan from camera roll" are the first
     /// thing shown); `.invite` for "Show an invite code" and normal convos.
@@ -373,11 +368,6 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.session = session
         self.coreActions = coreActions
         self.showsEmbeddedInvite = showsEmbeddedInvite
-        if case .newConversation = mode {
-            self.suppressesInviteSessionCard = !showsEmbeddedInvite
-        } else {
-            self.suppressesInviteSessionCard = false
-        }
         self.embeddedInviteInitialSegment = embeddedInviteInitialSegment
         self.qrScannerViewModel = QRScannerViewModel()
         switch mode {
@@ -482,7 +472,6 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.session = session
         self.coreActions = coreActions
         self.showsEmbeddedInvite = showsEmbeddedInvite
-        self.suppressesInviteSessionCard = false
         self.qrScannerViewModel = QRScannerViewModel()
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner

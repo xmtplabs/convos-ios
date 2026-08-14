@@ -36,11 +36,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Scan segment routes decoded codes to `onScannedInviteCode`, opening a
     /// brand-new convo rather than scanning into this one.
     var showsEmbeddedInvite: Bool = false
-    /// Suppresses the top-of-convo Invite/Scan card. The conversation still
-    /// offers its invite - the message list's QR header and the top bar's
-    /// share button both stay - but the "you just made this, here is your
-    /// code" session card is not what compose opens on.
-    var suppressesInviteSessionCard: Bool = false
     /// Segment the embedded Scan/Invite toggle starts on. The home scan entry
     /// passes `.scan`; "Show an invite code" and normal convos keep `.invite`.
     var embeddedInviteInitialSegment: ScanInviteSegment = .invite
@@ -1383,27 +1378,16 @@ extension ConversationView {
         isReadOnly || viewModel.conversation.wasRemoved
     }
 
-    /// The embedded Scan/Invite toggle is the universal top-of-convo invite UI.
-    /// It shows above the chat for every conversation that meets the same
-    /// eligibility the legacy message-list QR header used (you created it, it's
-    /// not locked, it's not full), for the whole active invite session: from
-    /// first entry, through joins and incoming messages, until the host
-    /// navigates back to home and returns (tracked by the persisted
-    /// `leftHostedInviteSession` flag). App-backgrounding does not end the
-    /// session. The "Show an invite code" new-convo flow shows it
-    /// unconditionally. The Agent Builder draft (`headerMode == .hidden`) and
-    /// read-only surfaces opt out. When the toggle shows, it owns the QR, so
-    /// the duplicate message-list-header QR is suppressed via
-    /// `effectiveHeaderMode -> .hidden`.
+    /// This card is the code paired with a Scan segment for reading someone
+    /// else's, which only earns its place at the entry points that can scan
+    /// into a brand-new conversation: "Show an invite code" and the home scan
+    /// entry, both of which pass `showsEmbeddedInvite`.
+    ///
+    /// Inside a conversation there is nothing to scan into. The code is still
+    /// shown - the message list's QR header carries it, and the top bar shares
+    /// it - just without the segmented control wrapped around it.
     var showsTopOfConvoInvite: Bool {
-        if showsEmbeddedInvite { return true }
-        guard !suppressesInviteSessionCard else { return false }
-        guard !effectiveReadOnly, headerMode == .standard else { return false }
-        let conversation = viewModel.conversation
-        guard !conversation.isDraft else { return false }
-        // Agent DMs are private 2-member conversations; never offer invites.
-        guard !conversation.isAgentDm else { return false }
-        return conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull && !conversation.leftHostedInviteSession
+        showsEmbeddedInvite
     }
 
     /// Read-only surfaces suppress every leading affordance. The inline
