@@ -99,10 +99,10 @@ private struct CacheConfiguration {
     static let maxDiskCacheSize: Int = 500 * 1024 * 1024
 
     /// Maximum number of images in memory cache
-    static let memoryCacheCountLimit: Int = 600
+    static let memoryCacheCountLimit: Int = 100
 
-    /// Maximum total cost (in bytes) for memory cache (300MB)
-    static let memoryCacheTotalCostLimit: Int = 300 * 1024 * 1024
+    /// Maximum total cost (in bytes) for memory cache (50MB)
+    static let memoryCacheTotalCostLimit: Int = 50 * 1024 * 1024
 
     /// In-memory budget for memory-constrained processes (app extensions).
     static let constrainedMemoryCacheTotalCostLimit: Int = 16 * 1024 * 1024
@@ -186,7 +186,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
     init() {
         cache = NSCache<NSString, UIImage>()
         cache.countLimit = CacheConfiguration.memoryCacheCountLimit
-        // A 300 MB in-memory budget is 2.5x an app extension's entire
+        // A 50 MB in-memory budget still exceeds an app extension's entire
         // process allowance; constrained processes get a sliver.
         cache.totalCostLimit = ImageCacheContainer.isMemoryConstrainedProcess
             ? CacheConfiguration.constrainedMemoryCacheTotalCostLimit
