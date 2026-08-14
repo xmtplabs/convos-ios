@@ -46,8 +46,6 @@ struct AgentDmPageView: View {
     /// tracks elapsed time, not real progress, since nothing reports any.
     @State private var preparingProgress: Double = Constant.progressStart
 
-    private var agent: ConversationMember? { session.agent }
-
     private var agentName: String { session.agentName }
 
     var body: some View {
@@ -247,7 +245,7 @@ struct AgentDmPageView: View {
                 return item
             }
         }
-        items.insert(.agentDmInfo(agentProfile: agent?.profile, agentVerification: agent?.agentVerification ?? .unverified, agentName: agentName), at: 0)
+        items.insert(.agentDmInfo(agentName: agentName), at: 0)
         return items
     }
 
