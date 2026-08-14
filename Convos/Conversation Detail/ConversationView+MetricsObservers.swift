@@ -10,7 +10,7 @@ extension ConversationView {
     struct MetricsObserversPart1: ViewModifier {
         let presentingConversationSettings: Bool
         let presentingProfileSettings: Bool
-        let presentingShareView: Bool
+        let presentingInviteCode: Bool
         let presentingConversationForked: Bool
         let presentingExplodedInviteInfo: Bool
         let presentingAgentsIntro: Bool
@@ -20,7 +20,7 @@ extension ConversationView {
 
         let onConversationSettingsChanged: (Bool, Bool) -> Void
         let onProfileSettingsChanged: (Bool, Bool) -> Void
-        let onShareViewChanged: (Bool, Bool) -> Void
+        let onInviteCodeChanged: (Bool, Bool) -> Void
         let onConversationForkedChanged: (Bool, Bool) -> Void
         let onExplodedInviteInfoChanged: (Bool, Bool) -> Void
         let onAgentsIntroChanged: (Bool, Bool) -> Void
@@ -32,7 +32,7 @@ extension ConversationView {
             content
                 .onChange(of: presentingConversationSettings) { o, n in onConversationSettingsChanged(o, n) }
                 .onChange(of: presentingProfileSettings) { o, n in onProfileSettingsChanged(o, n) }
-                .onChange(of: presentingShareView) { o, n in onShareViewChanged(o, n) }
+                .onChange(of: presentingInviteCode) { o, n in onInviteCodeChanged(o, n) }
                 .onChange(of: presentingConversationForked) { o, n in onConversationForkedChanged(o, n) }
                 .onChange(of: presentingExplodedInviteInfo) { o, n in onExplodedInviteInfoChanged(o, n) }
                 .onChange(of: presentingAgentsIntro) { o, n in onAgentsIntroChanged(o, n) }
@@ -82,26 +82,6 @@ extension ConversationView {
                 .onChange(of: presentingContactForAgentShare) { o, n in onAgentShareContactChanged(o, n) }
                 .onChange(of: presentingReactionsForMessage) { o, n in onReactionsChanged(o, n) }
                 .onChange(of: presentingThinkingDetail) { o, n in onThinkingDetailChanged(o, n) }
-        }
-    }
-}
-
-extension ConversationView {
-    /// Inputs the inline Invite/Scan card (`InviteCodeBody`) needs beyond what
-    /// the `.invite` cell derives from `invite`/`conversation`. Kept in this
-    /// extension so the main `ConversationView` body stays within the
-    /// type-body-length budget. The Scan segment's decoded codes open a
-    /// brand-new convo (the new-convo flow's `onScannedInviteCode`, or
-    /// `handleScannedCodeInCurrentConversation` for an existing convo).
-    var inviteScanMode: InviteCodeMode {
-        showsEmbeddedInvite ? .newConvo : .inConvo
-    }
-    var inviteScanScannedHandler: (String) -> Void {
-        onScannedInviteCode ?? viewModel.handleScannedCodeInCurrentConversation
-    }
-    var onInviteShareCompletedHandler: (UIActivity.ActivityType?, Bool, Error?) -> Void {
-        { _, completed, _ in
-            if completed { onInviteShared?() }
         }
     }
 }

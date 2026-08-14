@@ -173,6 +173,11 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
+    /// Drives the scanner sheet the home's scan button presents.
+    var presentingScanner: Bool = false
+    /// Owned here so the sheet's viewfinder survives re-renders and can be
+    /// re-armed between presentations.
+    let scannerViewModel: QRScannerViewModel = QRScannerViewModel()
     var presentingExplodeInfo: Bool = false
     var presentingPinLimitInfo: Bool = false
 
@@ -465,40 +470,22 @@ final class ConversationsViewModel {
         )
     }
 
-    /// The home scan button lands on the embedded Scan/Invite screen with the
-    /// Scan segment active, so the live viewfinder and "Or scan from camera roll" are
-    /// both reachable (a scanned code opens a brand-new convo to join/add).
-    /// Mirrors `onShowInviteCode` but starts on `.scan`.
+    /// The home scan button opens the scanner and nothing else. It used to
+    /// claim a conversation just to host a viewfinder inside it; scanning
+    /// reads someone else's code, so it needs no conversation of its own -
+    /// whatever it decodes is routed like any other link.
     func onJoinConvo() {
-        let viewModel = NewConversationViewModel(
-            session: session,
-            mode: .newConversation,
-            showsEmbeddedInvite: true,
-            embeddedInviteInitialSegment: .scan,
-            coreActions: coreActions
-        )
-        viewModel.onScanResolvedConversation = { [weak self] conversationId in
-            self?.navigateToScannedConversation(conversationId)
-        }
-        newConversationViewModel = viewModel
+        scannerViewModel.resetScanning()
+        presentingScanner = true
     }
 
-    /// Starts and enters a fresh conversation showing the invite QR at the top
-    /// (the standard message-list header) and the scan viewfinder as its
-    /// trailing action -- the "Show an invite code" entry point. Mirrors the
-    /// no-contacts branch of `onStartConvo`, opting the conversation into the
-    /// embedded-invite presentation.
-    func onShowInviteCode() {
-        let viewModel = NewConversationViewModel(
-            session: session,
-            mode: .newConversation,
-            showsEmbeddedInvite: true,
-            coreActions: coreActions
-        )
-        viewModel.onScanResolvedConversation = { [weak self] conversationId in
-            self?.navigateToScannedConversation(conversationId)
-        }
-        newConversationViewModel = viewModel
+    /// Routes a code read by the scanner: an invite opens its join flow, an
+    /// agent template starts a conversation with that agent, anything else is
+    /// ignored. Same routing a tapped link gets.
+    func handleScannedCode(_ code: String) {
+        presentingScanner = false
+        guard let url = URL(string: code) else { return }
+        handleURL(url)
     }
 
     func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {

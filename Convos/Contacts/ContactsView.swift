@@ -414,7 +414,6 @@ struct ContactsView: View {
         inviteConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation,
-            showsEmbeddedInvite: true,
             defersInviteVisibilityUntilEntered: true,
             coreActions: coreActions
         )

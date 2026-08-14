@@ -434,13 +434,7 @@ struct MainTabView: View {
     private var sharedAppIndicatorOverlay: some View {
         VStack(spacing: 0) {
             if let activeConvoVM = activeConvoVM {
-                // Hide the lifted conversation indicator while the share
-                // overlay is up. This pill renders above the presenter's
-                // share overlay, so without this it sits on top of the
-                // presented code card.
-                if !activeConvoVM.presentingShareView {
-                    centeredConversationIndicator(for: activeConvoVM)
-                }
+                centeredConversationIndicator(for: activeConvoVM)
             } else if !isContactDetailPushed {
                 leadingAppIndicatorPill
             }
@@ -853,6 +847,17 @@ struct MainTabSheetsModifier: ViewModifier {
                 .presentationSizing(.page)
                 .navigationTransition(
                     .zoom(sourceID: "composer-transition-source", in: namespace)
+                )
+            }
+            // Scanning is its own screen, presented as its own sheet. It reads
+            // someone else's code, so it needs no conversation behind it.
+            .sheet(isPresented: $conversationsViewModel.presentingScanner) {
+                JoinConversationView(
+                    viewModel: conversationsViewModel.scannerViewModel,
+                    allowsDismissal: true,
+                    onScannedCode: { code in
+                        conversationsViewModel.handleScannedCode(code)
+                    }
                 )
             }
     }

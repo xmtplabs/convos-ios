@@ -496,18 +496,6 @@ public final class MessagesViewController: UIViewController {
         didSet { dataSource.isAgentJoinPending = isAgentJoinPending }
     }
 
-    var showsInviteScanCard: Bool = false {
-        didSet { dataSource.showsInviteScanCard = showsInviteScanCard }
-    }
-    var inviteScanMode: InviteCodeMode = .inConvo {
-        didSet { dataSource.inviteScanMode = inviteScanMode }
-    }
-    var inviteScanInitialSegment: ScanInviteSegment = .invite {
-        didSet { dataSource.inviteScanInitialSegment = inviteScanInitialSegment }
-    }
-    var onScannedInviteCode: ((String) -> Void)?
-    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
-
     private var currentReactionMessageId: String?
     private var reactionCancellable: AnyCancellable?
 
@@ -789,12 +777,6 @@ public final class MessagesViewController: UIViewController {
         dataSource.memberContactOverride = { [weak self] inboxId in
             self?.memberContactOverride?(inboxId)
         }
-        dataSource.onScannedInviteCode = { [weak self] code in
-            self?.onScannedInviteCode?(code)
-        }
-        dataSource.onInviteShareCompleted = { [weak self] activityType, completed, error in
-            self?.onInviteShareCompleted?(activityType, completed, error)
-        }
 
         setupImmediateTouchGesture()
     }
@@ -1000,11 +982,6 @@ extension MessagesViewController {
         // data source so the `.invite` cell renderer can drop the QR card
         // while keeping the invite menu visible.
         dataSource.hidesInviteCard = conversation.hidesInviteCard
-        // The inline Invite/Scan big card renders for the conversation the
-        // `.invite` cell belongs to; the cell only reads it when
-        // `showsInviteScanCard` is set.
-        dataSource.inviteScanConversation = conversation
-
         // Add invite or conversation info at the beginning if all messages are loaded.
         // A home-flow Agent Builder summary suppresses this whole block - the
         // summary card already announces the agent via its "You created an
@@ -1013,18 +990,11 @@ extension MessagesViewController {
         // different: it targets a real group, so its invite affordances stay
         // visible while the card shows.
         let summaryAllowsInvite: Bool = agentBuilderSummary == nil || agentBuilderSummary?.existingConversation == true
-        // The `.invite` cell is the top-of-convo invite surface: it renders the
-        // full inline Invite/Scan card during an active hosted session
-        // (`showsInviteScanCard`) and the regular inviter QR + menu once the
-        // session ends. While the card is active it is the single host for the
-        // whole embedded flow, including the pre-creation draft and the
-        // scan-join placeholder/claimed windows: the conversation swaps of a
-        // scan join reconfigure the one cell in place instead of deleting and
-        // re-inserting it, which would cross-fade two stacked cards and reset
-        // the camera mid-flow.
+        // The `.invite` cell is the top-of-convo invite surface: the inviter's
+        // QR plus the invite menu.
         if hasLoadedAllMessages, summaryAllowsInvite, headerMode != .suppressed {
             let hostsInviteHeader = !conversation.isDraft && conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull
-            if showsInviteScanCard || hostsInviteHeader {
+            if hostsInviteHeader {
                 cells.insert(.invite(invite), at: 0)
             } else if !conversation.isDraft, headerMode == .standard, !hasVerifiedConvosAgent {
                 cells.insert(.conversationInfo(conversation), at: 0)

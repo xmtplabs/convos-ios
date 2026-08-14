@@ -29,16 +29,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// in normal chat. The Agent Builder passes `.hidden` so the
     /// underlying chat doesn't flash a QR while the user is still drafting.
     var headerMode: MessagesHeaderMode = .standard
-    /// Set by the "Show an invite code" new-convo flow. When true, the chat
-    /// pins the shared `InviteCodeBody` (Scan/Invite segmented toggle) as a top
-    /// `safeAreaInset`, suppresses the duplicate message-list-header QR, and
-    /// drops the lone scan toolbar item (the Scan segment owns scanning). The
-    /// Scan segment routes decoded codes to `onScannedInviteCode`, opening a
-    /// brand-new convo rather than scanning into this one.
-    var showsEmbeddedInvite: Bool = false
-    /// Segment the embedded Scan/Invite toggle starts on. The home scan entry
-    /// passes `.scan`; "Show an invite code" and normal convos keep `.invite`.
-    var embeddedInviteInitialSegment: ScanInviteSegment = .invite
     /// Routes a code decoded by the embedded Scan segment to the new-convo join
     /// path. Nil keeps the embedded viewfinder decode-only.
     var onScannedInviteCode: ((String) -> Void)?
@@ -267,11 +257,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
             extraBottomInset: transcriptBottomInset,
-            showsInviteScanCard: showsTopOfConvoInvite,
-            inviteScanMode: inviteScanMode,
-            inviteScanInitialSegment: embeddedInviteInitialSegment,
-            onScannedInviteCode: inviteScanScannedHandler,
-            onInviteShareCompleted: onInviteShareCompletedHandler,
             // The composer lives in the conversation sheet now (see
             // `sheetBarContent`); the transcript insets by the sheet's
             // measured height instead of hosting a bar.
@@ -815,7 +800,7 @@ private extension ConversationView {
         // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
         // toolbar item is dropped for that flow. Browser pages hide the
         // trailing item entirely.
-        if !topBarTrailingHidden && !showsEmbeddedInvite && !isBrowsingHome {
+        if !topBarTrailingHidden && !isBrowsingHome {
             ToolbarItem(placement: .topBarTrailing) {
                 if viewModel.isLocked {
                     lockedInfoButton
@@ -1177,16 +1162,12 @@ private extension ConversationView {
         navigator?.present(myInfo: MyInfoNavigatorArgs())
     }
 
-    func handleShareViewChanged(from oldValue: Bool, to newValue: Bool) {
+    func handleInviteCodeChanged(from oldValue: Bool, to newValue: Bool) {
         guard !oldValue, newValue else { return }
-        // Moving into the Scan/Invite overlay must leave the keyboard down.
-        // The composer's first responder lives across the messages view
-        // controller's UIKit boundary, so clear both layers: the coordinator
-        // (so no focus-restore logic re-raises it) and the actual first
-        // responder. The invite picker sheet additionally re-resigns on its
-        // dismissal (see `AddFromContactsPickerModifier`), because UIKit
-        // restores the composer's first responder when the sheet finishes
-        // dismissing.
+        // Opening the code must leave the keyboard down. The composer's first
+        // responder lives across the messages view controller's UIKit
+        // boundary, so clear both layers: the coordinator (so no focus-restore
+        // logic re-raises it) and the actual first responder.
         focusCoordinator.moveFocus(to: nil)
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         navigator?.present(shareInvite: ShareInviteNavigatorArgs(conversationId: conversationIdForMetrics))
@@ -1381,18 +1362,6 @@ extension ConversationView {
         isReadOnly || viewModel.conversation.wasRemoved
     }
 
-    /// This card is the code paired with a Scan segment for reading someone
-    /// else's, which only earns its place at the entry points that can scan
-    /// into a brand-new conversation: "Show an invite code" and the home scan
-    /// entry, both of which pass `showsEmbeddedInvite`.
-    ///
-    /// Inside a conversation there is nothing to scan into. The code is still
-    /// shown - the message list's QR header carries it, and the top bar shares
-    /// it - just without the segmented control wrapped around it.
-    var showsTopOfConvoInvite: Bool {
-        showsEmbeddedInvite
-    }
-
     /// Read-only surfaces suppress every leading affordance. The inline
     /// Invite/Scan card now lives in the index-0 `.invite` cell (branched on
     /// `showsInviteScanCard`), so the header no longer forces `.hidden` to
@@ -1428,7 +1397,7 @@ extension ConversationView {
         MetricsObserversPart1(
             presentingConversationSettings: viewModel.presentingConversationSettings,
             presentingProfileSettings: viewModel.presentingProfileSettings,
-            presentingShareView: viewModel.presentingShareView,
+            presentingInviteCode: viewModel.presentingInviteCode,
             presentingConversationForked: viewModel.presentingConversationForked,
             presentingExplodedInviteInfo: viewModel.presentingExplodedInviteInfo,
             presentingAgentsIntro: viewModel.presentingAgentsIntro,
@@ -1437,7 +1406,7 @@ extension ConversationView {
             showingLockedInfo: showingLockedInfo,
             onConversationSettingsChanged: handleConversationSettingsChanged(from:to:),
             onProfileSettingsChanged: handleProfileSettingsChanged(from:to:),
-            onShareViewChanged: handleShareViewChanged(from:to:),
+            onInviteCodeChanged: handleInviteCodeChanged(from:to:),
             onConversationForkedChanged: handleConversationForkedChanged(from:to:),
             onExplodedInviteInfoChanged: handleExplodedInviteInfoChanged(from:to:),
             onAgentsIntroChanged: handleAgentsIntroChanged(from:to:),

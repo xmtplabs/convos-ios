@@ -983,12 +983,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// cell showing a different message.
     var expandedMessageIds: Set<String> = []
     var replyingToMessage: AnyMessage?
-    var presentingShareView: Bool = false
-    /// Segment the share overlay opens on when `presentingShareView` flips true.
-    /// The Invite sheet's "Show an invite code" row leaves this `.invite`; its
-    /// `viewfinder` button sets `.scan` so the overlay opens straight to the
-    /// scanner. Reset to `.invite` once the overlay closes.
-    var shareViewInitialSegment: ScanInviteSegment = .invite
+    /// Drives the invite-code sheet (`InviteCodeSheet`), presented by
+    /// `ConversationPresenter` for whichever surface is showing this
+    /// conversation.
+    var presentingInviteCode: Bool = false
     var presentingPhotosInfoSheet: Bool = false
     /// Drives the "New Agent" context-menu builder sheet, scoped to this
     /// existing conversation. The builder defers the agent join until the
@@ -3719,11 +3717,6 @@ extension ConversationViewModel {
     }
 
     func handleScannedCodeInCurrentConversation(_ code: String) {
-        presentingShareView = false
-        // Dismissing directly bypasses the Presenter binding setter's segment
-        // reset, so reset it here too -- otherwise the next plain share-overlay
-        // open lands on the scanner instead of the invite tab.
-        shareViewInitialSegment = .invite
         if let url = URL(string: code), let templateId = DeepLinkHandler.agentTemplateId(from: url) {
             requestAgentJoin(templateId: templateId)
             return

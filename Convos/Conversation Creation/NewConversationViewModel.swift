@@ -183,15 +183,6 @@ class NewConversationViewModel: Identifiable, Hashable {
     let allowsDismissingScanner: Bool
     private let autoCreateConversation: Bool
     /// True when this conversation was entered from "Show an invite code".
-    /// The chat opens showing the invite QR at the top (the standard header)
-    /// and its trailing toolbar item is the scan viewfinder, whose tap opens
-    /// a brand-new conversation (via `onScanInviteCode`) rather than scanning
-    /// into this one. Drives `trailingItemForReadyState`.
-    let showsEmbeddedInvite: Bool
-    /// Segment the embedded Scan/Invite toggle starts on. `.scan` for the
-    /// home scan entry (so the viewfinder + "Or scan from camera roll" are the first
-    /// thing shown); `.invite` for "Show an invite code" and normal convos.
-    var embeddedInviteInitialSegment: ScanInviteSegment = .invite
     private(set) var showingFullScreenScanner: Bool
     var presentingJoinConversationSheet: Bool = false
     var displayError: IdentifiableError? {
@@ -360,15 +351,11 @@ class NewConversationViewModel: Identifiable, Hashable {
     init(
         session: any SessionManagerProtocol,
         mode: NewConversationMode,
-        showsEmbeddedInvite: Bool = false,
-        embeddedInviteInitialSegment: ScanInviteSegment = .invite,
         defersInviteVisibilityUntilEntered: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
         self.coreActions = coreActions
-        self.showsEmbeddedInvite = showsEmbeddedInvite
-        self.embeddedInviteInitialSegment = embeddedInviteInitialSegment
         self.qrScannerViewModel = QRScannerViewModel()
         switch mode {
         case .scanner:
@@ -438,7 +425,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.wantsDefaultAgent = mode.wantsDefaultAgent
 
         self.isCreatingConversation = mode.isNewConversation
-        self.messagesTopBarTrailingItem = showsEmbeddedInvite ? .scan : .share
+        self.messagesTopBarTrailingItem = .share
         createPlaceholderConversationViewModel()
         acquireInbox(mode: mode)
         resolveOptimisticAgentIdentityIfNeeded()
@@ -466,12 +453,10 @@ class NewConversationViewModel: Identifiable, Hashable {
         autoCreateConversation: Bool = false,
         showingFullScreenScanner: Bool = false,
         allowsDismissingScanner: Bool = true,
-        showsEmbeddedInvite: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
         self.coreActions = coreActions
-        self.showsEmbeddedInvite = showsEmbeddedInvite
         self.qrScannerViewModel = QRScannerViewModel()
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
@@ -728,8 +713,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         didTriggerAgentJoin = false
         showingFullScreenScanner = false
 
-        // The home-scan embedded flow (`.newConversation` + showsEmbeddedInvite)
-        // auto-creates its conversation up front, so the state machine is already
+        // A flow that auto-creates its conversation up front is already
         // past `.uninitialized` and a second `createConversation()` would be
         // dropped as an invalid transition -- silently losing the scanned agent.
         // Route it into that conversation instead: fire now if it is already
@@ -933,11 +917,8 @@ extension NewConversationViewModel {
     }
 
     /// The trailing toolbar item for an interactive new conversation.
-    /// "Show an invite code" convos surface the scan viewfinder (whose tap
-    /// opens a new conversation); every other new convo surfaces the share /
-    /// add-people menu.
     private var defaultTrailingItem: MessagesViewTopBarTrailingItem {
-        showsEmbeddedInvite ? .scan : .share
+        .share
     }
 
     @MainActor
@@ -1030,7 +1011,7 @@ extension NewConversationViewModel {
     /// excluded, so a freshly created (but unused) convo still reads as empty.
     @discardableResult
     func cleanUpEmptyEmbeddedInviteIfNeeded() -> Bool {
-        guard showsEmbeddedInvite, !_cleanedUp, !isExistingConversation else { return false }
+        guard defersVisibilityUntilCommit, !_cleanedUp, !isExistingConversation else { return false }
         guard engagement.isEmpty else { return true }
         let hasMessages = (conversationViewModel?.messages.countMessages ?? 0) > 0
         let hasOtherMembers = (conversationViewModel?.conversation.membersWithoutCurrent.count ?? 0) > 0
@@ -1384,14 +1365,6 @@ extension NewConversationViewModel {
                         await session.commitClaimedConversation(id: conversationId)
                     }
                 }
-            } else if showsEmbeddedInvite, result.origin == .created, claimedConversationId == nil {
-                // Non-deferred embedded auto-create (home Scan / show-invite-code
-                // on a cache miss): the state machine published a real,
-                // already-visible group but no warm-cache id was claimed up
-                // front. Adopt its id -- no register/commit, the row is already
-                // visible -- so a later scan-join supersession or teardown can
-                // leave the MLS group instead of stranding it on the network.
-                claimedConversationId = result.conversationId
             }
 
             notifyDefaultAgentConversationReadyIfNeeded(result)
