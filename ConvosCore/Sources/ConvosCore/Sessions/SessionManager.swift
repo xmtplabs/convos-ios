@@ -529,11 +529,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             id: conversationId,
             databaseWriter: databaseWriter
         )
-        // The user has entered the conversation - cue the pre-added default
-        // agent to send its greeting. Fire-and-forget so committing never
-        // blocks on the network.
+        // The user has entered the conversation; make sure its default agent
+        // actually landed. Nothing cues the agent to speak - it stays silent
+        // until spoken to. Fire-and-forget so committing never blocks on the
+        // network.
         Task { [weak self] in
-            await self?.sendConversationReadySignalIfNeeded(conversationId: conversationId)
+            await self?.ensureDefaultAgentInConversation(id: conversationId)
         }
     }
 

@@ -509,25 +509,6 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         try await sender.sendTypingIndicator(isTyping: isTyping)
     }
 
-    func sendConversationReadySignal(for conversationId: String) async {
-        do {
-            let result = try await sessionStateManager.waitForInboxReadyResult()
-            guard let conversation = try await result.client.conversationsProvider.findConversation(
-                conversationId: conversationId
-            ) else {
-                Log.warning("MessagingService: no conversation \(conversationId) to send conversation_ready into")
-                return
-            }
-            try await conversation.send(
-                content: ConversationReadyContent(),
-                options: SendOptions(contentType: ContentTypeConversationReady)
-            )
-            Log.info("MessagingService: sent conversation_ready into \(conversationId)")
-        } catch {
-            Log.warning("MessagingService: failed to send conversation_ready into \(conversationId): \(error)")
-        }
-    }
-
     func initiatorPairingService() async throws -> any PairingServiceProtocol {
         let result = try await sessionStateManager.waitForInboxReadyResult()
         let inboxId = result.client.inboxId
