@@ -1,3 +1,4 @@
+import ConvosComposer
 import ConvosCore
 import SwiftUI
 
@@ -12,16 +13,20 @@ import SwiftUI
 /// replacement).
 struct AbilitiesListScreen: View {
     @State private var viewModel: AbilitiesListViewModel
+    /// Kept so entitled rows can hand the whole latched pair down to the
+    /// ability detail push (see `AbilitiesSelection`).
+    private let selection: AbilitiesSelection
 
     /// Takes the whole selection so the service and its authorizer are
     /// latched together for the screen's lifetime -- the halves must never
     /// be resolved at different times (see `AbilitiesSelection`).
     init(selection: AbilitiesSelection) {
+        self.selection = selection
         _viewModel = State(initialValue: AbilitiesListViewModel(service: selection.service, authorizer: selection.authorizer))
     }
 
     var body: some View {
-        AbilitiesListView(viewModel: viewModel)
+        AbilitiesListView(viewModel: viewModel, selection: selection)
     }
 }
 
@@ -38,15 +43,21 @@ struct AbilitiesListScreen: View {
 /// A conversation toggle that needs an entitlement no longer deep-links
 /// here: it presents the scoped `AbilityConnectSheet` instead, which reuses
 /// this screen's view model for the connect machinery.
+///
+/// Entitled rows push `AbilityDetailScreen` (delegations list) inside the
+/// App Settings `NavigationStack`. Available and state-unknown rows stay
+/// non-navigable: delegations only exist against an entitlement.
 struct AbilitiesListView: View {
     @Bindable var viewModel: AbilitiesListViewModel
+    /// Latched pair handed down to ability detail pushes.
+    let selection: AbilitiesSelection
 
     var body: some View {
         catalogList
             .searchable(text: $viewModel.searchText, prompt: "Search abilities")
             .overlay { listOverlay }
             .task { await viewModel.refresh() }
-            .sheet(item: $viewModel.pendingAuthorization, onDismiss: handleAuthorizationDismissed) { context in
+            .selfSizingSheet(item: $viewModel.pendingAuthorization, onDismiss: handleAuthorizationDismissed) { context in
                 authorizationSheet(context)
             }
     }
@@ -177,8 +188,12 @@ struct AbilitiesListView: View {
     // MARK: - Rows
 
     private func entitledRow(_ ability: AbilitiesAPI.Ability) -> some View {
-        abilityRowContent(ability, subtitle: entitledSubtitle(for: ability)) {
-            entitledAccessory(ability)
+        NavigationLink {
+            AbilityDetailScreen(ability: ability, selection: selection)
+        } label: {
+            abilityRowContent(ability, subtitle: entitledSubtitle(for: ability)) {
+                entitledAccessory(ability)
+            }
         }
     }
 

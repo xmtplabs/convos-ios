@@ -118,6 +118,14 @@ final class FeatureFlags {
     /// App Settings -> Debug. Hard-locked off in production so the V1
     /// connections UI stays the default until the live transport ships;
     /// public enablement is a default flip in a client release.
+    ///
+    /// Coupled to `AbilitiesServices.useLiveBackend` in both directions so
+    /// V2 running against the mock (instead of the live backend) can never
+    /// be reached: turning this on forces the live backend on too
+    /// (write-time, below). `AbilitiesServices.useLiveBackend`'s getter
+    /// enforces the same invariant independent of what is in storage, which
+    /// is what actually keeps a value restored from persistence at launch
+    /// from resurfacing the invalid combination.
     var isAbilitiesV2Enabled: Bool {
         get {
             access(keyPath: \.isAbilitiesV2Enabled)
@@ -128,6 +136,9 @@ final class FeatureFlags {
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
             withMutation(keyPath: \.isAbilitiesV2Enabled) {
                 UserDefaults.standard.set(newValue, forKey: Constant.abilitiesV2EnabledKey)
+            }
+            if newValue {
+                AbilitiesServices.setUseLiveBackend(true)
             }
         }
     }

@@ -1,3 +1,4 @@
+import ConvosComposer
 import ConvosCore
 import SwiftUI
 
@@ -172,7 +173,7 @@ private struct ConversationAbilitiesActiveSheetsModifier: ViewModifier {
             .sheet(item: $viewModel.bundleSelection) { context in
                 bundleSelectionSheet(context)
             }
-            .sheet(item: $viewModel.connectContext, onDismiss: handleConnectSheetDismissed) { context in
+            .selfSizingSheet(item: $viewModel.connectContext, onDismiss: handleConnectSheetDismissed) { context in
                 connectSheet(context)
             }
     }

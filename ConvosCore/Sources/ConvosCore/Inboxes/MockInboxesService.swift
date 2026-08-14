@@ -103,6 +103,10 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         MockConversationsRepository()
     }
 
+    public func conversationsPager(for consent: [Consent]) -> any ConversationsPagerProtocol {
+        MockConversationsPager()
+    }
+
     public func conversationsCountRepo(for consent: [Consent], kinds: [ConversationKind]) -> any ConversationsCountRepositoryProtocol {
         MockConversationsCountRepository()
     }

@@ -26,6 +26,7 @@ struct AbilityConnectSheet: View {
     let onConnected: (AbilitiesAPI.Ability) -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @State private var viewModel: AbilitiesListViewModel
 
     /// Takes the whole selection so the service and its authorizer are
@@ -42,7 +43,6 @@ struct AbilityConnectSheet: View {
 
     var body: some View {
         content
-            .presentationDetents([.medium])
             .task { await viewModel.refresh() }
             .onChange(of: connectedAbility) { _, newValue in
                 guard let newValue else { return }
@@ -88,7 +88,8 @@ struct AbilityConnectSheet: View {
             }
             actionButtons
         }
-        .padding(.vertical, DesignConstants.Spacing.step6x)
+        .padding(.top, DesignConstants.Spacing.step6x)
+        .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step6x : 0)
         .accessibilityIdentifier("ability-connect-sheet")
     }
 

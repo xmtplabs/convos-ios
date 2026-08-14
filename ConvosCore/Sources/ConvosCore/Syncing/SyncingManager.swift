@@ -58,6 +58,13 @@ public struct SyncClientParams: @unchecked Sendable {
     }
 }
 
+/// Carries the non-Sendable client across the `withTimeout` task boundary in
+/// `runGlobalSync`. Same rationale as `SyncClientParams` above; scoped down
+/// because that path has no API client in hand.
+private struct UncheckedClientBox: @unchecked Sendable {
+    let client: AnyClientProvider
+}
+
 /// Manages real-time synchronization of conversations and messages
 ///
 /// SyncingManager coordinates continuous synchronization between the local database
@@ -297,8 +304,43 @@ actor SyncingManager: SyncingManagerProtocol {
     /// actor. The stream-resume that follows is unaffected because it goes
     /// through the actor's normal `enqueueAction(.resume)` path.
     nonisolated func runBatchCatchUp(client: AnyClientProvider, since: Date?) async {
-        await runMessageBatch(client: client, since: since)
+        let globalSyncCompleted = await runGlobalSync(client: client)
+        await runMessageBatch(client: client, since: since, syncPerConversation: !globalSyncCompleted)
         await runInviteBatch(client: client, since: since)
+    }
+
+    /// One client-wide `syncAllConversations` before the local batch. libxmtp
+    /// makes a single batched newest-message-metadata call and then syncs
+    /// only the groups with new server activity, capped at 10 concurrent -
+    /// which is why the batch's prepare phase can skip its per-group
+    /// `conversation.sync()` (`syncFirst: false`): the backlog is already in
+    /// libxmtp's local store by the time `listGroups` + `messages(afterNs:)`
+    /// read it. Time-boxed so a hung sync cannot stall boot.
+    ///
+    /// Returns whether the sync completed. On timeout or failure the batch
+    /// still runs, but with per-conversation syncs restored: fetching from
+    /// an unsynced local store could advance catch-up cursors past backlog
+    /// that the still-running sync materializes later, permanently skipping
+    /// it (streams only deliver forward from connection time).
+    private nonisolated func runGlobalSync(client: AnyClientProvider) async -> Bool {
+        let box = UncheckedClientBox(client: client)
+        let started = CFAbsoluteTimeGetCurrent()
+        do {
+            try await BatchCatchUp.withTimeout(seconds: Constant.globalSyncTimeout) {
+                _ = try await box.client.conversationsProvider.syncAllConversations(
+                    consentStates: [.allowed, .unknown]
+                )
+            }
+            let elapsed = CFAbsoluteTimeGetCurrent() - started
+            Log.info("[PERF] catchup.global_sync: \(Int(elapsed * 1000))ms")
+            return true
+        } catch is BatchCatchUpPrepareTimeout {
+            Log.warning("[PERF] catchup.global_sync timed out after \(Int(Constant.globalSyncTimeout))s; running batch with per-conversation syncs")
+            return false
+        } catch {
+            Log.error("catchup.global_sync failed: \(error.localizedDescription); running batch with per-conversation syncs")
+            return false
+        }
     }
 
     nonisolated func runHistoryBackfill(client: AnyClientProvider) async {
@@ -311,11 +353,17 @@ actor SyncingManager: SyncingManagerProtocol {
         }
     }
 
+    /// `syncPerConversation` is passed through to `BatchCatchUp.run`; see
+    /// its doc for the cursor-safety contract. Callers other than
+    /// `runBatchCatchUp` leave it off because their paths sync beforehand
+    /// (the agent-join poll syncs every tick) or read data that never came
+    /// from the network (the history-archive backfill).
     @discardableResult
     private nonisolated func runMessageBatch(
         client: AnyClientProvider,
         since: Date?,
-        fetchFromBeginning: Bool = false
+        fetchFromBeginning: Bool = false,
+        syncPerConversation: Bool = false
     ) async -> BatchCatchUpResult? {
         do {
             guard let identity = try await identityStore.load() else {
@@ -339,7 +387,8 @@ actor SyncingManager: SyncingManagerProtocol {
                 inboxId: identity.inboxId,
                 since: since,
                 activeConversationId: await activeConversationId,
-                fetchFromBeginning: fetchFromBeginning
+                fetchFromBeginning: fetchFromBeginning,
+                syncPerConversation: syncPerConversation
             )
         } catch {
             Log.error("catchup.batch.messages failed: \(error.localizedDescription)")
@@ -608,15 +657,57 @@ actor SyncingManager: SyncingManagerProtocol {
                 return Set(ids)
             }
 
-            var discoveredCount: Int = 0
-            for group in groups where !existingIds.contains(group.id) {
-                do {
-                    let creatorInboxId = try await group.creatorInboxId()
-                    let memberCount = try await group.members.count
-                    if creatorInboxId == params.client.inboxId && memberCount <= 1 {
-                        Log.debug("Skipping self-created single-member group: \(group.id)")
-                        continue
+            let missingGroups = groups.filter { !existingIds.contains($0.id) }
+            guard !missingGroups.isEmpty else { return 0 }
+
+            // The self-created-single-member pre-check costs two FFI calls
+            // per group; run those in a bounded window. Processing stays
+            // sequential below: `streamProcessor` is an actor, so concurrent
+            // calls would serialize there anyway, and its per-conversation
+            // writes are better off not contending for the GRDB writer.
+            let currentInboxId = params.client.inboxId
+            let groupsToProcess: [XMTPiOS.Group] = await withTaskGroup(
+                of: (index: Int, group: XMTPiOS.Group)?.self
+            ) { taskGroup in
+                @Sendable func precheckTask(index: Int, group: XMTPiOS.Group) async -> (index: Int, group: XMTPiOS.Group)? {
+                    do {
+                        let creatorInboxId = try await group.creatorInboxId()
+                        let memberCount = try await group.members.count
+                        if creatorInboxId == currentInboxId && memberCount <= 1 {
+                            Log.debug("Skipping self-created single-member group: \(group.id)")
+                            return nil
+                        }
+                        return (index, group)
+                    } catch {
+                        Log.error("Failed pre-checking discovered conversation \(group.id): \(error)")
+                        return nil
                     }
+                }
+
+                var iterator = missingGroups.enumerated().makeIterator()
+                var inFlight = 0
+                while inFlight < Constant.maxConcurrentDiscoverPrechecks, let (index, group) = iterator.next() {
+                    taskGroup.addTask { await precheckTask(index: index, group: group) }
+                    inFlight += 1
+                }
+
+                var passed: [(index: Int, group: XMTPiOS.Group)] = []
+                while let result = await taskGroup.next() {
+                    if let result {
+                        passed.append(result)
+                    }
+                    if let (index, group) = iterator.next() {
+                        taskGroup.addTask { await precheckTask(index: index, group: group) }
+                    }
+                }
+                return passed
+                    .sorted { $0.index < $1.index }
+                    .map(\.group)
+            }
+
+            var discoveredCount: Int = 0
+            for group in groupsToProcess {
+                do {
                     try await streamProcessor.processConversation(group, params: params)
                     discoveredCount += 1
                 } catch {
@@ -1131,6 +1222,14 @@ extension SyncingManager {
     }
 
     private enum Constant {
+        /// Budget for the client-wide sync that precedes a batch catch-up.
+        /// Generous: libxmtp syncs changed groups 10 at a time, so even a
+        /// heavy backlog normally finishes well inside this; a hung sync
+        /// becomes a skip rather than an indefinite boot stall.
+        static let globalSyncTimeout: TimeInterval = 60
+        /// Sliding-window width for the per-group FFI pre-checks in
+        /// `discoverNewConversations`.
+        static let maxConcurrentDiscoverPrechecks: Int = 4
         /// How often the temporary agent-join poll checks for unprocessed
         /// join requests.
         static let agentJoinPollInterval: TimeInterval = 5

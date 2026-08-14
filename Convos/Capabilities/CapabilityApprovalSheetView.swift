@@ -24,12 +24,34 @@ import SwiftUI
 struct CapabilityApprovalSheetView: View {
     let layout: CapabilityPickerLayout
     let agentName: String?
+    /// True while the approval pipeline (backend grant confirmation + result
+    /// send) runs; the primary button shows progress and won't re-submit.
+    let isApproving: Bool
+    /// Non-nil when the last approval attempt failed (grant POST or result
+    /// send). Rendered above the primary button, which becomes a retry.
+    let approvalErrorMessage: String?
     let onApprove: (Set<ProviderID>, [String: Set<String>]) -> Void
+
+    init(
+        layout: CapabilityPickerLayout,
+        agentName: String?,
+        isApproving: Bool = false,
+        approvalErrorMessage: String? = nil,
+        onApprove: @escaping (Set<ProviderID>, [String: Set<String>]) -> Void
+    ) {
+        self.layout = layout
+        self.agentName = agentName
+        self.isApproving = isApproving
+        self.approvalErrorMessage = approvalErrorMessage
+        self.onApprove = onApprove
+    }
 
     var body: some View {
         ApprovalSheetContent(
             layout: layout,
             agentName: agentName,
+            isApproving: isApproving,
+            approvalErrorMessage: approvalErrorMessage,
             onApprove: onApprove
         )
         // Reseed the selection state if a newer request replaces the layout
@@ -89,6 +111,8 @@ struct CapabilityApprovalSheetView: View {
 private struct ApprovalSheetContent: View {
     let layout: CapabilityPickerLayout
     let agentName: String?
+    let isApproving: Bool
+    let approvalErrorMessage: String?
     let onApprove: (Set<ProviderID>, [String: Set<String>]) -> Void
 
     @State private var selection: Set<ProviderID>
@@ -100,10 +124,14 @@ private struct ApprovalSheetContent: View {
     init(
         layout: CapabilityPickerLayout,
         agentName: String?,
+        isApproving: Bool,
+        approvalErrorMessage: String?,
         onApprove: @escaping (Set<ProviderID>, [String: Set<String>]) -> Void
     ) {
         self.layout = layout
         self.agentName = agentName
+        self.isApproving = isApproving
+        self.approvalErrorMessage = approvalErrorMessage
         self.onApprove = onApprove
         _selection = State(initialValue: CapabilityApprovalSheetView.seedSelection(for: layout))
         _enabledBundleIds = State(initialValue: CapabilityApprovalSheetView.seedBundleSelection(for: layout))
@@ -364,16 +392,36 @@ private struct ApprovalSheetContent: View {
 
     // MARK: - Primary button
 
+    /// "Connect" tells the user an OAuth / OS-permission step comes first;
+    /// "Done" is the Figma label for the grant-only confirmation. A failed
+    /// attempt turns the same tap into an explicit retry, and the in-flight
+    /// pipeline announces itself instead of appearing to do nothing.
+    private var approveButtonTitle: String {
+        if isApproving {
+            return "Confirming…"
+        }
+        if approvalErrorMessage != nil {
+            return "Try Again"
+        }
+        return needsConnect ? "Connect" : "Done"
+    }
+
     private var approveButton: some View {
         let approveAction: () -> Void = {
             onApprove(selection, approvedBundleSelection)
         }
-        // "Connect" tells the user an OAuth / OS-permission step comes first;
-        // "Done" is the Figma label for the grant-only confirmation.
-        return Button(needsConnect ? "Connect" : "Done", action: approveAction)
-            .convosButtonStyle(.rounded(fullWidth: true))
-            .disabled(!approveEnabled)
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
+        let buttonDisabled: Bool = !approveEnabled || isApproving
+        return VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            if let approvalErrorMessage {
+                Text(approvalErrorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.colorCaution)
+            }
+            Button(approveButtonTitle, action: approveAction)
+                .convosButtonStyle(.rounded(fullWidth: true))
+                .disabled(buttonDisabled)
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
 
     private enum Constant {
@@ -385,13 +433,16 @@ private struct ApprovalSheetContent: View {
 }
 
 /// The design system's wide switch (68x28 track, 39x24 knob) from the Figma
-/// permission row — a stock `UISwitch` is 51x31 and visibly different.
+/// permission row — a stock `UISwitch` is 51x31 and visibly different. The
+/// on-state track uses the app's semantic green (the stock switch's on
+/// color); a luminosity-dependent fill would render white-on-white against
+/// the dark sheet.
 private struct WideSwitchToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         let action = { configuration.isOn.toggle() }
         return Button(action: action) {
             RoundedRectangle(cornerRadius: Constant.trackCornerRadius)
-                .fill(configuration.isOn ? Color.colorFillPrimary : Color.colorFillTertiary)
+                .fill(configuration.isOn ? Color.colorGreen : Color.colorFillTertiary)
                 .frame(width: Constant.trackWidth, height: Constant.trackHeight)
                 .overlay(alignment: configuration.isOn ? .trailing : .leading) {
                     RoundedRectangle(cornerRadius: Constant.trackCornerRadius)

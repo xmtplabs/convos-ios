@@ -9,6 +9,11 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
     let selectedConversationId: String?
     let isFilteredResultEmpty: Bool
     let filterEmptyMessage: String
+    var hasMoreConversations: Bool = false
+    /// False while the boot catch-up burst is still landing; the view
+    /// controller applies snapshots without diffing or animation until
+    /// this flips. See `BootSettlementMonitor`.
+    var isBootSettled: Bool = true
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.memberContactOverride) private var memberContactOverride: @Sendable (String) -> Contact?
 
@@ -20,6 +25,10 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
     var onToggleReadState: ((Conversation) -> Void)?
     var onTogglePin: ((Conversation) -> Void)?
     var onShowAllFilter: (() -> Void)?
+    var onScrollOffsetChange: ((CGFloat) -> Void)?
+    var onLoadMoreConversations: (() -> Void)?
+    var topChromeInset: CGFloat = 0
+    var bottomChromeInset: CGFloat = 0
 
     func makeUIViewController(context: Context) -> ConversationsViewController {
         let viewController = ConversationsViewController()
@@ -35,10 +44,14 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
             selectedConversationId: selectedConversationId,
             isFilteredResultEmpty: isFilteredResultEmpty,
             filterEmptyMessage: filterEmptyMessage,
-            horizontalSizeClass: horizontalSizeClass
+            horizontalSizeClass: horizontalSizeClass,
+            hasMoreConversations: hasMoreConversations,
+            isBootSettled: isBootSettled
         )
         viewController.memberContactOverride = memberContactOverride
         viewController.updateState(state)
+        viewController.topChromeInset = topChromeInset
+        viewController.bottomChromeInset = bottomChromeInset
 
         // Update callbacks in case they changed
         configureCallbacks(viewController)
@@ -52,5 +65,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
         viewController.onToggleReadState = onToggleReadState
         viewController.onTogglePin = onTogglePin
         viewController.onShowAllFilter = onShowAllFilter
+        viewController.onScrollOffsetChange = onScrollOffsetChange
+        viewController.onLoadMoreConversations = onLoadMoreConversations
     }
 }

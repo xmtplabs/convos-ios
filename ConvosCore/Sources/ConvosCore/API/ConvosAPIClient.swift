@@ -1217,18 +1217,31 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             // "bundleId": "<id>"}` — no `message`/`error` key, so
             // `parseErrorMessage` passes the raw JSON body through. Decode it
             // here so callers get a typed staleness signal they can retry on.
-            struct GrantErrorBody: Decodable {
-                let code: String
-                let bundleId: String?
-            }
-            if let message,
-               let data = message.data(using: .utf8),
-               let body = try? JSONDecoder().decode(GrantErrorBody.self, from: data),
-               body.code == "unknown_bundle" {
+            if let body = Self.grantErrorBody(from: message), body.code == "unknown_bundle" {
                 throw CloudConnectionsAPI.GrantError.unknownBundle(bundleId: body.bundleId)
             }
             throw APIError.badRequest(message)
+        } catch let APIError.serverError(message) {
+            // The live-credential gate's 409 body is `{"code":
+            // "connection_not_found"}`; performRequest folds non-subscription
+            // 409s into serverError with the raw body as the message. Decode
+            // it here so callers can drive the (re)connect flow instead of
+            // surfacing a generic failure.
+            if let body = Self.grantErrorBody(from: message), body.code == "connection_not_found" {
+                throw CloudConnectionsAPI.GrantError.connectionNotFound
+            }
+            throw APIError.serverError(message)
         }
+    }
+
+    private struct GrantErrorBody: Decodable {
+        let code: String
+        let bundleId: String?
+    }
+
+    private static func grantErrorBody(from message: String?) -> GrantErrorBody? {
+        guard let message, let data = message.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(GrantErrorBody.self, from: data)
     }
 
     func revokeConnectionGrant(id: String) async throws {

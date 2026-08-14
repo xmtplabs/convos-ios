@@ -15,6 +15,21 @@ struct ConversationsView: View {
     /// the conversation list only; `MainTabView` does not use it, but the
     /// hook stays in case downstream callers need it.
     var sidebarBottomAccessory: AnyView?
+    /// Fired with the conversation list's current scroll content-offset Y
+    /// on every scroll tick, forwarded from `ConversationsViewController`,
+    /// so the shell can react to the list leaving the top.
+    var onScrollOffsetChange: ((CGFloat) -> Void)?
+    /// Extra top inset (in points) for the conversation list to clear
+    /// whatever SwiftUI top chrome the shell renders as a
+    /// `safeAreaInset(.top)` under the nav bar. SwiftUI's safe-area chain
+    /// doesn't reliably propagate that inset to the UIKit collection view,
+    /// so we plumb it through explicitly. The list still scrolls under the
+    /// chrome (so it can blur/fade over the content); this inset just sets
+    /// where the content rests at the top.
+    var topChromeInset: CGFloat = 0
+    /// Bottom counterpart to `topChromeInset`, for chrome pinned to the
+    /// bottom edge (iPad, where the tab bar is at the top).
+    var bottomChromeInset: CGFloat = 0
 
     @Namespace private var namespace: Namespace.ID
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -148,6 +163,8 @@ struct ConversationsView: View {
             selectedConversationId: viewModel.selectedConversationId,
             isFilteredResultEmpty: viewModel.isFilteredResultEmpty,
             filterEmptyMessage: viewModel.activeFilter.emptyStateMessage,
+            hasMoreConversations: viewModel.hasMoreConversations,
+            isBootSettled: viewModel.bootSettlement.isSettled,
             onSelectConversation: { conversation in
                 viewModel.select(conversation)
             },
@@ -166,7 +183,11 @@ struct ConversationsView: View {
             onTogglePin: { conversation in
                 viewModel.togglePin(conversation: conversation)
             },
-            onShowAllFilter: { viewModel.activeFilter = .all }
+            onShowAllFilter: { viewModel.activeFilter = .all },
+            onScrollOffsetChange: onScrollOffsetChange,
+            onLoadMoreConversations: { viewModel.loadMoreConversationsIfNeeded() },
+            topChromeInset: topChromeInset,
+            bottomChromeInset: bottomChromeInset
         )
         .ignoresSafeArea(edges: ignoredSafeAreaEdges)
     }

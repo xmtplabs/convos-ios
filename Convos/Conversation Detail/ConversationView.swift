@@ -100,6 +100,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// that pops pages, and hides the add-members item.
     @State private var homeBrowserEntries: [HomeBrowserEntry] = []
     @State private var showingDebugInjector: Bool = false
+    /// Consent surface for agent ability-use asks, managed by
+    /// `prepareEscalationIfNeeded` keyed on `escalationTaskKey` (nil while
+    /// the abilities flag is off or the conversation has no agent; rebuilt
+    /// when the shown conversation changes).
+    @State private var escalationViewModel: ConversationEscalationViewModel?
     @State private var presentingAddFromContactsPicker: Bool = false
     /// Drives the system share sheet behind the top bar's invite-link button.
     @State private var presentingInviteShareSheet: Bool = false
@@ -275,6 +280,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         // flag is on. Absent, the composer draws no bubble at all.
         .environment(\.agentParticipation, participationContext)
         .task(id: participationTaskKey) { await prepareParticipation() }
+        .task(id: escalationTaskKey) { prepareEscalationIfNeeded() }
         // The mode rides the group's appData, so another member's change lands
         // as a change to this conversation's synced row and the bubble follows
         // it - nothing here polls.
@@ -508,6 +514,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onDisappear {
             viewModel.onConversationDisappeared()
             navigator?.closed(context: navState.closeContext())
+            escalationViewModel?.stopObserving()
         }
         // Keep the edge-swipe back gesture, drop the content-area one while
         // this screen is up (see ContentPopGestureDisabler).
@@ -1122,30 +1129,13 @@ private extension ConversationView {
         }
     }
 
-    /// Extra rows above the group composer: the injected bottom-bar slot
-    /// (e.g. the Agent Builder's chrome) plus the capability-approved toast /
-    /// onboarding pair. Capability requests no longer auto-present a card
-    /// here: the transcript's connect pill is the single entry point and
-    /// opens the approval sheet.
+    /// Extra rows above the group composer: the injected bottom-bar slot plus
+    /// the status slot. The composer lives in the conversation sheet now, so
+    /// this is where that pair renders.
     var groupExtraBarContent: some View {
-        @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
-        return VStack(spacing: DesignConstants.Spacing.step3x) {
+        VStack(spacing: DesignConstants.Spacing.step3x) {
             bottomBarContent()
-
-            Group {
-                if viewModel.showsCapabilityApprovedToast {
-                    CapabilityApprovedToastView()
-                        .transition(.blurReplace)
-                } else {
-                    ConversationOnboardingView(
-                        coordinator: onboardingCoordinator,
-                        focusCoordinator: focusCoordinator,
-                        coreActions: viewModel.coreActions
-                    )
-                    .transition(.blurReplace)
-                }
-            }
-            .animation(.spring(duration: 0.4, bounce: 0.2), value: viewModel.showsCapabilityApprovedToast)
+            bottomBarStatusSlot
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
@@ -1477,5 +1467,93 @@ private extension ConversationView {
         )
         store.apply(syncedLevel: AgentParticipationLevel(mode: mode))
         participation = store
+    }
+}
+
+/// Which view occupies the status slot under the composer; also the
+/// animation value for the slot's transitions, so the whole slot animates
+/// on one Equatable instead of stacking per-branch `.animation` modifiers.
+private enum ConversationBottomBarSlot: Equatable {
+    case capabilityApprovedToast
+    case escalationPrompt(requestId: String)
+    case onboarding
+}
+
+// MARK: - Bottom bar status slot
+
+private extension ConversationView {
+    /// Toast wins, then a pending agent ability-use ask, then onboarding.
+    var bottomBarSlot: ConversationBottomBarSlot {
+        if viewModel.showsCapabilityApprovedToast {
+            return .capabilityApprovedToast
+        }
+        if let request = escalationViewModel?.pendingRequest {
+            return .escalationPrompt(requestId: request.id)
+        }
+        return .onboarding
+    }
+
+    /// The status slot under the composer. Capability requests no longer
+    /// auto-present a card here: the transcript's connect pill is the
+    /// single entry point for those and opens the approval sheet. The slot
+    /// keeps the post-approval toast, the agent ability-use consent card,
+    /// and the onboarding view.
+    var bottomBarStatusSlot: some View {
+        @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
+        return Group {
+            switch bottomBarSlot {
+            case .capabilityApprovedToast:
+                CapabilityApprovedToastView()
+                    .transition(.blurReplace)
+            case .escalationPrompt:
+                if let escalationViewModel {
+                    AbilityEscalationPromptSurface(viewModel: escalationViewModel)
+                        .transition(.blurReplace)
+                }
+            case .onboarding:
+                ConversationOnboardingView(
+                    coordinator: onboardingCoordinator,
+                    focusCoordinator: focusCoordinator,
+                    coreActions: viewModel.coreActions
+                )
+                .transition(.blurReplace)
+            }
+        }
+        .animation(.spring(duration: 0.4, bounce: 0.2), value: bottomBarSlot)
+    }
+
+    /// Keys the escalation `.task` on the conversation AND on whether it
+    /// has an agent, mirroring `participationTaskKey`: a view instance that
+    /// pages to another conversation rebuilds the model for the new stream,
+    /// and an agent that joins an already-open conversation starts
+    /// observation without needing a re-appear.
+    var escalationTaskKey: String {
+        "\(viewModel.conversation.id)-\(viewModel.conversation.hasAgent)"
+    }
+
+    /// Builds the escalation view model when the Abilities V2 flag is on
+    /// and the conversation has an agent. The flag is read once and latched
+    /// -- same posture as `ConversationInfoView.AgentAccessMode`. Runs from
+    /// a `.task` keyed on `escalationTaskKey`, so re-appearance restarts
+    /// stream observation and a conversation change rebuilds the model.
+    func prepareEscalationIfNeeded() {
+        if let escalationViewModel, escalationViewModel.conversationId != viewModel.conversation.id {
+            escalationViewModel.stopObserving()
+            self.escalationViewModel = nil
+        }
+        if let escalationViewModel {
+            escalationViewModel.startObserving()
+            return
+        }
+        guard FeatureFlags.shared.isAbilitiesV2Enabled,
+              viewModel.conversation.hasAgent else {
+            return
+        }
+        let escalation = ConversationEscalationViewModel(
+            conversationId: viewModel.conversation.id,
+            selection: AbilitiesServices.selection
+        )
+        escalation.startObserving()
+        escalationViewModel = escalation
     }
 }

@@ -359,8 +359,8 @@ struct ConnectionGrantWriterTests {
         #expect(stored.first?.backendGrantId == "backend-grant-1")
     }
 
-    @Test("Grant: backend push failure keeps the local grant with a nil backend id")
-    func grantSurvivesBackendPushFailure() async throws {
+    @Test("Grant: backend push failure rolls the local grant back and the next attempt retries the push")
+    func grantRollsBackOnPushFailureAndRetrySucceeds() async throws {
         let recordingClient = RecordingGrantAPIClient()
         struct PushFailure: Error {}
         recordingClient.createError = PushFailure()
@@ -371,11 +371,205 @@ struct ConnectionGrantWriterTests {
         let conversationId = "conv_backend_fail"
         try fixture.seedConversation(id: conversationId)
 
+        // The wedge this pins: a leftover unconfirmed row made the toggle's
+        // routing treat the grant as applied, so no grant POST was ever
+        // attempted again for the conversation/provider.
+        await #expect(throws: PushFailure.self) {
+            try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+        }
+
+        let storedAfterFailure = try fixture.storedGrants(for: conversationId)
+        #expect(storedAfterFailure.isEmpty, "a failed enable must leave no unconfirmed row behind")
+
+        // The rollback republishes the metadata without the failed grant, so
+        // the group stops over-claiming it.
+        #expect(fixture.metadataWriter.updates.count == 2)
+        let rollbackPublish = try #require(fixture.metadataWriter.updates.last)
+        #expect(rollbackPublish.conversationId == conversationId)
+        #expect(rollbackPublish.metadata.isEmpty)
+
+        // With the backend healthy again, the same call retries the push and
+        // confirms — nothing from the failed attempt blocks it.
+        recordingClient.createError = nil
         try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
 
+        #expect(recordingClient.createCalls.count == 2, "the retry re-attempts the grant POST")
         let stored = try fixture.storedGrants(for: conversationId)
-        #expect(stored.count == 1, "local grant should stand when the backend push fails")
-        #expect(stored.first?.backendGrantId == nil)
+        #expect(stored.count == 1)
+        #expect(stored.first?.backendGrantId == "backend-grant-2")
+    }
+
+    @Test("Grant: state left by a failed push does not survive a relaunch — a fresh writer grants cleanly")
+    func grantFailureStateHealsAcrossRelaunch() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        struct PushFailure: Error {}
+        recordingClient.createError = PushFailure()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_relaunch_heal"
+        try fixture.seedConversation(id: conversationId)
+
+        await #expect(throws: PushFailure.self) {
+            try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+        }
+
+        // Relaunch equivalent at the state level: only the database survives.
+        // A fresh writer stack over the same database finds no poisoned row
+        // and a fresh enable succeeds end to end.
+        let relaunchClient = RecordingGrantAPIClient()
+        let relaunchMetadataWriter = MockProfileMetadataWriter()
+        let relaunchWriter = CloudConnectionGrantWriter(
+            sessionStateManager: MockSessionStateManager(
+                mockClient: MockXMTPClientProvider(inboxId: "mock-inbox-id"),
+                mockAPIClient: relaunchClient
+            ),
+            databaseWriter: fixture.databaseManager.dbWriter,
+            databaseReader: fixture.databaseManager.dbReader,
+            profileMetadataWriter: relaunchMetadataWriter,
+            servicesStore: ConnectionServicesStore(fetchServices: {
+                try await relaunchClient.getConnectionServices()
+            })
+        )
+
+        let repository = CloudConnectionRepository(databaseReader: fixture.databaseManager.dbReader)
+        let grantsAfterRelaunch = try await repository.grants(for: conversationId)
+        #expect(grantsAfterRelaunch.isEmpty, "no wedged grant row may survive into the next launch")
+
+        try await relaunchWriter.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+
+        #expect(relaunchClient.createCalls.count == 1)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.count == 1)
+        #expect(stored.first?.backendGrantId == "backend-grant-1")
+    }
+
+    @Test("Confirming grant: backend push failure propagates and the local row is rolled back for retry")
+    func confirmingGrantThrowsWhenBackendPushFails() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        struct PushFailure: Error {}
+        recordingClient.createError = PushFailure()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_confirm_fail"
+        try fixture.seedConversation(id: conversationId)
+
+        var caughtExpectedError: Bool = false
+        do {
+            try await fixture.writer.grantConnectionConfirmingBackend(
+                connection.id,
+                to: conversationId,
+                grantedToInboxId: "agent-1",
+                bundleIds: nil
+            )
+            Issue.record("Expected grantConnectionConfirmingBackend to throw")
+        } catch is PushFailure {
+            caughtExpectedError = true
+        } catch {
+            Issue.record("Expected PushFailure but got \(error)")
+        }
+        #expect(caughtExpectedError, "the swallowed-error path is exactly what this variant removes")
+
+        // Same rollback posture as grantConnection: nothing unconfirmed is
+        // left behind, so the approval flow's retry re-runs the whole persist
+        // and push (which it does unconditionally anyway).
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.isEmpty)
+    }
+
+    @Test("Confirming grant: a failed re-push restores the prior confirmed row instead of dropping it")
+    func confirmingGrantRestoresPriorConfirmedRowOnPushFailure() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        struct PushFailure: Error {}
+        recordingClient.createError = PushFailure()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_confirm_reapprove_fail"
+        try fixture.seedConversation(id: conversationId)
+        try fixture.seedGrant(
+            connectionId: connection.id,
+            conversationId: conversationId,
+            serviceId: connection.serviceId,
+            backendGrantId: "backend-grant-prior"
+        )
+
+        // A re-approval over a confirmed grant re-runs the push (a cached id
+        // is not proof of server state). When that re-push fails, the
+        // rollback must restore the confirmed row — the backend still holds
+        // the grant, and dropping the row would show the toggle off while
+        // the agent keeps executing.
+        await #expect(throws: PushFailure.self) {
+            try await fixture.writer.grantConnectionConfirmingBackend(
+                connection.id,
+                to: conversationId,
+                grantedToInboxId: "agent-1",
+                bundleIds: nil
+            )
+        }
+
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.count == 1)
+        #expect(stored.first?.backendGrantId == "backend-grant-prior")
+    }
+
+    @Test("Confirming grant: successful push stores the backend id and does not throw")
+    func confirmingGrantStoresBackendIdOnSuccess() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_confirm_ok"
+        try fixture.seedConversation(id: conversationId)
+
+        try await fixture.writer.grantConnectionConfirmingBackend(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: nil
+        )
+
+        #expect(recordingClient.createCalls.count == 1)
+        let stored = try fixture.storedGrants(for: conversationId)
+        #expect(stored.first?.backendGrantId == "backend-grant-1")
+    }
+
+    @Test("Confirming grant: a local persistence failure after a confirmed push does not throw")
+    func confirmingGrantSurvivesLocalPersistenceFailureAfterConfirmedPush() async throws {
+        let recordingClient = RecordingGrantAPIClient()
+        let fixture = Fixture(apiClient: recordingClient)
+        defer { fixture.cleanup() }
+
+        let connection = try fixture.seedConnection()
+        let conversationId = "conv_confirm_persist_fail"
+        try fixture.seedConversation(id: conversationId)
+
+        // Sabotage the grant table between the confirmed POST and the
+        // writer's follow-up bookkeeping, so persisting the returned backend
+        // id fails while the backend grant is live. Throwing here would make
+        // the caller treat the confirmed authorization as unconfirmed and
+        // surface a retryable error for a grant that already exists.
+        let databaseWriter = fixture.databaseManager.dbWriter
+        recordingClient.onCreateSuccess = {
+            try await databaseWriter.write { db in
+                try db.drop(table: DBCloudConnectionGrant.databaseTableName)
+            }
+        }
+
+        try await fixture.writer.grantConnectionConfirmingBackend(
+            connection.id,
+            to: conversationId,
+            grantedToInboxId: "agent-1",
+            bundleIds: nil
+        )
+
+        #expect(recordingClient.createCalls.count == 1,
+                "the push reached the backend and was confirmed; only the local id write failed")
     }
 
     @Test("Revoke: revokes the backend grant by natural key when a backend id is stored")
@@ -524,15 +718,17 @@ struct ConnectionGrantWriterTests {
         let conversationId = "conv_zero_bundles"
         try fixture.seedConversation(id: conversationId)
 
-        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+        await #expect(throws: CloudConnectionGrantError.self) {
+            try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+        }
 
         // A cataloged service with zero bundles must not materialize an empty
         // bundleIds array: the backend's legacy path treats that as
-        // whole-toolkit access. The push is skipped entirely.
+        // whole-toolkit access. The push is skipped entirely and the local
+        // grant is rolled back, same as any push failure.
         #expect(recordingClient.createCalls.isEmpty)
         let stored = try fixture.storedGrants(for: conversationId)
-        #expect(stored.count == 1, "the local grant still stands, same as any push failure")
-        #expect(stored.first?.backendGrantId == nil)
+        #expect(stored.isEmpty)
     }
 
     @Test("Grant: fails closed on an explicit empty selection — never pushed as whole-toolkit")
@@ -548,19 +744,21 @@ struct ConnectionGrantWriterTests {
         let conversationId = "conv_empty_selection"
         try fixture.seedConversation(id: conversationId)
 
-        try await fixture.writer.grantConnection(
-            connection.id,
-            to: conversationId,
-            grantedToInboxId: "agent-1",
-            bundleIds: []
-        )
+        await #expect(throws: CloudConnectionGrantError.self) {
+            try await fixture.writer.grantConnection(
+                connection.id,
+                to: conversationId,
+                grantedToInboxId: "agent-1",
+                bundleIds: []
+            )
+        }
 
         // An explicit empty selection means the user approved zero bundles;
         // pushing it would escalate to whole-toolkit access (the backend
         // treats an empty array as the legacy whole-toolkit path).
         #expect(recordingClient.createCalls.isEmpty)
         let stored = try fixture.storedGrants(for: conversationId)
-        #expect(stored.first?.backendGrantId == nil)
+        #expect(stored.isEmpty)
     }
 
     @Test("Grant: explicit empty selection fails closed even for an uncataloged service")
@@ -576,16 +774,18 @@ struct ConnectionGrantWriterTests {
         let conversationId = "conv_empty_uncataloged"
         try fixture.seedConversation(id: conversationId)
 
-        try await fixture.writer.grantConnection(
-            connection.id,
-            to: conversationId,
-            grantedToInboxId: "agent-1",
-            bundleIds: []
-        )
+        await #expect(throws: CloudConnectionGrantError.self) {
+            try await fixture.writer.grantConnection(
+                connection.id,
+                to: conversationId,
+                grantedToInboxId: "agent-1",
+                bundleIds: []
+            )
+        }
 
         #expect(recordingClient.createCalls.isEmpty)
         let stored = try fixture.storedGrants(for: conversationId)
-        #expect(stored.first?.backendGrantId == nil)
+        #expect(stored.isEmpty)
     }
 
     @Test("Grant: unknown_bundle refetches the catalog, drops unknown ids, and retries once")
@@ -643,19 +843,20 @@ struct ConnectionGrantWriterTests {
         let conversationId = "conv_stale_twice"
         try fixture.seedConversation(id: conversationId)
 
-        try await fixture.writer.grantConnection(
-            connection.id,
-            to: conversationId,
-            grantedToInboxId: "agent-1",
-            bundleIds: ["calendar.events"]
-        )
+        await #expect(throws: CloudConnectionsAPI.GrantError.self) {
+            try await fixture.writer.grantConnection(
+                connection.id,
+                to: conversationId,
+                grantedToInboxId: "agent-1",
+                bundleIds: ["calendar.events"]
+            )
+        }
 
         // Two attempts (original + one retry), then the push is abandoned:
-        // the local grant stands with no backend id, same as any push failure.
+        // the local grant is rolled back, same as any push failure.
         #expect(recordingClient.createCalls.count == 2)
         let stored = try fixture.storedGrants(for: conversationId)
-        #expect(stored.count == 1)
-        #expect(stored.first?.backendGrantId == nil)
+        #expect(stored.isEmpty)
     }
 
     @Test("Grant: fails closed when the refreshed catalog knows none of the selected bundles")
@@ -675,18 +876,20 @@ struct ConnectionGrantWriterTests {
         let conversationId = "conv_vanished"
         try fixture.seedConversation(id: conversationId)
 
-        try await fixture.writer.grantConnection(
-            connection.id,
-            to: conversationId,
-            grantedToInboxId: "agent-1",
-            bundleIds: ["calendar.old"]
-        )
+        await #expect(throws: CloudConnectionGrantError.self) {
+            try await fixture.writer.grantConnection(
+                connection.id,
+                to: conversationId,
+                grantedToInboxId: "agent-1",
+                bundleIds: ["calendar.old"]
+            )
+        }
 
         // No retry: pushing an empty bundle set would escalate to whole-toolkit
         // access, strictly more than the user approved.
         #expect(recordingClient.createCalls.count == 1)
         let stored = try fixture.storedGrants(for: conversationId)
-        #expect(stored.first?.backendGrantId == nil)
+        #expect(stored.isEmpty)
     }
 
     @Test("Grant: catalog outage with no explicit selection fails closed — no whole-toolkit push")
@@ -701,15 +904,17 @@ struct ConnectionGrantWriterTests {
         let conversationId = "conv_outage"
         try fixture.seedConversation(id: conversationId)
 
-        try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+        await #expect(throws: CloudConnectionGrantError.self) {
+            try await fixture.writer.grantConnection(connection.id, to: conversationId, grantedToInboxId: "agent-1")
+        }
 
         // An unreachable catalog must not be conflated with "service not in
         // catalog": omitting bundleIds here could grant whole-toolkit access
-        // for a service that IS cataloged. The push is skipped entirely.
+        // for a service that IS cataloged. The push is skipped entirely and
+        // the local grant is rolled back, same as any push failure.
         #expect(recordingClient.createCalls.isEmpty)
         let stored = try fixture.storedGrants(for: conversationId)
-        #expect(stored.count == 1, "the local grant still stands, same as any push failure")
-        #expect(stored.first?.backendGrantId == nil)
+        #expect(stored.isEmpty)
     }
 
     @Test("Grant: catalog outage with an explicit selection pushes it unfiltered, no version")
@@ -805,6 +1010,10 @@ private final class RecordingGrantAPIClient: TestStubAPIClient {
     var servicesFetchCount: Int = 0
     /// When set, every catalog fetch fails — models a backend/network outage.
     var servicesError: Error?
+    /// Runs after a create call succeeds, just before its response is
+    /// returned — lets a test sabotage local state between the confirmed
+    /// POST and the writer's follow-up bookkeeping.
+    var onCreateSuccess: (() async throws -> Void)?
 
     override func getConnectionServices() async throws -> CloudConnectionsAPI.ServicesResponse {
         servicesFetchCount += 1
@@ -842,6 +1051,7 @@ private final class RecordingGrantAPIClient: TestStubAPIClient {
         if !createErrorQueue.isEmpty {
             throw createErrorQueue.removeFirst()
         }
+        try await onCreateSuccess?()
         return CloudConnectionsAPI.CreateGrantResponse(id: "backend-grant-\(createCalls.count)")
     }
 

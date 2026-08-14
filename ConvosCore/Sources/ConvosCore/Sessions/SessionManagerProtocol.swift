@@ -170,6 +170,12 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse
 
+    /// Configures the gate consulted before auto-enabling the user's live
+    /// cloud connections for an agent they add. The host app wires this to
+    /// the flag check that decides whether the v1 connections toggle
+    /// renders; sessions that are never configured leave auto-enable off.
+    func configureAutoEnableAbilities(isEnabled: @escaping @Sendable () async -> Bool)
+
     /// Opportunistic foreground republish of the user's timezone across every
     /// agent conversation (agent-timezone Channel B refresh). Throttled so a
     /// conversation is only republished when the device timezone changed since
@@ -212,6 +218,10 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func inviteMembershipResolver() -> any InviteMembershipResolving
 
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol
+    /// Windowed variant of `conversationsRepository` for the conversations
+    /// list screen: pinned rows unlimited, unpinned rows behind a growing
+    /// LIMIT window. Full-list consumers keep using `conversationsRepository`.
+    func conversationsPager(for consent: [Consent]) -> any ConversationsPagerProtocol
     func conversationsCountRepo(
         for consent: [Consent],
         kinds: [ConversationKind]
@@ -351,4 +361,11 @@ extension SessionManagerProtocol {
     ) async throws -> ConvosAPI.AgentJoinResponse {
         try await addAgentToConversation(conversationId: conversationId, templateId: templateId, options: nil, forceErrorCode: nil)
     }
+
+    /// Configures the gate for auto-enabling the user's live cloud
+    /// connections when they add an agent. Default no-op so conformers
+    /// without the grant machinery (test mocks) compile unchanged; the
+    /// real storage lives on `SessionManager`, and an unconfigured session
+    /// leaves auto-enable off.
+    public func configureAutoEnableAbilities(isEnabled _: @escaping @Sendable () async -> Bool) {}
 }
