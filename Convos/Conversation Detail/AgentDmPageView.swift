@@ -15,6 +15,9 @@ import SwiftUI
 /// disabled.
 struct AgentDmPageView: View {
     let session: AgentDmSession
+    /// Backs the contact card opened from an avatar tap, the same way the
+    /// group transcript's does.
+    @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     /// Clearance for the conversation sheet floating over the transcript.
     /// Owned by ConversationView, which keeps it fed with the sheet's
     /// measured height.
@@ -300,7 +303,7 @@ struct AgentDmPageView: View {
             onClearInvite: dmVm.clearPendingInvite,
             onClearLinkPreview: { dmVm.pastedLinkPreview = nil },
             onClearMediaAttachment: dmVm.removeMediaAttachment(id:),
-            onTapAvatar: { _ in },
+            onTapAvatar: dmVm.onTapAvatar(_:),
             onTapInvite: { _ in },
             agentShareResolver: dmVm.agentShareResolver,
             onReaction: dmVm.onReaction(emoji:messageId:),
@@ -336,7 +339,7 @@ struct AgentDmPageView: View {
             onAboutAgents: {},
             onAgentOutOfCredits: { dmVm.presentingPaywall = true },
             agentPowerDepletedByInboxId: dmVm.agentPowerDepletedByInboxId,
-            onTapUpdateMember: { _ in },
+            onTapUpdateMember: { dmVm.presentingProfileForMember = $0 },
             onRetryMessage: dmVm.retryMessage(_:),
             onDeleteMessage: dmVm.deleteMessage(_:),
             onRetryAgentJoin: {},
@@ -346,7 +349,7 @@ struct AgentDmPageView: View {
             onRetryTranscript: { item in
                 dmVm.retryTranscript(for: item)
             },
-            profileSheetForMember: { _ in AnyView(EmptyView()) },
+            profileSheetForMember: { member in AnyView(memberContactDetailSheet(for: member, dmVm: dmVm)) },
             memberContactOverride: contactOverride(for: dmVm),
             isAgentJoinPending: false,
             // .suppressed is the one mode that hides every leading affordance
@@ -370,6 +373,12 @@ struct AgentDmPageView: View {
     private func dmMessagesViewWithSheets(_ dmVm: ConversationViewModel) -> some View {
         @Bindable var dmVm = dmVm
         return dmMessagesView(dmVm)
+            .sheet(item: $dmVm.presentingProfileForMember) { member in
+                memberContactDetailSheet(for: member, dmVm: dmVm)
+            }
+            .sheet(isPresented: $dmVm.presentingProfileSettings) {
+                ProfileSetupSheet(mode: .edit)
+            }
             .selfSizingSheet(item: $dmVm.presentingReactionsForMessage) { message in
                 reactionsDrawer(for: message, dmVm: dmVm)
             }
@@ -402,6 +411,20 @@ struct AgentDmPageView: View {
         PaywallView(viewModel: paywallViewModel)
     }
 
+    /// The contact card for a tapped avatar. `onStartAgentDm` is nil: the
+    /// only agent reachable from here is the one whose DM this already is.
+    private func memberContactDetailSheet(
+        for member: ConversationMember,
+        dmVm: ConversationViewModel
+    ) -> some View {
+        MemberContactDetailSheetContent(
+            viewModel: dmVm,
+            member: member,
+            profileSettingsViewModel: profileSettingsViewModel,
+            onStartAgentDm: nil
+        )
+    }
+
     @ViewBuilder
     private func reactionsDrawer(for message: AnyMessage, dmVm: ConversationViewModel) -> some View {
         ReactionsDrawerView(message: message) { reaction in
@@ -423,7 +446,7 @@ struct AgentDmPageView: View {
             descriptor: descriptor,
             conversation: dmVm.conversation,
             viewModel: dmVm,
-            profileSheetForMember: { _ in AnyView(EmptyView()) }
+            profileSheetForMember: { member in AnyView(memberContactDetailSheet(for: member, dmVm: dmVm)) }
         )
     }
 

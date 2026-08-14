@@ -1032,6 +1032,7 @@ private extension ConversationView {
             if visitedTabs.contains(.agent), let agentDmSession {
                 AgentDmPageView(
                     session: agentDmSession,
+                    profileSettingsViewModel: profileSettingsViewModel,
                     extraBottomInset: transcriptBottomInset,
                     isReadOnly: effectiveReadOnly,
                     isActiveTab: selectedTab == .agent,
