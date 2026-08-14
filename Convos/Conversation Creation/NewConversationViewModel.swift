@@ -470,6 +470,10 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.isExistingConversation = false
         self.showingFullScreenScanner = showingFullScreenScanner
         self.allowsDismissingScanner = allowsDismissingScanner
+        // `acquireInbox` records the warm-cache id as the claimed row before
+        // configuring; mirror that here so a fixture built with one starts in
+        // the same state the real flow reaches.
+        self.claimedConversationId = existingConversationId
 
         configureWithMessagingService(
             messagingService,
@@ -571,12 +575,6 @@ class NewConversationViewModel: Identifiable, Hashable {
         }
     }
 
-    /// The emoji the conversation this flow is about to claim will carry.
-    /// Emoji are derived from the conversation id, and this screen opens on a
-    /// placeholder whose id is a throwaway draft, so without this the header
-    /// paints one emoji and swaps to another the moment the real conversation
-    /// binds. Nil when the pool is empty, which is the one case that still
-    /// swaps - there is no id to derive from yet.
     /// The emoji the conversation this flow is about to claim will carry.
     /// Emoji are derived from the conversation id, and this screen opens on a
     /// placeholder whose id is a throwaway draft, so without this the header

@@ -29,14 +29,9 @@ final class NewConversationViewModelInviteShareTests: XCTestCase {
     }
 
     func testMarkInviteSharedPersistsForTheClaimedConversation() async {
-        let fixtures = makeFixtures()
+        let fixtures = makeFixtures(claimedConversationId: Constant.claimedId)
 
-        // Embedded auto-create: the state machine published a visible group
-        // and the VM adopts its id as the claimed row at `.ready`.
-        fixtures.stateManager.setState(
-            .ready(ConversationReadyResult(conversationId: Constant.claimedId, origin: .created))
-        )
-        await waitFor { fixtures.viewModel.claimedConversationId == Constant.claimedId }
+        XCTAssertEqual(fixtures.viewModel.claimedConversationId, Constant.claimedId)
 
         fixtures.viewModel.markInviteShared()
 
@@ -49,12 +44,7 @@ final class NewConversationViewModelInviteShareTests: XCTestCase {
     }
 
     func testSupersededScanRoutesSharedConversationThroughEngagementGate() async {
-        let fixtures = makeFixtures()
-
-        fixtures.stateManager.setState(
-            .ready(ConversationReadyResult(conversationId: Constant.claimedId, origin: .created))
-        )
-        await waitFor { fixtures.viewModel.claimedConversationId == Constant.claimedId }
+        let fixtures = makeFixtures(claimedConversationId: Constant.claimedId)
 
         fixtures.viewModel.markInviteShared()
         await waitFor { fixtures.localStateWriter.hasSharedInviteStates[Constant.claimedId] == true }
@@ -85,7 +75,10 @@ final class NewConversationViewModelInviteShareTests: XCTestCase {
         let session: MockInboxesService
     }
 
-    private func makeFixtures() -> Fixtures {
+    /// `claimedConversationId` seeds the warm-cache claim the real flow makes
+    /// before the composer opens. Left nil, the view model has only its draft
+    /// placeholder, which is the other shape worth covering.
+    private func makeFixtures(claimedConversationId: String? = nil) -> Fixtures {
         let localStateWriter = MockConversationLocalStateWriter()
         // Memberless draft conversation, matching an untouched embedded
         // convo (the default mock draft carries other members).
@@ -100,7 +93,8 @@ final class NewConversationViewModelInviteShareTests: XCTestCase {
         let session = MockInboxesService(mockMessagingService: messagingService)
         let viewModel = NewConversationViewModel(
             session: session,
-            messagingService: messagingService
+            messagingService: messagingService,
+            existingConversationId: claimedConversationId
         )
         return Fixtures(
             viewModel: viewModel,

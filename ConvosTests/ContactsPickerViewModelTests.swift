@@ -61,10 +61,7 @@ final class ContactsPickerViewModelTests: XCTestCase {
 
     /// Add-to-conversation mode is human-only - agents aren't spawned into
     /// an existing conversation from the picker.
-    func testAddToConversationShowsAgents() {
-        // Template-backed agents are selectable in add-to-conversation mode
-        // too: confirming spawns a fresh instance of the template into the
-        // existing conversation.
+    func testAddToConversationHidesAgents() {
         let alice = Contact.mock(displayName: "Alice")
         let coffeeAgent = Contact.mock(
             displayName: "Americano",
@@ -79,7 +76,7 @@ final class ContactsPickerViewModelTests: XCTestCase {
         )
 
         let allRowIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.id) }
-        XCTAssertEqual(allRowIds, [alice.inboxId, coffeeAgent.inboxId])
+        XCTAssertEqual(allRowIds, [alice.inboxId], "only people are addable to an existing conversation")
     }
 
     /// Multiple agents can be selected alongside humans; each selected

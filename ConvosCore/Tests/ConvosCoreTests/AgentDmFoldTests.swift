@@ -62,7 +62,62 @@ struct AgentDmFoldTests {
         #expect(try Self.foldedSummary(queue) == nil)
     }
 
+    /// The fold used to cost a per-row DM lookup, which pagination made hotter
+    /// rather than cooler: it re-ran for every page fetch and every throttled
+    /// re-emission. Following the recorded link resolves the whole page in one
+    /// read, and the per-row membership lookup does not run at all.
+    @Test("A page of rows folds without a per-row DM lookup")
+    func foldsWholePageWithoutPerRowLookups() throws {
+        let counter = QueryCounter()
+        let queue = try Self.tracedQueue(counter)
+        let groupCount = 25
+        try queue.write { db in
+            for index in 0..<groupCount {
+                try Self.seed(db, suffix: "-\(index)")
+            }
+        }
+
+        let repository = ConversationsRepository(dbReader: queue, consent: [.allowed, .unknown])
+        let conversations = try repository.fetchAll()
+
+        #expect(conversations.count == groupCount)
+        #expect(conversations.allSatisfy { $0.agentDm?.lastMessage?.text == Self.dmMessageText })
+        #expect(counter.count == 0, "the per-row one-to-one lookup must not run at all")
+    }
+
     // MARK: - Helpers
+
+    /// Counts the one-to-one membership lookups the legacy fallback issues, so
+    /// a regression back to per-row resolution shows up as a number.
+    private final class QueryCounter: @unchecked Sendable {
+        private let lock: NSLock = .init()
+        private var value: Int = 0
+
+        var count: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return value
+        }
+
+        func increment() {
+            lock.lock()
+            value += 1
+            lock.unlock()
+        }
+    }
+
+    private static func tracedQueue(_ counter: QueryCounter) throws -> DatabaseQueue {
+        var configuration = Configuration()
+        configuration.prepareDatabase { db in
+            db.trace { event in
+                guard "\(event)".contains("conversation_members AS cm_") else { return }
+                counter.increment()
+            }
+        }
+        let queue = try DatabaseQueue(configuration: configuration)
+        try SharedDatabaseMigrator.shared.migrate(database: queue)
+        return queue
+    }
 
     private static func foldedSummary(_ queue: DatabaseQueue) throws -> Conversation.AgentDmSummary? {
         let repository = ConversationsRepository(dbReader: queue, consent: [.allowed, .unknown])
@@ -83,8 +138,13 @@ struct AgentDmFoldTests {
     private static func seed(
         _ db: Database,
         groupHasAgentMember: Bool = true,
-        withOrigin: Bool = true
+        withOrigin: Bool = true,
+        suffix: String = ""
     ) throws {
+        let groupId = Self.groupId + suffix
+        let dmId = Self.dmId + suffix
+        let agentInboxId = Self.agentInboxId + suffix
+
         try DBMember(inboxId: currentInboxId).save(db, onConflict: .ignore)
         try DBMember(inboxId: agentInboxId).save(db, onConflict: .ignore)
         try DBInbox(inboxId: currentInboxId, clientId: "client-current").save(db, onConflict: .ignore)
@@ -109,8 +169,8 @@ struct AgentDmFoldTests {
         try member(conversationId: dmId, inboxId: agentInboxId, role: .member).insert(db)
 
         try DBMessage(
-            id: "dm-message-1",
-            clientMessageId: "dm-message-1",
+            id: "dm-message\(suffix)",
+            clientMessageId: "dm-message\(suffix)",
             conversationId: dmId,
             senderId: agentInboxId,
             dateNs: 1_000,
