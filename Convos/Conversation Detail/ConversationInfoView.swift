@@ -98,6 +98,16 @@ struct ConversationInfoView: View {
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var presentingShareView: Bool = false
+    /// Drives the system share sheet behind the menu's "Invite friends" row.
+    @State private var presentingInviteShareSheet: Bool = false
+
+    /// This conversation's signed invite link. Empty until the invite
+    /// hydrates, which is also when there is nothing to share.
+    private var inviteShareItems: [Any] {
+        let invite = viewModel.invite
+        guard !invite.isEmpty else { return [] }
+        return [invite.inviteURLString]
+    }
     @State private var presentingAddFromContactsPicker: Bool = false
     /// Invite code scanned from the in-sheet Scan/Invite overlay, parked until
     /// this sheet finishes dismissing so the join sheet (presented by
@@ -458,6 +468,10 @@ struct ConversationInfoView: View {
                 // the local in-sheet overlay instead.
                 onPresentShareOverlay: { presentingShareView = true }
             )
+            .shareSheet(
+                isPresented: $presentingInviteShareSheet,
+                items: inviteShareItems
+            )
             .onAppear {
                 ensureNavigator()
                 navState.markScreenAppeared()
@@ -611,7 +625,7 @@ struct ConversationInfoView: View {
                             if viewModel.isFull {
                                 showingFullInfo = true
                             } else {
-                                presentingShareView = true
+                                presentingInviteShareSheet = true
                             }
                         },
                             onAddFromContacts: {

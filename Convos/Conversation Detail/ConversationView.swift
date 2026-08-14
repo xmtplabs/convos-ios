@@ -242,11 +242,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onDeleteMessage: viewModel.deleteMessage(_:),
             onRetryAgentJoin: { viewModel.retryAgentJoin() },
             onCopyInviteLink: { viewModel.copyInviteLink() },
+            // "Invite friends" hands the link straight to the system share
+            // sheet - the same thing the top bar's share button does. A full
+            // conversation can't mint invites, so it explains itself instead.
             onConvoCode: {
                 if viewModel.isFull {
                     showingFullInfo = true
                 } else {
-                    viewModel.presentingShareView = true
+                    presentingInviteShareSheet = true
                 }
             },
             onInviteAgent: { viewModel.presentAgentBuilder() },

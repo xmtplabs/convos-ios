@@ -7,6 +7,16 @@ struct ConversationMembersListView: View {
     @Bindable var viewModel: ConversationViewModel
 
     @State private var presentingAddFromContactsPicker: Bool = false
+    /// Drives the system share sheet behind the menu's "Invite friends" row.
+    @State private var presentingInviteShareSheet: Bool = false
+
+    /// This conversation's signed invite link. Empty until the invite
+    /// hydrates, which is also when there is nothing to share.
+    private var inviteShareItems: [Any] {
+        let invite = viewModel.invite
+        guard !invite.isEmpty else { return [] }
+        return [invite.inviteURLString]
+    }
     @State private var navState: MembersListNavigatorImpl = .init()
     @State private var navigator: MembersListCollector?
 
@@ -65,6 +75,10 @@ struct ConversationMembersListView: View {
                 viewModel: viewModel,
                 isPresented: $presentingAddFromContactsPicker
             )
+            .shareSheet(
+                isPresented: $presentingInviteShareSheet,
+                items: inviteShareItems
+            )
             .sheet(item: $presentingAgentBuilder) { builderViewModel in
                 AgentBuilderView(
                     viewModel: builderViewModel,
@@ -116,7 +130,7 @@ struct ConversationMembersListView: View {
                     isFull: viewModel.isFull,
                     isEnabled: true,
                     onConvoCode: {
-                        viewModel.presentingShareView = true
+                        presentingInviteShareSheet = true
                     },
                     onAddFromContacts: {
                         presentingAddFromContactsPicker = true
