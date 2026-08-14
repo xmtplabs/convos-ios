@@ -6,6 +6,9 @@ import SwiftUI
 /// transcript, doubling as its empty state. Names the agent, says what the
 /// lane is for, and carries the shared-memory disclosure (see
 /// docs/plans/agent-dms.md).
+///
+/// Figma 7686:39662. The three lines step down the iOS type scale -
+/// .body medium, .subheadline, .footnote - with the disclosure in secondary.
 public struct AgentDmInfoCellView: View {
     let agentName: String
 
@@ -14,24 +17,20 @@ public struct AgentDmInfoCellView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: DesignConstants.Spacing.step3x) {
             Text("1-on-1 with \(agentName)")
-                .font(.title3.weight(.semibold))
+                .font(.body.weight(.medium))
                 .foregroundStyle(.colorTextPrimary)
-                .multilineTextAlignment(.center)
             Text("Chat here to update Home, ping members, or check in without blowing up the groupchat.")
-                .font(.body)
-                .foregroundStyle(.colorTextPrimary)
-                .multilineTextAlignment(.center)
-                .padding(.top, DesignConstants.Spacing.step6x)
-            Text("Everything shared here can be shared with everyone in the group, so don't share anything private.")
                 .font(.subheadline)
+                .foregroundStyle(.colorTextPrimary)
+            Text("Everything shared here can be shared with everyone in the group, so don’t share anything private.")
+                .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.top, DesignConstants.Spacing.step6x)
         }
+        .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, DesignConstants.Spacing.step8x)
+        .padding(.top, DesignConstants.Spacing.step6x)
         .padding(.horizontal, DesignConstants.Spacing.step6x)
     }
 }
