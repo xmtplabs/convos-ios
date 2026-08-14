@@ -23,18 +23,30 @@ struct HomePreparingView: View {
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
             houseMark
-            Text("Preparing your group's new home")
+            Text(caption)
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
                 .multilineTextAlignment(.center)
+                .contentTransition(.opacity)
+                .animation(.easeInOut(duration: Constant.captionFadeDuration), value: stage)
             progressBar
         }
         .task(id: stage) {
             await rampProgress()
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Preparing your group's new home")
+        .accessibilityLabel(caption)
         .accessibilityIdentifier("home-preparing")
+    }
+
+    /// What the line says the wait is for. Until the worker publishes the
+    /// space URL there is no page yet - the home is still being built - so the
+    /// line only claims to be loading once there is something to load.
+    private var caption: String {
+        switch stage {
+        case .awaitingSpace: "Preparing your group's new home"
+        case .loadingPage: "Loading your group's home"
+        }
     }
 
     /// Roof plus two windows. The roof is the exported vector, tinted with the
@@ -112,6 +124,7 @@ struct HomePreparingView: View {
         static let loadingPageCap: Double = 0.9
         static let progressStep: Double = 0.05
         static let progressTick: Double = 0.8
+        static let captionFadeDuration: Double = 0.3
     }
 }
 
