@@ -215,6 +215,12 @@ final class ConversationsViewModel {
     /// empty-state CTA must stay hidden.
     private(set) var hasLoadedInitialConversations: Bool = false
     private(set) var hiddenConversationIds: Set<String> = []
+    /// The latest raw page, kept so a failed optimistic hide (see
+    /// `leave(conversation:)`) can restore the row by re-applying it: the
+    /// failed write leaves the database untouched, so no fresh emission is
+    /// coming to undo the hide.
+    @ObservationIgnored
+    private var lastReceivedPage: ConversationsPage?
     private var conversationsCount: Int = 0 {
         didSet {
             if conversationsCount > 1 {
@@ -645,6 +651,12 @@ final class ConversationsViewModel {
             } catch {
                 self.hiddenConversationIds.remove(conversationId)
                 Log.error("Failed to persist delete for \(conversationId): \(error.localizedDescription)")
+                // The write never landed, so the database is unchanged and
+                // no emission will undo the optimistic hide above; re-apply
+                // the latest page to bring the row back.
+                if let page = self.lastReceivedPage {
+                    self.applyPage(page)
+                }
             }
         }
     }
@@ -722,6 +734,7 @@ final class ConversationsViewModel {
     }
 
     private func applyPage(_ page: ConversationsPage) {
+        lastReceivedPage = page
         isLoadingMore = false
         hasMoreConversations = page.hasMore
         hasAnyUnpinnedFromPage = page.hasAnyUnpinned
