@@ -948,6 +948,12 @@ extension ConversationsViewModel {
             } catch {
                 self.hiddenConversationIds.remove(conversationId)
                 Log.error("Error exploding conversation from list: \(error.localizedDescription)")
+                // Same as leave(conversation:): the failed write left the
+                // database unchanged, so no emission will undo the optimistic
+                // removal above; re-apply the latest page to bring the row back.
+                if let page = self.lastReceivedPage {
+                    self.applyPage(page)
+                }
             }
         }
     }

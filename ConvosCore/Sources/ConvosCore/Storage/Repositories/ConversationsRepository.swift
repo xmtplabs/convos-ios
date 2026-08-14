@@ -355,17 +355,16 @@ extension Database {
                 .filter(DBConversation.Columns.expiresAt != nil && DBConversation.Columns.expiresAt < oneYearFromNow)
         }
 
-        // limit+1 answers hasMore; the surplus row is dropped before
-        // hydration and the DM fold so the fold's re-sort cannot leak it
-        // into the window.
-        var unpinnedDetails = try unpinnedRequest
+        // The SQL order only knows each group's own messages, so a group
+        // whose folded agent DM holds the newest activity can rank below
+        // the LIMIT cutoff. Over-fetch a margin of candidates, fold and
+        // re-sort the wider set, then truncate back to the window so such
+        // a group can climb in. The +1 answers hasMore.
+        let unpinnedDetails = try unpinnedRequest
             .detailedConversationQuery()
-            .limit(limit + 1)
+            .limit(limit + Constant.agentDmFoldMargin + 1)
             .fetchAll(self)
         let hasMore = unpinnedDetails.count > limit
-        if hasMore {
-            unpinnedDetails.removeLast()
-        }
 
         // Unfiltered existence check for the filter-empty states: "you have
         // conversations, none match this filter" must not depend on the
@@ -379,11 +378,14 @@ extension Database {
             consent: consent,
             resortByActivity: false
         )
-        let unpinned = try foldAgentDms(
+        var unpinned = try foldAgentDms(
             into: unpinnedDetails.composeConversations(from: self),
             consent: consent,
             resortByActivity: true
         )
+        if unpinned.count > limit {
+            unpinned.removeLast(unpinned.count - limit)
+        }
         return ConversationsPage(
             pinned: pinned,
             unpinned: unpinned,
@@ -483,6 +485,14 @@ extension Database {
         let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
         let contactNameResolver = try ContactsRepository.contactNameResolverInTransaction(db: self)
         return details.hydrateConversation(currentInboxId: currentInboxId, contactNameResolver: contactNameResolver)
+    }
+
+    /// How many rows beyond the requested window `composeConversationsPage`
+    /// fetches as re-sort candidates. Bounds the extra hydration each page
+    /// compose costs; a group would only be missed if agent-DM activity
+    /// should lift it more than this many positions past the window edge.
+    private enum Constant {
+        static let agentDmFoldMargin: Int = 20
     }
 }
 

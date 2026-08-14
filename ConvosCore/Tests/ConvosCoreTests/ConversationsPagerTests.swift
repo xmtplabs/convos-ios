@@ -18,7 +18,8 @@ struct ConversationsPagerTests {
         pinnedOrder: Int? = nil,
         isUnread: Bool = false,
         expiresAt: Date? = nil,
-        wasRemoved: Bool = false
+        wasRemoved: Bool = false,
+        isAgentDm: Bool = false
     ) throws {
         try DBConversation(
             id: id,
@@ -42,7 +43,8 @@ struct ConversationsPagerTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAgent: false
+            hasHadVerifiedAgent: false,
+            isAgentDm: isAgentDm
         ).insert(db)
 
         try ConversationLocalState(
@@ -179,6 +181,89 @@ struct ConversationsPagerTests {
 
         #expect(Set(page.unpinned.map(\.id)) == ["unread-1", "unread-2"])
         #expect(page.hasAnyUnpinned, "hasAnyUnpinned ignores the filter")
+    }
+
+    @Test("Agent DM activity lifts its group into the window past the SQL cutoff")
+    func agentDmActivityLiftsGroupIntoWindow() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let writer = dbManager.dbWriter
+        let agentInboxId = "agent-inbox"
+        try await writer.write { db in
+            try self.seedBase(db)
+            try DBMember(inboxId: agentInboxId).save(db, onConflict: .ignore)
+            try DBProfile(
+                inboxId: agentInboxId,
+                name: "Agent",
+                memberKind: .verifiedConvos,
+                profileSource: .profileUpdate,
+                updatedAt: Date()
+            ).save(db)
+
+            // Enough newer groups that "origin" ranks beyond the SQL window
+            // on its own group-only activity.
+            for i in 0..<70 {
+                try self.seedConversation(
+                    db,
+                    id: "conv-\(i)",
+                    createdAt: Date(timeIntervalSince1970: 10_000 + Double(i))
+                )
+            }
+            try self.seedConversation(db, id: "origin", createdAt: Date(timeIntervalSince1970: 1_000))
+            try DBConversationMember(
+                conversationId: "origin",
+                inboxId: agentInboxId,
+                role: .member,
+                consent: .allowed,
+                createdAt: Date(timeIntervalSince1970: 1_000),
+                invitedByInboxId: nil
+            ).insert(db)
+
+            // The group's agent DM holds the newest message in the database.
+            try self.seedConversation(
+                db,
+                id: "origin-dm",
+                createdAt: Date(timeIntervalSince1970: 1_001),
+                isAgentDm: true
+            )
+            try DBConversationMember(
+                conversationId: "origin-dm",
+                inboxId: agentInboxId,
+                role: .member,
+                consent: .allowed,
+                createdAt: Date(timeIntervalSince1970: 1_001),
+                invitedByInboxId: nil
+            ).insert(db)
+            try DBMessage(
+                id: "dm-message",
+                clientMessageId: "dm-message",
+                conversationId: "origin-dm",
+                senderId: agentInboxId,
+                dateNs: 100_000_000_000_000,
+                date: Date(timeIntervalSince1970: 100_000),
+                sortId: 100_000_000_000_000,
+                status: .published,
+                messageType: .original,
+                contentType: .text,
+                text: "newest activity",
+                emoji: nil,
+                invite: nil,
+                linkPreview: nil,
+                sourceMessageId: nil,
+                attachmentUrls: [],
+                update: nil
+            ).insert(db)
+        }
+
+        let pager = ConversationsPager(dbReader: writer, consent: [.allowed], pageSize: 60, throttleInterval: 0)
+        let page = try pager.fetchInitialPage()
+
+        #expect(page.unpinned.count == 60)
+        #expect(page.hasMore)
+        #expect(!page.unpinned.contains { $0.id == "origin-dm" }, "The agent DM itself never renders as a list row")
+        #expect(
+            page.unpinned.first?.id == "origin",
+            "The folded DM's newest message should float its group to the top of the window"
+        )
     }
 
     @Test("Exploding filter honors the one-year cap")
