@@ -4,17 +4,8 @@ import SwiftUI
 struct NewConvoIdentityView: View {
     var onCopyLink: (() -> Void)?
     var onConvoCode: (() -> Void)?
-    var onInviteAgent: (() -> Void)?
-    var isAgentJoinPending: Bool = false
 
     private var showInviteMenu: Bool { onCopyLink != nil }
-
-    private var isAgentActionDisabled: Bool { isAgentJoinPending }
-
-    private var agentSubtitle: String {
-        if isAgentJoinPending { return "Joining…" }
-        return "Made for this group"
-    }
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
@@ -36,15 +27,6 @@ struct NewConvoIdentityView: View {
                         Image(systemName: "person.crop.circle.badge.plus")
                     }
                     .accessibilityIdentifier("new-convo-add-from-contacts")
-
-                    let agentAction: () -> Void = { onInviteAgent?() }
-                    Button(action: agentAction) {
-                        Text("New agent")
-                        Text(agentSubtitle)
-                        Image("addAgentIcon")
-                            .renderingMode(.template)
-                    }
-                    .disabled(isAgentActionDisabled)
 
                     let convoCodeAction: () -> Void = { onConvoCode?() }
                     Button(action: convoCodeAction) {
@@ -76,8 +58,7 @@ struct NewConvoIdentityView: View {
 #Preview("Creator") {
     NewConvoIdentityView(
         onCopyLink: {},
-        onConvoCode: {},
-        onInviteAgent: {}
+        onConvoCode: {}
     )
 }
 

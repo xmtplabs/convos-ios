@@ -618,8 +618,7 @@ struct ConversationInfoView: View {
                                 presentingShareView = true
                             }
                         },
-                        onInviteAgent: presentAgentBuilderLocally,
-                        onAddFromContacts: {
+                            onAddFromContacts: {
                             presentingAddFromContactsPicker = true
                         }
                     )

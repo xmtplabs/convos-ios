@@ -119,7 +119,6 @@ struct ConversationMembersListView: View {
                     onConvoCode: {
                         viewModel.presentingShareView = true
                     },
-                    onInviteAgent: presentAgentBuilderLocally,
                     onAddFromContacts: {
                         presentingAddFromContactsPicker = true
                     }

@@ -3,23 +3,14 @@ import SwiftUI
 
 struct AddToConversationMenu: View {
     let isFull: Bool
-    var isAgentJoinPending: Bool = false
     let isEnabled: Bool
     let onConvoCode: () -> Void
-    let onInviteAgent: () -> Void
     /// Opens the contacts picker scoped to the destination conversation.
     /// Every menu surface (chat header, info view, members list) offers
     /// this row. Pair the call site with `.addFromContactsPicker(...)` to
     /// present the picker; the closure typically just sets a `Bool` state
     /// that's bound to that modifier's `isPresented`.
     let onAddFromContacts: () -> Void
-
-    private var isAgentActionDisabled: Bool { isAgentJoinPending }
-
-    private var agentSubtitle: String {
-        if isAgentJoinPending { return "Joining…" }
-        return "Made for this group"
-    }
 
     private var labelColor: Color {
         if !isEnabled {
@@ -36,15 +27,6 @@ struct AddToConversationMenu: View {
                 Image(systemName: "person.crop.circle.badge.plus")
             }
             .accessibilityIdentifier("context-menu-add-from-contacts")
-
-            Button(action: onInviteAgent) {
-                Text("New agent")
-                Text(agentSubtitle)
-                Image("addAgentIcon")
-                    .renderingMode(.template)
-            }
-            .disabled(isAgentActionDisabled)
-            .accessibilityIdentifier("context-menu-add-agent")
 
             Button(action: onConvoCode) {
                 Text("Invite friends")
@@ -71,7 +53,6 @@ struct AddToConversationMenu: View {
                         isFull: false,
                         isEnabled: true,
                         onConvoCode: {},
-                        onInviteAgent: {},
                         onAddFromContacts: {}
                     )
                 }

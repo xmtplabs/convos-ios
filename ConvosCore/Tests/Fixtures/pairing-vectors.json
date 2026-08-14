@@ -2,8 +2,8 @@
   "codecs" : {
     "device_removed" : {
       "authorityId" : "convos.org",
-      "contentBase64" : "eyJyZW1vdmVkQXQiOjE3NTAwMDAyMDAsInJldm9rZWRJbnN0YWxsYXRpb25JZCI6ImIxOTQ2YWM5MjQ5MmQyMzQ3YzYyMzViNGQyNjExMTg0Iiwic2NoZW1hVmVyc2lvbiI6MX0=",
-      "contentJSON" : "{\"removedAt\":1750000200,\"revokedInstallationId\":\"b1946ac92492d2347c6235b4d2611184\",\"schemaVersion\":1}",
+      "contentBase64" : "eyJyZW1vdmVkQXQiOjE3NTAwMDAyMDAsInNjaGVtYVZlcnNpb24iOjEsInJldm9rZWRJbnN0YWxsYXRpb25JZCI6ImIxOTQ2YWM5MjQ5MmQyMzQ3YzYyMzViNGQyNjExMTg0In0=",
+      "contentJSON" : "{\"removedAt\":1750000200,\"schemaVersion\":1,\"revokedInstallationId\":\"b1946ac92492d2347c6235b4d2611184\"}",
       "contentType" : "convos.org/device_removed:1.0",
       "typeId" : "device_removed",
       "versionMajor" : 1,
@@ -11,8 +11,8 @@
     },
     "identity_share" : {
       "authorityId" : "convos.org",
-      "contentBase64" : "eyJpbml0aWF0b3JEZXZpY2VOYW1lIjoiQ2FtZXJvbidzIGlQaG9uZSIsImlzc3VlZEF0IjoxNzUwMDAwMTAwLCJkaXNwbGF5TmFtZSI6IkNhbWVyb24iLCJpbWFnZUFzc2V0SWRlbnRpZmllciI6Imh0dHBzOlwvXC9hc3NldHMuY29udm9zLm9yZ1wvYXZhdGFyXC9hYmMxMjMuanBnIiwicHJpdmF0ZUtleURhdGEiOiJJaUlpSWlJaUlpSWlJaUlpSWlJaUlpSWlJaUlpSWlJaUlpSWlJaUlpSWlJPSIsImluYm94SWQiOiIzZjlhMWMwZTViN2QyODQ2YTFmMzBjOWU0ZDhiNjc1MmUwYTRjOTEzN2ZiNTYyOGQwZTNhN2MxNGI5ZDVmNjgyIiwic2NoZW1hVmVyc2lvbiI6MX0=",
-      "contentJSON" : "{\"initiatorDeviceName\":\"Cameron's iPhone\",\"issuedAt\":1750000100,\"displayName\":\"Cameron\",\"imageAssetIdentifier\":\"https:\\/\\/assets.convos.org\\/avatar\\/abc123.jpg\",\"privateKeyData\":\"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI=\",\"inboxId\":\"3f9a1c0e5b7d2846a1f30c9e4d8b6752e0a4c9137fb5628d0e3a7c14b9d5f682\",\"schemaVersion\":1}",
+      "contentBase64" : "eyJwcml2YXRlS2V5RGF0YSI6IklpSWlJaUlpSWlJaUlpSWlJaUlpSWlJaUlpSWlJaUlpSWlJaUlpSWlJaUk9IiwiaXNzdWVkQXQiOjE3NTAwMDAxMDAsImRpc3BsYXlOYW1lIjoiQ2FtZXJvbiIsImltYWdlQXNzZXRJZGVudGlmaWVyIjoiaHR0cHM6XC9cL2Fzc2V0cy5jb252b3Mub3JnXC9hdmF0YXJcL2FiYzEyMy5qcGciLCJzY2hlbWFWZXJzaW9uIjoxLCJpbmJveElkIjoiM2Y5YTFjMGU1YjdkMjg0NmExZjMwYzllNGQ4YjY3NTJlMGE0YzkxMzdmYjU2MjhkMGUzYTdjMTRiOWQ1ZjY4MiIsImluaXRpYXRvckRldmljZU5hbWUiOiJDYW1lcm9uJ3MgaVBob25lIn0=",
+      "contentJSON" : "{\"privateKeyData\":\"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI=\",\"issuedAt\":1750000100,\"displayName\":\"Cameron\",\"imageAssetIdentifier\":\"https:\\/\\/assets.convos.org\\/avatar\\/abc123.jpg\",\"schemaVersion\":1,\"inboxId\":\"3f9a1c0e5b7d2846a1f30c9e4d8b6752e0a4c9137fb5628d0e3a7c14b9d5f682\",\"initiatorDeviceName\":\"Cameron's iPhone\"}",
       "contentType" : "convos.org/identity_share:1.0",
       "typeId" : "identity_share",
       "versionMajor" : 1,
@@ -20,8 +20,8 @@
     },
     "pairing_join_request" : {
       "authorityId" : "convos.org",
-      "contentBase64" : "eyJzbHVnIjoiZXlKcGJtbDBhV0YwYjNKQlpHUnlaWE56SWpvaU1IZ3hPV1UzWlRNM05tVTNZekl4TTJJM1pUZGxOMlUwTm1Oak56QmhOV1JrTURnMlpHRm1aakpoSWl3aWFYTnpkV1ZrUVhRaU9qRTNOVEF3TURBd01EQXNJbk5wWjI1aGRIVnlaU0k2SWl0WVptTTVVREZ0UnpsT1lURmNMMkowVTBoVldWcFZiMDg1TmxoM00wUmlVRGxvYTFocFJsZ3pkVkZqVGs1Y0wxZE5TamhjTHpKdmNFTk9ibE5aWTNCRVIxQkJTbk51T0VOSWFIUkRhMmd3WnpGak16TnJOSFpvZHowaUxDSmxlSEJwY21WelFYUWlPakUzTlRBd01EQXhNakFzSW5OamFHVnRZVlpsY25OcGIyNGlPakVzSW1sdWFYUnBZWFJ2Y2tsdVltOTRTV1FpT2lJelpqbGhNV013WlRWaU4yUXlPRFEyWVRGbU16QmpPV1UwWkRoaU5qYzFNbVV3WVRSak9URXpOMlppTlRZeU9HUXdaVE5oTjJNeE5HSTVaRFZtTmpneUlpd2libTl1WTJVaU9pSkJRa1ZwVFRCU1ZscHVaVWx0WVhFM2VrNHpkVnd2ZHowOUluMCIsImpvaW5lckluYm94SWQiOiI4YzJkNDBiNmUxZjk3YTM1YzBkODJiNGU2ZjE5YTdkMzVjMGUyOGI0ZjZhMTlkNzNjNThlMDJiNGY2YTE5ZDczIiwic2NoZW1hVmVyc2lvbiI6MSwiZGV2aWNlTmFtZSI6IlBpeGVsIDkgUHJvIn0=",
-      "contentJSON" : "{\"slug\":\"eyJpbml0aWF0b3JBZGRyZXNzIjoiMHgxOWU3ZTM3NmU3YzIxM2I3ZTdlN2U0NmNjNzBhNWRkMDg2ZGFmZjJhIiwiaXNzdWVkQXQiOjE3NTAwMDAwMDAsInNpZ25hdHVyZSI6IitYZmM5UDFtRzlOYTFcL2J0U0hVWVpVb085Nlh3M0RiUDloa1hpRlgzdVFjTk5cL1dNSjhcLzJvcENOblNZY3BER1BBSnNuOENIaHRDa2gwZzFjMzNrNHZodz0iLCJleHBpcmVzQXQiOjE3NTAwMDAxMjAsInNjaGVtYVZlcnNpb24iOjEsImluaXRpYXRvckluYm94SWQiOiIzZjlhMWMwZTViN2QyODQ2YTFmMzBjOWU0ZDhiNjc1MmUwYTRjOTEzN2ZiNTYyOGQwZTNhN2MxNGI5ZDVmNjgyIiwibm9uY2UiOiJBQkVpTTBSVlpuZUltYXE3ek4zdVwvdz09In0\",\"joinerInboxId\":\"8c2d40b6e1f97a35c0d82b4e6f19a7d35c0e28b4f6a19d73c58e02b4f6a19d73\",\"schemaVersion\":1,\"deviceName\":\"Pixel 9 Pro\"}",
+      "contentBase64" : "eyJzbHVnIjoiZXlKcGMzTjFaV1JCZENJNk1UYzFNREF3TURBd01Dd2lhVzVwZEdsaGRHOXlRV1JrY21WemN5STZJakI0TVRsbE4yVXpOelpsTjJNeU1UTmlOMlUzWlRkbE5EWmpZemN3WVRWa1pEQTRObVJoWm1ZeVlTSXNJbVY0Y0dseVpYTkJkQ0k2TVRjMU1EQXdNREV5TUN3aWFXNXBkR2xoZEc5eVNXNWliM2hKWkNJNklqTm1PV0V4WXpCbE5XSTNaREk0TkRaaE1XWXpNR001WlRSa09HSTJOelV5WlRCaE5HTTVNVE0zWm1JMU5qSTRaREJsTTJFM1l6RTBZamxrTldZMk9ESWlMQ0p6YVdkdVlYUjFjbVVpT2lJcldHWmpPVkF4YlVjNVRtRXhYQzlpZEZOSVZWbGFWVzlQT1RaWWR6TkVZbEE1YUd0WWFVWllNM1ZSWTA1T1hDOVhUVW80WEM4eWIzQkRUbTVUV1dOd1JFZFFRVXB6YmpoRFNHaDBRMnRvTUdjeFl6TXphelIyYUhjOUlpd2ljMk5vWlcxaFZtVnljMmx2YmlJNk1Td2libTl1WTJVaU9pSkJRa1ZwVFRCU1ZscHVaVWx0WVhFM2VrNHpkVnd2ZHowOUluMCIsImRldmljZU5hbWUiOiJQaXhlbCA5IFBybyIsInNjaGVtYVZlcnNpb24iOjEsImpvaW5lckluYm94SWQiOiI4YzJkNDBiNmUxZjk3YTM1YzBkODJiNGU2ZjE5YTdkMzVjMGUyOGI0ZjZhMTlkNzNjNThlMDJiNGY2YTE5ZDczIn0=",
+      "contentJSON" : "{\"slug\":\"eyJpc3N1ZWRBdCI6MTc1MDAwMDAwMCwiaW5pdGlhdG9yQWRkcmVzcyI6IjB4MTllN2UzNzZlN2MyMTNiN2U3ZTdlNDZjYzcwYTVkZDA4NmRhZmYyYSIsImV4cGlyZXNBdCI6MTc1MDAwMDEyMCwiaW5pdGlhdG9ySW5ib3hJZCI6IjNmOWExYzBlNWI3ZDI4NDZhMWYzMGM5ZTRkOGI2NzUyZTBhNGM5MTM3ZmI1NjI4ZDBlM2E3YzE0YjlkNWY2ODIiLCJzaWduYXR1cmUiOiIrWGZjOVAxbUc5TmExXC9idFNIVVlaVW9POTZYdzNEYlA5aGtYaUZYM3VRY05OXC9XTUo4XC8yb3BDTm5TWWNwREdQQUpzbjhDSGh0Q2toMGcxYzMzazR2aHc9Iiwic2NoZW1hVmVyc2lvbiI6MSwibm9uY2UiOiJBQkVpTTBSVlpuZUltYXE3ek4zdVwvdz09In0\",\"deviceName\":\"Pixel 9 Pro\",\"schemaVersion\":1,\"joinerInboxId\":\"8c2d40b6e1f97a35c0d82b4e6f19a7d35c0e28b4f6a19d73c58e02b4f6a19d73\"}",
       "contentType" : "convos.org/pairing_join_request:1.0",
       "typeId" : "pairing_join_request",
       "versionMajor" : 1,
@@ -241,7 +241,7 @@
     "signatureRecoveryByte" : 28,
     "signedMessage" : "636f6e766f732d706169722d696e766974652d76310a336639613163306535623764323834366131663330633965346438623637353265306134633931333766623536323864306533613763313462396435663638320a3078313965376533373665376332313362376537653765343663633730613564643038366461666632610a00112233445566778899aabbccddeeff0a80e14e6800000000f8e14e6800000000",
     "signingPayloadHex" : "636f6e766f732d706169722d696e766974652d76310a336639613163306535623764323834366131663330633965346438623637353265306134633931333766623536323864306533613763313462396435663638320a3078313965376533373665376332313362376537653765343663633730613564643038366461666632610a00112233445566778899aabbccddeeff0a80e14e6800000000f8e14e6800000000",
-    "slug" : "eyJpbml0aWF0b3JBZGRyZXNzIjoiMHgxOWU3ZTM3NmU3YzIxM2I3ZTdlN2U0NmNjNzBhNWRkMDg2ZGFmZjJhIiwiaXNzdWVkQXQiOjE3NTAwMDAwMDAsInNpZ25hdHVyZSI6IitYZmM5UDFtRzlOYTFcL2J0U0hVWVpVb085Nlh3M0RiUDloa1hpRlgzdVFjTk5cL1dNSjhcLzJvcENOblNZY3BER1BBSnNuOENIaHRDa2gwZzFjMzNrNHZodz0iLCJleHBpcmVzQXQiOjE3NTAwMDAxMjAsInNjaGVtYVZlcnNpb24iOjEsImluaXRpYXRvckluYm94SWQiOiIzZjlhMWMwZTViN2QyODQ2YTFmMzBjOWU0ZDhiNjc1MmUwYTRjOTEzN2ZiNTYyOGQwZTNhN2MxNGI5ZDVmNjgyIiwibm9uY2UiOiJBQkVpTTBSVlpuZUltYXE3ek4zdVwvdz09In0",
+    "slug" : "eyJpc3N1ZWRBdCI6MTc1MDAwMDAwMCwiaW5pdGlhdG9yQWRkcmVzcyI6IjB4MTllN2UzNzZlN2MyMTNiN2U3ZTdlNDZjYzcwYTVkZDA4NmRhZmYyYSIsImV4cGlyZXNBdCI6MTc1MDAwMDEyMCwiaW5pdGlhdG9ySW5ib3hJZCI6IjNmOWExYzBlNWI3ZDI4NDZhMWYzMGM5ZTRkOGI2NzUyZTBhNGM5MTM3ZmI1NjI4ZDBlM2E3YzE0YjlkNWY2ODIiLCJzaWduYXR1cmUiOiIrWGZjOVAxbUc5TmExXC9idFNIVVlaVW9POTZYdzNEYlA5aGtYaUZYM3VRY05OXC9XTUo4XC8yb3BDTm5TWWNwREdQQUpzbjhDSGh0Q2toMGcxYzMzazR2aHc9Iiwic2NoZW1hVmVyc2lvbiI6MSwibm9uY2UiOiJBQkVpTTBSVlpuZUltYXE3ek4zdVwvdz09In0",
     "verifyAtUnixSeconds" : 1750000001
   },
   "note" : "Golden cross-platform vectors for Linked Device Sync. Regenerate with: swift test --package-path ConvosCore --filter generatePairingVectors. JSON object key order (in `slug` and every `contentBase64`) is whatever Swift's JSONEncoder emitted — it is randomized per process and is NOT part of the contract. Consumers must decode order-insensitively and tolerate unknown keys.",

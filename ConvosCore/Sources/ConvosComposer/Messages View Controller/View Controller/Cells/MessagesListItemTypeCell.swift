@@ -100,9 +100,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                             }
                             NewConvoIdentityView(
                                 onCopyLink: config.onCopyInviteLink,
-                                onConvoCode: config.onConvoCode,
-                                onInviteAgent: config.onInviteAgent,
-                                isAgentJoinPending: config.isAgentJoinPending
+                                onConvoCode: config.onConvoCode
                             )
                         }
                         .padding(.vertical, DesignConstants.Spacing.step4x)
