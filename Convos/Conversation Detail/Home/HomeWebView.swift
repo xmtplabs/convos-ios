@@ -88,8 +88,12 @@ struct HomeWebView: UIViewRepresentable {
             }
         }
         // Reload only when the destination actually changes; SwiftUI calls
-        // this on unrelated state churn.
-        guard context.coordinator.loadedURL != url || !context.coordinator.hasLoaded else { return }
+        // this on unrelated state churn. Compared against the URL we were
+        // asked for rather than the one that committed: a page that redirects
+        // leaves `loadedURL` on its destination, which would never match the
+        // prop again and would reload on every later update pass.
+        guard context.coordinator.requestedURL != url || !context.coordinator.hasLoaded else { return }
+        context.coordinator.requestedURL = url
         context.coordinator.loadedURL = url
         context.coordinator.hasLoaded = true
         // A fresh programmatic load may redirect; allow its whole chain again.
@@ -109,6 +113,14 @@ struct HomeWebView: UIViewRepresentable {
         var conversationId: String
         var onLoaded: @MainActor () -> Void
         var onNavigationRequest: @MainActor (URL) -> Void
+        /// The URL the host last asked for, which is what decides whether an
+        /// update pass is a new destination or SwiftUI churn. Distinct from
+        /// `loadedURL`, which follows redirects.
+        var requestedURL: URL?
+        /// The URL currently committed in the web view - the initial request,
+        /// or wherever its redirect chain landed. Navigation interception
+        /// measures against this, so a reload of the displayed page is not
+        /// mistaken for outbound navigation.
         var loadedURL: URL?
         /// True while the inline placeholder is what is loaded. It is not this
         /// conversation's home, so it must never be persisted as the cover

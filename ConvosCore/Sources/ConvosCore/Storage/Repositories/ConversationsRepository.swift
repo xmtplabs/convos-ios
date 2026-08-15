@@ -331,6 +331,7 @@ extension Database {
         }
 
         var summaries: [String: Conversation.AgentDmSummary] = [:]
+        var chosenActivity: [String: Date] = [:]
         for link in links {
             guard let dm = dmsById[link.conversationId],
                   let summary = dm.agentDmSummary else {
@@ -338,11 +339,14 @@ extension Database {
             }
             // A group is normally the origin of exactly one DM. If it somehow
             // owns more, the most recently active one wins, matching how the
-            // row sorts.
-            if let existing = summaries[link.originConversationId],
-               (existing.lastMessage?.createdAt ?? .distantPast) >= (summary.lastMessage?.createdAt ?? .distantPast) {
+            // row sorts - by `lastActivityDate`, so a DM that has no messages
+            // yet counts as of its creation rather than infinitely old and a
+            // fresh replacement outranks the link it replaced.
+            let activity: Date = dm.lastActivityDate
+            if let existing = chosenActivity[link.originConversationId], existing >= activity {
                 continue
             }
+            chosenActivity[link.originConversationId] = activity
             summaries[link.originConversationId] = summary
         }
         return summaries
