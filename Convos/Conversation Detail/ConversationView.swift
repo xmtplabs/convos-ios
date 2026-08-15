@@ -53,19 +53,23 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// The conversation sheet's selected tab, the single source of truth for
     /// both the backing view behind the sheet and the bar the sheet hosts.
     @State private var selectedTab: ConversationTab = .group
-    /// Tabs the user has visited. The Home web view and the agent DM
-    /// mount on first visit and stay mounted (hidden, not torn down) so tab
-    /// switches never reload them.
+    /// Tabs the user has visited. The agent DM mounts on first visit and stays
+    /// mounted (hidden, not torn down) so tab switches never reload it.
     @State private var visitedTabs: Set<ConversationTab> = [.group]
     /// Guards the one-time seed of `selectedTab` from `initialAgentDmInboxId`.
     @State private var didSeedInitialTab: Bool = false
-    /// The sheet's detent. Only `.compact` is reachable today; see
-    /// `ConversationSheetDetent`.
-    @State private var sheetDetent: ConversationSheetDetent = .compact
-    /// The sheet's live measured bottom clearance from the physical screen
-    /// edge, fed to every backing view so transcripts and scroll content
-    /// clear the resting card.
-    @State private var sheetOccupiedHeight: CGFloat = ConversationSheetMetrics.compactRestingHeight
+    /// How much of the selected transcript the sheet is showing. Seeded per
+    /// conversation by `seedInitialTabIfNeeded`.
+    @State private var sheetDetent: ConversationSheetDetent = .collapsed
+    /// The sheet's measured chrome height (bar plus tab bar), reported back by
+    /// the sheet. This is the `collapsed` detent's height, and what the Home
+    /// insets its content by so nothing important hides behind the resting
+    /// sheet. Deliberately not the sheet's live height: the Home must not
+    /// reflow every time the sheet is dragged.
+    @State private var sheetChromeHeight: CGFloat = ConversationSheetMetrics.estimatedCollapsedHeight
+    /// Height of the selected transcript's last message, which is what the
+    /// `compact` detent sizes itself to.
+    @State private var lastMessageHeight: CGFloat = 0
     /// Window safe-area insets, used to convert the sheet's physical-edge
     /// clearance into the safe-area-relative inset the transcripts take.
     @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
@@ -261,11 +265,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
-            extraBottomInset: transcriptBottomInset,
+            // Nothing to clear: inside the sheet the composer is a sibling
+            // below this frame, not chrome floating over it.
+            extraBottomInset: 0,
             // The composer lives in the conversation sheet now (see
             // `sheetBarContent`); the transcript insets by the sheet's
             // measured height instead of hosting a bar.
             hostsBottomBar: false,
+            isBoundedByHost: true,
             onScrollToBottomAvailable: { scrollFn in
                 // Fires from inside the representable's make pass; defer the
                 // state write out of the view-update transaction or SwiftUI
@@ -306,16 +313,20 @@ struct ConversationView<MessagesBottomBar: View>: View {
         selectedTab == .agent
     }
 
-    /// Chooses the tab this conversation opens on, once. See
-    /// `ConversationTab.initial(available:hasUnread:agentDmRequested:)`.
+    /// Chooses the transcript this conversation opens on and how much of it is
+    /// showing, once. See `ConversationTab.initial(available:agentDmRequested:)`
+    /// and `ConversationSheetDetent.initial(hasUnread:agentDmRequested:)`.
     private func seedInitialTabIfNeeded() {
         guard !didSeedInitialTab else { return }
         didSeedInitialTab = true
         let agentDmRequested: Bool = initialAgentDmInboxId != nil
             && initialAgentDmInboxId == primaryAgentInboxId
+        sheetDetent = ConversationSheetDetent.initial(
+            hasUnread: hasUnreadToRead,
+            agentDmRequested: agentDmRequested
+        )
         let tab: ConversationTab = ConversationTab.initial(
             available: availableTabs,
-            hasUnread: hasUnreadToRead,
             agentDmRequested: agentDmRequested
         )
         guard tab != selectedTab else { return }
@@ -380,10 +391,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         )
     }
 
-    /// Every conversation has all three tabs. Home is offered before a Space
-    /// URL exists in appData: a brand-new convo lands there and shows the
-    /// preparing state, so the space reads as something being built rather
-    /// than a tab that appears out of nowhere once the worker publishes.
+    /// Every conversation offers both transcripts.
     private var availableTabs: [ConversationTab] {
         ConversationTab.allCases
     }
@@ -421,18 +429,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private func captureAmbientScheme(_ scheme: ColorScheme) {
         guard selectedTab != .agent else { return }
         ambientColorScheme = scheme
-    }
-
-    /// The sheet's clearance above the *safe-area* bottom line, which is
-    /// what the transcripts inset by (their controllers add the safe area
-    /// and keyboard themselves). The card extends into the bottom safe
-    /// area like the native tab bar, so that region is subtracted while
-    /// the keyboard is down; with the keyboard up the card rests directly
-    /// above it and the full measured clearance applies.
-    private var transcriptBottomInset: CGFloat {
-        isKeyboardVisible
-            ? sheetOccupiedHeight
-            : max(sheetOccupiedHeight - windowSafeAreaInsets.bottom, 0)
     }
 
     /// The layout plus the tab/focus/session observers, split from `body`
@@ -685,10 +681,6 @@ private extension ConversationView {
             } else {
                 focusCoordinator.dismissMessageComposerIfNeeded()
             }
-        case .home:
-            // No composer: the keyboard drops.
-            focusCoordinator.dismissMessageComposerIfNeeded()
-            agentFocusCoordinator.dismissMessageComposerIfNeeded()
         }
         // A right-swipe can both start a reply and switch away; cancel the
         // in-flight reply swipe so the tab change doesn't fire one.
@@ -780,14 +772,9 @@ private extension ConversationView {
     }
 
     /// The native tab bar's re-tap contract: tapping the active tab returns
-    /// to that surface's resting state - the home pops its browsing chain
-    /// to the root view; the transcripts scroll to the latest message.
+    /// its transcript to the latest message.
     private func handleTabReselect(_ tab: ConversationTab) {
         switch tab {
-        case .home:
-            withAnimation(.easeInOut(duration: 0.25)) {
-                homeBrowserEntries.removeAll()
-            }
         case .group:
             groupScrollToBottom?()
         case .agent:
@@ -795,12 +782,12 @@ private extension ConversationView {
         }
     }
 
-    /// True while the Home tab is showing an open browsing chain: the
-    /// top bar pops pages instead of the conversation, and the add-members
-    /// item hides. Other tabs keep their normal chrome even while a chain
-    /// waits behind the Home tab.
+    /// True while the Home is showing an open browsing chain: the top bar pops
+    /// pages instead of the conversation, and the add-members item hides. The
+    /// Home is always behind the sheet, so a chain is browsable at any detent
+    /// that leaves it reachable.
     private var isBrowsingHome: Bool {
-        selectedTab == .home && !homeBrowserEntries.isEmpty
+        !homeBrowserEntries.isEmpty
     }
 
     @ToolbarContentBuilder
@@ -989,11 +976,15 @@ private extension ConversationView {
     /// bottom safe area like the native tab bar while still riding the
     /// keyboard.
     var conversationLayout: some View {
-        ZStack(alignment: .bottom) {
-            ZStack {
-                backingViews
-                homeBrowserLayers
-            }
+        ZStack {
+            backingViews
+            homeBrowserLayers
+        }
+        .conversationSheetPresentation(
+            detent: $sheetDetent,
+            chromeHeight: sheetChromeHeight,
+            lastMessageHeight: lastMessageHeight
+        ) {
             conversationSheet
         }
     }
@@ -1008,7 +999,7 @@ private extension ConversationView {
             ForEach(homeBrowserEntries) { entry in
                 HomeBrowserPageView(
                     entry: entry,
-                    sheetHeight: sheetOccupiedHeight,
+                    sheetHeight: sheetChromeHeight,
                     onNavigationRequest: { url in
                         pushHomeBrowserPage(for: url)
                     }
@@ -1016,15 +1007,30 @@ private extension ConversationView {
                 .transition(.move(edge: .trailing))
             }
         }
-        .opacity(selectedTab == .home ? 1 : 0)
-        .allowsHitTesting(selectedTab == .home)
     }
 
-    /// One backing view per tab, all kept mounted once visited: switching
-    /// flips opacity and hit-testing instead of tearing views down, so the
-    /// UIKit transcripts keep their scroll state and the home web view
-    /// never reloads on a tab hop.
+    /// The permanent backing surface. The Home is no longer a tab: it is what
+    /// the conversation *is* behind the sheet, uncovered when the sheet rests
+    /// collapsed and progressively hidden as it grows.
     var backingViews: some View {
+        HomeLayoutView(
+            conversationId: viewModel.conversation.id,
+            webURL: viewModel.conversation.spaceURL,
+            sheetHeight: sheetChromeHeight,
+            onNavigationRequest: { url in
+                pushHomeBrowserPage(for: url)
+            }
+        )
+    }
+
+    /// The transcripts the sheet hosts, both kept mounted once visited:
+    /// switching flips opacity and hit-testing instead of tearing views down,
+    /// so the UIKit collection views keep their scroll state across a tab hop.
+    ///
+    /// Neither insets for the sheet - inside it, the composer and tab bar are
+    /// siblings below rather than chrome floating over the content.
+    @ViewBuilder
+    var sheetTranscripts: some View {
         ZStack {
             messagesView
                 .opacity(selectedTab == .group ? 1 : 0)
@@ -1033,7 +1039,7 @@ private extension ConversationView {
                 AgentDmPageView(
                     session: agentDmSession,
                     profileSettingsViewModel: profileSettingsViewModel,
-                    extraBottomInset: transcriptBottomInset,
+                    extraBottomInset: 0,
                     isReadOnly: effectiveReadOnly,
                     isActiveTab: selectedTab == .agent,
                     contextMenuState: agentContextMenuState,
@@ -1049,28 +1055,15 @@ private extension ConversationView {
                 .opacity(selectedTab == .agent ? 1 : 0)
                 .allowsHitTesting(selectedTab == .agent)
             }
-            if visitedTabs.contains(.home), availableTabs.contains(.home) {
-                HomeLayoutView(
-                    conversationId: viewModel.conversation.id,
-                    webURL: viewModel.conversation.spaceURL,
-                    sheetHeight: sheetOccupiedHeight,
-                    onNavigationRequest: { url in
-                        pushHomeBrowserPage(for: url)
-                    }
-                )
-                .opacity(selectedTab == .home ? 1 : 0)
-                .allowsHitTesting(selectedTab == .home)
-            }
         }
     }
 
     var conversationSheet: some View {
-        ConversationBottomSheet(
-            detent: $sheetDetent,
-            isHidden: contextMenuState.isPresented || agentContextMenuState.isPresented,
-            onOccupiedHeightChanged: { height in
-                sheetOccupiedHeight = height
+        ConversationSheetContent(
+            onChromeHeightChanged: { height in
+                sheetChromeHeight = height
             },
+            transcriptContent: { sheetTranscripts },
             barContent: { sheetBarContent },
             tabBar: {
                 ConversationTabBar(
@@ -1081,23 +1074,18 @@ private extension ConversationView {
                 )
             }
         )
-        // Like the native floating tab bar, the card rests inside the bottom
-        // safe area: its edge inset is measured from the physical screen
-        // edge. Positioned by explicit compensation rather than
-        // `.ignoresSafeArea` - the presenter/tab-shell chain above neutralizes
-        // safe-area expansion for this subtree - and dropped while the
-        // keyboard is up, when the card rests directly above it instead.
-        .padding(.bottom, isKeyboardVisible ? 0 : -windowSafeAreaInsets.bottom)
+        // The long-press context menu takes the screen; the card fades out
+        // under it rather than competing.
+        .opacity(contextMenuState.isPresented || agentContextMenuState.isPresented ? 0 : 1)
+        .animation(.spring(response: 0.3, dampingFraction: 0.9), value: contextMenuState.isPresented)
     }
 
     /// The bar the sheet hosts above its tab bar, keyed by the selected tab:
-    /// the group composer, the agent-DM composer (disabled until the DM
-    /// exists), or nothing on the Home tab.
+    /// the group composer, or the agent-DM composer (disabled until the DM
+    /// exists).
     @ViewBuilder
     var sheetBarContent: some View {
         switch selectedTab {
-        case .home:
-            EmptyView()
         case .group:
             if !effectiveReadOnly {
                 ConversationComposerBar(
