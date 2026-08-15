@@ -17,8 +17,8 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
     /// Which detent the sheet rests at. Two-way: the host seeds it per
     /// conversation and the system writes back after a drag.
     @Binding var detent: ConversationSheetDetent
-    /// Measured chrome height, published into the environment for the
-    /// `collapsed` and `compact` detents to resolve against.
+    /// Measured chrome height, which the `collapsed` and `compact` detents
+    /// resolve against.
     var chromeHeight: CGFloat
     /// Measured height of the transcript's last message, which is what the
     /// `compact` detent sizes itself to.
@@ -31,25 +31,32 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
     /// vocabulary. Reading maps back from whatever the system settled on.
     private var presentationSelection: Binding<PresentationDetent> {
         Binding(
-            get: { detent.presentationDetent },
-            set: { detent = ConversationSheetDetent(presentationDetent: $0) }
+            get: {
+                detent.presentationDetent(
+                    chromeHeight: chromeHeight,
+                    lastMessageHeight: lastMessageHeight
+                )
+            },
+            set: { newValue in
+                detent = ConversationSheetDetent.from(
+                    presentationDetent: newValue,
+                    chromeHeight: chromeHeight,
+                    lastMessageHeight: lastMessageHeight
+                )
+            }
         )
     }
 
     func body(content: Content) -> some View {
         content
-            // Published on the *presenter*, which is the environment a
-            // `CustomPresentationDetent`'s `Context` reads. Setting it only on
-            // the sheet's content leaves the detents resolving against their
-            // defaults - the collapsed height silently stayed at the estimated
-            // constant rather than the measured chrome.
-            .environment(\.conversationSheetChromeHeight, chromeHeight)
-            .environment(\.conversationSheetLastMessageHeight, lastMessageHeight)
             .onAppear { isPresented = true }
             .sheet(isPresented: $isPresented) {
                 sheetContent()
                     .presentationDetents(
-                        ConversationSheetDetent.presentationDetents(lastMessageHeight: lastMessageHeight),
+                        ConversationSheetDetent.presentationDetents(
+                            chromeHeight: chromeHeight,
+                            lastMessageHeight: lastMessageHeight
+                        ),
                         selection: presentationSelection
                     )
                     // The design token supplies the fill; the corners are left
@@ -69,8 +76,6 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
                     // It is the conversation's chrome. There is nothing behind
                     // it to dismiss back to.
                     .interactiveDismissDisabled()
-                    .environment(\.conversationSheetChromeHeight, chromeHeight)
-                    .environment(\.conversationSheetLastMessageHeight, lastMessageHeight)
             }
     }
 }

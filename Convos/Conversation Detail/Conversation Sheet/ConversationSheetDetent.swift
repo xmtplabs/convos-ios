@@ -42,28 +42,3 @@ enum ConversationSheetDetent: CaseIterable, Comparable {
         hasUnread || agentDmRequested ? .full : .collapsed
     }
 }
-
-/// The arithmetic behind the content-driven detents, kept apart from the
-/// `CustomPresentationDetent` types so it can be tested: their `Context` is
-/// supplied by the system and cannot be constructed in a test.
-enum ConversationSheetDetentHeights {
-    /// `collapsed`: exactly the measured chrome, never more than the
-    /// presentation can give.
-    static func collapsed(chrome: CGFloat, maxDetent: CGFloat) -> CGFloat {
-        min(chrome, maxDetent)
-    }
-
-    /// `compact`: the chrome plus the last message. With no message measured
-    /// yet this is the chrome alone, so the detent collapses rather than
-    /// opening a blank gap above the composer; a very tall message is capped
-    /// so it cannot outgrow the presentation.
-    static func compact(chrome: CGFloat, lastMessage: CGFloat, maxDetent: CGFloat) -> CGFloat {
-        min(chrome + max(lastMessage, 0), maxDetent)
-    }
-
-    /// `full`: the presentation's ceiling less the gap under the conversation
-    /// indicator, and never shorter than the chrome.
-    static func full(chrome: CGFloat, maxDetent: CGFloat, topGap: CGFloat) -> CGFloat {
-        max(maxDetent - topGap, min(chrome, maxDetent))
-    }
-}
