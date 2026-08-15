@@ -1066,7 +1066,10 @@ private extension ConversationView {
         ConversationSheetContent(
             detent: sheetDetent,
             onChromeHeightChanged: { height in
-                sheetChromeHeight = height
+                // The chrome rests above the home indicator, so the clearance
+                // it occupies - and the height the collapsed detent needs - is
+                // its own height plus that safe area.
+                sheetChromeHeight = height + windowSafeAreaInsets.bottom
             },
             transcriptContent: { sheetTranscripts },
             barContent: { sheetBarContent },

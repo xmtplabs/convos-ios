@@ -42,7 +42,7 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
             .sheet(isPresented: $isPresented) {
                 sheetContent()
                     .presentationDetents(
-                        ConversationSheetDetent.presentationDetents,
+                        ConversationSheetDetent.presentationDetents(lastMessageHeight: lastMessageHeight),
                         selection: presentationSelection
                     )
                     // The sheet paints its own surface and corners; the design

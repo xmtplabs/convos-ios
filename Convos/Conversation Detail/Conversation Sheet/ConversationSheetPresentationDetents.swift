@@ -66,9 +66,18 @@ extension ConversationSheetDetent {
         }
     }
 
-    /// Every size, as the set handed to `presentationDetents`.
-    static var presentationDetents: Set<PresentationDetent> {
-        Set(ascending.map(\.presentationDetent))
+    /// The sizes to offer, as the set handed to `presentationDetents`.
+    ///
+    /// `compact` is withheld until the transcript has reported a message to
+    /// size it to. Without one it resolves to exactly the `collapsed` height,
+    /// and two detents at the same height are indistinguishable to a drag: the
+    /// system settles on either, and landing on `compact` shows the transcript
+    /// at what looks like the collapsed size.
+    static func presentationDetents(lastMessageHeight: CGFloat) -> Set<PresentationDetent> {
+        let offered: [ConversationSheetDetent] = ascending.filter {
+            $0 != .compact || lastMessageHeight > 0
+        }
+        return Set(offered.map(\.presentationDetent))
     }
 
     /// The size matching a system detent, for reading the selection back.
