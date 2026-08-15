@@ -41,17 +41,27 @@ struct ConversationSheetContent<
     @ViewBuilder let barContent: () -> BarContent
     @ViewBuilder let tabBar: () -> TabBarContent
 
+    /// Siblings in a ZStack rather than a `safeAreaInset` or a `VStack`, and
+    /// the distinction is what makes messages pass under the chrome:
+    ///
+    /// - A `VStack` gives the chrome its own row, so the transcript stops dead
+    ///   at the composer's top edge.
+    /// - `safeAreaInset` reserves layout space too - it shrinks the transcript
+    ///   the same way - and its inset does not reach the hosted collection
+    ///   view's `safeAreaInsets`, so it buys nothing in exchange.
+    /// - As ZStack siblings the transcript takes the whole sheet and draws
+    ///   beneath the chrome (it ignores the safe area internally), while the
+    ///   chrome respects it and stays clear of the home indicator.
+    ///
+    /// The transcript's own bottom content inset is what keeps its newest
+    /// message clear of the chrome; the host supplies it from
+    /// `onChromeHeightChanged`.
     var body: some View {
-        transcript
-            // A safe-area inset rather than an overlay: the chrome floats over
-            // the transcript - messages scroll underneath the composer and tab
-            // bar and stay visible around them - and SwiftUI derives the
-            // clearance from the chrome's own height. Computing that clearance
-            // by hand double-counts the bottom safe area, because the
-            // transcript's collection view already adds its safe area to its
-            // content inset.
-            .safeAreaInset(edge: .bottom, spacing: 0) { chrome }
-            .accessibilityIdentifier("conversation-bottom-sheet")
+        ZStack(alignment: .bottom) {
+            transcript
+            chrome
+        }
+        .accessibilityIdentifier("conversation-bottom-sheet")
     }
 
     /// The selected transcript, filling the sheet and faded out at
