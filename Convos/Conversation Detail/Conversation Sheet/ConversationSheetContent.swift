@@ -35,6 +35,11 @@ enum ConversationSheetMetrics {
     /// the edge, 4pt tall.
     static let dragIndicatorAllowance: CGFloat = 10.0
     static let chromeBottomPadding: CGFloat = DesignConstants.Spacing.step4x
+    /// Height of the strip at the sheet's top edge that catches the resize drag,
+    /// at the detent where the grabber is hardest to reach - well past the 44pt
+    /// minimum touch target, and far past the indicator's own 10pt band, because
+    /// the drag is aimed at from the far end of the screen.
+    static let dragTargetHeight: CGFloat = 66.0
 
     /// Rough intrinsic height of the chrome's bars (composer plus tab bar and
     /// the gap between them). Only a first-frame estimate; the chrome measures
@@ -166,8 +171,9 @@ struct ConversationSheetContent<
         // own `ignoresSafeArea` cannot push it outside the stack's frame, which
         // was already laid out inside the safe area.
         .ignoresSafeArea(.container, edges: .bottom)
-        // Above the clip, so the long-press menu can cover the whole sheet
-        // rather than being cropped to the transcript's frame.
+        .overlay(alignment: .top) { dragTarget }
+        // Above the clip and above the drag target, so the long-press menu can
+        // cover the whole sheet rather than being cropped to the transcript.
         .overlay { contextMenuOverlay() }
         .accessibilityIdentifier("conversation-bottom-sheet")
     }
@@ -229,6 +235,34 @@ struct ConversationSheetContent<
             // the conversation behind the sheet.
             .clipped()
             .allowsHitTesting(detent.showsTranscript)
+    }
+
+    /// A transparent strip along the sheet's top edge that widens the target for
+    /// the system's resize drag.
+    ///
+    /// The grabber's own hit area belongs to the system and cannot be adjusted,
+    /// and at `full` it sits at the very top of the screen - a small target, and
+    /// an awkward reach. This gives the same drag a taller one, without any
+    /// gesture of its own: the sheet resizes on a drag that begins anywhere that
+    /// is not scrollable content, so a strip over the transcript hands those
+    /// touches to the sheet rather than to the messages list.
+    ///
+    /// Only at `full`, and that is the trade-off being made - the strip does take
+    /// the top of the transcript out of reach of taps, which is acceptable where
+    /// the transcript is a whole screen tall and that band sits under the
+    /// floating conversation indicator anyway. At the smaller detents the
+    /// grabber is already within easy reach and the transcript keeps every point
+    /// it has.
+    @ViewBuilder
+    private var dragTarget: some View {
+        if detent == .full {
+            Color.clear
+                .frame(height: ConversationSheetMetrics.dragTargetHeight)
+                // `Color.clear` alone draws nothing and takes no touches; the
+                // content shape is what makes the strip catch them.
+                .contentShape(Rectangle())
+                .accessibilityHidden(true)
+        }
     }
 
     /// Bar and tab bar - the part of the sheet present at every detent. Its
