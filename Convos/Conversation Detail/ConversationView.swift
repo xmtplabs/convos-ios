@@ -276,7 +276,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // the chrome's height plus the bottom safe area, because the
             // chrome is positioned above the home indicator while this frame
             // runs to the screen edge. `sheetChromeHeight` carries both.
-            extraBottomInset: sheetChromeHeight,
+            extraBottomInset: sheetTranscriptBottomInset,
             // The composer lives in the conversation sheet now (see
             // `sheetBarContent`), so the transcript renders no bar of its own.
             hostsBottomBar: false,
@@ -442,12 +442,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
         ambientColorScheme = scheme
     }
 
-    /// The full height the chrome occupies from the physical screen edge: its
-    /// own measured height plus the home-indicator safe area it rests above.
-    /// This is what the `collapsed` detent resolves to, since a detent is a
-    /// presentation height measured from that edge.
-    private var sheetOccupiedChromeHeight: CGFloat {
-        sheetChromeHeight + windowSafeAreaInsets.bottom
+    /// The transcript's bottom content inset inside the sheet.
+    ///
+    /// The chrome ignores the bottom safe area, so the clearance the newest
+    /// message needs is the chrome's measured height, full stop. The
+    /// transcript's collection view adds its own safe area on top of whatever
+    /// it is given (`contentInsetAdjustmentBehavior == .always`), so that much
+    /// comes back off here to leave the total at the chrome's height.
+    private var sheetTranscriptBottomInset: CGFloat {
+        max(sheetChromeHeight - windowSafeAreaInsets.bottom, 0)
     }
 
     /// The layout plus the tab/focus/session observers, split from `body`
@@ -1000,7 +1003,7 @@ private extension ConversationView {
         }
         .conversationSheetPresentation(
             detent: $sheetDetent,
-            chromeHeight: sheetOccupiedChromeHeight,
+            chromeHeight: sheetChromeHeight,
             lastMessageHeight: lastMessageHeight
         ) {
             conversationSheet
@@ -1057,7 +1060,7 @@ private extension ConversationView {
                 AgentDmPageView(
                     session: agentDmSession,
                     profileSettingsViewModel: profileSettingsViewModel,
-                    extraBottomInset: sheetChromeHeight,
+                    extraBottomInset: sheetTranscriptBottomInset,
                     isReadOnly: effectiveReadOnly,
                     isActiveTab: selectedTab == .agent,
                     contextMenuState: agentContextMenuState,

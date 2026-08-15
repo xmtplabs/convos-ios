@@ -84,6 +84,10 @@ struct ConversationSheetContent<
 
     /// Bar and tab bar - the part of the sheet present at every detent. Its
     /// measured height is what the `collapsed` detent resolves to.
+    ///
+    /// Ignores the bottom safe area, resting near the physical screen edge the
+    /// way the native floating tab bar does, rather than sitting above the home
+    /// indicator with a band of sheet beneath it.
     private var chrome: some View {
         VStack(spacing: Constant.contentSpacing) {
             barContent()
@@ -96,6 +100,7 @@ struct ConversationSheetContent<
         } action: { height in
             onChromeHeightChanged(height)
         }
+        .ignoresSafeArea(edges: .bottom)
     }
 }
 
