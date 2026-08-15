@@ -59,8 +59,12 @@ struct ConversationSheetContent<
     /// It stays mounted rather than torn down so scroll position survives.
     private var transcript: some View {
         let isShowing: Bool = detent.showsTranscript
+        // Hard zero rather than "whatever is left": at collapsed the sheet is
+        // exactly the chrome's height, and any slack the transcript keeps
+        // shows up as phantom padding above the composer.
+        let maxHeight: CGFloat? = isShowing ? .infinity : 0
         return transcriptContent()
-            .frame(maxHeight: .infinity, alignment: .bottom)
+            .frame(maxHeight: maxHeight, alignment: .bottom)
             .clipped()
             .opacity(isShowing ? 1 : 0)
             .allowsHitTesting(isShowing)
