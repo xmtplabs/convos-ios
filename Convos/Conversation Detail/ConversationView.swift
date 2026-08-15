@@ -593,130 +593,167 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .modifier(metricsObserversPart1)
         .modifier(metricsObserversPart2)
         .modifier(metricsObserversPart3)
-        .selfSizingSheet(isPresented: $viewModel.presentingConversationForked) {
-            ConversationForkedInfoView {
-                viewModel.leaveConvo()
-            }
-        }
-        .selfSizingSheet(isPresented: $viewModel.presentingCapabilityApproval) {
-            capabilityApprovalSheet
-        }
-        .sheet(isPresented: $viewModel.presentingProfileSettings) {
-            // ProfileSetupSheet owns the full save; no dismiss handler -
-            // the old onProfileSettingsDismissed re-saved from the stale
-            // myProfileViewModel and clobbered the just-saved profile.
-            ProfileSetupSheet(mode: .edit)
-        }
         .onChange(of: presentedColorScheme) { _, scheme in
             captureAmbientScheme(scheme)
         }
         .toolbar { topBarTrailing }
-        .debugConnectionInjectorSheet(
-            isPresented: debugInjectorBinding,
-            conversationId: viewModel.conversation.id,
-            messagingService: viewModel.messagingService
-        )
         .onReceive(NotificationCenter.default.publisher(for: .requestAddFromContactsInCurrentConversation)) { _ in
             // Surfaces from `NewConvoIdentityView`'s invite-members menu in
             // the new-conversation flow. Reuses the same picker state the
             // chat plus-menu's "Add from Contacts" row drives.
             presentingAddFromContactsPicker = true
         }
-        .addFromContactsPicker(
-            viewModel: viewModel,
-            isPresented: $presentingAddFromContactsPicker,
-            onInviteShared: onInviteShared
-        )
-        .shareSheet(
-            isPresented: $presentingInviteShareSheet,
-            items: inviteShareItems,
-            onCompletion: handleInviteShareCompletion
-        )
-        .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
-            newConversationSheet(viewModel)
-        }
-        .sheet(item: $viewModel.presentingContactForAgentShare) { contact in
-            agentShareContactDetailSheet(for: contact)
-        }
-        .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
-            ExplodeInfoView()
-        }
-        .sheet(isPresented: $viewModel.presentingPaywall) {
-            let paywallViewModel = PaywallViewModel(
-                subscriptionService: SubscriptionServices.shared,
-                paywallSource: .lowBalanceBanner,
-                coreActions: viewModel.coreActions
-            )
-            PaywallView(viewModel: paywallViewModel)
-        }
-        .selfSizingSheet(isPresented: $showingAgentsInfo) {
-            AgentsInfoView()
-                .padding(.top, 20)
-        }
-        .sheet(item: $viewModel.presentingProfileForMember) { member in
-            memberContactDetailSheet(for: member)
-        }
-        .selfSizingSheet(item: $viewModel.presentingReactionsForMessage) { message in
-            ReactionsDrawerView(message: message) { reaction in
-                viewModel.removeReaction(reaction, from: message)
-            }
-        }
-        .selfSizingSheet(item: $viewModel.presentingReadByForGroup) { group in
-            ReadByDrawerView(
-                members: group.readByMembers,
-                memberContactOverride: contactOverride
-            )
-        }
-        .sheet(item: $viewModel.presentingThinkingDetail) { descriptor in
-            ThinkingDetailView(
-                descriptor: descriptor,
-                conversation: viewModel.conversation,
-                viewModel: viewModel,
-                profileSheetForMember: profileSheetForMember
-            )
-        }
-        .sheet(item: $viewModel.presentingMessageDetail) { message in
-            MessageDetailView(
-                message: message,
-                onCopy: { text in
-                    UIPasteboard.general.string = text
-                },
-                onReply: { repliedMessage in
-                    viewModel.presentingMessageDetail = nil
-                    viewModel.onReply(repliedMessage)
-                    focusCoordinator.moveFocus(to: .message)
-                }
-            )
-        }
-        .selfSizingSheet(isPresented: $showingLockedInfo) {
-            LockedConvoInfoView(
-                isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
-                isLocked: viewModel.isLocked,
-                onLock: {
-                    viewModel.toggleLock()
-                    showingLockedInfo = false
-                },
-                onDismiss: {
-                    showingLockedInfo = false
-                }
-            )
-        }
-        .selfSizingSheet(isPresented: $showingFullInfo) {
-            FullConvoInfoView(onDismiss: {
-                showingFullInfo = false
-            })
-        }
-        .selfSizingSheet(
-            isPresented: $viewModel.presentingPhotosInfoSheet,
-            onDismiss: { focusCoordinator.moveFocus(to: .message) },
-            content: {
-                PhotosInfoSheet()
-            }
-        )
         .onDisappear {
             VoiceMemoPlayer.shared.stop()
             viewModel.voiceMemoRecorder.cancelRecording()
         }
+    }
+}
+
+// MARK: - Presentations
+
+private extension ConversationView {
+    /// Every sheet the conversation raises, applied to the conversation sheet's
+    /// content rather than to `body`.
+    ///
+    /// Not a style choice - it is the one place they can work. The conversation
+    /// sheet is presented for as long as this screen is up, and a view controller
+    /// presents one thing at a time, so a second presentation asked for from the
+    /// same host is simply refused: taps on a reaction or a read receipt did
+    /// nothing at all. Raising them from inside the sheet's content presents them
+    /// from the topmost presentation instead, which also puts them where they
+    /// belong visually - over the sheet, not behind it.
+    ///
+    /// They inherit the sheet's environment as a consequence, the forced scheme
+    /// on the Agent lane included. That is the right way round: a tray opened
+    /// from a message in the agent transcript belongs to that lane.
+    @ViewBuilder
+    func conversationPresentations(_ content: some View) -> some View {
+        messagePresentations(conversationLevelPresentations(content))
+    }
+
+    /// The sheets the conversation itself raises, as opposed to the ones a
+    /// message raises. Split from `messagePresentations` only to keep each
+    /// function inside the type-check budget and the body-length limit.
+    @ViewBuilder
+    func conversationLevelPresentations(_ content: some View) -> some View {
+        content
+            .selfSizingSheet(isPresented: $viewModel.presentingConversationForked) {
+                ConversationForkedInfoView {
+                    viewModel.leaveConvo()
+                }
+            }
+            .selfSizingSheet(isPresented: $viewModel.presentingCapabilityApproval) {
+                capabilityApprovalSheet
+            }
+            .sheet(isPresented: $viewModel.presentingProfileSettings) {
+                // ProfileSetupSheet owns the full save; no dismiss handler -
+                // the old onProfileSettingsDismissed re-saved from the stale
+                // myProfileViewModel and clobbered the just-saved profile.
+                ProfileSetupSheet(mode: .edit)
+            }
+            .debugConnectionInjectorSheet(
+                isPresented: debugInjectorBinding,
+                conversationId: viewModel.conversation.id,
+                messagingService: viewModel.messagingService
+            )
+            .addFromContactsPicker(
+                viewModel: viewModel,
+                isPresented: $presentingAddFromContactsPicker,
+                onInviteShared: onInviteShared
+            )
+            .shareSheet(
+                isPresented: $presentingInviteShareSheet,
+                items: inviteShareItems,
+                onCompletion: handleInviteShareCompletion
+            )
+            .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
+                newConversationSheet(viewModel)
+            }
+            .sheet(item: $viewModel.presentingContactForAgentShare) { contact in
+                agentShareContactDetailSheet(for: contact)
+            }
+            .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
+                ExplodeInfoView()
+            }
+    }
+
+    /// The sheets a message raises - a tray, a detail, a member's card.
+    @ViewBuilder
+    func messagePresentations(_ content: some View) -> some View {
+        content
+            .sheet(isPresented: $viewModel.presentingPaywall) {
+                let paywallViewModel = PaywallViewModel(
+                    subscriptionService: SubscriptionServices.shared,
+                    paywallSource: .lowBalanceBanner,
+                    coreActions: viewModel.coreActions
+                )
+                PaywallView(viewModel: paywallViewModel)
+            }
+            .selfSizingSheet(isPresented: $showingAgentsInfo) {
+                AgentsInfoView()
+                    .padding(.top, 20)
+            }
+            .sheet(item: $viewModel.presentingProfileForMember) { member in
+                memberContactDetailSheet(for: member)
+            }
+            .selfSizingSheet(item: $viewModel.presentingReactionsForMessage) { message in
+                ReactionsDrawerView(message: message) { reaction in
+                    viewModel.removeReaction(reaction, from: message)
+                }
+            }
+            .selfSizingSheet(item: $viewModel.presentingReadByForGroup) { group in
+                ReadByDrawerView(
+                    members: group.readByMembers,
+                    memberContactOverride: contactOverride
+                )
+            }
+            .sheet(item: $viewModel.presentingThinkingDetail) { descriptor in
+                ThinkingDetailView(
+                    descriptor: descriptor,
+                    conversation: viewModel.conversation,
+                    viewModel: viewModel,
+                    profileSheetForMember: profileSheetForMember
+                )
+            }
+            .sheet(item: $viewModel.presentingMessageDetail) { message in
+                MessageDetailView(
+                    message: message,
+                    onCopy: { text in
+                        UIPasteboard.general.string = text
+                    },
+                    onReply: { repliedMessage in
+                        viewModel.presentingMessageDetail = nil
+                        viewModel.onReply(repliedMessage)
+                        focusCoordinator.moveFocus(to: .message)
+                    }
+                )
+            }
+            .selfSizingSheet(isPresented: $showingLockedInfo) {
+                LockedConvoInfoView(
+                    isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
+                    isLocked: viewModel.isLocked,
+                    onLock: {
+                        viewModel.toggleLock()
+                        showingLockedInfo = false
+                    },
+                    onDismiss: {
+                        showingLockedInfo = false
+                    }
+                )
+            }
+            .selfSizingSheet(isPresented: $showingFullInfo) {
+                FullConvoInfoView(onDismiss: {
+                    showingFullInfo = false
+                })
+            }
+            .selfSizingSheet(
+                isPresented: $viewModel.presentingPhotosInfoSheet,
+                onDismiss: { focusCoordinator.moveFocus(to: .message) },
+                content: {
+                    PhotosInfoSheet()
+                }
+            )
     }
 }
 
@@ -1112,7 +1149,11 @@ private extension ConversationView {
                 agentCoordinator: agentFocusCoordinator,
                 resetToken: viewModel.conversation.id
             ) { groupFocus, agentFocus in
-                conversationSheet(groupFocus: groupFocus, agentFocus: agentFocus)
+                // Presentations go on the sheet's content, which is the only
+                // place they can present from - see `conversationPresentations`.
+                conversationPresentations(
+                    conversationSheet(groupFocus: groupFocus, agentFocus: agentFocus)
+                )
             }
         }
     }
