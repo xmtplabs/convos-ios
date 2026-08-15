@@ -61,6 +61,11 @@ struct ConversationSheetContent<
             transcript
             chrome
         }
+        // On the container, not on the chrome: a ZStack child's own
+        // `ignoresSafeArea` cannot push it outside the stack's frame, which was
+        // already laid out inside the safe area. Ignoring it here is what lets
+        // the chrome rest at the physical bottom edge.
+        .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("conversation-bottom-sheet")
     }
 
@@ -100,7 +105,6 @@ struct ConversationSheetContent<
         } action: { height in
             onChromeHeightChanged(height)
         }
-        .ignoresSafeArea(edges: .bottom)
     }
 }
 
@@ -110,10 +114,12 @@ private enum Constant {
     /// Short enough to keep up with a fast collapse, slow enough not to read
     /// as a pop.
     static let transcriptFadeDuration: Double = 0.2
-    /// Sheet chrome: 16pt padding with a 12pt gap between the bar and the tab
-    /// bar (Figma p-16 / gap-12). Horizontal insets stay with the bar content
-    /// itself - the composer already carries the 16pt inset.
+    /// Gap between the bar and the tab bar (Figma gap-12). Horizontal insets
+    /// stay with the bar content itself - the composer already carries the
+    /// 16pt inset.
     static let contentSpacing: CGFloat = DesignConstants.Spacing.step3x
-    static let contentTopPadding: CGFloat = DesignConstants.Spacing.step4x
+    /// Matches `contentSpacing`, so the run down the sheet is evenly spaced:
+    /// grabber, gap, input bar, same gap, tab bar.
+    static let contentTopPadding: CGFloat = contentSpacing
     static let contentBottomPadding: CGFloat = DesignConstants.Spacing.step4x
 }

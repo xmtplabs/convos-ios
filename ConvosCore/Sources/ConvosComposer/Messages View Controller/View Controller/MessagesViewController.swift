@@ -4,6 +4,7 @@ import ConvosCore
 import DifferenceKit
 import Foundation
 import Observation
+import os
 import SwiftUI
 import UIKit
 
@@ -567,7 +568,31 @@ public final class MessagesViewController: UIViewController {
         super.viewDidAppear(animated)
         isSettlingInitialLayout = false
         messagesLayout.compensatesAllSelfSizingGrowth = false
+        logInsetGeometry("viewDidAppear")
     }
+
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        logInsetGeometry("viewDidLayoutSubviews")
+    }
+
+    // TEMPORARY probe for the in-sheet transcript's bottom clearance. Uses
+    // os_log because `Log` writes to stdout, which the simulator's unified log
+    // never sees. Remove once the geometry is settled.
+    private func logInsetGeometry(_ label: String) {
+        let view = collectionView
+        let message = "[sheet-inset] \(label)"
+            + " frameH=\(view.frame.height)"
+            + " safeAreaBottom=\(view.safeAreaInsets.bottom)"
+            + " insetBottom=\(view.contentInset.bottom)"
+            + " adjustedBottom=\(view.adjustedContentInset.bottom)"
+            + " contentH=\(view.contentSize.height)"
+            + " offsetY=\(view.contentOffset.y)"
+            + " bottomBarHeight=\(bottomBarHeight)"
+        os_log("%{public}@", log: Self.insetProbeLog, type: .info, message)
+    }
+
+    private static let insetProbeLog: OSLog = OSLog(subsystem: "org.convos.sheet", category: "inset")
 
     /// The SwiftUI bottom bar mounts into the safe area a render pass or two
     /// after the list's first bottom anchor during the open transition, which

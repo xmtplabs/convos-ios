@@ -38,6 +38,13 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // Published on the *presenter*, which is the environment a
+            // `CustomPresentationDetent`'s `Context` reads. Setting it only on
+            // the sheet's content leaves the detents resolving against their
+            // defaults - the collapsed height silently stayed at the estimated
+            // constant rather than the measured chrome.
+            .environment(\.conversationSheetChromeHeight, chromeHeight)
+            .environment(\.conversationSheetLastMessageHeight, lastMessageHeight)
             .onAppear { isPresented = true }
             .sheet(isPresented: $isPresented) {
                 sheetContent()
