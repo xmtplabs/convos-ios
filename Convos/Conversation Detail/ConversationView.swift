@@ -7,7 +7,10 @@ import SwiftUI
 struct ConversationView<MessagesBottomBar: View>: View {
     @Bindable var viewModel: ConversationViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
-    @FocusState.Binding var focusState: MessagesViewInputFocus?
+    /// The group composer's focus coordinator. Its `@FocusState` counterpart is
+    /// declared inside the sheet (`ConversationSheetFocusHost`) rather than
+    /// handed down from the shell: focus is per-presentation, and the composer
+    /// lives in the sheet.
     let focusCoordinator: FocusCoordinator
     let onScanInviteCode: () -> Void
     let onDeleteConversation: () -> Void
@@ -94,10 +97,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// The agent DM transcript's own context-menu state; the DM stays mounted
     /// alongside the group transcript, so they cannot share one.
     @State private var agentContextMenuState: MessageContextMenuState = .init()
-    /// Focus for the sheet's agent composer, deliberately separate from the
-    /// group composer's `focusState`: both surfaces stay mounted, so a shared
-    /// value would fight between their text fields.
-    @FocusState private var agentFocusState: MessagesViewInputFocus?
+    /// The agent composer's focus coordinator. Its `@FocusState` counterpart is
+    /// declared inside the sheet (`ConversationSheetFocusHost`), which is the
+    /// only place one can reach the composer.
     @State private var agentFocusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
     /// Scroll-to-bottom triggers bridged out of each transcript for the
     /// sheet-hosted composers to fire on send.
@@ -149,7 +151,44 @@ struct ConversationView<MessagesBottomBar: View>: View {
         )
     }
 
-    private var messagesView: some View {
+    // The group transcript's multi-line handlers, named rather than inline so
+    // the `MessagesView(...)` call below stays inside the function-length
+    // budget.
+
+    private func handleTranscriptUserInteraction() {
+        viewModel.dismissQuickEditor()
+        focusCoordinator.dismissQuickEditor()
+    }
+
+    private func handleTranscriptSendMessage() {
+        viewModel.onSendMessage(focusCoordinator: focusCoordinator)
+    }
+
+    private func handleTranscriptThinkingIndicatorTap(_ descriptor: ThinkingSessionDescriptor) {
+        viewModel.presentingThinkingDetail = descriptor
+    }
+
+    private func handleTranscriptReply(_ message: AnyMessage) {
+        viewModel.onReply(message)
+        focusCoordinator.moveFocus(to: .message)
+    }
+
+    private func handleTranscriptOpenMessageDetail(_ message: AnyMessage) {
+        viewModel.presentingMessageDetail = message
+    }
+
+    private func handleTranscriptCapabilityConnectTap(_ prompt: CapabilityConnectPrompt) {
+        // Read-only viewers see the pill but can't answer the request (a result
+        // message couldn't be sent on their behalf anyway).
+        guard !effectiveReadOnly else { return }
+        viewModel.onTapCapabilityConnectPrompt(prompt)
+    }
+
+    private func handleTranscriptDisplayNameEndedEditing() {
+        viewModel.onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .quickEditor)
+    }
+
+    private func messagesView(focus: FocusState<MessagesViewInputFocus?>.Binding) -> some View {
         MessagesView(
             contextMenuState: contextMenuState,
             conversation: viewModel.conversation,
@@ -184,17 +223,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: viewModel.onboardingCoordinator,
-            focusState: $focusState,
+            focusState: focus,
             focusCoordinator: focusCoordinator,
             messagesTextFieldEnabled: messagesTextFieldEnabled,
             isReadOnly: effectiveReadOnly,
-            onUserInteraction: {
-                viewModel.dismissQuickEditor()
-                focusCoordinator.dismissQuickEditor()
-            },
-            onSendMessage: {
-                viewModel.onSendMessage(focusCoordinator: focusCoordinator)
-            },
+            onUserInteraction: handleTranscriptUserInteraction,
+            onSendMessage: handleTranscriptSendMessage,
             onClearInvite: viewModel.clearPendingInvite,
             onClearLinkPreview: { viewModel.pastedLinkPreview = nil },
             onClearMediaAttachment: viewModel.removeMediaAttachment(id:),
@@ -207,26 +241,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onToggleReaction: viewModel.onReaction(emoji:messageId:),
             onTapReactions: viewModel.onTapReactions(_:),
             onTapReadReceipts: viewModel.onTapReadReceipts(_:),
-            onTapThinkingIndicator: { descriptor in
-                viewModel.presentingThinkingDetail = descriptor
-            },
-            onReply: { message in
-                viewModel.onReply(message)
-                focusCoordinator.moveFocus(to: .message)
-            },
-            onOpenMessageDetail: { message in
-                viewModel.presentingMessageDetail = message
-            },
+            onTapThinkingIndicator: handleTranscriptThinkingIndicatorTap(_:),
+            onReply: handleTranscriptReply(_:),
+            onOpenMessageDetail: handleTranscriptOpenMessageDetail(_:),
             expandedMessageIds: viewModel.expandedMessageIds,
-            onToggleMessageExpanded: { messageId in
-                viewModel.toggleMessageExpanded(messageId)
-            },
+            onToggleMessageExpanded: viewModel.toggleMessageExpanded(_:),
             replyingToMessage: viewModel.replyingToMessage,
             replyingToAudioTranscriptText: viewModel.replyingToAudioTranscriptText,
             onCancelReply: viewModel.cancelReply,
-            onDisplayNameEndedEditing: {
-                viewModel.onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .quickEditor)
-            },
+            onDisplayNameEndedEditing: handleTranscriptDisplayNameEndedEditing,
             onProfileSettings: viewModel.onProfileSettings,
             onLoadPreviousMessages: viewModel.loadPreviousMessages,
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
@@ -237,12 +260,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onAgentOutOfCredits: { viewModel.presentingPaywall = true },
             agentPowerDepletedByInboxId: viewModel.agentPowerDepletedByInboxId,
             onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
-            onTapCapabilityConnect: { prompt in
-                // Read-only viewers see the pill but can't answer the request
-                // (a result message couldn't be sent on their behalf anyway).
-                guard !effectiveReadOnly else { return }
-                viewModel.onTapCapabilityConnectPrompt(prompt)
-            },
+            onTapCapabilityConnect: handleTranscriptCapabilityConnectTap(_:),
             onRetryMessage: viewModel.retryMessage(_:),
             onDeleteMessage: viewModel.deleteMessage(_:),
             onRetryAgentJoin: { viewModel.retryAgentJoin() },
@@ -276,10 +294,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // the chrome's height plus the bottom safe area, because the
             // chrome is positioned above the home indicator while this frame
             // runs to the screen edge. `sheetChromeHeight` carries both.
-            extraBottomInset: sheetTranscriptBottomInset,
+            extraBottomInset: sheetChromeHeight,
             // The composer lives in the conversation sheet now (see
             // `sheetBarContent`), so the transcript renders no bar of its own.
             hostsBottomBar: false,
+            hostRendersContextMenu: true,
             onScrollToBottomAvailable: { scrollFn in
                 // Fires from inside the representable's make pass; defer the
                 // state write out of the view-update transaction or SwiftUI
@@ -442,14 +461,17 @@ struct ConversationView<MessagesBottomBar: View>: View {
         ambientColorScheme = scheme
     }
 
-    /// The transcript's bottom content inset inside the sheet.
+    /// The chrome's height measured from the top of the bottom safe area rather
+    /// than from the physical screen edge - the chrome ignores that safe area
+    /// and rests in it, so this is its height less the home indicator's inset.
     ///
-    /// The chrome ignores the bottom safe area, so the clearance the newest
-    /// message needs is the chrome's measured height, full stop. The
-    /// transcript's collection view adds its own safe area on top of whatever
-    /// it is given (`contentInsetAdjustmentBehavior == .always`), so that much
-    /// comes back off here to leave the total at the chrome's height.
-    private var sheetTranscriptBottomInset: CGFloat {
+    /// Both the sheet's detent and the transcript's content inset want exactly
+    /// this number, for the same reason: each is measured above the safe area
+    /// and has the safe area added back by the thing that consumes it. A
+    /// `.height()` detent yields that height *plus* the safe area, and the
+    /// transcript's collection view adds its own safe area to whatever inset it
+    /// is handed (`contentInsetAdjustmentBehavior == .always`).
+    private var sheetChromeHeightAboveSafeArea: CGFloat {
         max(sheetChromeHeight - windowSafeAreaInsets.bottom, 0)
     }
 
@@ -466,19 +488,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onChange(of: selectedTab) { oldTab, newTab in
             handleSelectedTabChange(from: oldTab, to: newTab)
         }
-        // The agent composer's focus plumbing, mirroring what
-        // ConversationPresenter wires for the group pair: coordinator ->
-        // FocusState (including same-value refocus re-assertion) and
-        // FocusState -> coordinator.
-        .onChange(of: agentFocusCoordinator.currentFocus) { _, newFocus in
-            agentFocusState = newFocus
-        }
-        .onChange(of: agentFocusCoordinator.refocusNonce) { _, _ in
-            reassertAgentFocus()
-        }
-        .onChange(of: agentFocusState) { _, newFocus in
-            agentFocusCoordinator.syncFocusState(newFocus)
-        }
+        // Both composers' focus plumbing lives inside the sheet now - see
+        // `ConversationSheetFocusHost` - because a `@FocusState` declared out
+        // here cannot reach a field inside a presentation.
+        //
         // Losing the Space URL drops any pages browsed from it, but the tab
         // stays: without a URL the Home shows its preparing state rather than
         // moving the user somewhere they did not ask to go.
@@ -684,6 +697,7 @@ private extension ConversationView {
     /// dropping.
     private func handleSelectedTabChange(from oldTab: ConversationTab, to newTab: ConversationTab) {
         visitedTabs.insert(newTab)
+        parkIncomingTranscriptIfCollapsed(newTab)
         let keyboardWasUp: Bool = isKeyboardVisible
         switch newTab {
         case .group:
@@ -765,21 +779,6 @@ private extension ConversationView {
         )
     }
 
-    /// Re-applies the agent composer's `@FocusState` for a same-value
-    /// `moveFocus` request (see `FocusCoordinator.refocusNonce`), bouncing
-    /// through nil when needed so SwiftUI re-acquires the first responder.
-    private func reassertAgentFocus() {
-        let target = agentFocusCoordinator.currentFocus
-        guard agentFocusState == target else {
-            agentFocusState = target
-            return
-        }
-        agentFocusState = nil
-        DispatchQueue.main.async {
-            agentFocusState = target
-        }
-    }
-
     private func pushHomeBrowserPage(for url: URL) {
         withAnimation(.easeInOut(duration: 0.25)) {
             homeBrowserEntries.append(HomeBrowserEntry(url: url))
@@ -795,7 +794,65 @@ private extension ConversationView {
     /// The native tab bar's re-tap contract: tapping the active tab returns
     /// its transcript to the latest message.
     private func handleTabReselect(_ tab: ConversationTab) {
-        switch tab {
+        scrollActiveTranscriptToBottom()
+    }
+
+    /// Keeps the transcript parked at the newest message across a collapse.
+    ///
+    /// Collapsing hides the transcript, so wherever the user had scrolled to is
+    /// no longer something they are looking at - and re-expanding onto stale
+    /// history reads as the sheet having lost its place. Resetting on the way
+    /// down means every expansion opens on the latest message. Drags between
+    /// the larger detents leave the scroll position alone, since the transcript
+    /// stayed visible throughout.
+    private func handleSheetDetentChanged(
+        from oldValue: ConversationSheetDetent,
+        to newValue: ConversationSheetDetent
+    ) {
+        guard newValue == .collapsed || oldValue == .collapsed else { return }
+        // The sheet is still animating to its new height; the transcript's
+        // frame - and so where "the bottom" is - settles a beat later.
+        DispatchQueue.main.async {
+            scrollActiveTranscriptToBottom()
+        }
+    }
+
+    /// Promotes a collapsed sheet when a composer takes focus.
+    ///
+    /// The system expands a sheet on its own to clear the keyboard, but it does
+    /// not change which detent is selected - so the sheet grew while the detent
+    /// still said `collapsed` and the transcript stayed faded out, leaving a
+    /// tall empty card above the composer. Promoting keeps our state in step
+    /// with what is on screen, and matches the intent: typing means the user
+    /// wants the conversation, not the Home behind it.
+    private func handleComposerFocusChanged(_ focus: MessagesViewInputFocus?) {
+        guard focus == .message, sheetDetent == .collapsed else { return }
+        sheetDetent = .full
+    }
+
+    /// Parks a transcript at its newest message as it becomes the selected one,
+    /// while the sheet is collapsed.
+    ///
+    /// Collapsing only parks the transcript that was showing at the time, so the
+    /// other one keeps whatever offset it had - and at `collapsed` the sheet is
+    /// just the chrome's height, so an unparked transcript leaves its last
+    /// message sitting above the chrome in plain view. Parking on the way in
+    /// keeps the collapsed sheet looking like chrome alone whichever tab is
+    /// selected.
+    private func parkIncomingTranscriptIfCollapsed(_ tab: ConversationTab) {
+        guard sheetDetent == .collapsed else { return }
+        DispatchQueue.main.async {
+            switch tab {
+            case .group:
+                groupScrollToBottom?()
+            case .agent:
+                agentScrollToBottom?()
+            }
+        }
+    }
+
+    private func scrollActiveTranscriptToBottom() {
+        switch selectedTab {
         case .group:
             groupScrollToBottom?()
         case .agent:
@@ -1003,10 +1060,19 @@ private extension ConversationView {
         }
         .conversationSheetPresentation(
             detent: $sheetDetent,
-            chromeHeight: sheetChromeHeight,
+            chromeHeight: sheetChromeHeightAboveSafeArea,
             lastMessageHeight: lastMessageHeight
         ) {
-            conversationSheet
+            // Focus is declared inside the sheet, because that is the only
+            // place a `@FocusState` can reach the composers. See
+            // `ConversationSheetFocusHost`.
+            ConversationSheetFocusHost(
+                groupCoordinator: focusCoordinator,
+                agentCoordinator: agentFocusCoordinator,
+                resetToken: viewModel.conversation.id
+            ) { groupFocus, agentFocus in
+                conversationSheet(groupFocus: groupFocus, agentFocus: agentFocus)
+            }
         }
     }
 
@@ -1051,20 +1117,23 @@ private extension ConversationView {
     /// Neither insets for the sheet - inside it, the composer and tab bar are
     /// siblings below rather than chrome floating over the content.
     @ViewBuilder
-    var sheetTranscripts: some View {
+    func sheetTranscripts(
+        groupFocus: FocusState<MessagesViewInputFocus?>.Binding,
+        agentFocus: FocusState<MessagesViewInputFocus?>.Binding
+    ) -> some View {
         ZStack {
-            messagesView
+            messagesView(focus: groupFocus)
                 .opacity(selectedTab == .group ? 1 : 0)
                 .allowsHitTesting(selectedTab == .group)
             if visitedTabs.contains(.agent), let agentDmSession {
                 AgentDmPageView(
                     session: agentDmSession,
                     profileSettingsViewModel: profileSettingsViewModel,
-                    extraBottomInset: sheetTranscriptBottomInset,
+                    extraBottomInset: sheetChromeHeight,
                     isReadOnly: effectiveReadOnly,
                     isActiveTab: selectedTab == .agent,
                     contextMenuState: agentContextMenuState,
-                    focusState: $agentFocusState,
+                    focusState: agentFocus,
                     focusCoordinator: agentFocusCoordinator,
                     onScrollToBottomAvailable: { scrollFn in
                         // Same deferral as the group transcript's bridge.
@@ -1079,14 +1148,21 @@ private extension ConversationView {
         }
     }
 
-    var conversationSheet: some View {
+    func conversationSheet(
+        groupFocus: FocusState<MessagesViewInputFocus?>.Binding,
+        agentFocus: FocusState<MessagesViewInputFocus?>.Binding
+    ) -> some View {
         ConversationSheetContent(
             detent: sheetDetent,
             onChromeHeightChanged: { height in
                 sheetChromeHeight = height
             },
-            transcriptContent: { sheetTranscripts },
-            barContent: { sheetBarContent },
+            transcriptContent: {
+                sheetTranscripts(groupFocus: groupFocus, agentFocus: agentFocus)
+            },
+            barContent: {
+                sheetBarContent(groupFocus: groupFocus, agentFocus: agentFocus)
+            },
             tabBar: {
                 ConversationTabBar(
                     selectedTab: $selectedTab,
@@ -1094,28 +1170,37 @@ private extension ConversationView {
                     badgedTabs: badgedTabs,
                     onReselect: handleTabReselect(_:)
                 )
-            }
+            },
+            contextMenuOverlay: { messageContextMenuOverlay }
         )
-        // The long-press context menu takes the screen; the card fades out
-        // under it rather than competing.
-        .opacity(contextMenuState.isPresented || agentContextMenuState.isPresented ? 0 : 1)
-        .animation(.spring(response: 0.3, dampingFraction: 0.9), value: contextMenuState.isPresented)
         // Scoped to the sheet: the Agent tab's dark surface is the sheet's,
         // not the conversation's, and the Home behind it keeps its own scheme.
         .preferredColorScheme(preferredScheme)
+        .onChange(of: sheetDetent) { oldValue, newValue in
+            handleSheetDetentChanged(from: oldValue, to: newValue)
+        }
+        .onChange(of: focusCoordinator.currentFocus) { _, newFocus in
+            handleComposerFocusChanged(newFocus)
+        }
+        .onChange(of: agentFocusCoordinator.currentFocus) { _, newFocus in
+            handleComposerFocusChanged(newFocus)
+        }
     }
 
     /// The bar the sheet hosts above its tab bar, keyed by the selected tab:
     /// the group composer, or the agent-DM composer (disabled until the DM
     /// exists).
     @ViewBuilder
-    var sheetBarContent: some View {
+    func sheetBarContent(
+        groupFocus: FocusState<MessagesViewInputFocus?>.Binding,
+        agentFocus: FocusState<MessagesViewInputFocus?>.Binding
+    ) -> some View {
         switch selectedTab {
         case .group:
             if !effectiveReadOnly {
                 ConversationComposerBar(
                     viewModel: viewModel,
-                    focusState: $focusState,
+                    focusState: groupFocus,
                     focusCoordinator: focusCoordinator,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
                     scrollToBottom: { groupScrollToBottom?() },
@@ -1131,7 +1216,7 @@ private extension ConversationView {
             if let agentDmSession, !effectiveReadOnly {
                 AgentComposerBar(
                     session: agentDmSession,
-                    focusState: $agentFocusState,
+                    focusState: agentFocus,
                     focusCoordinator: agentFocusCoordinator,
                     isReadOnly: effectiveReadOnly,
                     scrollToBottom: { agentScrollToBottom?() }
@@ -1141,6 +1226,31 @@ private extension ConversationView {
                 .environment(\.agentParticipation, nil)
             }
         }
+    }
+
+    /// The message long-press menu for whichever transcript raised it, layered
+    /// at the sheet's root.
+    ///
+    /// Both transcripts keep their own menu state, and only the selected tab's
+    /// can be showing - it is the selected tab the user long-pressed in. The
+    /// transcripts themselves render no menu (`hostRendersContextMenu`): inside
+    /// the sheet they are clipped to the current detent, which would crop it.
+    @ViewBuilder
+    var messageContextMenuOverlay: some View {
+        let state: MessageContextMenuState = selectedTab == .agent
+            ? agentContextMenuState
+            : contextMenuState
+        MessageContextMenuOverlay(
+            state: state,
+            isReadOnly: effectiveReadOnly,
+            onReaction: viewModel.onReaction(emoji:messageId:),
+            onReply: handleTranscriptReply(_:),
+            onCopy: { text in
+                UIPasteboard.general.string = text
+            }
+        )
+        .environment(\.agentShareResolver, viewModel.agentShareResolver)
+        .environment(\.inviteMembershipResolver, viewModel.inviteMembershipResolver)
     }
 
     /// Extra rows above the group composer: the injected bottom-bar slot plus
@@ -1370,13 +1480,11 @@ extension ConversationView {
 #Preview {
     @Previewable @State var viewModel: ConversationViewModel = makeConversationViewPreviewViewModel()
     @Previewable @State var profileSettingsViewModel: ProfileSettingsViewModel = .shared
-    @Previewable @FocusState var focusState: MessagesViewInputFocus?
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     NavigationStack {
         ConversationView(
             viewModel: viewModel,
             profileSettingsViewModel: profileSettingsViewModel,
-            focusState: $focusState,
             focusCoordinator: focusCoordinator,
             onScanInviteCode: {},
             onDeleteConversation: {},

@@ -619,13 +619,22 @@ public struct MessageContextMenuOverlay: View {
         static let actionPaddingV: CGFloat = 11
         static let menuIconWidth: CGFloat = 18
         static let menuIconSpacing: CGFloat = 14
-        static let topInset: CGFloat = 56
+        /// Clearance above the reactions bar. Kept small: the menu is laid out
+        /// inside the conversation sheet, whose top edge is already the top of
+        /// the available space, so a nav-bar-sized inset here just steals height
+        /// from the message preview and scales it down.
+        static let topInset: CGFloat = 16
         static let maxPreviewHeight: CGFloat = 75
         static let photoHorizontalInset: CGFloat = 16
         static let photoCornerRadius: CGFloat = DesignConstants.CornerRadius.photo
         static let textMenuEstimatedHeight: CGFloat = 80
         static let photoMenuEstimatedHeight: CGFloat = 160
-        static let verticalBreathingRoom: CGFloat = 80
+        /// Slack above and below the message preview. Applied twice by
+        /// `endBubbleRect` - once inside its bottom padding and once again
+        /// against the content height - so the effective reservation is double
+        /// this. Kept modest for that reason: at 80 it took 160pt out of the
+        /// budget and crushed the preview inside the sheet.
+        static let verticalBreathingRoom: CGFloat = 20
 
         static let dragDismissThreshold: CGFloat = 150
         static let menuDragFollowRatio: CGFloat = 0.6

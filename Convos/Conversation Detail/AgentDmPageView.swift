@@ -358,6 +358,7 @@ struct AgentDmPageView: View {
             onSendVoiceMemo: { dmVm.sendVoiceMemo() },
             extraBottomInset: extraBottomInset,
             hostsBottomBar: false,
+            hostRendersContextMenu: true,
             onScrollToBottomAvailable: onScrollToBottomAvailable,
             bottomBarContent: { EmptyView() }
         )

@@ -133,6 +133,10 @@ public final class MessagesViewController: UIViewController {
     /// Scrolling up flips it false via `scrollViewDidScroll`; programmatic
     /// scrolls to the bottom flip it back.
     private var isPinnedToBottom: Bool = true
+    /// The frame height at the last layout pass, so a host resize can be told
+    /// from any other reason to lay out. See
+    /// `maintainBottomAnchorAcrossHostResize`.
+    private var lastLaidOutHeight: CGFloat?
 
     // MARK: - Public
 
@@ -300,7 +304,13 @@ public final class MessagesViewController: UIViewController {
     /// jump; the deferral applies it clamp-free once the content has grown.
     private func applyDeferredBottomInset() {
         let targetInset: CGFloat
-        if let lastKeyboardFrameChange {
+        // The keyboard math below measures how far the keyboard overlaps this
+        // list, which presumes the list owns the screen. A host that renders no
+        // bar of its own - the conversation sheet - positions its chrome
+        // against the keyboard itself and rises with it, so the keyboard never
+        // overlaps the list and the clearance it was handed is already the
+        // whole answer.
+        if let lastKeyboardFrameChange, hasBottomBar {
             targetInset = calculateNewBottomInset(for: lastKeyboardFrameChange)
         } else {
             targetInset = bottomBarHeight
@@ -328,6 +338,8 @@ public final class MessagesViewController: UIViewController {
             if !hasBottomBar {
                 currentInterfaceActions.options.remove(.determiningBottomBarHeight)
             }
+            guard isViewLoaded else { return }
+            applyContentInsetAdjustmentBehavior()
         }
     }
 
@@ -573,26 +585,40 @@ public final class MessagesViewController: UIViewController {
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        maintainBottomAnchorAcrossHostResize()
         logInsetGeometry("viewDidLayoutSubviews")
     }
 
-    // TEMPORARY probe for the in-sheet transcript's bottom clearance. Uses
-    // os_log because `Log` writes to stdout, which the simulator's unified log
-    // never sees. Remove once the geometry is settled.
-    private func logInsetGeometry(_ label: String) {
-        let view = collectionView
-        let message = "[sheet-inset] \(label)"
-            + " frameH=\(view.frame.height)"
-            + " safeAreaBottom=\(view.safeAreaInsets.bottom)"
-            + " insetBottom=\(view.contentInset.bottom)"
-            + " adjustedBottom=\(view.adjustedContentInset.bottom)"
-            + " contentH=\(view.contentSize.height)"
-            + " offsetY=\(view.contentOffset.y)"
-            + " bottomBarHeight=\(bottomBarHeight)"
-        os_log("%{public}@", log: Self.insetProbeLog, type: .info, message)
+    /// Keeps the message at the bottom of the viewport at the bottom when the
+    /// host resizes this view - the conversation sheet moving between detents.
+    ///
+    /// A scroll view anchors its content to the top through a frame change, so
+    /// shrinking from full to compact would slide the newest messages out of
+    /// sight and leave the user looking at older ones. Shifting the offset by
+    /// the height delta pins the bottom edge instead, which is the edge the
+    /// reader is actually following.
+    ///
+    /// Only for hosts that render no bar of their own: a host that owns the
+    /// whole screen resizes on rotation and keyboard, where its own anchoring
+    /// already applies.
+    private func maintainBottomAnchorAcrossHostResize() {
+        let height: CGFloat = collectionView.frame.height
+        defer { lastLaidOutHeight = height }
+        guard !hasBottomBar,
+              let previousHeight = lastLaidOutHeight,
+              previousHeight != height,
+              !isUserInitiatedScrolling,
+              !isSettlingInitialLayout else {
+            return
+        }
+        let delta: CGFloat = previousHeight - height
+        let maxOffset: CGFloat = max(
+            collectionView.contentSize.height - height + collectionView.adjustedContentInset.bottom,
+            -collectionView.adjustedContentInset.top
+        )
+        let target: CGFloat = collectionView.contentOffset.y + delta
+        collectionView.contentOffset.y = min(max(target, -collectionView.adjustedContentInset.top), maxOffset)
     }
-
-    private static let insetProbeLog: OSLog = OSLog(subsystem: "org.convos.sheet", category: "inset")
 
     /// The SwiftUI bottom bar mounts into the safe area a render pass or two
     /// after the list's first bottom anchor during the open transition, which
@@ -715,7 +741,7 @@ public final class MessagesViewController: UIViewController {
 
         collectionView.contentInset = .init(top: 0.0, left: 0.0, bottom: 0.0, right: 0.0)
         collectionView.scrollIndicatorInsets = collectionView.contentInset
-        collectionView.contentInsetAdjustmentBehavior = .always
+        applyContentInsetAdjustmentBehavior()
         collectionView.automaticallyAdjustsScrollIndicatorInsets = true
         collectionView.selfSizingInvalidation = .enabled
         messagesLayout.supportSelfSizingInvalidation = true
@@ -1536,6 +1562,51 @@ extension MessagesViewController: UIGestureRecognizerDelegate {
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
         gestureRecognizer is ImmediateTouchGestureRecognizer
+    }
+}
+
+extension MessagesViewController {
+    /// `.always` lets the safe area feed the list's clearance, which is what a
+    /// host owning the whole screen wants: its floating bar arrives as a safe
+    /// area and the list insets by it.
+    ///
+    /// A host that renders no bar of its own hands the clearance over as an
+    /// explicit number instead, and must not have the safe area added on top -
+    /// that inset changes with the keyboard, so the same number would resolve
+    /// differently with the keyboard up and down, and the list's clearance would
+    /// drift by the home indicator's height every time.
+    func applyContentInsetAdjustmentBehavior() {
+        collectionView.contentInsetAdjustmentBehavior = hasBottomBar ? .always : .never
+        // The indicator's insets have to follow the content's, and this is a
+        // separate flag: left on, UIKit keeps adding the safe area to the
+        // scroll indicator after the content has stopped receiving it, and the
+        // track ends up inset differently from the messages beside it.
+        collectionView.automaticallyAdjustsScrollIndicatorInsets = hasBottomBar
+    }
+
+    // TEMPORARY probe for the in-sheet transcript's clearance. Uses os_log
+    // because `Log` writes to stdout, which the simulator's unified log never
+    // sees; read it with `log show --info --predicate 'subsystem ==
+    // "org.convos.sheet"'`. Remove once the geometry is settled.
+    func logInsetGeometry(_ label: String) {
+        let view = collectionView
+        let message = "[sheet-inset] \(label)"
+            + " frameH=\(view.frame.height)"
+            + " safeAreaBottom=\(view.safeAreaInsets.bottom)"
+            + " insetBottom=\(view.contentInset.bottom)"
+            + " adjustedBottom=\(view.adjustedContentInset.bottom)"
+            + " contentH=\(view.contentSize.height)"
+            + " offsetY=\(view.contentOffset.y)"
+            + " bottomBarHeight=\(bottomBarHeight)"
+            + " safeAreaTop=\(view.safeAreaInsets.top)"
+            + " indicatorTop=\(view.verticalScrollIndicatorInsets.top)"
+            + " indicatorBottom=\(view.verticalScrollIndicatorInsets.bottom)"
+            + " autoIndicator=\(view.automaticallyAdjustsScrollIndicatorInsets)"
+        os_log("%{public}@", log: Self.insetProbeLog, type: .info, message)
+    }
+
+    private static var insetProbeLog: OSLog {
+        OSLog(subsystem: "org.convos.sheet", category: "inset")
     }
 }
 #endif

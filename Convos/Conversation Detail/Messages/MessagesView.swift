@@ -110,6 +110,11 @@ struct MessagesView<BottomBarContent: View>: View {
     /// `extraBottomInset`, which the sheet keeps fed with its measured
     /// height.
     var hostsBottomBar: Bool = true
+    /// True when the host renders the message long-press menu itself, so this
+    /// view renders none. Set by the conversation sheet, which layers the menu
+    /// at its own root: this view is clipped to the sheet's current detent, and
+    /// a menu inside that clip would be cropped.
+    var hostRendersContextMenu: Bool = false
     /// Surfaces the transcript's scroll-to-bottom trigger to an external
     /// composer host, which fires it on send (the internal bar wires this
     /// itself).
@@ -248,10 +253,14 @@ struct MessagesView<BottomBarContent: View>: View {
                 notifyMessageInputFocused = fn
             }
         )
-        // The list draws under the chrome above it - the host's bar, or the
-        // conversation sheet's composer and tab bar - and takes its clearance
-        // from the safe area those contribute.
-        .ignoresSafeArea()
+        // `.container` only. The list draws under the chrome above it - the
+        // host's bar, or the conversation sheet's composer and tab bar - and
+        // under the home indicator, so it ignores the container's safe area.
+        // The keyboard is different: the chrome rises above it, and a list that
+        // ignored it would keep its frame behind the keyboard while the chrome
+        // moved, so the two would no longer share a bottom edge and the list's
+        // clearance would be short by the keyboard's height.
+        .ignoresSafeArea(.container)
         .onChange(of: focusState) { oldValue, newValue in
             if newValue == .message && oldValue != .message {
                 notifyMessageInputFocused?()
@@ -334,23 +343,29 @@ struct MessagesView<BottomBarContent: View>: View {
             }
         }
         .overlay {
-            MessageContextMenuOverlay(
-                state: contextMenuState,
-                isReadOnly: isReadOnly,
-                onReaction: onReaction,
-                onReply: { message in
-                    onReply(message)
-                },
-                onCopy: { text in
-                    UIPasteboard.general.string = text
-                }
-            )
-            // The overlay renders in a separate tree from the message cells,
-            // so it doesn't inherit the cell's resolver injection. Provide it
-            // here so an agent-share card preview resolves real data, not the
-            // env-default mock.
-            .environment(\.agentShareResolver, agentShareResolver)
-            .environment(\.inviteMembershipResolver, inviteMembershipResolver)
+            // Suppressed when the host layers the menu itself. Inside the
+            // conversation sheet this view is clipped to the detent's height,
+            // which would crop a screen-level menu, so the sheet renders it at
+            // its own root instead.
+            if !hostRendersContextMenu {
+                MessageContextMenuOverlay(
+                    state: contextMenuState,
+                    isReadOnly: isReadOnly,
+                    onReaction: onReaction,
+                    onReply: { message in
+                        onReply(message)
+                    },
+                    onCopy: { text in
+                        UIPasteboard.general.string = text
+                    }
+                )
+                // The overlay renders in a separate tree from the message
+                // cells, so it doesn't inherit the cell's resolver injection.
+                // Provide it here so an agent-share card preview resolves real
+                // data, not the env-default mock.
+                .environment(\.agentShareResolver, agentShareResolver)
+                .environment(\.inviteMembershipResolver, inviteMembershipResolver)
+            }
         }
         .sheet(item: $htmlAttachmentPreview) { item in
             AttachmentPreviewSheet(

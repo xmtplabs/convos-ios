@@ -109,40 +109,16 @@ struct ConversationPresenter<Content: View>: View {
             // Update coordinator's horizontal size class when it changes
             focusCoordinator.horizontalSizeClass = newSizeClass
         }
-        .onChange(of: focusCoordinator.currentFocus) { oldFocus, newFocus in
-            Log.info("onChange(of: focusCoordinator.currentFocus) oldFocus: \(String(describing: oldFocus)) newFocus: \(String(describing: newFocus))")
-            // Always sync coordinator to SwiftUI to ensure focus actually changes
-            // The transition flags will prevent race conditions in the opposite direction
-            focusState = newFocus
-        }
-        .onChange(of: focusCoordinator.refocusNonce) { _, _ in
-            reassertFocus()
-        }
-        .onChange(of: focusState) { _, newFocus in
-            // Delegate all synchronization logic to the coordinator
-            focusCoordinator.syncFocusState(newFocus)
-        }
-        .task(id: viewModel?.conversation.id) {
-            // Set default focus when conversation changes
-            focusState = defaultFocusOverride ?? focusCoordinator.defaultFocus
-        }
-    }
-
-    /// Re-applies `@FocusState` for a same-value `moveFocus` request (see
-    /// `FocusCoordinator.refocusNonce`). When `@FocusState` already equals the
-    /// target the real first responder may still be gone, so bounce through nil
-    /// on the next runloop tick to force SwiftUI to re-acquire it; otherwise a
-    /// plain assignment is enough.
-    private func reassertFocus() {
-        let target = focusCoordinator.currentFocus
-        guard focusState == target else {
-            focusState = target
-            return
-        }
-        focusState = nil
-        DispatchQueue.main.async {
-            focusState = target
-        }
+        // This presentation's half of the focus bridge: the shell's
+        // conversation-name and display-name editors. The floating sheet
+        // declares its own and mirrors the same coordinator - see
+        // `FocusCoordinatorSync` for why focus cannot simply live in one place.
+        .focusCoordinatorSync(
+            focusState: $focusState,
+            coordinator: focusCoordinator,
+            resetToken: viewModel?.conversation.id,
+            defaultFocusOverride: defaultFocusOverride
+        )
     }
 
     private var indicatorTopInset: CGFloat {
