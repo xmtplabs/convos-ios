@@ -47,21 +47,36 @@ final class ConversationSheetLayoutTests: XCTestCase {
         XCTAssertTrue(offered.contains(.height(151 + 96)))
     }
 
-    // MARK: - Where the Home stops following the sheet
+    // MARK: - What the Home keeps clear
 
-    /// The Home's bottom clearance stops growing at the height where the Home
-    /// stops taking touches, so the two have to be the same size: a ceiling
-    /// anywhere else would leave the page either following a sheet it can no
-    /// longer be scrolled clear of, or stopping while it still can be.
-    func testTheHomeCeilingIsTheDetentBackgroundInteractionStopsAt() {
-        XCTAssertEqual(
-            ConversationSheetDetent.backgroundInteractionCeiling,
-            ConversationSheetDetent.half.presentationDetent(restingHeight: resting)
-        )
-        XCTAssertEqual(
-            ConversationSheetDetent.backgroundInteractionCeilingHeight(containerHeight: 800),
-            400
-        )
+    /// The clearance is the sheet's own measured coverage, bounded by two heights
+    /// measured the same way - never a fraction of some other view, which is not
+    /// comparable to it and leaves the page short of the sheet's edge.
+    @MainActor
+    func testTheHomeClearanceIsTheSheetsCoverageWithinItsBounds() {
+        let geometry = ConversationSheetGeometry()
+        geometry.restingHeight = resting
+        geometry.containerHeight = 800
+
+        geometry.coveredHeight = 415
+        XCTAssertEqual(geometry.homeBottomClearance, 415, "follows the sheet between its bounds")
+
+        geometry.coveredHeight = 40
+        XCTAssertEqual(geometry.homeBottomClearance, resting, "never below the resting height")
+
+        geometry.coveredHeight = 900
+        XCTAssertEqual(geometry.homeBottomClearance, 800, "never past a fully covered Home")
+    }
+
+    /// Before the container has been measured there is no ceiling to apply, and
+    /// clamping to zero would drop the clearance to nothing.
+    @MainActor
+    func testTheHomeClearanceIgnoresAnUnmeasuredCeiling() {
+        let geometry = ConversationSheetGeometry()
+        geometry.restingHeight = resting
+        geometry.coveredHeight = 415
+
+        XCTAssertEqual(geometry.homeBottomClearance, 415)
     }
 
     // MARK: - Reading the selection back

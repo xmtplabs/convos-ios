@@ -7,14 +7,17 @@ struct HomeLayoutView: View {
     /// Keys the web section's persisted cover snapshot.
     var conversationId: String = ""
     var webURL: URL?
-    /// The sheet's live occupied height, measured from the physical screen
-    /// bottom. The web frame runs full-bleed under the floating sheet so
-    /// page content stays visible around it while scrolling; the height is
-    /// applied as the page's bottom content/indicator inset so everything
-    /// can still scroll clear of the card. The placeholder page (no URL)
-    /// skips the inset - it fits the viewport exactly and would otherwise
-    /// gain a pointless scroll range.
-    var sheetHeight: CGFloat = ConversationSheetMetrics.estimatedRestingHeight
+    /// The sheet's live geometry, read here rather than handed in as a number:
+    /// the read is what makes a view update when the sheet moves, and this is
+    /// the view that should update. See `ConversationSheetGeometry`.
+    ///
+    /// The web frame runs full-bleed under the floating sheet so page content
+    /// stays visible around it while scrolling; the sheet's coverage is applied
+    /// as the page's bottom content/indicator inset so everything can still
+    /// scroll clear of the card. The placeholder page (no URL) skips the inset -
+    /// it fits the viewport exactly and would otherwise gain a pointless scroll
+    /// range.
+    var sheetGeometry: ConversationSheetGeometry = ConversationSheetGeometry()
     /// Fired when the page requests navigation away from the space URL; the
     /// host presents it in the home browser popup.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
@@ -28,7 +31,7 @@ struct HomeLayoutView: View {
                 conversationId: conversationId,
                 url: webURL,
                 topContentInset: webURL != nil ? proxy.safeAreaInsets.top : 0,
-                bottomContentInset: webURL != nil ? sheetHeight : 0,
+                bottomContentInset: webURL != nil ? sheetGeometry.homeBottomClearance : 0,
                 onNavigationRequest: onNavigationRequest
             )
             .ignoresSafeArea(edges: .vertical)

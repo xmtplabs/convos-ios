@@ -76,10 +76,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// sheet can get. The transcript holds this height at every detent so a
     /// resize never moves the messages - see `ConversationSheetContent`.
     @State private var containerHeight: CGFloat = 0
-    /// How much of the sheet is on screen, as it reports itself, which is how
-    /// much of the Home behind it is covered. Seeded with the resting height so
-    /// the first frame is sane.
-    @State private var sheetHeight: CGFloat = ConversationSheetMetrics.estimatedRestingHeight
+    /// The sheet's live geometry, for the Home's bottom clearance. Deliberately
+    /// a reference type nothing in this body reads: see
+    /// `ConversationSheetGeometry`.
+    @State private var sheetGeometry: ConversationSheetGeometry = ConversationSheetGeometry()
     /// Window safe-area insets, used to convert the sheet's physical-edge
     /// clearance into the safe-area-relative inset the transcripts take.
     @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
@@ -479,32 +479,23 @@ struct ConversationView<MessagesBottomBar: View>: View {
         ConversationSheetMetrics.collapsedChromeHeight(barsHeight: sheetChromeBarsHeight)
     }
 
-    /// What the Home keeps clear at its bottom: how much of it the sheet is
-    /// covering right now, so the end of its content can always be scrolled out
-    /// from behind the sheet.
-    ///
-    /// The live height, unlike the detents: this is a scroll inset on a web view,
-    /// which neither relayouts the page nor moves its offset, so it can follow a
-    /// drag frame by frame.
-    ///
-    /// Bounded at both ends, and neither bound is arbitrary. Below, the resting
-    /// height - the sheet is never shorter than collapsed, and the first frame
-    /// has no measurement. Above, the height at which the Home stops taking
-    /// touches: past that the page cannot be scrolled and is on its way to being
-    /// hidden entirely, so following the sheet any further would be adjusting a
-    /// scroll inset nobody can use.
-    private var homeBottomClearance: CGFloat {
-        let covered: CGFloat = max(sheetHeight, sheetRestingHeight)
-        let interactiveCeiling: CGFloat = ConversationSheetDetent
-            .backgroundInteractionCeilingHeight(containerHeight: containerHeight)
-        return min(covered, max(interactiveCeiling, sheetRestingHeight))
+    /// Keeps `sheetGeometry` fed with the two heights it cannot measure itself.
+    /// Both change rarely - a rotation, the composer growing a line - unlike the
+    /// coverage, which changes every frame of a drag.
+    private func updateSheetGeometryBounds() {
+        sheetGeometry.containerHeight = presentationContainerHeight
+        sheetGeometry.restingHeight = sheetRestingHeight
     }
 
-    /// Seeds the height the transcript is held at, so the first frame is close
-    /// before the sheet has measured itself. The container plus the bottom safe
-    /// area, because the sheet rests in that inset while the container measures
-    /// above it - and the sheet's own measurement takes over from here.
-    private var transcriptHeightEstimate: CGFloat {
+    /// The tallest the sheet can be, measured from the physical screen bottom -
+    /// the same way the sheet measures itself.
+    ///
+    /// The container plus the bottom safe area, because the sheet rests in that
+    /// inset while the container measures above it. Both the transcript's seed
+    /// height and the Home's ceiling take this rather than a fraction of the
+    /// container: a fraction of one party's height is not the number the sheet
+    /// reports, and the difference lands as a few points of missing scroll.
+    private var presentationContainerHeight: CGFloat {
         containerHeight + windowSafeAreaInsets.bottom
     }
 
@@ -1107,6 +1098,7 @@ private extension ConversationView {
             proxy.size.height
         } action: { height in
             containerHeight = height
+            updateSheetGeometryBounds()
         }
         .conversationSheetPresentation(
             detent: $sheetDetent,
@@ -1135,7 +1127,7 @@ private extension ConversationView {
             ForEach(homeBrowserEntries) { entry in
                 HomeBrowserPageView(
                     entry: entry,
-                    sheetHeight: homeBottomClearance,
+                    sheetGeometry: sheetGeometry,
                     onNavigationRequest: { url in
                         pushHomeBrowserPage(for: url)
                     }
@@ -1152,7 +1144,7 @@ private extension ConversationView {
         HomeLayoutView(
             conversationId: viewModel.conversation.id,
             webURL: viewModel.conversation.spaceURL,
-            sheetHeight: homeBottomClearance,
+            sheetGeometry: sheetGeometry,
             onNavigationRequest: { url in
                 pushHomeBrowserPage(for: url)
             }
@@ -1203,12 +1195,16 @@ private extension ConversationView {
     ) -> some View {
         ConversationSheetContent(
             detent: sheetDetent,
-            transcriptHeight: transcriptHeightEstimate,
+            transcriptHeight: presentationContainerHeight,
             onChromeBarsHeightChanged: { height in
                 sheetChromeBarsHeight = height
+                updateSheetGeometryBounds()
             },
+            // Straight onto the geometry object, never into this view's state:
+            // this fires every frame of a drag, and a state write here would
+            // rebuild the sheet presentation underneath the drag.
             onSheetHeightChanged: { height in
-                sheetHeight = height
+                sheetGeometry.coveredHeight = height
             },
             transcriptContent: {
                 sheetTranscripts(groupFocus: groupFocus, agentFocus: agentFocus)
