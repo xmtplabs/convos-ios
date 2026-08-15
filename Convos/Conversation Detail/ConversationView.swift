@@ -265,15 +265,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
-            // The composer and tab bar float over this transcript inside the
-            // sheet, so content scrolls underneath them; this is the clearance
-            // that lets it scroll past.
-            extraBottomInset: sheetChromeHeight,
+            // Nothing to add by hand: the sheet contributes its chrome as a
+            // bottom safe-area inset, and the list adds that safe area to its
+            // own content inset. Feeding a measured height here on top would
+            // count the same clearance twice.
+            extraBottomInset: 0,
             // The composer lives in the conversation sheet now (see
-            // `sheetBarContent`); the transcript insets by the sheet's
-            // measured height instead of hosting a bar.
+            // `sheetBarContent`), so the transcript renders no bar of its own.
             hostsBottomBar: false,
-            isBoundedByHost: true,
             onScrollToBottomAvailable: { scrollFn in
                 // Fires from inside the representable's make pass; defer the
                 // state write out of the view-update transaction or SwiftUI
@@ -1043,7 +1042,7 @@ private extension ConversationView {
                 AgentDmPageView(
                     session: agentDmSession,
                     profileSettingsViewModel: profileSettingsViewModel,
-                    extraBottomInset: sheetChromeHeight,
+                    extraBottomInset: 0,
                     isReadOnly: effectiveReadOnly,
                     isActiveTab: selectedTab == .agent,
                     contextMenuState: agentContextMenuState,

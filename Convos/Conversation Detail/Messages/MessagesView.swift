@@ -110,15 +110,6 @@ struct MessagesView<BottomBarContent: View>: View {
     /// `extraBottomInset`, which the sheet keeps fed with its measured
     /// height.
     var hostsBottomBar: Bool = true
-    /// True when the host hands the transcript a bounded frame - inside the
-    /// conversation sheet, above its composer - rather than the whole screen.
-    ///
-    /// A full-screen transcript deliberately extends under the safe area so
-    /// content scrolls beneath the floating chrome. A bounded one must not:
-    /// its frame already stops where the composer begins, and reaching past it
-    /// puts the list's bottom underneath the composer, which parks the newest
-    /// message partway up the sheet with dead space below it.
-    var isBoundedByHost: Bool = false
     /// Surfaces the transcript's scroll-to-bottom trigger to an external
     /// composer host, which fires it on send (the internal bar wires this
     /// itself).
@@ -257,9 +248,10 @@ struct MessagesView<BottomBarContent: View>: View {
                 notifyMessageInputFocused = fn
             }
         )
-        // Empty edge set inside the sheet: the frame the host gave us is the
-        // frame, and reaching past it lands the list under the composer.
-        .ignoresSafeArea(edges: isBoundedByHost ? [] : .all)
+        // The list draws under the chrome above it - the host's bar, or the
+        // conversation sheet's composer and tab bar - and takes its clearance
+        // from the safe area those contribute.
+        .ignoresSafeArea()
         .onChange(of: focusState) { oldValue, newValue in
             if newValue == .message && oldValue != .message {
                 notifyMessageInputFocused?()

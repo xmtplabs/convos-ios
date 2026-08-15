@@ -45,10 +45,11 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
                         ConversationSheetDetent.presentationDetents(lastMessageHeight: lastMessageHeight),
                         selection: presentationSelection
                     )
-                    // The sheet paints its own surface and corners; the design
-                    // token only supplies the fill.
+                    // The design token supplies the fill; the corners are left
+                    // to the system, which matches them to the device bezel.
+                    // Setting presentationCornerRadius overrides that with one
+                    // flat radius on all four corners.
                     .presentationBackground(.colorBackgroundRaised)
-                    .presentationCornerRadius(Constant.cornerRadius)
                     .presentationDragIndicator(.visible)
                     // The Home stays live while the sheet leaves it visible.
                     // Above half the sheet has covered it anyway.
@@ -65,12 +66,6 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
                     .environment(\.conversationSheetLastMessageHeight, lastMessageHeight)
             }
     }
-}
-
-private enum Constant {
-    /// The design's card corner. Keeps the sheet's own corners on the same
-    /// radius the floating card used at its top edge.
-    static let cornerRadius: CGFloat = 32.0
 }
 
 extension View {

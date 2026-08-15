@@ -43,12 +43,14 @@ struct ConversationSheetContent<
 
     var body: some View {
         transcript
-            // The chrome floats over the transcript rather than sitting beside
-            // it, so messages scroll underneath the composer and tab bar and
-            // stay partly visible around them. The transcript reserves
-            // clearance for it through its own bottom content inset, which the
-            // host feeds from `onChromeHeightChanged`.
-            .overlay(alignment: .bottom) { chrome }
+            // A safe-area inset rather than an overlay: the chrome floats over
+            // the transcript - messages scroll underneath the composer and tab
+            // bar and stay visible around them - and SwiftUI derives the
+            // clearance from the chrome's own height. Computing that clearance
+            // by hand double-counts the bottom safe area, because the
+            // transcript's collection view already adds its safe area to its
+            // content inset.
+            .safeAreaInset(edge: .bottom, spacing: 0) { chrome }
             .accessibilityIdentifier("conversation-bottom-sheet")
     }
 
