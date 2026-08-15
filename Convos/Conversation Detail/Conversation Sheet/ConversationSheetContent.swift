@@ -42,29 +42,28 @@ struct ConversationSheetContent<
     @ViewBuilder let tabBar: () -> TabBarContent
 
     var body: some View {
-        VStack(spacing: 0) {
-            transcript
-            chrome
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .accessibilityIdentifier("conversation-bottom-sheet")
+        transcript
+            // The chrome floats over the transcript rather than sitting beside
+            // it, so messages scroll underneath the composer and tab bar and
+            // stay partly visible around them. The transcript reserves
+            // clearance for it through its own bottom content inset, which the
+            // host feeds from `onChromeHeightChanged`.
+            .overlay(alignment: .bottom) { chrome }
+            .accessibilityIdentifier("conversation-bottom-sheet")
     }
 
-    /// The selected transcript, faded out at `collapsed`.
+    /// The selected transcript, filling the sheet and faded out at
+    /// `collapsed`.
     ///
-    /// Collapsed leaves it a zero-height slot, but a UIKit collection view
-    /// laying out against that still paints a sliver of its top row through the
-    /// sheet's own top edge - and, worse, keeps a touch target there, right
-    /// where the grabber is. Fading it and dropping hit-testing settles both.
-    /// It stays mounted rather than torn down so scroll position survives.
+    /// Collapsed still gives it the sheet's full height - which is the chrome's
+    /// height - so it sits entirely behind the chrome. Fading it and dropping
+    /// hit-testing keeps it from painting a sliver through the sheet's top edge
+    /// or holding a touch target under the grabber. It stays mounted rather
+    /// than torn down so scroll position survives.
     private var transcript: some View {
         let isShowing: Bool = detent.showsTranscript
-        // Hard zero rather than "whatever is left": at collapsed the sheet is
-        // exactly the chrome's height, and any slack the transcript keeps
-        // shows up as phantom padding above the composer.
-        let maxHeight: CGFloat? = isShowing ? .infinity : 0
         return transcriptContent()
-            .frame(maxHeight: maxHeight, alignment: .bottom)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .clipped()
             .opacity(isShowing ? 1 : 0)
             .allowsHitTesting(isShowing)

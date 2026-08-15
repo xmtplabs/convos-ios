@@ -265,9 +265,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
-            // Nothing to clear: inside the sheet the composer is a sibling
-            // below this frame, not chrome floating over it.
-            extraBottomInset: 0,
+            // The composer and tab bar float over this transcript inside the
+            // sheet, so content scrolls underneath them; this is the clearance
+            // that lets it scroll past.
+            extraBottomInset: sheetChromeHeight,
             // The composer lives in the conversation sheet now (see
             // `sheetBarContent`); the transcript insets by the sheet's
             // measured height instead of hosting a bar.
@@ -1042,7 +1043,7 @@ private extension ConversationView {
                 AgentDmPageView(
                     session: agentDmSession,
                     profileSettingsViewModel: profileSettingsViewModel,
-                    extraBottomInset: 0,
+                    extraBottomInset: sheetChromeHeight,
                     isReadOnly: effectiveReadOnly,
                     isActiveTab: selectedTab == .agent,
                     contextMenuState: agentContextMenuState,
