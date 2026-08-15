@@ -147,7 +147,7 @@ public extension Conversation {
         )
     }
 
-    static func empty(id: String = "") -> Conversation {
+    static func empty(id: String = "", emoji: String? = nil) -> Conversation {
         Conversation(
             id: id,
             clientConversationId: id,
@@ -172,7 +172,7 @@ public extension Conversation {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
-            conversationEmoji: nil,
+            conversationEmoji: emoji,
             includeInfoInPublicPreview: false,
             isDraft: true,
             invite: nil,

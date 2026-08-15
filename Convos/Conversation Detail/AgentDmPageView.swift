@@ -2,201 +2,227 @@ import ConvosComposer
 import ConvosCore
 import SwiftUI
 
-/// The agent-DM page inside `ConversationPager`: the user's private DM with
-/// the conversation's agent, rendered as a page of the origin conversation.
-/// The DM is a real 2-member conversation (see docs/plans/agent-dms.md).
+/// The Agent tab's backing view: the user's private DM with the
+/// conversation's agent, rendered behind the conversation sheet. The DM is a
+/// real 2-member conversation (see docs/plans/agent-dms.md).
 ///
-/// Once the DM exists this page hosts a full `ConversationViewModel` for it
-/// and renders the same `MessagesView` the chat page uses, so list layout,
-/// filtering, composer, and interactions behave identically. The agent owns
-/// DM creation, so before the DM syncs in this page shows the disclosure
-/// empty state with a disabled "setting up" composer; the composer enables
-/// automatically the moment the agent-created DM arrives.
+/// The DM's lifecycle lives in `AgentDmSession`, owned by `ConversationView`
+/// and shared with the sheet's `AgentComposerBar`: once the DM exists this
+/// view renders the same `MessagesView` the group chat uses (composer
+/// excluded - the sheet hosts it), so list layout, filtering, and
+/// interactions behave identically. Before the agent-created DM syncs in it
+/// shows the disclosure empty state while the sheet's composer sits
+/// disabled.
 struct AgentDmPageView: View {
-    @Bindable var viewModel: ConversationViewModel
-    let agentInboxId: String
-    /// Clearance for the pager dots floating under the composer. Owned by
-    /// ConversationView because it is keyboard-aware there (the dots hide when
-    /// the keyboard is up, so the inset drops to zero -- a fixed value would
-    /// leave the DM transcript floating above the composer while typing).
+    let session: AgentDmSession
+    /// Backs the contact card opened from an avatar tap, the same way the
+    /// group transcript's does.
+    @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
+    /// Clearance for the conversation sheet floating over the transcript.
+    /// Owned by ConversationView, which keeps it fed with the sheet's
+    /// measured height.
     let extraBottomInset: CGFloat
     /// Mirrors ConversationView's effectiveReadOnly: a removed or stale
-    /// device must not be able to create agent DMs or send into them.
+    /// device must not be able to send into agent DMs.
     let isReadOnly: Bool
-    /// True when this DM page is the pager's selected page. Every page stays
-    /// mounted in the paging HStack, so each page owns its composer focus and
-    /// releases it when it is no longer the active page - otherwise the DM
-    /// composer would keep the keyboard up after the user pages back to the
-    /// group chat, and vice versa.
-    let isActivePage: Bool
-    /// Whether a composer keyboard was up when this page became active. Used to
-    /// transfer the keyboard onto the DM composer when the user pages in mid-edit,
-    /// while a keyboard-down glance at the DM leaves the keyboard down.
-    let keyboardVisible: Bool
+    /// True while the Agent tab is the selected tab. The backing views stay
+    /// mounted across tab switches, so activation drives the read state and
+    /// the active-DM push lane. (Composer focus transfers are owned by
+    /// ConversationView's tab-change handler, through the focus
+    /// coordinators.)
+    let isActiveTab: Bool
+    /// Owned by ConversationView so the sheet can hide while the DM's
+    /// long-press context menu is presented.
+    @Bindable var contextMenuState: MessageContextMenuState
+    /// Focus shared with the sheet's agent composer; deliberately not the
+    /// group composer's focus state, which stays mounted alongside this tab.
+    @FocusState.Binding var focusState: MessagesViewInputFocus?
+    let focusCoordinator: FocusCoordinator
+    /// Bridges the DM transcript's scroll-to-bottom up to the sheet's
+    /// composer, which fires it on send.
+    var onScrollToBottomAvailable: ((@escaping () -> Void) -> Void)?
 
-    @State private var dmViewModel: ConversationViewModel?
-    @State private var contextMenuState: MessageContextMenuState = .init()
-    /// Local focus state, deliberately not shared with the chat composer:
-    /// every pager page stays mounted in the paging HStack, so a shared
-    /// focus value would fight with the chat page's text field.
-    @FocusState private var focusState: MessagesViewInputFocus?
-    @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
-    @State private var draftPhotoPickerPresented: Bool = false
+    /// Fill of the preparing bar. Creeps while the agent is on its way; it
+    /// tracks elapsed time, not real progress, since nothing reports any.
+    @State private var preparingProgress: Double = Constant.progressStart
 
-    private var agent: ConversationMember? {
-        viewModel.conversation.members.first { $0.profile.inboxId == agentInboxId }
-    }
-
-    private var agentName: String {
-        agent?.profile.displayName ?? "Assistant"
-    }
+    private var agentName: String { session.agentName }
 
     var body: some View {
         Group {
-            if let dmViewModel {
+            switch phase {
+            case .ready(let dmViewModel):
                 dmMessagesViewWithSheets(dmViewModel)
-            } else {
-                emptyStateWithComposer
+            case .preparing:
+                preparingState
+            case .noAgent:
+                addAgentState
             }
         }
         .environment(\.colorScheme, .dark)
-        // `.environment(colorScheme)` only flips SwiftUI semantic colors; the
-        // composer's materials/background resolve against the UIKit trait
-        // collection, so drive the window trait to dark while this page is the
-        // active one to force the whole hierarchy dark.
-        .preferredColorScheme(isActivePage ? .dark : nil)
         // The agent-participation ("listen") control governs how much agents
         // speak in the group room; it has no meaning in a 1:1 agent DM, so clear
         // the inherited participation context to hide the control here.
         .environment(\.agentParticipation, nil)
-        .onAppear(perform: bindExistingDm)
-        .task(id: agentInboxId) { await rebindWhenDmAppears() }
-        .onChange(of: isActivePage) { _, active in
-            handleActivePageChange(active)
-        }
-        // Every pager page stays mounted, so this fires when the whole
-        // conversation closes; clear the on-screen DM lane so its pushes are no
-        // longer suppressed once the user has left.
-        .onDisappear {
-            if isActivePage { updateActiveDmLane(isActive: false) }
-        }
-    }
-
-    /// Transfers composer focus onto this DM page when it becomes active while a
-    /// keyboard was already up (the user paged in mid-edit), and clears focus when
-    /// the page is paged away so the DM keyboard doesn't linger over the group
-    /// chat. A keyboard-down arrival honors the platform default (nil on iPhone),
-    /// so glancing at the DM doesn't raise the keyboard unprompted.
-    private func handleActivePageChange(_ active: Bool) {
-        guard active else {
-            focusState = nil
-            // A right-swipe can both start a reply on a DM message and page back
-            // to the group. When the page changes, cancel the in-flight swipe and
-            // clear any reply it already set, so a page change never leaves the DM
-            // stuck in reply mode.
-            contextMenuState.cancelInFlightSwipe()
-            dmViewModel?.replyingToMessage = nil
-            updateActiveDmLane(isActive: false)
-            return
-        }
-        focusState = keyboardVisible ? .message : focusCoordinator.defaultFocus
-        markDmAsRead()
-        updateActiveDmLane(isActive: true)
-    }
-
-    /// Registers (or clears) this DM lane as the on-screen conversation with the
-    /// session so a push for the DM the user is currently viewing is silenced.
-    /// The lane is its own conversation whose id never appears in the parent's
-    /// `activeConversationChanged` signal (that carries the group id), so it has
-    /// to be tracked explicitly. Cleared when the page is paged away or the
-    /// conversation closes; a nil id when no DM is bound yet is a harmless clear.
-    private func updateActiveDmLane(isActive: Bool) {
-        let conversationId: String? = isActive ? dmViewModel?.conversation.id : nil
-        NotificationCenter.default.post(
-            name: .activeDmConversationChanged,
-            object: nil,
-            userInfo: conversationId.map { ["conversationId": $0] } ?? [:]
-        )
-    }
-
-    /// Clears the agent-DM lane's unread flag when the user views this page.
-    /// The lane is its own conversation, so opening the parent conversation
-    /// (which only marks the group read) never cleared it — leaving the DM
-    /// perpetually "unread" and routing every open back to it. Marking it read
-    /// on view keeps the unread state accurate, so a conversation with no unread
-    /// messages opens to the group.
-    private func markDmAsRead() {
-        guard let dmVm = dmViewModel else { return }
-        let conversationId: String = dmVm.conversation.id
-        Task {
-            do {
-                try await dmVm.messagingService
-                    .conversationLocalStateWriter()
-                    .setUnread(false, for: conversationId)
-            } catch {
-                Log.warning("Failed marking agent DM as read: \(error.localizedDescription)")
+        // The backing views mount on the tab's first visit with the tab
+        // already active, so no isActiveTab change fires; handle the initial
+        // activation (mark read, register the push-suppression lane) here.
+        .onAppear {
+            if isActiveTab {
+                handleActiveTabChange(true)
             }
         }
-    }
-
-    /// The eager reconciler (or another device) can create the DM while this
-    /// page is already mounted; a single onAppear bind would leave the page on
-    /// the empty state until remount. Re-attempt the bind on every repository
-    /// emission until it succeeds.
-    private func rebindWhenDmAppears() async {
-        guard dmViewModel == nil else { return }
-        let publisher = viewModel.session
-            .conversationsRepository(for: [.allowed, .unknown])
-            .conversationsPublisher
-        for await _ in publisher.values {
-            if Task.isCancelled || dmViewModel != nil { return }
-            bindExistingDm()
-            if dmViewModel != nil { return }
+        .onChange(of: isActiveTab) { _, active in
+            handleActiveTabChange(active)
+        }
+        // Every conversation claimed from the warm cache already has a silent
+        // default agent on the way. Ask whether this one does, so the tab
+        // waits on that join instead of offering to add a second agent - and
+        // ask again when the conversation settles into its real id, which is
+        // the id that join was registered under.
+        .task(id: provisioningRefreshKey) {
+            await session.refreshDefaultAgentProvisioning()
+        }
+        // The DM can bind while this tab is already active (the reconciler
+        // created it while the user waited here); the on-activate hook fired
+        // before the view model existed, so mark it read and register the
+        // lane now.
+        .onChange(of: session.dmViewModel?.conversation.id) { _, dmId in
+            guard dmId != nil, isActiveTab else { return }
+            session.markDmAsRead()
+            session.updateActiveDmLane(isActive: true)
+        }
+        // The backing views stay mounted, so this fires when the whole
+        // conversation closes; clear the on-screen DM lane so its pushes are
+        // no longer suppressed once the user has left.
+        .onDisappear {
+            if isActiveTab { session.updateActiveDmLane(isActive: false) }
         }
     }
 
-    private func bindExistingDm() {
-        guard dmViewModel == nil else { return }
-        guard let existing = try? viewModel.session
-            .conversationsRepository(for: [.allowed, .unknown])
-            .findAgentDm(with: agentInboxId) else {
+    /// Activation side effects: the read state and the push-suppression
+    /// lane. Composer focus is not touched here - ConversationView's
+    /// tab-change handler transfers it through the focus coordinators.
+    private func handleActiveTabChange(_ active: Bool) {
+        guard active else {
+            // A right-swipe can both start a reply on a DM message and switch
+            // tabs. When the tab changes, cancel the in-flight swipe and clear
+            // any reply it already set, so a tab change never leaves the DM
+            // stuck in reply mode.
+            contextMenuState.cancelInFlightSwipe()
+            session.dmViewModel?.replyingToMessage = nil
+            // The user just had the DM on screen: anything that arrived
+            // while they watched is read, so it doesn't badge the tab they
+            // left.
+            session.markDmAsRead()
+            session.updateActiveDmLane(isActive: false)
             return
         }
-        let dmVm = makeDmViewModel(for: existing)
-        dmViewModel = dmVm
-        // If the DM binds while its page is already active (the reconciler
-        // created it while the user waited here), mark it read now — the
-        // on-activate hook fired before the view model existed — and register
-        // it as the on-screen lane so its pushes are suppressed.
-        if isActivePage {
-            markDmAsRead()
-            updateActiveDmLane(isActive: true)
-        }
-    }
-
-    private func makeDmViewModel(for conversation: Conversation) -> ConversationViewModel {
-        ConversationViewModel(
-            conversation: conversation,
-            session: viewModel.session,
-            messagingService: viewModel.messagingService,
-            coreActions: viewModel.coreActions
-        )
+        session.markDmAsRead()
+        session.updateActiveDmLane(isActive: true)
     }
 
     // MARK: - Pre-creation
 
-    /// The same disclosure cell the transcript leads with, standing alone
-    /// before the DM exists - so the empty state is literally the list's
-    /// first cell.
-    private var emptyStateWithComposer: some View {
-        ScrollView {
-            AgentDmInfoCellView(agentProfile: agent?.profile, agentVerification: agent?.agentVerification ?? .unverified, agentName: agentName)
-                .padding(.top, DesignConstants.Spacing.step16x)
+    /// What the tab has to show, in the order a conversation moves through
+    /// it: no agent to talk to, an agent on its way, then the DM itself.
+    private enum Phase {
+        case noAgent
+        case preparing
+        case ready(ConversationViewModel)
+    }
+
+    /// Re-asks about provisioning when the conversation settles into its real
+    /// id, when an agent binds, and when the tab is shown.
+    private var provisioningRefreshKey: String {
+        "\(session.originConversationId)-\(session.agentInboxId ?? "")-\(isActiveTab)"
+    }
+
+    private var phase: Phase {
+        if let dmViewModel = session.dmViewModel {
+            return .ready(dmViewModel)
+        }
+        // An agent that is already a member is only missing its DM, which the
+        // agent creates moments later; a join still in flight is the same wait
+        // one step earlier. Both read as "preparing".
+        if session.agentInboxId != nil || session.isJoiningAgent {
+            return .preparing
+        }
+        return .noAgent
+    }
+
+    /// Offered when the conversation has no agent at all (Figma 7488:14502).
+    /// Centered in the space above the sheet rather than the full view, so it
+    /// reads as centered on screen.
+    private var addAgentState: some View {
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            Button(action: session.requestAgentJoin) {
+                Text("Add an agent")
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    .frame(height: Constant.addAgentButtonHeight)
+                    .background(.colorLava, in: .rect(cornerRadius: Constant.addAgentButtonRadius))
+            }
+            .accessibilityIdentifier("agent-dm-add-agent-button")
+            Text("To help the group out")
+                .font(.footnote)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.colorLava)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.bottom, extraBottomInset)
         .background(.colorBackgroundSurfaceless)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            draftComposer
+    }
+
+    /// Shown from the moment an agent is on its way until its DM lands. The
+    /// bar carries no real progress - nothing reports any - so it creeps
+    /// toward a cap and stops there, the way the old join card did.
+    private var preparingState: some View {
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            Text("Preparing your agent chat")
+                .font(.footnote)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.colorLava)
+            progressBar
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.bottom, extraBottomInset)
+        .background(.colorBackgroundSurfaceless)
+        .task(id: isPreparing) {
+            await rampPreparingProgress()
+        }
+        .accessibilityIdentifier("agent-dm-preparing")
+    }
+
+    private var isPreparing: Bool {
+        if case .preparing = phase { return true }
+        return false
+    }
+
+    /// Figma 7488:14256: a 120x8 track in 30% lava with a lava fill; the
+    /// design's still frame shows it about a third full.
+    private var progressBar: some View {
+        let fillWidth: CGFloat = Constant.progressWidth * preparingProgress
+        return ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: Constant.progressHeight)
+                .fill(Color.colorLava.opacity(Constant.progressTrackOpacity))
+                .frame(width: Constant.progressWidth, height: Constant.progressHeight)
+            RoundedRectangle(cornerRadius: Constant.progressHeight)
+                .fill(Color.colorLava)
+                .frame(width: fillWidth, height: Constant.progressHeight)
+        }
+    }
+
+    private func rampPreparingProgress() async {
+        guard isPreparing else { return }
+        while !Task.isCancelled, preparingProgress < Constant.progressCap {
+            try? await Task.sleep(for: .seconds(Constant.progressTick))
+            guard !Task.isCancelled else { return }
+            let next: Double = min(preparingProgress + Constant.progressStep, Constant.progressCap)
+            withAnimation(.easeOut(duration: Constant.progressTick)) {
+                preparingProgress = next
+            }
         }
     }
 
@@ -219,52 +245,8 @@ struct AgentDmPageView: View {
                 return item
             }
         }
-        items.insert(.agentDmInfo(agentProfile: agent?.profile, agentVerification: agent?.agentVerification ?? .unverified, agentName: agentName), at: 0)
+        items.insert(.agentDmInfo(agentName: agentName), at: 0)
         return items
-    }
-
-    /// Disabled composer for the not-yet-created DM. The agent owns DM
-    /// creation, so the client cannot send until the agent-created DM syncs in;
-    /// the field and send button stay disabled until `rebindWhenDmAppears` binds
-    /// the real conversation and swaps in the full chat (normally within a second
-    /// or two of the agent joining). Enabling it here would let a send silently
-    /// no-op, since there is no DM to send into yet. The `+` stays visible (inert)
-    /// so the composer keeps its normal shape rather than dropping the
-    /// attachments affordance.
-    private var draftComposer: some View {
-        MessagesInputView(
-            displayName: .constant(""),
-            emptyDisplayNamePlaceholder: "",
-            messagePlaceholder: "Chat with \(agentName)",
-            messageText: .constant(""),
-            pendingInviteConvoName: .constant(""),
-            pendingInviteImage: .constant(nil),
-            sendButtonEnabled: false,
-            focusState: $focusState,
-            messagesTextFieldEnabled: false,
-            onSendMessage: {},
-            onClearInvite: {},
-            fileAttachmentPreview: { _ in EmptyView() },
-            agentShareChip: { EmptyView() },
-            attachmentsButton: { draftAttachmentsGlyph }
-        )
-        .fixedSize(horizontal: false, vertical: true)
-        .clipShape(.rect(cornerRadius: 26.0))
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.bottom, DesignConstants.Spacing.step3x)
-    }
-
-    /// The `+` glyph in the pre-creation composer: kept visible so the bar holds
-    /// its normal shape, but inert and dimmed (no conversation to attach to yet)
-    /// to read as disabled alongside the field and send button. Mirrors
-    /// `MessagesBottomBar.attachmentsGlyph`.
-    private var draftAttachmentsGlyph: some View {
-        Image(systemName: "plus")
-            .font(.system(size: 18.0, weight: .medium))
-            .foregroundStyle(Color.colorTextPrimary)
-            .frame(width: 32, height: 32)
-            .opacity(0.4)
     }
 
     // MARK: - Full chat (mirrors ConversationView.messagesView with the DM VM)
@@ -319,7 +301,7 @@ struct AgentDmPageView: View {
             onClearInvite: dmVm.clearPendingInvite,
             onClearLinkPreview: { dmVm.pastedLinkPreview = nil },
             onClearMediaAttachment: dmVm.removeMediaAttachment(id:),
-            onTapAvatar: { _ in },
+            onTapAvatar: dmVm.onTapAvatar(_:),
             onTapInvite: { _ in },
             agentShareResolver: dmVm.agentShareResolver,
             onReaction: dmVm.onReaction(emoji:messageId:),
@@ -355,7 +337,7 @@ struct AgentDmPageView: View {
             onAboutAgents: {},
             onAgentOutOfCredits: { dmVm.presentingPaywall = true },
             agentPowerDepletedByInboxId: dmVm.agentPowerDepletedByInboxId,
-            onTapUpdateMember: { _ in },
+            onTapUpdateMember: { dmVm.presentingProfileForMember = $0 },
             onRetryMessage: dmVm.retryMessage(_:),
             onDeleteMessage: dmVm.deleteMessage(_:),
             onRetryAgentJoin: {},
@@ -365,7 +347,7 @@ struct AgentDmPageView: View {
             onRetryTranscript: { item in
                 dmVm.retryTranscript(for: item)
             },
-            profileSheetForMember: { _ in AnyView(EmptyView()) },
+            profileSheetForMember: { member in AnyView(memberContactDetailSheet(for: member, dmVm: dmVm)) },
             memberContactOverride: contactOverride(for: dmVm),
             isAgentJoinPending: false,
             // .suppressed is the one mode that hides every leading affordance
@@ -375,6 +357,8 @@ struct AgentDmPageView: View {
             voiceMemoRecorder: dmVm.voiceMemoRecorder,
             onSendVoiceMemo: { dmVm.sendVoiceMemo() },
             extraBottomInset: extraBottomInset,
+            hostsBottomBar: false,
+            onScrollToBottomAvailable: onScrollToBottomAvailable,
             bottomBarContent: { EmptyView() }
         )
     }
@@ -387,6 +371,12 @@ struct AgentDmPageView: View {
     private func dmMessagesViewWithSheets(_ dmVm: ConversationViewModel) -> some View {
         @Bindable var dmVm = dmVm
         return dmMessagesView(dmVm)
+            .sheet(item: $dmVm.presentingProfileForMember) { member in
+                memberContactDetailSheet(for: member, dmVm: dmVm)
+            }
+            .sheet(isPresented: $dmVm.presentingProfileSettings) {
+                ProfileSetupSheet(mode: .edit)
+            }
             .selfSizingSheet(item: $dmVm.presentingReactionsForMessage) { message in
                 reactionsDrawer(for: message, dmVm: dmVm)
             }
@@ -419,6 +409,20 @@ struct AgentDmPageView: View {
         PaywallView(viewModel: paywallViewModel)
     }
 
+    /// The contact card for a tapped avatar. `onStartAgentDm` is nil: the
+    /// only agent reachable from here is the one whose DM this already is.
+    private func memberContactDetailSheet(
+        for member: ConversationMember,
+        dmVm: ConversationViewModel
+    ) -> some View {
+        MemberContactDetailSheetContent(
+            viewModel: dmVm,
+            member: member,
+            profileSettingsViewModel: profileSettingsViewModel,
+            onStartAgentDm: nil
+        )
+    }
+
     @ViewBuilder
     private func reactionsDrawer(for message: AnyMessage, dmVm: ConversationViewModel) -> some View {
         ReactionsDrawerView(message: message) { reaction in
@@ -440,7 +444,7 @@ struct AgentDmPageView: View {
             descriptor: descriptor,
             conversation: dmVm.conversation,
             viewModel: dmVm,
-            profileSheetForMember: { _ in AnyView(EmptyView()) }
+            profileSheetForMember: { member in AnyView(memberContactDetailSheet(for: member, dmVm: dmVm)) }
         )
     }
 
@@ -457,5 +461,18 @@ struct AgentDmPageView: View {
                 focusCoordinator.moveFocus(to: .message)
             }
         )
+    }
+
+    private enum Constant {
+        /// The design's still frame fills 39 of the track's 120 points.
+        static let progressStart: Double = 0.325
+        static let progressCap: Double = 0.9
+        static let progressStep: Double = 0.05
+        static let progressTick: Double = 0.8
+        static let progressWidth: CGFloat = 120.0
+        static let progressHeight: CGFloat = 8.0
+        static let progressTrackOpacity: Double = 0.3
+        static let addAgentButtonHeight: CGFloat = 36.0
+        static let addAgentButtonRadius: CGFloat = 24.0
     }
 }

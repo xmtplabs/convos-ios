@@ -34,6 +34,11 @@ struct NewConversationView: View {
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var navState: NewConversationNavigatorImpl = .init()
     @State private var navigator: NewConversationCollector?
+    /// True while the conversation's Home tab has a page pushed. The
+    /// conversation view puts its own back button in the leading slot then, so
+    /// this view's close (X) stands down and the bar keeps one leading button
+    /// that pops pages until the home is back at its root.
+    @State private var isBrowsingHome: Bool = false
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -80,13 +85,11 @@ struct NewConversationView: View {
                             messagesTopBarTrailingItem: viewModel.messagesTopBarTrailingItem,
                             messagesTopBarTrailingItemEnabled: viewModel.messagesTopBarTrailingItemEnabled,
                             messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled,
-                            showsEmbeddedInvite: viewModel.showsEmbeddedInvite,
-                            embeddedInviteInitialSegment: viewModel.embeddedInviteInitialSegment,
                             onScannedInviteCode: viewModel.handleScannedCode,
-                            onInviteShared: viewModel.markInviteShared
-                        ) {
-                            EmptyView()
-                        }
+                            onInviteShared: viewModel.markInviteShared,
+                            onHomeBrowsingChanged: { isBrowsingHome = $0 },
+                            bottomBarContent: { EmptyView() }
+                        )
                     } else {
                         EmptyView()
                     }
@@ -97,8 +100,9 @@ struct NewConversationView: View {
                     // down (paired with the hidden back button below so the
                     // pushed view can't return to the picker). Pushed without
                     // `onClose`, the system back button is the way out, so no
-                    // X is rendered.
-                    if !viewModel.showingFullScreenScanner && (embedsNavigationStack || onClose != nil) {
+                    // X is rendered. While the Home tab is browsing, the
+                    // conversation's own back button owns the leading slot.
+                    if !viewModel.showingFullScreenScanner && !isBrowsingHome && (embedsNavigationStack || onClose != nil) {
                         ToolbarItem(placement: .topBarLeading) {
                             Button(role: .close) {
                                 if let onClose {

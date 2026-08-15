@@ -25,6 +25,7 @@ message ConversationCustomMetadata {
     reserved 7;
     optional AgentDmInfo agentDm = 8;  // Present when this conversation is a DM with an agent
     optional ParticipationMode participationMode = 9;  // How much the conversation's agents may speak
+    optional string spaceUrl = 10;  // Deployed Space web URL for the room; the Assistant Worker is the sole authority, clients only read it
 }
 
 // ParticipationMode governs how much the agents in a conversation speak. The

@@ -744,6 +744,92 @@ struct DefaultConversationDisplayTests {
         #expect(profiles.formattedNamesString == "Alice, Bob, Charlie and 2 others")
     }
 
+    /// A new conversation opens on a placeholder before the real one is
+    /// claimed. The emoji is derived from the conversation id, so a
+    /// placeholder carrying its own throwaway id paints one emoji and swaps
+    /// to another a frame later; seeding it with the pooled conversation's
+    /// emoji is what keeps the identity still.
+    @Test("A seeded placeholder emoji survives into the conversation it is claiming")
+    func seededPlaceholderEmojiMatchesClaimedConversation() {
+        let pooledId = "983734543f071fe5e33a416663fd9adc"
+        let pooledEmoji = EmojiSelector.emoji(for: pooledId)
+
+        let placeholder = Conversation.empty(id: "draft-CD8C84D1", emoji: pooledEmoji)
+        let claimed = Conversation.empty(id: pooledId)
+
+        #expect(placeholder.defaultEmoji == claimed.defaultEmoji)
+    }
+
+    @Test("An unseeded placeholder is the case that still changes emoji")
+    func unseededPlaceholderDiffersFromClaimedConversation() {
+        let pooledId = "983734543f071fe5e33a416663fd9adc"
+        let placeholder = Conversation.empty(id: "draft-CD8C84D1")
+        let claimed = Conversation.empty(id: pooledId)
+
+        #expect(placeholder.defaultEmoji != claimed.defaultEmoji,
+                "Guards the premise: the two ids really do hash to different emoji")
+    }
+
+    // MARK: - Default Agent Only Tests
+
+    /// Every new conversation gets a Convos agent provisioned into it
+    /// silently, so "you + one verified agent" must keep reading as the
+    /// untouched new convo it is.
+    @Test("Conversation alone with the default agent still shows New Convo")
+    func defaultAgentOnlyShowsNewConvo() {
+        let members = [
+            ConversationMember.mock(isCurrentUser: true, name: "You"),
+            ConversationMember.mock(isCurrentUser: false, name: "Assistant", isAgent: true, agentVerification: .verified(.convos))
+        ]
+        let conversation = Conversation.mock(name: nil, members: members)
+        #expect(conversation.isDefaultAgentOnly == true)
+        #expect(conversation.computedDisplayName == "New Convo")
+    }
+
+    @Test("Conversation alone with the default agent keeps its own emoji avatar")
+    func defaultAgentOnlyKeepsEmojiAvatar() {
+        let members = [
+            ConversationMember.mock(isCurrentUser: true, name: "You"),
+            ConversationMember.mock(isCurrentUser: false, name: "Assistant", isAgent: true, agentVerification: .verified(.convos))
+        ]
+        let conversation = Conversation.mock(name: nil, members: members)
+        #expect(conversation.avatarType == .emoji(conversation.defaultEmoji))
+    }
+
+    @Test("An explicit name still wins over the default-agent default")
+    func defaultAgentOnlyWithNameKeepsName() {
+        let members = [
+            ConversationMember.mock(isCurrentUser: true, name: "You"),
+            ConversationMember.mock(isCurrentUser: false, name: "Assistant", isAgent: true, agentVerification: .verified(.convos))
+        ]
+        let conversation = Conversation.mock(name: "Trip planning", members: members)
+        #expect(conversation.computedDisplayName == "Trip planning")
+    }
+
+    /// The moment a person arrives the conversation is no longer "just you and
+    /// the agent", and it names itself from its members like any other group.
+    @Test("A human joining ends the default-agent-only treatment")
+    func humanJoiningEndsDefaultAgentOnly() {
+        let members = [
+            ConversationMember.mock(isCurrentUser: true, name: "You"),
+            ConversationMember.mock(isCurrentUser: false, name: "Assistant", isAgent: true, agentVerification: .verified(.convos)),
+            ConversationMember.mock(isCurrentUser: false, name: "Alice")
+        ]
+        let conversation = Conversation.mock(name: nil, members: members)
+        #expect(conversation.isDefaultAgentOnly == false)
+        #expect(conversation.computedDisplayName == "Alice & Assistant")
+    }
+
+    @Test("A lone unverified agent is not the default agent")
+    func unverifiedAgentIsNotDefaultAgentOnly() {
+        let members = [
+            ConversationMember.mock(isCurrentUser: true, name: "You"),
+            ConversationMember.mock(isCurrentUser: false, name: "Rando", isAgent: true)
+        ]
+        let conversation = Conversation.mock(name: nil, members: members)
+        #expect(conversation.isDefaultAgentOnly == false)
+    }
+
     // MARK: - Pending Agent Builder Draft Tests
 
     @Test("Builder draft with no agent yet shows New Agent")

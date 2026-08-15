@@ -37,29 +37,6 @@ final class TabRootNavigatorImpl: @preconcurrency TabRootNavigator, NavigatorLif
 
 @MainActor
 @Observable
-final class StuffOverviewNavigatorImpl: @preconcurrency StuffOverviewNavigator, NavigatorLifecycle {
-    @ObservationIgnored
-    private(set) var screenAppearAt: Date?
-
-    func markScreenAppeared() {
-        screenAppearAt = Date()
-    }
-
-    func closeContext() -> ScreenContext {
-        let secs: Float = screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
-        screenAppearAt = nil
-        return ScreenContext(durationSecs: secs)
-    }
-
-    func navigateTo(stuffDetail: StuffDetailNavigatorArgs) {}
-    func present(appSettings: AppSettingsNavigatorArgs) {}
-    func present(newConversation: NewConversationNavigatorArgs) {}
-    func present(agentBuilder: AgentBuilderNavigatorArgs) {}
-    func closed(context: ScreenContext) {}
-}
-
-@MainActor
-@Observable
 final class ContactsNavigatorImpl: @preconcurrency ContactsNavigator, NavigatorLifecycle {
     @ObservationIgnored
     private(set) var screenAppearAt: Date?

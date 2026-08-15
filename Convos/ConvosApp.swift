@@ -82,6 +82,7 @@ struct ConvosApp: App {
         QAEvent.emit(.app, "launched", ["environment": environment.name])
         QALaunchHooks.run(environment: environment)
 
+        Self.wireDefaultAgentVariantProvider()
         Self.configureFirebase(environment: environment)
 
         #if DEBUG
@@ -160,6 +161,8 @@ struct ConvosApp: App {
             coreMetrics: coreMetrics,
             metricsDelegate: metricsDelegate
         )
+
+        HomeWebViewPrewarmer.prewarmIfNeeded(session: convos.session)
 
         Self.configureTabBarItemColors()
     }
@@ -256,6 +259,15 @@ struct ConvosApp: App {
             }
         }
         bar.unselectedItemTintColor = inactive
+    }
+
+    /// Routes cache-time default-agent joins to the same variant as every other
+    /// agent call. Read live at join time; hops to the main actor because
+    /// FeatureFlags is main-actor-isolated.
+    private static func wireDefaultAgentVariantProvider() {
+        SessionManager.defaultAgentVariantIdProvider = {
+            await MainActor.run { FeatureFlags.shared.effectiveAgentVariantSlug }
+        }
     }
 
     var body: some Scene {

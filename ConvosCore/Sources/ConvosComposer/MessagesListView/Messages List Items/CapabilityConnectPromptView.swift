@@ -119,7 +119,7 @@ struct CapabilityConnectPromptView: View {
                 icon: .calendar,
                 status: .pending
             ),
-            agentName: "Assistant",
+            agentName: "Agent",
             onTap: {}
         )
         CapabilityConnectPromptView(
@@ -131,7 +131,7 @@ struct CapabilityConnectPromptView: View {
                 icon: .calendar,
                 status: .connected
             ),
-            agentName: "Assistant",
+            agentName: "Agent",
             onTap: {}
         )
         CapabilityConnectPromptView(
@@ -143,7 +143,7 @@ struct CapabilityConnectPromptView: View {
                 icon: .calendar,
                 status: .dismissed
             ),
-            agentName: "Assistant",
+            agentName: "Agent",
             onTap: {}
         )
         CapabilityConnectPromptView(
@@ -155,7 +155,7 @@ struct CapabilityConnectPromptView: View {
                 icon: .calendar,
                 status: .superseded
             ),
-            agentName: "Assistant",
+            agentName: "Agent",
             onTap: {}
         )
     }

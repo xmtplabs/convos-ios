@@ -90,7 +90,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let notificationChangeReporter: any NotificationChangeReporterType
     private let platformProviders: PlatformProviders
     private let apiClient: any ConvosAPIClientProtocol
-    private let unusedConversationCache: any UnusedConversationCacheProtocol
+    let unusedConversationCache: any UnusedConversationCacheProtocol
+    let defaultAgentCoordinator: DefaultConversationAgentCoordinator = DefaultConversationAgentCoordinator()
     private let agentTemplateRepositoryInstance: any AgentTemplateRepositoryProtocol
 
     /// Single-inbox means a single cached `MessagingService`. The lock
@@ -163,6 +164,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         observe()
         wireAgentTemplateRepository()
+        wireDefaultAgentProvisioner()
 
         guard mode == .fullApp else {
             // Clip bootstrap: skip everything below. The clip writes the
@@ -500,11 +502,23 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Inbox Management
 
+    public nonisolated func peekPreparedConversationId() -> String? {
+        unusedConversationCache.peekPreparedConversationId()
+    }
+
     public func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?) {
         let service = loadOrCreateService()
         let conversationId = await unusedConversationCache.consumeUnusedConversationId(
             databaseWriter: databaseWriter
         )
+        if let conversationId {
+            // Claim-time backstop: cache-time provisioning is best-effort, so
+            // re-ensure the default agent on the way out. Fire-and-forget; the
+            // ready signal sent at commit awaits the shared provision task.
+            Task { [weak self] in
+                await self?.ensureDefaultAgentInConversation(id: conversationId)
+            }
+        }
         await unusedConversationCache.prepareUnusedConversation(
             service: service,
             databaseWriter: databaseWriter,
@@ -519,6 +533,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             id: conversationId,
             databaseWriter: databaseWriter
         )
+        // The user has entered the conversation; make sure its default agent
+        // actually landed. Nothing cues the agent to speak - it stays silent
+        // until spoken to. Fire-and-forget so committing never blocks on the
+        // network.
+        Task { [weak self] in
+            await self?.ensureDefaultAgentInConversation(id: conversationId)
+        }
     }
 
     public func releaseClaimedConversation(id conversationId: String) async {
@@ -1496,23 +1517,28 @@ extension SessionManager {
         )
     }
 
-    /// Full direct-add join. `idempotencyKey` is the builder flow's persisted
-    /// join key (stable across retries of one logical join) so the backend
-    /// dedups a retried provision whose response was lost; `nil` (all
-    /// non-builder callers today) keeps the non-deduped behavior. Internal
-    /// because only the agent-template repository's wired join handler
-    /// threads a key; the public protocol surface stays as-is.
-    /// `autoEnablesCreatorAbilities` controls whether the join fans the
-    /// user's live cloud connections out to the freshly added agent; the
-    /// builder flow passes false because it grants exactly the connections
-    /// the user picked in the builder (via the grant replayer), and
-    /// auto-enable must not widen that picked set.
+    /// Full direct-add join. `idempotencyKey` is a persisted join key (stable
+    /// across retries of one logical join) so the backend dedups a retried
+    /// provision whose response was lost; `nil` keeps the non-deduped
+    /// behavior. `ownerProfileName` rides on default-agent joins so the
+    /// backend composes the agent's display name. `grantAdmin` promotes the
+    /// agent after the member add - the default agent holds admin from
+    /// creation so it can act as the conversation's always-online admitter
+    /// once agent-admitted joins exist; nothing server-side can exercise the
+    /// bit before then. `autoEnablesCreatorAbilities` controls whether the
+    /// join fans the user's live cloud connections out to the freshly added
+    /// agent; a caller that grants an exact picked set passes false so
+    /// auto-enable cannot widen it. Internal because only the agent-template
+    /// repository's wired join handler and the default-agent coordinator
+    /// thread these; the public protocol surface stays as-is.
     func addAgentToConversation(
         conversationId: String,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
         forceErrorCode: Int?,
         idempotencyKey: ConvosAPI.JoinIdempotencyKey?,
+        ownerProfileName: String? = nil,
+        grantAdmin: Bool = false,
         autoEnablesCreatorAbilities: Bool = true
     ) async throws -> ConvosAPI.AgentJoinResponse {
         // Capture the creator's device timezone on the main actor before any
@@ -1531,6 +1557,7 @@ extension SessionManager {
                     ConvosAPI.AgentJoinRequest(
                         conversationId: conversationId.lowercased(),
                         templateId: templateId,
+                        ownerProfileName: ownerProfileName,
                         idempotencyKey: idempotencyKey,
                         options: options,
                         timezone: creatorTimezone
@@ -1562,6 +1589,20 @@ extension SessionManager {
             do {
                 try await messagingService().conversationMetadataWriter()
                     .addMembers([agentInboxId], to: conversationId)
+                if grantAdmin {
+                    // Best-effort: a failed grant must not fail the join — the
+                    // agent works as a plain member, it just cannot admit
+                    // invitees when that capability arrives.
+                    do {
+                        try await messagingService().conversationMetadataWriter()
+                            .promoteToAdmin(agentInboxId, in: conversationId)
+                    } catch {
+                        Log.error(
+                            "Direct-add: promoteToAdmin failed for agent inbox \(agentInboxId) "
+                                + "in conversation \(conversationId): \(error.localizedDescription)"
+                        )
+                    }
+                }
                 // The conversation now has an agent member. Publish this user's
                 // own device timezone into the per-sender ProfileUpdate metadata
                 // (Channel B). Best-effort: a failure must not fail the join.

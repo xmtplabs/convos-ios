@@ -88,6 +88,56 @@ struct SerializationTests {
         #expect(ConversationCustomMetadata.isEncodedMetadata("Hello World!") == false)
         #expect(ConversationCustomMetadata.isEncodedMetadata("") == false)
     }
+
+    @Test("Space URL round-trips")
+    func spaceURLRoundTrip() throws {
+        var metadata = ConversationCustomMetadata()
+        #expect(metadata.hasSpaceURL == false)
+        metadata.spaceURL = "https://abcdefghijklmnopqrstuvwxyz234567.spaces.convos.org"
+
+        let encoded = try metadata.toCompactString()
+        let decoded = try ConversationCustomMetadata.fromCompactString(encoded)
+
+        #expect(decoded.hasSpaceURL == true)
+        #expect(decoded.spaceURL == "https://abcdefghijklmnopqrstuvwxyz234567.spaces.convos.org")
+    }
+
+    @Test("Space URL survives an unrelated read-modify-write")
+    func spaceURLSurvivesReadModifyWrite() throws {
+        var metadata = ConversationCustomMetadata()
+        metadata.spaceURL = "https://example.spaces.convos.org"
+
+        // Simulate a different device reading, editing an unrelated field, and
+        // re-serializing: the URL must survive.
+        var reloaded = try ConversationCustomMetadata.fromCompactString(metadata.toCompactString())
+        reloaded.emoji = "🛰️"
+        let decoded = try ConversationCustomMetadata.fromCompactString(reloaded.toCompactString())
+
+        #expect(decoded.hasSpaceURL == true)
+        #expect(decoded.spaceURL == "https://example.spaces.convos.org")
+        #expect(decoded.emoji == "🛰️")
+    }
+
+    @Test("Space URL decodes from the cross-client wire form")
+    func spaceURLDecodesFromWireForm() throws {
+        // The Assistant Worker writes spaceUrl as field 10, wire type 2
+        // (length-delimited): key byte 0x52. Build that blob by hand so this
+        // test pins the cross-repo field assignment rather than our own
+        // encoder.
+        let url = "https://example.spaces.convos.org"
+        let urlBytes = try #require(url.data(using: .utf8))
+        var wire = Data([0x52, UInt8(urlBytes.count)])
+        wire.append(urlBytes)
+        let encoded = wire.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+
+        let decoded = try ConversationCustomMetadata.fromCompactString(encoded)
+
+        #expect(decoded.hasSpaceURL == true)
+        #expect(decoded.spaceURL == url)
+    }
 }
 
 @Suite("ConversationProfile Tests")

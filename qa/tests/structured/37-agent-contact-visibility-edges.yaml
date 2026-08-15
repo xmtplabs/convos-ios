@@ -67,8 +67,10 @@ steps:
       - wait_for_element: { id: "contact-detail-chat", timeout: 10 }
       - tap: { id: "contact-detail-chat" }
       - tap: { label: "Got it", optional: true }
-      - wait_for_element: { id: "add-to-conversation-button", timeout: 20 }
-      - tap: { id: "add-to-conversation-button" }
+      - wait_for_element: { id: "conversation-info-button", timeout: 20 }
+      - tap: { id: "conversation-info-button" }
+      - wait_for_element: { id: "info-add-button", timeout: 10 }
+      - tap: { id: "info-add-button" }
       - wait_for_element: { id: "context-menu-add-from-contacts", timeout: 10 }
       - tap: { id: "context-menu-add-from-contacts" }
       - wait_for_element: { id: "contacts-picker-confirm", timeout: 10 }
@@ -78,7 +80,9 @@ steps:
     criteria: add_picker_opens
     note: >
       Opening Chat on the first agent's card (confirming the One-agent sheet) lands
-      in its conversation; add-to-conversation-button -> context-menu-add-from-contacts
+      in its conversation. The chat toolbar's trailing button now shares the invite
+      link, so the picker is reached through conversation info:
+      conversation-info-button -> info-add-button -> context-menu-add-from-contacts
       presents ContactsPickerView in add-to-conversation mode, seeded with the
       conversation's members as alreadyInChatInboxIds.
 

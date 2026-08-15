@@ -109,20 +109,18 @@ final class ConversationsViewController: UIViewController {
     var onToggleReadState: ((Conversation) -> Void)?
     var onTogglePin: ((Conversation) -> Void)?
     var onShowAllFilter: (() -> Void)?
-    /// Fired on every scroll tick with the latest content offset Y. Used
-    /// by the host SwiftUI shell (`MainTabView`) to flip the agent
-    /// builder bar between expanded and collapsed states based on whether
-    /// the list is at the top.
+    /// Fired on every scroll tick with the latest content offset Y, so the
+    /// host SwiftUI shell can react to whether the list is at the top.
     var onScrollOffsetChange: ((CGFloat) -> Void)?
     /// Fired when the list approaches its end and `hasMoreConversations`
     /// is set - asks the view model to grow the paged window.
     var onLoadMoreConversations: (() -> Void)?
 
-    /// Extra top inset to clear the SwiftUI top chrome (the agent builder
-    /// bar that lives under the nav bar in the host's safe-area inset
-    /// chain). The chain doesn't always propagate to UIKit-hosted
-    /// collection views, so the SwiftUI host pushes this value down and
-    /// we apply it via `additionalSafeAreaInsets`.
+    /// Extra top inset to clear whatever SwiftUI chrome the host draws under
+    /// the nav bar. That chrome lives in the host's safe-area inset chain,
+    /// which doesn't always propagate to UIKit-hosted collection views, so
+    /// the host pushes the value down and we apply it via
+    /// `additionalSafeAreaInsets`.
     var topChromeInset: CGFloat = 0 {
         didSet {
             guard isViewLoaded, oldValue != topChromeInset else { return }
@@ -130,9 +128,8 @@ final class ConversationsViewController: UIViewController {
         }
     }
 
-    /// Bottom counterpart to `topChromeInset`, used when the agent builder
-    /// bar pins to the bottom edge (iPad, where the standard tab bar is at
-    /// the top).
+    /// Bottom counterpart to `topChromeInset`, for chrome pinned to the
+    /// bottom edge (iPad, where the standard tab bar is at the top).
     var bottomChromeInset: CGFloat = 0 {
         didSet {
             guard isViewLoaded, oldValue != bottomChromeInset else { return }
@@ -145,15 +142,6 @@ final class ConversationsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupCollectionView()
-        // Apply any inset values that landed before the view loaded —
-        // the `didSet`s short-circuit while `isViewLoaded` is false, so
-        // without this the values silently vanish.
-        if topChromeInset != 0 {
-            additionalSafeAreaInsets.top = topChromeInset
-        }
-        if bottomChromeInset != 0 {
-            additionalSafeAreaInsets.bottom = bottomChromeInset
-        }
         _ = dataSource
     }
 
@@ -184,7 +172,7 @@ final class ConversationsViewController: UIViewController {
         applySnapshot(animated: state.isBootSettled && !pinnedMembershipChanged, changedIds: changedIds)
     }
 
-    private func changedConversationIds(old: State, new: State, selectionChanged: Bool) -> Set<String> {
+    func changedConversationIds(old: State, new: State, selectionChanged: Bool) -> Set<String> {
         let oldMap = Dictionary(
             uniqueKeysWithValues: (old.pinnedConversations + old.unpinnedConversations).map { ($0.id, $0) }
         )
@@ -205,12 +193,19 @@ final class ConversationsViewController: UIViewController {
             // avatar update re-emits a fresh conversation but no tracked field
             // here changes, so every group showing that member keeps a stale
             // cluster until something else about the row changes.
+            // `agentDm` is the folded-in agent DM lane, which the row renders as
+            // the preview text, the sender prefix, and the unread badge. An
+            // agent reply lands only in that lane and changes nothing else
+            // compared here, so omitting it left the row showing its previous
+            // content, and its previous timestamp, until a scroll recycled the
+            // cell.
             if oldConvo.isMuted != newConvo.isMuted ||
                 oldConvo.isUnread != newConvo.isUnread ||
                 oldConvo.isPinned != newConvo.isPinned ||
                 oldConvo.scheduledExplosionDate != newConvo.scheduledExplosionDate ||
                 oldConvo.displayName != newConvo.displayName ||
                 oldConvo.lastMessage != newConvo.lastMessage ||
+                oldConvo.agentDm != newConvo.agentDm ||
                 oldConvo.avatarType != newConvo.avatarType {
                 changed.insert(id)
             }

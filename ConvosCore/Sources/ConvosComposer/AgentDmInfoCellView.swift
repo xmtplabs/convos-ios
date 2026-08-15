@@ -3,77 +3,41 @@ import ConvosCore
 import SwiftUI
 
 /// The agent-DM disclosure header: always the first cell of an agent-DM
-/// transcript, doubling as its empty state. Names the space and carries the
-/// shared-memory disclosure (see docs/plans/agent-dms.md).
+/// transcript, doubling as its empty state. Names the agent, says what the
+/// lane is for, and carries the shared-memory disclosure (see
+/// docs/plans/agent-dms.md).
+///
+/// Figma 7686:39662. The three lines step down the iOS type scale -
+/// .body medium, .subheadline, .footnote - with the disclosure in secondary.
 public struct AgentDmInfoCellView: View {
-    let agentProfile: Profile?
-    let agentVerification: AgentVerification
     let agentName: String
 
-    public init(
-        agentProfile: Profile?,
-        agentVerification: AgentVerification,
-        agentName: String
-    ) {
-        self.agentProfile = agentProfile
-        self.agentVerification = agentVerification
+    public init(agentName: String) {
         self.agentName = agentName
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            avatarCircle
-            Text("\(agentName) 1:1 chat")
-                .font(.title3)
+        VStack(spacing: DesignConstants.Spacing.step3x) {
+            Text("1-on-1 with \(agentName)")
+                .font(.body.weight(.medium))
                 .foregroundStyle(.colorTextPrimary)
-                .multilineTextAlignment(.center)
-                .padding(.top, DesignConstants.Spacing.step6x)
-            Text("Chat here to work with \(agentName) without blowing up the groupchat.")
-                .font(.body)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.colorTextSecondary)
-                .padding(.top, DesignConstants.Spacing.step6x)
-            Text("This space is not confidential.")
-                .font(.body.weight(.semibold))
+            Text("Chat here to update Home, ping members, or check in without blowing up the groupchat.")
+                .font(.subheadline)
                 .foregroundStyle(.colorTextPrimary)
-                .multilineTextAlignment(.center)
-                .padding(.top, DesignConstants.Spacing.step6x)
-            Text("\(agentName) can share anything it knows.")
-                .font(.body)
-                .multilineTextAlignment(.center)
+            Text("Everything shared here can be shared with everyone in the group, so don’t share anything private.")
+                .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
-                .padding(.top, DesignConstants.Spacing.step2x)
         }
+        .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, DesignConstants.Spacing.step8x)
+        .padding(.vertical, Constant.verticalPadding)
         .padding(.horizontal, DesignConstants.Spacing.step6x)
     }
 
-    @ViewBuilder
-    private var avatarCircle: some View {
-        if let agentProfile {
-            ProfileAvatarView(
-                profile: agentProfile,
-                profileImage: nil,
-                useSystemPlaceholder: false,
-                agentVerification: agentVerification,
-                size: Constant.avatarSize
-            )
-            .frame(width: Constant.avatarSize, height: Constant.avatarSize)
-        } else {
-            ZStack {
-                Circle()
-                    .fill(Color.colorFillTertiary)
-                    .frame(width: Constant.avatarSize, height: Constant.avatarSize)
-                Text(String(agentName.prefix(1)).uppercased())
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(.colorTextSecondary)
-            }
-        }
-    }
-
     private enum Constant {
-        static let avatarSize: CGFloat = 40.0
+        /// Keeps the header clear of the nav chrome above and the first
+        /// message below; off the shared scale, which steps 48 to 64.
+        static let verticalPadding: CGFloat = 52.0
     }
 }
 #endif

@@ -1,5 +1,5 @@
 {
-  "originHash" : "1bddfee5c49b616a3e402144d5ff6d7a4d3b9fc36a79e7fb7e8837b8b8b91a1f",
+  "originHash" : "839f86aab75322b73f2d74ee4c2f3408b5cb0c32691ca85a2fee2c71bde9b5ff",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -17,6 +17,15 @@
       "state" : {
         "revision" : "61b85103a1aeed8218f17c794687781505fbbef5",
         "version" : "11.2.0"
+      }
+    },
+    {
+      "identity" : "bezelkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/markbattistella/BezelKit",
+      "state" : {
+        "revision" : "6cd571cd2e07dc6c597cfb9e1281cc0335ecb797",
+        "version" : "26.5.26"
       }
     },
     {

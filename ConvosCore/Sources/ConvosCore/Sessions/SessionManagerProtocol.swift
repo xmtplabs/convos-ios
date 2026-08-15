@@ -79,6 +79,13 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// the cache claim dropped, `releaseClaimedConversation`.
     func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?)
 
+    /// The id `prepareNewConversation` is expected to hand out next, or nil
+    /// when nothing is pooled. Readable synchronously so a new-conversation
+    /// screen can paint the identity the conversation will actually have -
+    /// its emoji is derived from this id - rather than a placeholder's, then
+    /// changing it a frame later. A best guess: the claim still decides.
+    nonisolated func peekPreparedConversationId() -> String?
+
     /// Promotes a row previously claimed via `prepareNewConversation()`
     /// into a real visible conversation: flips `isUnused = false` and
     /// refreshes its `createdAt` so it sorts at the top of the chats
@@ -125,6 +132,19 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// the unconditional `discardClaimedConversation` - a deliberate delete
     /// must never be silently overridden by the gate.
     func discardClaimedConversationIfUnengaged(id conversationId: String) async
+
+    /// Cache-miss fallback for the default-agent flow: a conversation the
+    /// state machine created fresh (no warm-cache claim, so
+    /// `commitClaimedConversation` never fires) is already visible and in use.
+    /// Ensures the default agent is provisioned into it and sends the one-shot
+    /// `conversation_ready` greeting cue. Best-effort and idempotent.
+    func ensureDefaultAgentConversationReady(id conversationId: String) async
+
+    /// True while this conversation's silent default-agent join is in flight
+    /// (or has already landed) - the conversation was claimed from the warm
+    /// cache, which provisions an agent into it. Surfaces so the Agent tab
+    /// waits on that join instead of offering to add another agent.
+    func isProvisioningDefaultAgent(id conversationId: String) async -> Bool
 
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>

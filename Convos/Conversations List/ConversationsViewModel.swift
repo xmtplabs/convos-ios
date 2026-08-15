@@ -167,29 +167,11 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
-    var agentBuilderViewModel: AgentBuilderViewModel? {
-        didSet {
-            // Mirrors `newConversationViewModel.didSet`'s cleanup: when
-            // an Agent Builder VM is dropped without committing (e.g.
-            // the host view sets this to nil on tab swap), discard the
-            // outgoing one so its draft XMTP group is torn down. Skip
-            // when the user committed — that conversation has shipped
-            // and should stay on the server.
-            if let outgoing = oldValue,
-               oldValue !== agentBuilderViewModel,
-               !outgoing.hasCommitted,
-               !outgoing.didDiscard {
-                outgoing.discard()
-            }
-            updateListVisibility()
-        }
-    }
-    /// Drives the Compose flow sheet (`ComposeFlowView`): the contacts picker
-    /// is the root, and every conversation is minted on intent inside the flow
-    /// (Continue / Send-invite / Show-code) -- nothing is claimed just by
-    /// opening it. Distinct from `newConversationViewModel` (scanner / join /
-    /// template), so the two never drive overlapping presentations.
-    var presentingComposeFlow: Bool = false
+    /// Drives the scanner sheet the home's scan button presents.
+    var presentingScanner: Bool = false
+    /// Owned here so the sheet's viewfinder survives re-renders and can be
+    /// re-armed between presentations.
+    let scannerViewModel: QRScannerViewModel = QRScannerViewModel()
     var presentingExplodeInfo: Bool = false
     var presentingPinLimitInfo: Bool = false
 
@@ -466,7 +448,6 @@ final class ConversationsViewModel {
         let isFocusedOnList = isVisible
             && selectedConversationViewModel == nil
             && newConversationViewModel == nil
-            && agentBuilderViewModel == nil
         session.setIsOnConversationsList(isFocusedOnList)
     }
 
@@ -519,66 +500,34 @@ final class ConversationsViewModel {
         }
     }
 
-    /// Compose opens the contacts picker first (optional selection); the flow
-    /// mints a conversation only on intent (`ComposeFlowView`), so opening and
-    /// cancelling the picker claims nothing. With no contacts to pick from,
-    /// the picker would be pointless -- so we skip it and open the
-    /// new-conversation view directly, like the pre-picker flow.
+    /// Compose drops straight into the new conversation, with no contacts
+    /// step in front of it: the conversation is claimed on entry and people
+    /// are brought in from inside it, by sharing its invite link. Picking
+    /// contacts up front was a detour on the way to the same place.
     func onStartConvo() {
-        // Count the contacts the picker would actually show (excludes agents,
-        // blocked, and unnamed) -- the raw contact count includes those, so
-        // it can't decide whether the picker is worth showing.
-        let contacts = (try? session.messagingServiceSync().contactsRepository().fetchAll()) ?? []
-        let pickable = ContactsPickerViewModel.pickableContacts(contacts)
-        guard !pickable.isEmpty else {
-            newConversationViewModel = NewConversationViewModel(
-                session: session,
-                mode: .newConversation,
-                coreActions: coreActions
-            )
-            return
-        }
-        presentingComposeFlow = true
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversation,
+            coreActions: coreActions
+        )
     }
 
-    /// The home scan button lands on the embedded Scan/Invite screen with the
-    /// Scan segment active, so the live viewfinder and "Or scan from camera roll" are
-    /// both reachable (a scanned code opens a brand-new convo to join/add).
-    /// Mirrors `onShowInviteCode` but starts on `.scan`.
+    /// The home scan button opens the scanner and nothing else. It used to
+    /// claim a conversation just to host a viewfinder inside it; scanning
+    /// reads someone else's code, so it needs no conversation of its own -
+    /// whatever it decodes is routed like any other link.
     func onJoinConvo() {
-        let viewModel = NewConversationViewModel(
-            session: session,
-            mode: .newConversation,
-            showsEmbeddedInvite: true,
-            embeddedInviteInitialSegment: .scan,
-            coreActions: coreActions
-        )
-        viewModel.onScanResolvedConversation = { [weak self] conversationId in
-            self?.navigateToScannedConversation(conversationId)
-        }
-        newConversationViewModel = viewModel
+        scannerViewModel.resetScanning()
+        presentingScanner = true
     }
 
-    /// Starts and enters a fresh conversation showing the invite QR at the top
-    /// (the standard message-list header) and the scan viewfinder as its
-    /// trailing action -- the "Show an invite code" entry point. Mirrors the
-    /// no-contacts branch of `onStartConvo`, opting the conversation into the
-    /// embedded-invite presentation.
-    func onShowInviteCode() {
-        let viewModel = NewConversationViewModel(
-            session: session,
-            mode: .newConversation,
-            showsEmbeddedInvite: true,
-            coreActions: coreActions
-        )
-        viewModel.onScanResolvedConversation = { [weak self] conversationId in
-            self?.navigateToScannedConversation(conversationId)
-        }
-        newConversationViewModel = viewModel
-    }
-
-    func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {
-        agentBuilderViewModel = AgentBuilderViewModel(session: session, entryMode: entryMode, coreActions: coreActions)
+    /// Routes a code read by the scanner: an invite opens its join flow, an
+    /// agent template starts a conversation with that agent, anything else is
+    /// ignored. Same routing a tapped link gets.
+    func handleScannedCode(_ code: String) {
+        presentingScanner = false
+        guard let url = URL(string: code) else { return }
+        handleURL(url)
     }
 
     private func join(from inviteCode: String) {

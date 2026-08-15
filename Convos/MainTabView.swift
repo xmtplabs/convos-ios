@@ -3,19 +3,12 @@ import ConvosCore
 import ConvosMetrics
 import SwiftUI
 
-/// Root tab shell for the app. Hosts the existing `ConversationsView` under
-/// the "Convos" tab, `ThingsTabView` under "Things", and `ContactsView` under
-/// "Contacts", in a standard SwiftUI `TabView` with the system tab bar.
+/// Root tab shell for the app. Hosts `ConversationsView` under the "Convos"
+/// tab and `ContactsView` under "Contacts", in a standard SwiftUI `TabView`
+/// with the system tab bar.
 ///
-/// The agent builder bar is pinned via a `safeAreaInset` on the edge
-/// opposite the tab bar (top on iPhone, where the tab bar is at the bottom;
-/// bottom on iPad, where the standard tab bar is at the top), shared across
-/// the Chats and Things tabs. It fades out on scroll and is replaced by a
-/// compact "add agent" button in the nav bar. The Contacts tab never shows
-/// the builder bar -- its search bar owns the top -- so the "add agent"
-/// button stays in the nav bar there regardless of scroll. The compose
-/// button lives in the shared toolbar; the app-indicator pill is a
-/// top-leading overlay (see `sharedAppIndicatorOverlay`).
+/// The compose button lives in the shared toolbar; the app-indicator pill is
+/// a top-leading overlay (see `sharedAppIndicatorOverlay`).
 struct MainTabView: View {
     @Bindable var conversationsViewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
@@ -23,58 +16,19 @@ struct MainTabView: View {
 
     /// Tracks which tab is currently active and drives the standard
     /// `TabView` selection. The system tab bar is hidden only while a
-    /// conversation / Things detail is pushed (so the detail owns the full
-    /// screen) via `.toolbar(_:for: .tabBar)`. It stays visible during the
+    /// conversation is pushed (so it owns the full screen) via
+    /// `.toolbar(_:for: .tabBar)`. It stays visible during the
     /// empty-state CTA so the user can still switch tabs.
     @State private var activeTab: ConvosTab = .chats
-    /// NavigationStack path for the Things tab. Lifted to this shell so
-    /// the bottom chrome can hide when Things has a detail pushed, same
-    /// way it hides when Chats has a conversation selected.
-    @State private var thingsPushedItems: [ThingOverviewItem] = []
-    /// Hydrated VM for the topmost pushed Things item, so the shared
-    /// overlay can render the centered conversation indicator for it
-    /// (same morph as a chats push). Synced via `.onChange` on
-    /// `thingsPushedItems` — created lazily, cleared on pop.
-    @State private var thingsPushedConvoVM: ConversationViewModel?
-    /// Member whose contact card is presented when the user taps the
-    /// centered conversation indicator while a Things detail is pushed:
-    /// the agent that sent the pushed item's attachment.
-    @State private var thingsAgentContactMember: ConversationMember?
     /// NavigationStack path for the Contacts tab, lifted here so the shared
     /// app-indicator overlay can tell when a contact detail is pushed and
-    /// re-center the pill (mirrors how `thingsPushedItems` lifts the Things
-    /// path). `ContactsView` pushes onto it via value-based `NavigationLink`s.
+    /// re-center the pill. `ContactsView` pushes onto it via value-based
+    /// `NavigationLink`s.
     @State private var contactsPath: [Contact] = []
-    /// Section the Contacts tab should scroll to once it appears. Set when the
-    /// user taps "See suggested agents" in the empty Things state; `ContactsView`
-    /// consumes it (scrolling to the suggested-agents section once it has
-    /// loaded) and clears it back to nil.
-    @State private var contactsScrollTarget: String?
-    /// Whether the top `AgentBuilderBar` is revealed (shown under the nav
-    /// bar) versus faded out. Held in state with hysteresis thresholds
-    /// rather than derived purely from scroll offset so a bouncy scroll
-    /// near the boundary doesn't flicker the bar: once hidden it stays
-    /// hidden until the list returns to the top; once revealed it stays
-    /// revealed until the user has scrolled `Constant.hideScrollThreshold`
-    /// past the top. While hidden, a compact "add agent" button takes its
-    /// place in the nav bar.
-    @State private var isBuilderBarRevealed: Bool = true
-    /// Latest scroll content offset from each tab's primary scroll view.
-    /// Tracked per-tab so swapping tabs can re-evaluate the builder bar
-    /// state against the new tab's scroll position immediately, instead
-    /// of waiting for the user to scroll.
-    @State private var chatsScrollOffset: CGFloat = 0
-    @State private var thingsScrollOffset: CGFloat = 0
-    /// Measured height of the top chrome (the agent builder bar under the
-    /// nav bar) published via a `PreferenceKey`. Used to push an explicit
-    /// additional top inset down into `ConversationsViewController`,
-    /// because SwiftUI's safe-area inset chain doesn't reliably propagate
-    /// to the UIKit collection view.
-    @State private var builderBarHeight: CGFloat = 0
     /// Drives the app-settings sheet that the `AppIndicatorPill` (in
     /// every tab that renders one) presents on tap. Lives at this shell
-    /// level so both the Chats and Things tabs share a single sheet
-    /// instance — the alternative (a sheet per tab) would mean tapping
+    /// level so every tab shares a single sheet instance — the
+    /// alternative (a sheet per tab) would mean tapping
     /// the pill on the wrong tab wouldn't work after a tab swap and
     /// would duplicate the `AppSettingsView` view-model wiring.
     @State private var presentingAppSettings: Bool = false
@@ -97,8 +51,6 @@ struct MainTabView: View {
     @State var tabRootNavigator: TabRootCollector?
     @State var conversationsNavState: ConversationsNavigatorImpl = .init()
     @State var conversationsNavigator: ConversationsCollector?
-    @State var stuffOverviewNavState: StuffOverviewNavigatorImpl = .init()
-    @State var stuffOverviewNavigator: StuffOverviewCollector?
     @State var contactsNavState: ContactsNavigatorImpl = .init()
     @State var contactsNavigator: ContactsCollector?
     @Environment(\.scenePhase) private var scenePhase: ScenePhase
@@ -108,21 +60,8 @@ struct MainTabView: View {
     /// `.onReceive` on the publisher.
     @State private var userSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
-    /// Curated agent-builder prompt hints, hydrated from disk on init and
-    /// refreshed once on launch (see `body`'s `.task`). Injected into the
-    /// environment so the agent builder's dice control -- in this view's
-    /// builder sheet and in builders presented from descendant conversation
-    /// screens -- can read the cached hints.
-    @State private var promptHints: PromptHintsModel = .live()
-    /// Live suggested-agents service for the Contacts tab. Held in state so it
-    /// is built once (each `.live()` spins up a fresh API client and logs),
-    /// rather than on every `TabView` body pass -- `contactsTabContent` is
-    /// re-evaluated whenever the shell body recomputes, even while another tab
-    /// is frontmost.
-    @State private var suggestedAgentsService: SuggestedAgentsService = .live()
-    /// Shared namespace for the agent-builder bar -> sheet zoom
-    /// transition and the app-settings pill -> sheet zoom transition.
-    /// The bar / pill apply
+    /// Shared namespace for the app-settings pill -> sheet zoom transition.
+    /// The pill applies
     /// `.matchedTransitionSource(id: ..., in: namespace)` and the
     /// matching sheet uses `.navigationTransition(.zoom(sourceID: ..., in: namespace))`
     /// to get the same source-to-sheet morph the compose button uses in
@@ -149,23 +88,6 @@ struct MainTabView: View {
     /// window chrome) and on iPad in fullscreen.
     @State private var isInTrafficLightWindow: Bool = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
-
-    /// Which edge the agent builder bar pins to. The standard `TabView`
-    /// puts the tab bar at the bottom in compact width (iPhone) and at the
-    /// top in regular width (iPad); the builder bar goes on the opposite
-    /// edge so the two never collide.
-    private var builderBarEdge: VerticalEdge {
-        horizontalSizeClass == .compact ? .top : .bottom
-    }
-
-    /// The measured builder-bar height applied to the conversation list as a
-    /// top or bottom content inset, depending on which edge the bar pins to.
-    private var chromeTopInset: CGFloat {
-        builderBarEdge == .top ? builderBarHeight : 0
-    }
-    private var chromeBottomInset: CGFloat {
-        builderBarEdge == .bottom ? builderBarHeight : 0
-    }
 
     private var appIndicatorContext: AppIndicatorContext {
         AppIndicatorContext(
@@ -197,13 +119,10 @@ struct MainTabView: View {
 
     /// `true` once a conversation has been pushed onto the Chats tab's
     /// navigation stack. Hides the nav bar and the tab bar so the
-    /// conversation detail can use the full screen. The builder bar is not
-    /// keyed to this: it stays in the tab root's safe-area inset and slides
-    /// away with the root during the push. Bound to `conversationsViewModel`
-    /// because the selection model lives there.
+    /// conversation detail can use the full screen. Bound to
+    /// `conversationsViewModel` because the selection model lives there.
     private var isConversationSelected: Bool {
         conversationsViewModel.selectedConversationViewModel != nil
-            || !thingsPushedItems.isEmpty
     }
 
     /// Mirrors [[ConversationsViewModel.isEmptyCTAActive]]. When true the
@@ -220,67 +139,19 @@ struct MainTabView: View {
         activeTab == .contacts && !contactsPath.isEmpty
     }
 
-    /// Scroll offset for whichever tab is currently active.
-    private var activeTabScrollOffset: CGFloat {
-        switch activeTab {
-        case .chats: chatsScrollOffset
-        case .things: thingsScrollOffset
-        case .contacts: 0
-        }
-    }
-
-    /// Apply hysteresis to the bar reveal state in response to a scroll
-    /// offset update from the active tab. Hides the bar (fade on iPhone /
-    /// collapse to the circle on iPad) only once the user has scrolled at
-    /// least the full builder-bar height past the top, and reveals it again
-    /// once the list is back near the top (within `revealScrollThreshold`).
-    /// The gap between the two thresholds prevents a bouncing scroll near
-    /// the boundary from flickering the bar.
-    private func updateBuilderBarReveal(forOffset offset: CGFloat) {
-        // Fall back to a small fixed threshold until the bar has been
-        // measured (otherwise a zero height would hide it immediately).
-        let hideThreshold = builderBarHeight > 0 ? builderBarHeight : Constant.hideScrollThreshold
-        if isBuilderBarRevealed {
-            if offset >= hideThreshold {
-                withAnimation(.smooth(duration: 0.25)) {
-                    isBuilderBarRevealed = false
-                }
-            }
-        } else {
-            if offset <= Constant.revealScrollThreshold {
-                withAnimation(.smooth(duration: 0.25)) {
-                    isBuilderBarRevealed = true
-                }
-            }
-        }
-    }
-
     /// Tapping a message notification selects the conversation in
     /// `ConversationsViewModel`, but that conversation only lives under the
     /// Chats tab. Switch to Chats and dismiss any shell-level modal first so
-    /// the user isn't left on the Things tab or behind the App Settings sheet
+    /// the user isn't left on another tab or behind the App Settings sheet
     /// looking at a corrupted hierarchy.
     private func handleConversationNotificationTapped() {
         activeTab = .chats
         presentingAppSettings = false
     }
 
-    /// "Explore agents in Contacts" from either tab's empty-state CTA: jump to
-    /// the Contacts tab and ask it to scroll to the suggested-agents section.
-    /// `ContactsView` performs the scroll once the section has loaded, then
-    /// clears the target.
-    private func showSuggestedAgents() {
-        activeTab = .contacts
-        contactsScrollTarget = SuggestedAgentsSection.id
-    }
-
     var body: some View {
         bodyCore
             .profilesRepository(conversationsViewModel.session.messagingServiceSync().profilesRepository())
-            .environment(promptHints)
-            .task {
-                await promptHints.loadOnLaunch()
-            }
             .onAppear {
                 ensureNavigators()
                 tabRootNavState.markScreenAppeared()
@@ -300,33 +171,7 @@ struct MainTabView: View {
                         viewModel: conversationsViewModel,
                         profileSettingsViewModel: profileSettingsViewModel,
                         appIndicatorContext: appIndicatorContext,
-                        sidebarBottomAccessory: nil,
-                        onScrollOffsetChange: { offset in
-                            chatsScrollOffset = offset
-                            if activeTab == .chats {
-                                updateBuilderBarReveal(forOffset: offset)
-                            }
-                        },
-                        topChromeInset: chromeTopInset,
-                        bottomChromeInset: chromeBottomInset,
-                        onExploreAgents: showSuggestedAgents
-                    )
-                }
-            }
-
-            Tab(ConvosTab.things.title, systemImage: ConvosTab.things.symbol, value: ConvosTab.things) {
-                tabContainer(for: .things) {
-                    ThingsTabView(
-                        appIndicatorContext: appIndicatorContext,
-                        conversationsViewModel: conversationsViewModel,
-                        pushedItems: $thingsPushedItems,
-                        onScrollOffsetChange: { offset in
-                            thingsScrollOffset = offset
-                            if activeTab == .things {
-                                updateBuilderBarReveal(forOffset: offset)
-                            }
-                        },
-                        onSeeSuggestedAgents: showSuggestedAgents
+                        sidebarBottomAccessory: nil
                     )
                 }
             }
@@ -339,7 +184,6 @@ struct MainTabView: View {
         }
         .tint(Color.colorTextPrimary)
         .onChange(of: activeTab) { _, newTab in
-            updateBuilderBarReveal(forOffset: activeTabScrollOffset)
             // Fires after SwiftUI has applied the tab switch, so a parked
             // scan navigation gated on the Chats tab consumes only once the
             // switch has actually committed.
@@ -360,9 +204,6 @@ struct MainTabView: View {
             coreActions: coreActions,
             profileSettingsViewModel: profileSettingsViewModel,
             showsComposeButton: false,
-            suggestedAgentsService: suggestedAgentsService,
-            scrollTarget: $contactsScrollTarget,
-            onMakeAgent: { conversationsViewModel.onStartAgent() },
             onScanJoinedConversation: handleContactsScanJoinedConversation,
             hasPushedContactDetail: !contactsPath.isEmpty
         )
@@ -378,7 +219,7 @@ struct MainTabView: View {
     }
 
     /// Wraps each tab's content in its own `NavigationStack` carrying the
-    /// shared chrome (compose toolbar + agent builder bar). Making the
+    /// shared chrome (compose toolbar). Making the
     /// `TabView` the root and giving each tab its own stack is the native
     /// iPad pattern: iOS 26 renders the tab bar and the nav-bar toolbar in
     /// one merged top bar (tabs centered, toolbar items on the sides),
@@ -401,24 +242,11 @@ struct MainTabView: View {
         }
     }
 
-    /// Shared chrome (builder bar + toolbars) wrapped around each tab's root
-    /// content inside its `NavigationStack`.
+    /// Shared chrome (toolbars) wrapped around each tab's root content inside
+    /// its `NavigationStack`.
     @ViewBuilder
     private func tabChrome(_ content: some View, for tab: ConvosTab) -> some View {
         content
-            .safeAreaInset(edge: builderBarEdge, spacing: 0) {
-                // Intentionally not keyed to `isConversationSelected`: the
-                // inset belongs to the tab root's layout, so a pushed detail
-                // covers it and the bar rides offscreen with the root during
-                // the push. Removing it here instead collapsed the inset and
-                // reflowed the list mid-transition. The bar also stays up
-                // during the empty-state CTA (it is the same builder entry
-                // point the CTA's "Make an agent" button opens).
-                if tab != .contacts {
-                    builderBar
-                        .transition(.blurReplace)
-                }
-            }
             .toolbar { sharedToolbar() }
             .toolbar(isConversationSelected ? .hidden : .visible, for: .navigationBar)
             // `.automatic`, not `.visible`, when no conversation is selected:
@@ -466,7 +294,7 @@ struct MainTabView: View {
     /// so it sits flush with the leading edge of the nav-bar zone.
     /// Native toolbars clip ToolbarItem height to ~44pt; the pill is
     /// taller than that, so it must be an overlay rather than a
-    /// ToolbarItem. Hidden when a conversation / Things detail is
+    /// ToolbarItem. Hidden when a conversation is
     /// pushed onto the outer NavigationStack — the centered
     /// conversation indicator inside the pushed view's
     /// `ConversationPresenter` morphs into place via the
@@ -475,13 +303,7 @@ struct MainTabView: View {
     private var sharedAppIndicatorOverlay: some View {
         VStack(spacing: 0) {
             if let activeConvoVM = activeConvoVM {
-                // Hide the lifted conversation indicator while the share
-                // overlay is up. This pill renders above the presenter's
-                // share overlay, so without this it sits on top of the
-                // presented code card.
-                if !activeConvoVM.presentingShareView {
-                    centeredConversationIndicator(for: activeConvoVM)
-                }
+                centeredConversationIndicator(for: activeConvoVM)
             } else if !isContactDetailPushed {
                 leadingAppIndicatorPill
             }
@@ -575,10 +397,6 @@ struct MainTabView: View {
             : DesignConstants.Spacing.step3x
     }
 
-    /// Shared with `AttachmentPreviewSheet`'s sender pill so the Things
-    /// detail indicator subtitle uses the same sent-date wording.
-    private static let sentDateFormatter: SentDateFormatter = SentDateFormatter()
-
     @ViewBuilder
     private func centeredConversationIndicator(for convoVM: ConversationViewModel) -> some View {
         let pendingAgentOverride: AgentVerification? = convoVM.shouldRenderAsPendingAgent
@@ -586,26 +404,14 @@ struct MainTabView: View {
             : nil
         let pendingAgentIdentity: PendingAgentAvatarIdentity? = convoVM.pendingAgentPresentation?.avatarIdentity
         let isReadOnly: Bool = conversationsViewModel.staleDeviceObserver.isDeviceRemoved || convoVM.conversation.wasRemoved
-        // While a Things item is pushed (no chats selection), tapping the
-        // indicator opens the contact card of the agent that made the thing
-        // instead of the conversation quick editor / info sheet.
-        let isThingsIndicator: Bool = conversationsViewModel.selectedConversationViewModel == nil
-        let thingsAgentTapOverride: (() -> Void)? = isThingsIndicator ? { presentThingsAgentContact() } : nil
-        // On a Things push the indicator subtitle shows when the thing was
-        // sent (same label as the in-conversation preview sheet's sender
-        // pill) instead of the member count.
-        let thingsSentDateSubtitle: String? = isThingsIndicator
-            ? thingsPushedItems.last.map { Self.sentDateFormatter.string(for: $0.date) }
-            : nil
         HStack {
             ConversationIndicatorWrapper(
                 viewModel: convoVM,
                 placeholderOverride: nil,
-                subtitleOverride: thingsSentDateSubtitle,
+                subtitleOverride: nil,
                 allowsEditing: !isReadOnly,
                 focusState: $liftedIndicatorFocus,
-                focusCoordinator: liftedIndicatorFocusCoordinator,
-                onTapOverride: thingsAgentTapOverride
+                focusCoordinator: liftedIndicatorFocusCoordinator
             )
             .environment(\.forcedAgentVerification, pendingAgentOverride)
             .environment(\.pendingAgentIdentity, pendingAgentIdentity)
@@ -633,113 +439,16 @@ struct MainTabView: View {
         }
     }
 
-    /// Resolves the currently-displayed conversation across tabs: chats
-    /// `selectedConversationViewModel` if a chat row is selected, else
-    /// a VM hydrated for the topmost Things push, else nil. Drives the
-    /// shared overlay's morph between leading pill (when nil) and
-    /// centered conversation indicator (when non-nil).
+    /// The conversation the shared overlay is showing, if any. Drives its
+    /// morph between the leading pill (when nil) and the centered
+    /// conversation indicator (when non-nil).
     private var activeConvoVM: ConversationViewModel? {
-        conversationsViewModel.selectedConversationViewModel ?? thingsPushedConvoVM
-    }
-
-    /// Opens the contact card of the agent that sent the pushed Things
-    /// item's attachment. Falls back to the default conversation-info tap
-    /// if the sender is no longer a member of the convo.
-    private func presentThingsAgentContact() {
-        guard let convoVM = thingsPushedConvoVM else { return }
-        let senderInboxId: String? = thingsPushedItems.last?.senderInboxId
-        let senderMember: ConversationMember? = convoVM.conversation.members
-            .first { $0.profile.inboxId == senderInboxId }
-        guard let senderMember else {
-            convoVM.onConversationInfoTap(focusCoordinator: liftedIndicatorFocusCoordinator)
-            return
-        }
-        thingsAgentContactMember = senderMember
-    }
-
-    /// Keeps `thingsPushedConvoVM` aligned with `thingsPushedItems.last`
-    /// so the shared indicator overlay can render its centered
-    /// conversation pill for the pushed Things item.
-    private func syncThingsPushedConvoVM(with items: [ThingOverviewItem]) {
-        guard let item = items.last else {
-            thingsPushedConvoVM = nil
-            thingsAgentContactMember = nil
-            return
-        }
-        guard thingsPushedConvoVM?.conversation.id != item.conversation.id else { return }
-        thingsPushedConvoVM = ConversationViewModel.createSync(
-            conversation: item.conversation,
-            session: conversationsViewModel.session
-        )
-    }
-
-    /// The agent builder bar, shared across the Chats and Things tabs, on the
-    /// edge opposite the tab bar. Its scroll behavior differs by platform:
-    /// on iPhone (compact) the expanded bar blurs/fades out and a compact
-    /// "add agent" button takes its place in the nav bar; on iPad (regular)
-    /// the bar stays visible and morphs to the collapsed circle instead. Its
-    /// measured height is published so the UIKit list can inset its content.
-    @ViewBuilder
-    private var builderBar: some View {
-        let revealed = isBuilderBarRevealed
-        let isCompactWidth = horizontalSizeClass == .compact
-        // iPhone keeps the expanded bar and fades it out; iPad morphs between
-        // the expanded capsule and the collapsed circle on scroll.
-        let expanded = isCompactWidth ? true : revealed
-        let faded = isCompactWidth && !revealed
-        AgentBuilderBar(
-            isExpanded: expanded,
-            onTap: openBuilder,
-            onTapVoiceMemo: openBuilderInVoiceMemoMode,
-            transitionSourceNamespace: namespace,
-            transitionSourceId: Constant.builderTransitionId
-        )
-        .opacity(faded ? 0 : 1)
-        .blur(radius: faded ? Constant.builderBarHiddenBlur : 0)
-        .allowsHitTesting(!faded)
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.top, DesignConstants.Spacing.step2x)
-        .padding(.bottom, DesignConstants.Spacing.step3x)
-        .background(
-            GeometryReader { proxy in
-                Color.clear
-                    .preference(key: BuilderBarHeightKey.self, value: proxy.size.height)
-            }
-        )
-        .onPreferenceChange(BuilderBarHeightKey.self) { value in
-            builderBarHeight = value
-        }
-    }
-
-    private func openBuilder() {
-        conversationsViewModel.onStartAgent()
-    }
-
-    /// Open the builder pre-configured to start a voice-memo recording.
-    /// `AgentBuilderView` reads `viewModel.entryMode` on appear and skips
-    /// the initial composer-focus (so the keyboard doesn't pop up
-    /// alongside the mic-permission prompt) before calling
-    /// `startVoiceMemoRecording`. The view also owns the timing of the
-    /// `record()` call, so we don't need the previous racy 50ms sleep
-    /// to wait for the inner conversation VM's recorder to materialize.
-    private func openBuilderInVoiceMemoMode() {
-        conversationsViewModel.onStartAgent(entryMode: .voiceMemo)
+        conversationsViewModel.selectedConversationViewModel
     }
 
     private enum Constant {
-        static let builderTransitionId: String = "agent-builder-transition-source"
         static let appSettingsTransitionId: String = "app-settings-transition-source"
         static let composerTransitionId: String = "composer-transition-source"
-        /// Fallback hide threshold used only before the builder bar's
-        /// height has been measured; once measured, the bar hides after
-        /// scrolling past its full height. `revealScrollThreshold` brings
-        /// it back near the top; the gap eats overscroll bounce noise so
-        /// the bar doesn't flicker at the boundary.
-        static let hideScrollThreshold: CGFloat = 20.0
-        static let revealScrollThreshold: CGFloat = 4.0
-        /// Blur radius applied to the top builder bar while it's hidden, so
-        /// it dissolves rather than hard-cutting as the list scrolls.
-        static let builderBarHiddenBlur: CGFloat = 8.0
         /// Leading inset on the app-indicator pill when the iPad app is
         /// in a windowed (non-fullscreen) state. iPadOS 26 renders
         /// window chrome ("traffic lights": close / minimize /
@@ -768,9 +477,6 @@ extension MainTabView {
         if conversationsNavigator == nil {
             conversationsNavigator = ConversationsCollector(instance: conversationsNavState, delegate: delegate)
         }
-        if stuffOverviewNavigator == nil {
-            stuffOverviewNavigator = StuffOverviewCollector(instance: stuffOverviewNavState, delegate: delegate)
-        }
         if contactsNavigator == nil {
             contactsNavigator = ContactsCollector(instance: contactsNavState, delegate: delegate)
         }
@@ -784,7 +490,6 @@ extension MainTabView {
     func navStateForTab(_ tab: ConvosTab) -> any NavigatorLifecycle {
         switch tab {
         case .chats: return conversationsNavState
-        case .things: return stuffOverviewNavState
         case .contacts: return contactsNavState
         }
     }
@@ -792,7 +497,6 @@ extension MainTabView {
     func closeActiveTabNavigator(_ tab: ConvosTab, context: ScreenContext) {
         switch tab {
         case .chats: conversationsNavigator?.closed(context: context)
-        case .things: stuffOverviewNavigator?.closed(context: context)
         case .contacts: contactsNavigator?.closed(context: context)
         }
     }
@@ -806,8 +510,6 @@ extension MainTabView {
         switch newTab {
         case .chats:
             tabRootNavigator?.navigateTo(conversations: ConversationsNavigatorArgs())
-        case .things:
-            tabRootNavigator?.navigateTo(stuffOverview: StuffOverviewNavigatorArgs())
         case .contacts:
             tabRootNavigator?.navigateTo(contacts: ContactsNavigatorArgs())
         }
@@ -829,11 +531,6 @@ extension MainTabView {
         }
     }
 
-    func handleThingsPushChanged(from oldId: String?, to newId: String?) {
-        guard oldId == nil, let newId, let item = thingsPushedItems.last, item.id == newId else { return }
-        stuffOverviewNavigator?.navigateTo(stuffDetail: StuffDetailNavigatorArgs(itemId: newId))
-    }
-
     func handleContactsPushChanged(from oldId: String?, to newId: String?) {
         guard oldId == nil, let newId else { return }
         contactsNavigator?.navigateTo(contactCard: ContactCardNavigatorArgs(inboxId: newId))
@@ -845,7 +542,6 @@ extension MainTabView {
         appSettingsSource = nil
         switch source {
         case .chats: conversationsNavigator?.present(appSettings: AppSettingsNavigatorArgs())
-        case .things: stuffOverviewNavigator?.present(appSettings: AppSettingsNavigatorArgs())
         case .contacts: contactsNavigator?.present(appSettings: AppSettingsNavigatorArgs())
         }
     }
@@ -855,29 +551,10 @@ extension MainTabView {
         conversationsNavigator?.navigateTo(conversation: ConversationNavigatorArgs(conversationId: newId))
     }
 
-    func handleAgentBuilderPresented(_ isPresenting: Bool, wasPresenting: Bool) {
-        guard !wasPresenting, isPresenting else { return }
-        let conversationId: String = conversationsViewModel.agentBuilderViewModel?.newConversationViewModel.conversationViewModel?.conversation.id ?? ""
-        conversationsNavigator?.present(agentBuilder: AgentBuilderNavigatorArgs(
-            conversationId: conversationId,
-            entryMode: .sheet
-        ))
-    }
-
     func handleNewConversationPresented(_ isPresenting: Bool, wasPresenting: Bool) {
         guard !wasPresenting, isPresenting else { return }
         let mode: ConvosMetrics.NewConversationMode = .create
         conversationsNavigator?.present(newConversation: NewConversationNavigatorArgs(mode: mode))
-    }
-}
-
-/// Carries the measured height of `MainTabView.builderBar` up via the
-/// SwiftUI preference system so the host can plumb it into UIKit-hosted
-/// scroll views that don't see SwiftUI's safe-area inset.
-private struct BuilderBarHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
     }
 }
 
@@ -889,8 +566,6 @@ struct MainTabSheetsModifier: ViewModifier {
     let profileSettingsViewModel: ProfileSettingsViewModel
     let coreActions: any CoreActions
     @Binding var presentingAppSettings: Bool
-    @Binding var thingsAgentContactMember: ConversationMember?
-    let thingsPushedConvoVM: ConversationViewModel?
     let namespace: Namespace.ID
 
     /// Routes every dismissal of the incoming-pairing sheet through
@@ -918,17 +593,6 @@ struct MainTabSheetsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $conversationsViewModel.agentBuilderViewModel) { builderViewModel in
-                AgentBuilderView(
-                    viewModel: builderViewModel,
-                    profileSettingsViewModel: profileSettingsViewModel
-                )
-                .background(.colorBackgroundSurfaceless)
-                .presentationSizing(.page)
-                .navigationTransition(
-                    .zoom(sourceID: "agent-builder-transition-source", in: namespace)
-                )
-            }
             .sheet(isPresented: $presentingAppSettings) {
                 AppSettingsView(
                     viewModel: conversationsViewModel.appSettingsViewModel,
@@ -960,36 +624,17 @@ struct MainTabSheetsModifier: ViewModifier {
                     .zoom(sourceID: "composer-transition-source", in: namespace)
                 )
             }
-            .sheet(isPresented: $conversationsViewModel.presentingComposeFlow) {
-                ComposeFlowView(
-                    conversationsViewModel: conversationsViewModel,
-                    profileSettingsViewModel: profileSettingsViewModel,
-                    contactsRepository: conversationsViewModel.session.messagingServiceSync().contactsRepository()
-                )
-                .background(.colorBackgroundSurfaceless)
-                .presentationSizing(.page)
-                .navigationTransition(
-                    .zoom(sourceID: "composer-transition-source", in: namespace)
+            // Scanning is its own screen, presented as its own sheet. It reads
+            // someone else's code, so it needs no conversation behind it.
+            .sheet(isPresented: $conversationsViewModel.presentingScanner) {
+                JoinConversationView(
+                    viewModel: conversationsViewModel.scannerViewModel,
+                    allowsDismissal: true,
+                    onScannedCode: { code in
+                        conversationsViewModel.handleScannedCode(code)
+                    }
                 )
             }
-            .sheet(item: $thingsAgentContactMember) { member in
-                thingsAgentContactSheet(for: member)
-            }
-    }
-
-    /// Contact card for the agent that made the pushed Things item,
-    /// presented when the user taps the centered conversation indicator
-    /// on the Things detail. Same content the member-avatar tap inside a
-    /// chat presents.
-    @ViewBuilder
-    private func thingsAgentContactSheet(for member: ConversationMember) -> some View {
-        if let thingsPushedConvoVM {
-            MemberContactDetailSheetContent(
-                viewModel: thingsPushedConvoVM,
-                member: member,
-                profileSettingsViewModel: profileSettingsViewModel
-            )
-        }
     }
 }
 
@@ -1003,9 +648,6 @@ extension MainTabView {
         }
         .animation(.smooth(duration: 0.35), value: isConversationSelected)
         .animation(.smooth(duration: 0.35), value: isEmptyChatsCTAActive)
-        .onChange(of: thingsPushedItems) { _, newItems in
-            syncThingsPushedConvoVM(with: newItems)
-        }
         .onReceive(SubscriptionServices.shared.subscriptionPublisher) { newSubscription in
             userSubscription = newSubscription
         }
@@ -1022,19 +664,15 @@ extension MainTabView {
         MetricsObservers(
             activeTab: activeTab,
             scenePhase: scenePhase,
-            thingsPushedItemId: thingsPushedItems.last?.id,
             contactsPushedItemId: contactsPath.last?.id,
             presentingAppSettings: presentingAppSettings,
             selectedConversationId: conversationsViewModel.selectedConversationId,
-            agentBuilderPresenting: conversationsViewModel.agentBuilderViewModel != nil,
             newConversationPresenting: conversationsViewModel.newConversationViewModel != nil,
             onActiveTabChanged: handleActiveTabChanged(from:to:),
             onScenePhaseChanged: handleScenePhaseChanged(to:),
-            onThingsPushChanged: handleThingsPushChanged(from:to:),
             onContactsPushChanged: handleContactsPushChanged(from:to:),
             onAppSettingsPresented: handleAppSettingsPresented(_:),
             onSelectedConversationChanged: handleSelectedConversationChanged(from:to:),
-            onAgentBuilderPresented: handleAgentBuilderPresented(_:wasPresenting:),
             onNewConversationPresented: handleNewConversationPresented(_:wasPresenting:)
         )
     }
@@ -1047,8 +685,6 @@ extension MainTabView {
             profileSettingsViewModel: profileSettingsViewModel,
             coreActions: coreActions,
             presentingAppSettings: $presentingAppSettings,
-            thingsAgentContactMember: $thingsAgentContactMember,
-            thingsPushedConvoVM: thingsPushedConvoVM,
             namespace: namespace
         )
     }
