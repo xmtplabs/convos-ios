@@ -62,10 +62,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// conversation by `seedInitialTabIfNeeded`.
     @State private var sheetDetent: ConversationSheetDetent = .collapsed
     /// The sheet's measured chrome height (bar plus tab bar), reported back by
-    /// the sheet. This is the `collapsed` detent's height, and what the Home
-    /// insets its content by so nothing important hides behind the resting
-    /// sheet. Deliberately not the sheet's live height: the Home must not
-    /// reflow every time the sheet is dragged.
+    /// the sheet, and what the Home insets its content by so nothing important
+    /// hides behind the resting sheet. Deliberately not the sheet's live
+    /// height: the Home must not reflow every time the sheet is dragged.
+    ///
+    /// Excludes the bottom safe area, because the transcripts take this value
+    /// as a content inset and their collection views add their own safe area on
+    /// top of it (`contentInsetAdjustmentBehavior == .always`). The detent
+    /// needs the safe area included, so it adds it back - see
+    /// `sheetOccupiedChromeHeight`.
     @State private var sheetChromeHeight: CGFloat = ConversationSheetMetrics.estimatedCollapsedHeight
     /// Height of the selected transcript's last message, which is what the
     /// `compact` detent sizes itself to.
@@ -435,6 +440,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private func captureAmbientScheme(_ scheme: ColorScheme) {
         guard selectedTab != .agent else { return }
         ambientColorScheme = scheme
+    }
+
+    /// The full height the chrome occupies from the physical screen edge: its
+    /// own measured height plus the home-indicator safe area it rests above.
+    /// This is what the `collapsed` detent resolves to, since a detent is a
+    /// presentation height measured from that edge.
+    private var sheetOccupiedChromeHeight: CGFloat {
+        sheetChromeHeight + windowSafeAreaInsets.bottom
     }
 
     /// The layout plus the tab/focus/session observers, split from `body`
@@ -987,7 +1000,7 @@ private extension ConversationView {
         }
         .conversationSheetPresentation(
             detent: $sheetDetent,
-            chromeHeight: sheetChromeHeight,
+            chromeHeight: sheetOccupiedChromeHeight,
             lastMessageHeight: lastMessageHeight
         ) {
             conversationSheet
@@ -1067,10 +1080,7 @@ private extension ConversationView {
         ConversationSheetContent(
             detent: sheetDetent,
             onChromeHeightChanged: { height in
-                // The chrome rests above the home indicator, so the clearance
-                // it occupies - and the height the collapsed detent needs - is
-                // its own height plus that safe area.
-                sheetChromeHeight = height + windowSafeAreaInsets.bottom
+                sheetChromeHeight = height
             },
             transcriptContent: { sheetTranscripts },
             barContent: { sheetBarContent },
