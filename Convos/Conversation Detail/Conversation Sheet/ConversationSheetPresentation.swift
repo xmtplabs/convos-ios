@@ -17,12 +17,9 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
     /// Which detent the sheet rests at. Two-way: the host seeds it per
     /// conversation and the system writes back after a drag.
     @Binding var detent: ConversationSheetDetent
-    /// Measured chrome height, which the `collapsed` and `compact` detents
-    /// resolve against.
-    var chromeHeight: CGFloat
-    /// Measured height of the transcript's last message, which is what the
-    /// `compact` detent sizes itself to.
-    var lastMessageHeight: CGFloat
+    /// The height the sheet rests at, measured above the bottom safe area,
+    /// which the `collapsed` and `compact` detents resolve against.
+    var restingHeight: CGFloat
     @ViewBuilder let sheetContent: () -> SheetContent
 
     @State private var isPresented: Bool = false
@@ -32,16 +29,12 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
     private var presentationSelection: Binding<PresentationDetent> {
         Binding(
             get: {
-                detent.presentationDetent(
-                    chromeHeight: chromeHeight,
-                    lastMessageHeight: lastMessageHeight
-                )
+                detent.presentationDetent(restingHeight: restingHeight)
             },
             set: { newValue in
                 detent = ConversationSheetDetent.from(
                     presentationDetent: newValue,
-                    chromeHeight: chromeHeight,
-                    lastMessageHeight: lastMessageHeight
+                    restingHeight: restingHeight
                 )
             }
         )
@@ -53,10 +46,7 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
             .sheet(isPresented: $isPresented) {
                 sheetContent()
                     .presentationDetents(
-                        ConversationSheetDetent.presentationDetents(
-                            chromeHeight: chromeHeight,
-                            lastMessageHeight: lastMessageHeight
-                        ),
+                        ConversationSheetDetent.presentationDetents(restingHeight: restingHeight),
                         selection: presentationSelection
                     )
                     // The design token supplies the fill; the corners are left
@@ -85,15 +75,13 @@ extension View {
     /// `ConversationSheetPresentation`.
     func conversationSheetPresentation<SheetContent: View>(
         detent: Binding<ConversationSheetDetent>,
-        chromeHeight: CGFloat,
-        lastMessageHeight: CGFloat,
+        restingHeight: CGFloat,
         @ViewBuilder content: @escaping () -> SheetContent
     ) -> some View {
         modifier(
             ConversationSheetPresentation(
                 detent: detent,
-                chromeHeight: chromeHeight,
-                lastMessageHeight: lastMessageHeight,
+                restingHeight: restingHeight,
                 sheetContent: content
             )
         )

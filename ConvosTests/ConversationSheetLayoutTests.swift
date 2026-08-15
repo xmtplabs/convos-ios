@@ -4,79 +4,47 @@ import XCTest
 
 /// How the conversation sheet's sizes map onto system presentation detents.
 /// The drag, the snapping and the physics belong to the presentation; what is
-/// left to pin down is which detent each size resolves to for a given set of
-/// measurements, and which sizes are offered at all.
+/// left to pin down is which detent each size resolves to for a given resting
+/// height, and how the chrome's own height is assembled.
 final class ConversationSheetLayoutTests: XCTestCase {
-    /// Chrome as measured on a 6.3" phone, and one short message.
-    private let chrome: CGFloat = 151
-    private let lastMessage: CGFloat = 60
+    /// The sheet's resting height as measured on a 6.3" phone.
+    private let resting: CGFloat = 151
 
     // MARK: - Content-driven heights
 
-    func testCollapsedIsExactlyTheMeasuredChrome() {
-        let detent = ConversationSheetDetent.collapsed.presentationDetent(
-            chromeHeight: chrome,
-            lastMessageHeight: lastMessage
-        )
+    func testCollapsedIsExactlyTheRestingHeight() {
+        let detent = ConversationSheetDetent.collapsed.presentationDetent(restingHeight: resting)
 
         XCTAssertEqual(detent, .height(151))
     }
 
-    func testCompactAddsTheLastMessageToTheChrome() {
-        let detent = ConversationSheetDetent.compact.presentationDetent(
-            chromeHeight: chrome,
-            lastMessageHeight: lastMessage
-        )
+    /// Compact shows a fixed band of transcript above the chrome rather than the
+    /// last message's measured height, which changed as messages arrived and
+    /// resized the sheet under the reader.
+    func testCompactAddsAFixedTranscriptBandToTheRestingHeight() {
+        let detent = ConversationSheetDetent.compact.presentationDetent(restingHeight: resting)
 
-        XCTAssertEqual(detent, .height(211))
-    }
-
-    /// A negative measurement is a measurement that has not happened; it must
-    /// not shrink the sheet under its own chrome.
-    func testANegativeMessageHeightIsIgnored() {
-        let detent = ConversationSheetDetent.compact.presentationDetent(
-            chromeHeight: chrome,
-            lastMessageHeight: -40
-        )
-
-        XCTAssertEqual(detent, .height(151))
+        XCTAssertEqual(detent, .height(151 + 96))
     }
 
     /// Full stops at the top safe area, which already carries the floating top
     /// bar - so it lands just under the conversation indicator.
     func testFullIsTheLargeDetent() {
-        let detent = ConversationSheetDetent.full.presentationDetent(
-            chromeHeight: chrome,
-            lastMessageHeight: lastMessage
-        )
+        let detent = ConversationSheetDetent.full.presentationDetent(restingHeight: resting)
 
         XCTAssertEqual(detent, .large)
     }
 
     // MARK: - Which sizes are offered
 
-    /// Two detents at the same height are indistinguishable to a drag, and
-    /// landing on compact would show the transcript at what looks like the
-    /// collapsed size.
-    func testCompactIsWithheldUntilAMessageIsMeasured() {
-        let offered = ConversationSheetDetent.presentationDetents(
-            chromeHeight: chrome,
-            lastMessageHeight: 0
-        )
+    /// Every size is offered at once: none of them collapse onto each other now
+    /// that compact carries a band of its own.
+    func testEverySizeIsOffered() {
+        let offered = ConversationSheetDetent.presentationDetents(restingHeight: resting)
 
-        XCTAssertEqual(offered.count, 3)
-        XCTAssertFalse(offered.contains(.height(151 + 0)))
-        XCTAssertTrue(offered.contains(.height(151)), "collapsed is always offered")
-    }
-
-    func testCompactIsOfferedOnceAMessageIsMeasured() {
-        let offered = ConversationSheetDetent.presentationDetents(
-            chromeHeight: chrome,
-            lastMessageHeight: lastMessage
-        )
-
-        XCTAssertEqual(offered.count, 4)
-        XCTAssertTrue(offered.contains(.height(211)))
+        XCTAssertEqual(offered.count, ConversationSheetDetent.ascending.count)
+        XCTAssertTrue(offered.contains(.height(151)))
+        XCTAssertTrue(offered.contains(.height(151 + 96)))
     }
 
     // MARK: - Reading the selection back
@@ -85,14 +53,10 @@ final class ConversationSheetLayoutTests: XCTestCase {
     /// binding, so every size has to survive the round trip.
     func testEverySizeRoundTrips() {
         for size in ConversationSheetDetent.ascending {
-            let presentation = size.presentationDetent(
-                chromeHeight: chrome,
-                lastMessageHeight: lastMessage
-            )
+            let presentation = size.presentationDetent(restingHeight: resting)
             let recovered = ConversationSheetDetent.from(
                 presentationDetent: presentation,
-                chromeHeight: chrome,
-                lastMessageHeight: lastMessage
+                restingHeight: resting
             )
 
             XCTAssertEqual(recovered, size)
@@ -104,8 +68,7 @@ final class ConversationSheetLayoutTests: XCTestCase {
     func testAnUnknownDetentResolvesToCollapsed() {
         let recovered = ConversationSheetDetent.from(
             presentationDetent: .fraction(0.77),
-            chromeHeight: chrome,
-            lastMessageHeight: lastMessage
+            restingHeight: resting
         )
 
         XCTAssertEqual(recovered, .collapsed)
@@ -116,6 +79,41 @@ final class ConversationSheetLayoutTests: XCTestCase {
         XCTAssertFalse(ConversationSheetDetent.collapsed.showsTranscript)
         for detent in ConversationSheetDetent.ascending.filter({ $0 != .collapsed }) {
             XCTAssertTrue(detent.showsTranscript, "\(detent) should show transcript content")
+        }
+    }
+
+    // MARK: - How the chrome's height is assembled
+
+    /// The band above the input bar is the one part of the chrome that moves:
+    /// at `collapsed` the sheet's top edge is the chrome's, so the drag
+    /// indicator has to be cleared before the bar can sit at the same gap the
+    /// bar and tab bar share. Above `collapsed` the indicator is up at the
+    /// sheet's own edge and the bar wants nothing but the gap.
+    func testOnlyCollapsedClearsTheDragIndicator() {
+        let collapsed = ConversationSheetMetrics.chromeTopPadding(for: .collapsed)
+        let spacing = ConversationSheetMetrics.chromeContentSpacing
+
+        XCTAssertEqual(collapsed, spacing + ConversationSheetMetrics.dragIndicatorAllowance)
+        for detent in ConversationSheetDetent.ascending.filter({ $0 != .collapsed }) {
+            XCTAssertEqual(ConversationSheetMetrics.chromeTopPadding(for: detent), spacing)
+        }
+    }
+
+    /// The resting height must not follow the chrome's current height, or every
+    /// collapse would land short by the drag indicator's band and then grow
+    /// back once the band returned.
+    func testTheRestingHeightIsTheCollapsedGeometryWhateverTheSheetIsDoing() {
+        let bars: CGFloat = 123
+
+        XCTAssertEqual(
+            ConversationSheetMetrics.collapsedChromeHeight(barsHeight: bars),
+            ConversationSheetMetrics.chromeHeight(barsHeight: bars, detent: .collapsed)
+        )
+        for detent in ConversationSheetDetent.ascending.filter({ $0 != .collapsed }) {
+            XCTAssertLessThan(
+                ConversationSheetMetrics.chromeHeight(barsHeight: bars, detent: detent),
+                ConversationSheetMetrics.collapsedChromeHeight(barsHeight: bars)
+            )
         }
     }
 }

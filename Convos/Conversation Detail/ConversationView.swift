@@ -73,9 +73,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// the Home's bottom clearance both take. Deliberately not the sheet's live
     /// height - the Home must not reflow every time the sheet is dragged.
     @State private var sheetChromeBarsHeight: CGFloat = ConversationSheetMetrics.estimatedBarsHeight
-    /// Height of the selected transcript's last message, which is what the
-    /// `compact` detent sizes itself to.
-    @State private var lastMessageHeight: CGFloat = 0
     /// Window safe-area insets, used to convert the sheet's physical-edge
     /// clearance into the safe-area-relative inset the transcripts take.
     @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
@@ -1069,8 +1066,7 @@ private extension ConversationView {
         }
         .conversationSheetPresentation(
             detent: $sheetDetent,
-            chromeHeight: sheetRestingHeightAboveSafeArea,
-            lastMessageHeight: lastMessageHeight
+            restingHeight: sheetRestingHeightAboveSafeArea
         ) {
             // Focus is declared inside the sheet, because that is the only
             // place a `@FocusState` can reach the composers. See

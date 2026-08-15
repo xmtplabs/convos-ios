@@ -5,22 +5,21 @@ import SwiftUI
 /// physics, the content-drag-to-resize handoff and the background
 /// pass-through, and this only answers "how tall is each size".
 ///
-/// Two of the four heights are content-driven, and they are expressed as
-/// concrete `.height(_:)` detents computed from the current measurements. The
-/// obvious-looking alternative - a `CustomPresentationDetent` reading the
-/// measurement out of the environment through its `Context` - does not work:
-/// custom environment values do not reach that `Context`, from the sheet's
-/// content or from the presenter, and the detent silently keeps its default.
-/// Recomputing the set when a measurement changes is what makes the sizes
-/// track the content.
+/// Only one height is measured - the sheet's resting height, which the chrome
+/// publishes - and it is expressed as a concrete `.height(_:)` detent rather
+/// than a `CustomPresentationDetent` reading the measurement out of the
+/// environment through its `Context`. That does not work: custom environment
+/// values do not reach that `Context`, from the sheet's content or from the
+/// presenter, and the detent silently keeps its default. Recomputing the set
+/// when the measurement changes is what makes the sizes track the chrome.
 extension ConversationSheetDetent {
-    /// The system detent this size presents as, for the given measurements.
-    func presentationDetent(chromeHeight: CGFloat, lastMessageHeight: CGFloat) -> PresentationDetent {
+    /// The system detent this size presents as, for a given resting height.
+    func presentationDetent(restingHeight: CGFloat) -> PresentationDetent {
         switch self {
         case .collapsed:
-            return .height(chromeHeight)
+            return .height(restingHeight)
         case .compact:
-            return .height(chromeHeight + Constant.compactTranscriptHeight)
+            return .height(restingHeight + Constant.compactTranscriptHeight)
         case .half:
             return .fraction(Constant.halfFraction)
         case .full:
@@ -32,30 +31,16 @@ extension ConversationSheetDetent {
     }
 
     /// Every size, as the set handed to `presentationDetents`.
-    static func presentationDetents(
-        chromeHeight: CGFloat,
-        lastMessageHeight: CGFloat
-    ) -> Set<PresentationDetent> {
-        Set(
-            ascending.map {
-                $0.presentationDetent(chromeHeight: chromeHeight, lastMessageHeight: lastMessageHeight)
-            }
-        )
+    static func presentationDetents(restingHeight: CGFloat) -> Set<PresentationDetent> {
+        Set(ascending.map { $0.presentationDetent(restingHeight: restingHeight) })
     }
 
     /// The size matching a system detent. Unrecognized values resolve to
     /// `collapsed` - the least intrusive answer, and the one the sheet rests
     /// at.
-    static func from(
-        presentationDetent: PresentationDetent,
-        chromeHeight: CGFloat,
-        lastMessageHeight: CGFloat
-    ) -> ConversationSheetDetent {
+    static func from(presentationDetent: PresentationDetent, restingHeight: CGFloat) -> ConversationSheetDetent {
         ascending.first {
-            $0.presentationDetent(
-                chromeHeight: chromeHeight,
-                lastMessageHeight: lastMessageHeight
-            ) == presentationDetent
+            $0.presentationDetent(restingHeight: restingHeight) == presentationDetent
         } ?? .collapsed
     }
 
