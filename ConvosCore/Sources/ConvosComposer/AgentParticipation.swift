@@ -21,6 +21,9 @@ public enum AgentParticipationLevel: String, CaseIterable, Identifiable, Sendabl
     /// The levels the menu offers — every level there is.
     public static var selectableCases: [AgentParticipationLevel] { allCases }
 
+    /// User-visible name of the level. `.mentionsOnly` (wire value `"mention"`)
+    /// reads as "Listen mode" — the label and the wire value are the same mode
+    /// under two names; there is no separate `listen` mode.
     public var title: String {
         switch self {
         case .speakFreely: "Speak freely"
