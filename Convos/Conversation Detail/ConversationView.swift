@@ -265,11 +265,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
-            // Nothing to add by hand: the sheet contributes its chrome as a
-            // bottom safe-area inset, and the list adds that safe area to its
-            // own content inset. Feeding a measured height here on top would
-            // count the same clearance twice.
-            extraBottomInset: 0,
+            // The list ignores the safe area, so its content inset comes from
+            // this number alone - the safe-area inset the sheet's chrome
+            // contributes is opted out of and adds nothing. The clearance is
+            // the chrome's height plus the bottom safe area, because the
+            // chrome is positioned above the home indicator while this frame
+            // runs to the screen edge. `sheetChromeHeight` carries both.
+            extraBottomInset: sheetChromeHeight,
             // The composer lives in the conversation sheet now (see
             // `sheetBarContent`), so the transcript renders no bar of its own.
             hostsBottomBar: false,
@@ -1042,7 +1044,7 @@ private extension ConversationView {
                 AgentDmPageView(
                     session: agentDmSession,
                     profileSettingsViewModel: profileSettingsViewModel,
-                    extraBottomInset: 0,
+                    extraBottomInset: sheetChromeHeight,
                     isReadOnly: effectiveReadOnly,
                     isActiveTab: selectedTab == .agent,
                     contextMenuState: agentContextMenuState,
