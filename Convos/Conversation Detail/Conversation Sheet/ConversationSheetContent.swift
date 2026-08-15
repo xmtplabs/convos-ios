@@ -26,6 +26,24 @@ extension View {
     }
 }
 
+private struct TranscriptClippedTopOverflowKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    /// How much of a transcript's top its host clips away, for a host that hands
+    /// the transcript a taller frame than it shows. Travels through the
+    /// environment because the transcripts are built by the conversation and
+    /// handed to the sheet as content, so the sheet - the only party that knows
+    /// what it is clipping - cannot pass it as an argument.
+    ///
+    /// See `MessagesViewController.clippedTopOverflow` for what it does.
+    var transcriptClippedTopOverflow: CGFloat {
+        get { self[TranscriptClippedTopOverflowKey.self] }
+        set { self[TranscriptClippedTopOverflowKey.self] = newValue }
+    }
+}
+
 /// How the sheet's chrome is put together, and the heights that follow from it.
 ///
 /// Shared rather than private to the view because three other parties need the
@@ -110,9 +128,9 @@ struct ConversationSheetContent<
     /// The size the sheet is resting at, which decides whether the transcript
     /// is showing at all.
     var detent: ConversationSheetDetent
-    /// The height to hold the transcript at, whatever the sheet is doing - the
-    /// tallest the sheet can get, so the transcript is never smaller than the
-    /// detent it is showing through. See `transcript`.
+    /// The host's estimate of the tallest the sheet can get, which seeds the
+    /// height the transcript is held at before the sheet has ever been dragged
+    /// open. Only a seed: `heldTranscriptHeight` takes over from measurement.
     var transcriptHeight: CGFloat
     /// Fired with the measured height of the chrome's bars, padding excluded.
     /// The host derives the chrome's frame height and the sheet's resting height
@@ -120,9 +138,6 @@ struct ConversationSheetContent<
     /// because the frame's top padding depends on the detent and the resting
     /// height must not.
     var onChromeBarsHeightChanged: (CGFloat) -> Void = { _ in }
-    /// Fired with how much of the sheet is currently on screen, which the host
-    /// turns into the transcript's clipped top overflow.
-    var onSheetHeightChanged: (CGFloat) -> Void = { _ in }
     /// The selected transcript, given whatever height the detent leaves above
     /// the chrome and clipped to it.
     @ViewBuilder let transcriptContent: () -> TranscriptContent
@@ -136,6 +151,12 @@ struct ConversationSheetContent<
     /// screen-level menu, and it cannot go on the conversation behind the sheet
     /// either - the sheet is the topmost presentation and would cover it.
     @ViewBuilder let contextMenuOverlay: () -> ContextMenuOverlay
+
+    /// How much of the sheet is on screen right now, and the most it has ever
+    /// been. See `transcript` for why both are measured here rather than handed
+    /// in.
+    @State private var visibleHeight: CGFloat = 0
+    @State private var largestVisibleHeight: CGFloat = 0
 
     /// Siblings in a ZStack rather than a `safeAreaInset` or a `VStack`, and
     /// the distinction is what makes messages pass under the chrome:
@@ -172,13 +193,13 @@ struct ConversationSheetContent<
         // Above the clip, so the long-press menu can cover the whole sheet
         // rather than being cropped to the transcript's frame.
         .overlay { contextMenuOverlay() }
-        // How much of the sheet is on screen, which is what tells the transcript
-        // how much of its constant height is being clipped off the top.
+        // TEMPORARY: the sheet's own content height, to tell apart "the detent
+        // is too tall" from "the content is not filling the detent". Remove
+        // with the rest of the geometry probes.
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.height
         } action: { height in
             ConversationSheetProbe.log("sheetContent height=\(height)")
-            onSheetHeightChanged(height)
         }
         .accessibilityIdentifier("conversation-bottom-sheet")
     }
@@ -207,14 +228,36 @@ struct ConversationSheetContent<
     /// there. Hit-testing follows the detent regardless, so a message under the
     /// grabber cannot steal its drag.
     private var transcript: some View {
-        transcriptContent()
-            // Taller than the sheet at every detent but `full`, where they meet.
-            .frame(maxWidth: .infinity)
-            .frame(height: transcriptHeight, alignment: .bottom)
-            // Back to the sheet's own frame, so the clip below is the sheet's
-            // bounds and the overflow above its top edge is cut rather than
-            // drawn over the conversation behind it.
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        // An overlay on a sheet-sized spacer, rather than a sized view in the
+        // stack. An overlay never contributes to its parent's size, and that is
+        // what keeps the oversize out of the layout: as a child of the stack, the
+        // transcript's fixed height would become the sheet content's *ideal*
+        // height, and every pass where the sheet proposes no height of its own
+        // would lay the whole thing out at that ideal - pushing the chrome off
+        // the bottom of the screen.
+        //
+        // The spacer doubles as the measurement of how much of the sheet is on
+        // screen. Both numbers the overflow is made of are then this view's own,
+        // in one coordinate space: a visible height measured somewhere else and
+        // subtracted from a height decided here is not the clipped amount, it is
+        // the difference between two parties' idea of where the bottom is.
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.height
+            } action: { height in
+                visibleHeight = height
+                largestVisibleHeight = max(largestVisibleHeight, height)
+            }
+            .overlay(alignment: .bottom) {
+                // Taller than the sheet at every detent but `full`, where they
+                // meet. Overflows upward, past the sheet's top edge.
+                transcriptContent()
+                    .environment(\.transcriptClippedTopOverflow, clippedTopOverflow)
+                    .frame(height: heldTranscriptHeight, alignment: .bottom)
+            }
+            // Cuts the overflow at the sheet's bounds, so it is not drawn over
+            // the conversation behind the sheet.
             .clipped()
             .allowsHitTesting(detent.showsTranscript)
             // TEMPORARY: blue outlines the transcript's frame.
@@ -261,6 +304,22 @@ struct ConversationSheetContent<
 }
 
 private extension ConversationSheetContent {
+    /// The height the transcript is actually held at: never less than the most
+    /// of the sheet that has ever been on screen, so it cannot end up shorter
+    /// than the detent it is showing through and leave a band of bare sheet
+    /// above it. Monotonic, so growing to the full detent once is the only
+    /// resize the transcript ever sees.
+    var heldTranscriptHeight: CGFloat {
+        max(transcriptHeight, largestVisibleHeight)
+    }
+
+    /// How much of `heldTranscriptHeight` the sheet is clipping off the top,
+    /// which the transcript takes as a top content inset. See
+    /// `MessagesViewController.clippedTopOverflow`.
+    var clippedTopOverflow: CGFloat {
+        max(heldTranscriptHeight - visibleHeight, 0)
+    }
+
     /// Blur and tint behind the composer and tab bar, so transcript content
     /// scrolling underneath dissolves into the chrome instead of colliding with
     /// it.

@@ -77,9 +77,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// sheet can get. The transcript holds this height at every detent so a
     /// resize never moves the messages - see `ConversationSheetContent`.
     @State private var containerHeight: CGFloat = 0
-    /// How much of the sheet is currently on screen, as it reports itself. Only
-    /// feeds the transcript's clipped top overflow; nothing sizes off it.
-    @State private var sheetHeight: CGFloat = 0
     /// Window safe-area insets, used to convert the sheet's physical-edge
     /// clearance into the safe-area-relative inset the transcripts take.
     @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
@@ -297,7 +294,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // 10pt above it, since the drag indicator's band is only in the
             // chrome while the sheet is collapsed.
             extraBottomInset: sheetChromeHeight,
-            clippedTopOverflow: transcriptClippedTopOverflow,
             // The composer lives in the conversation sheet now (see
             // `sheetBarContent`), so the transcript renders no bar of its own.
             hostsBottomBar: false,
@@ -480,12 +476,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
         ConversationSheetMetrics.collapsedChromeHeight(barsHeight: sheetChromeBarsHeight)
     }
 
-    /// How much of the transcript's constant height the sheet is clipping off
-    /// the top, which the transcript takes as a top content inset so its content
-    /// sits where it would if the frame were the visible height. See
-    /// `MessagesViewController.clippedTopOverflow`.
-    private var transcriptClippedTopOverflow: CGFloat {
-        max(containerHeight - sheetHeight, 0)
+    /// Seeds the height the transcript is held at, so the first frame is close
+    /// before the sheet has measured itself. The container plus the bottom safe
+    /// area, because the sheet rests in that inset while the container measures
+    /// above it - and the sheet's own measurement takes over from here.
+    private var transcriptHeightEstimate: CGFloat {
+        containerHeight + windowSafeAreaInsets.bottom
     }
 
     /// The sheet's resting height measured from the top of the bottom safe area
@@ -1159,7 +1155,6 @@ private extension ConversationView {
                     session: agentDmSession,
                     profileSettingsViewModel: profileSettingsViewModel,
                     extraBottomInset: sheetChromeHeight,
-                    clippedTopOverflow: transcriptClippedTopOverflow,
                     isReadOnly: effectiveReadOnly,
                     isActiveTab: selectedTab == .agent,
                     contextMenuState: agentContextMenuState,
@@ -1184,12 +1179,9 @@ private extension ConversationView {
     ) -> some View {
         ConversationSheetContent(
             detent: sheetDetent,
-            transcriptHeight: containerHeight,
+            transcriptHeight: transcriptHeightEstimate,
             onChromeBarsHeightChanged: { height in
                 sheetChromeBarsHeight = height
-            },
-            onSheetHeightChanged: { height in
-                sheetHeight = height
             },
             transcriptContent: {
                 sheetTranscripts(groupFocus: groupFocus, agentFocus: agentFocus)

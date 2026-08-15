@@ -22,9 +22,6 @@ struct AgentDmPageView: View {
     /// Owned by ConversationView, which keeps it fed with the sheet's
     /// measured height.
     let extraBottomInset: CGFloat
-    /// How much of the transcript's top the sheet clips away. See
-    /// `MessagesViewController.clippedTopOverflow`.
-    var clippedTopOverflow: CGFloat = 0.0
     /// Mirrors ConversationView's effectiveReadOnly: a removed or stale
     /// device must not be able to send into agent DMs.
     let isReadOnly: Bool
@@ -360,7 +357,6 @@ struct AgentDmPageView: View {
             voiceMemoRecorder: dmVm.voiceMemoRecorder,
             onSendVoiceMemo: { dmVm.sendVoiceMemo() },
             extraBottomInset: extraBottomInset,
-            clippedTopOverflow: clippedTopOverflow,
             hostsBottomBar: false,
             hostRendersContextMenu: true,
             onScrollToBottomAvailable: onScrollToBottomAvailable,

@@ -105,9 +105,6 @@ struct MessagesView<BottomBarContent: View>: View {
     /// in production); the testtube button stays hidden in any other case.
     var onDebugAttachmentTap: (() -> Void)?
     var extraBottomInset: CGFloat = 0.0
-    /// How much of the transcript's top the host clips away. See
-    /// `MessagesViewController.clippedTopOverflow`.
-    var clippedTopOverflow: CGFloat = 0.0
     /// False when the composer is hosted externally (the conversation
     /// sheet): the transcript renders no bar of its own and insets purely by
     /// `extraBottomInset`, which the sheet keeps fed with its measured
@@ -124,6 +121,9 @@ struct MessagesView<BottomBarContent: View>: View {
     var onScrollToBottomAvailable: ((@escaping () -> Void) -> Void)?
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
+    /// Set by a host that shows less of this view than the frame it hands over -
+    /// the conversation sheet. Zero for every other host.
+    @Environment(\.transcriptClippedTopOverflow) private var clippedTopOverflow: CGFloat
     @State private var bottomBarHeight: CGFloat = 0.0
     @State private var isPhotoPickerPresented: Bool = false
     @State private var scrollToBottom: (() -> Void)?
