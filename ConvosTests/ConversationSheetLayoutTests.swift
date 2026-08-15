@@ -47,6 +47,23 @@ final class ConversationSheetLayoutTests: XCTestCase {
         XCTAssertTrue(offered.contains(.height(151 + 96)))
     }
 
+    // MARK: - Where the Home stops following the sheet
+
+    /// The Home's bottom clearance stops growing at the height where the Home
+    /// stops taking touches, so the two have to be the same size: a ceiling
+    /// anywhere else would leave the page either following a sheet it can no
+    /// longer be scrolled clear of, or stopping while it still can be.
+    func testTheHomeCeilingIsTheDetentBackgroundInteractionStopsAt() {
+        XCTAssertEqual(
+            ConversationSheetDetent.backgroundInteractionCeiling,
+            ConversationSheetDetent.half.presentationDetent(restingHeight: resting)
+        )
+        XCTAssertEqual(
+            ConversationSheetDetent.backgroundInteractionCeilingHeight(containerHeight: 800),
+            400
+        )
+    }
+
     // MARK: - Reading the selection back
 
     /// The system writes its settled detent back through the selection

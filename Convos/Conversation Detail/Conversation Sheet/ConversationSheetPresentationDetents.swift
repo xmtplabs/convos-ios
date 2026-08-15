@@ -50,6 +50,13 @@ extension ConversationSheetDetent {
         .fraction(Constant.halfFraction)
     }
 
+    /// `backgroundInteractionCeiling` as a height, for the Home's own layout:
+    /// past this the Home cannot be scrolled, so there is nothing to keep clear
+    /// of the sheet and no reason to follow it any further.
+    static func backgroundInteractionCeilingHeight(containerHeight: CGFloat) -> CGFloat {
+        containerHeight * Constant.halfFraction
+    }
+
     private enum Constant {
         static let halfFraction: CGFloat = 0.5
         /// Transcript showing above the chrome at `compact`.

@@ -481,14 +481,23 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     /// What the Home keeps clear at its bottom: how much of it the sheet is
     /// covering right now, so the end of its content can always be scrolled out
-    /// from behind the sheet whatever detent it is resting at.
+    /// from behind the sheet.
     ///
     /// The live height, unlike the detents: this is a scroll inset on a web view,
     /// which neither relayouts the page nor moves its offset, so it can follow a
-    /// drag frame by frame. Floored at the resting height, since the sheet is
-    /// never shorter than collapsed.
+    /// drag frame by frame.
+    ///
+    /// Bounded at both ends, and neither bound is arbitrary. Below, the resting
+    /// height - the sheet is never shorter than collapsed, and the first frame
+    /// has no measurement. Above, the height at which the Home stops taking
+    /// touches: past that the page cannot be scrolled and is on its way to being
+    /// hidden entirely, so following the sheet any further would be adjusting a
+    /// scroll inset nobody can use.
     private var homeBottomClearance: CGFloat {
-        max(sheetHeight, sheetRestingHeight)
+        let covered: CGFloat = max(sheetHeight, sheetRestingHeight)
+        let interactiveCeiling: CGFloat = ConversationSheetDetent
+            .backgroundInteractionCeilingHeight(containerHeight: containerHeight)
+        return min(covered, max(interactiveCeiling, sheetRestingHeight))
     }
 
     /// Seeds the height the transcript is held at, so the first frame is close
