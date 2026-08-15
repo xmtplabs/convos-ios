@@ -28,6 +28,9 @@ struct ConversationSheetContent<
     BarContent: View,
     TabBarContent: View
 >: View {
+    /// The size the sheet is resting at, which decides whether the transcript
+    /// is showing at all.
+    var detent: ConversationSheetDetent
     /// Fired with the chrome's measured height. The host publishes it into the
     /// environment, where the `collapsed` and `compact` detents read it.
     var onChromeHeightChanged: (CGFloat) -> Void = { _ in }
@@ -40,13 +43,28 @@ struct ConversationSheetContent<
 
     var body: some View {
         VStack(spacing: 0) {
-            transcriptContent()
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                .clipped()
+            transcript
             chrome
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .accessibilityIdentifier("conversation-bottom-sheet")
+    }
+
+    /// The selected transcript, faded out at `collapsed`.
+    ///
+    /// Collapsed leaves it a zero-height slot, but a UIKit collection view
+    /// laying out against that still paints a sliver of its top row through the
+    /// sheet's own top edge - and, worse, keeps a touch target there, right
+    /// where the grabber is. Fading it and dropping hit-testing settles both.
+    /// It stays mounted rather than torn down so scroll position survives.
+    private var transcript: some View {
+        let isShowing: Bool = detent.showsTranscript
+        return transcriptContent()
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .clipped()
+            .opacity(isShowing ? 1 : 0)
+            .allowsHitTesting(isShowing)
+            .animation(.easeInOut(duration: Constant.transcriptFadeDuration), value: isShowing)
     }
 
     /// Bar and tab bar - the part of the sheet present at every detent. Its
@@ -69,6 +87,9 @@ struct ConversationSheetContent<
 // Hoisted out of the generic type: generic types cannot hold static stored
 // properties.
 private enum Constant {
+    /// Short enough to keep up with a fast collapse, slow enough not to read
+    /// as a pop.
+    static let transcriptFadeDuration: Double = 0.2
     /// Sheet chrome: 16pt padding with a 12pt gap between the bar and the tab
     /// bar (Figma p-16 / gap-12). Horizontal insets stay with the bar content
     /// itself - the composer already carries the 16pt inset.

@@ -413,12 +413,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     /// The Agent tab is a dark surface, and its composer's materials resolve
     /// against the UIKit trait collection rather than SwiftUI's environment,
-    /// so the whole presentation is driven dark while that tab is up.
+    /// so the scheme has to be forced rather than set in the environment.
     ///
-    /// Leaving the other tabs at "no preference" (nil) looks equivalent but
-    /// isn't: inside a sheet the forced trait sticks, and the group chat comes
-    /// back dark. Handing back the scheme the conversation was presented in
-    /// restores it explicitly.
+    /// Applied to the sheet alone. Driving the whole screen dark would take
+    /// the Home behind it along, which belongs to the conversation, not to the
+    /// tab the sheet happens to be showing.
+    ///
+    /// Leaving the group at "no preference" (nil) looks equivalent but isn't:
+    /// the forced trait sticks, and the group chat comes back dark. Handing
+    /// back the scheme the conversation was presented in restores it
+    /// explicitly.
     private var preferredScheme: ColorScheme? {
         selectedTab == .agent ? .dark : ambientColorScheme
     }
@@ -539,7 +543,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // myProfileViewModel and clobbered the just-saved profile.
             ProfileSetupSheet(mode: .edit)
         }
-        .preferredColorScheme(preferredScheme)
         .onChange(of: presentedColorScheme) { _, scheme in
             captureAmbientScheme(scheme)
         }
@@ -1060,6 +1063,7 @@ private extension ConversationView {
 
     var conversationSheet: some View {
         ConversationSheetContent(
+            detent: sheetDetent,
             onChromeHeightChanged: { height in
                 sheetChromeHeight = height
             },
@@ -1078,6 +1082,9 @@ private extension ConversationView {
         // under it rather than competing.
         .opacity(contextMenuState.isPresented || agentContextMenuState.isPresented ? 0 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.9), value: contextMenuState.isPresented)
+        // Scoped to the sheet: the Agent tab's dark surface is the sheet's,
+        // not the conversation's, and the Home behind it keeps its own scheme.
+        .preferredColorScheme(preferredScheme)
     }
 
     /// The bar the sheet hosts above its tab bar, keyed by the selected tab:
