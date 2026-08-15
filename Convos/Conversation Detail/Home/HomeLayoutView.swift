@@ -14,7 +14,7 @@ struct HomeLayoutView: View {
     /// can still scroll clear of the card. The placeholder page (no URL)
     /// skips the inset - it fits the viewport exactly and would otherwise
     /// gain a pointless scroll range.
-    var sheetHeight: CGFloat = ConversationSheetMetrics.estimatedCollapsedHeight
+    var sheetHeight: CGFloat = ConversationSheetMetrics.estimatedRestingHeight
     /// Fired when the page requests navigation away from the space URL; the
     /// host presents it in the home browser popup.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }

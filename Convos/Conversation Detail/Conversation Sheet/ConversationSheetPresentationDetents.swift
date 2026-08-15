@@ -20,7 +20,7 @@ extension ConversationSheetDetent {
         case .collapsed:
             return .height(chromeHeight)
         case .compact:
-            return .height(chromeHeight + max(lastMessageHeight, 0))
+            return .height(chromeHeight + Constant.compactTranscriptHeight)
         case .half:
             return .fraction(Constant.halfFraction)
         case .full:
@@ -31,22 +31,13 @@ extension ConversationSheetDetent {
         }
     }
 
-    /// The sizes to offer, as the set handed to `presentationDetents`.
-    ///
-    /// `compact` is withheld until the transcript has reported a message to
-    /// size it to. Without one it resolves to exactly the `collapsed` height,
-    /// and two detents at the same height are indistinguishable to a drag: the
-    /// system settles on either, and landing on `compact` shows the transcript
-    /// at what looks like the collapsed size.
+    /// Every size, as the set handed to `presentationDetents`.
     static func presentationDetents(
         chromeHeight: CGFloat,
         lastMessageHeight: CGFloat
     ) -> Set<PresentationDetent> {
-        let offered: [ConversationSheetDetent] = ascending.filter {
-            $0 != .compact || lastMessageHeight > 0
-        }
-        return Set(
-            offered.map {
+        Set(
+            ascending.map {
                 $0.presentationDetent(chromeHeight: chromeHeight, lastMessageHeight: lastMessageHeight)
             }
         )
@@ -76,5 +67,13 @@ extension ConversationSheetDetent {
 
     private enum Constant {
         static let halfFraction: CGFloat = 0.5
+        /// Transcript showing above the chrome at `compact`.
+        ///
+        /// A fixed allowance rather than the last message's measured height: the
+        /// measured version has to travel from a UIKit collection view into a
+        /// detent, changes as messages arrive, and resizes the sheet under the
+        /// reader when it does. This is the one number to change if compact
+        /// should show more or less.
+        static let compactTranscriptHeight: CGFloat = 96.0
     }
 }

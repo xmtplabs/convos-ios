@@ -64,17 +64,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// How much of the selected transcript the sheet is showing. Seeded per
     /// conversation by `seedInitialTabIfNeeded`.
     @State private var sheetDetent: ConversationSheetDetent = .collapsed
-    /// The sheet's measured chrome height (bar plus tab bar), reported back by
-    /// the sheet, and what the Home insets its content by so nothing important
-    /// hides behind the resting sheet. Deliberately not the sheet's live
-    /// height: the Home must not reflow every time the sheet is dragged.
+    /// The measured height of the sheet chrome's bars - composer, gap, tab bar -
+    /// as the chrome reports it, with none of the padding around them.
     ///
-    /// Excludes the bottom safe area, because the transcripts take this value
-    /// as a content inset and their collection views add their own safe area on
-    /// top of it (`contentInsetAdjustmentBehavior == .always`). The detent
-    /// needs the safe area included, so it adds it back - see
-    /// `sheetOccupiedChromeHeight`.
-    @State private var sheetChromeHeight: CGFloat = ConversationSheetMetrics.estimatedCollapsedHeight
+    /// Every height the sheet needs is derived from this one measurement, in
+    /// `ConversationSheetMetrics`: the chrome's frame, which the transcript keeps
+    /// clear; and the sheet's resting height, which the `collapsed` detent and
+    /// the Home's bottom clearance both take. Deliberately not the sheet's live
+    /// height - the Home must not reflow every time the sheet is dragged.
+    @State private var sheetChromeBarsHeight: CGFloat = ConversationSheetMetrics.estimatedBarsHeight
     /// Height of the selected transcript's last message, which is what the
     /// `compact` detent sizes itself to.
     @State private var lastMessageHeight: CGFloat = 0
@@ -289,11 +287,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
             // The list ignores the safe area, so its content inset comes from
-            // this number alone - the safe-area inset the sheet's chrome
-            // contributes is opted out of and adds nothing. The clearance is
-            // the chrome's height plus the bottom safe area, because the
-            // chrome is positioned above the home indicator while this frame
-            // runs to the screen edge. `sheetChromeHeight` carries both.
+            // this number alone. The chrome and this frame both run to the
+            // physical bottom edge, so the chrome's own height is the whole
+            // clearance - and it stops at the input bar's top rather than
+            // 10pt above it, since the drag indicator's band is only in the
+            // chrome while the sheet is collapsed.
             extraBottomInset: sheetChromeHeight,
             // The composer lives in the conversation sheet now (see
             // `sheetBarContent`), so the transcript renders no bar of its own.
@@ -461,18 +459,29 @@ struct ConversationView<MessagesBottomBar: View>: View {
         ambientColorScheme = scheme
     }
 
-    /// The chrome's height measured from the top of the bottom safe area rather
-    /// than from the physical screen edge - the chrome ignores that safe area
-    /// and rests in it, so this is its height less the home indicator's inset.
+    /// The chrome's current frame height, which is what the transcript keeps
+    /// clear at its bottom so its newest message is not hidden behind the
+    /// composer.
     ///
-    /// Both the sheet's detent and the transcript's content inset want exactly
-    /// this number, for the same reason: each is measured above the safe area
-    /// and has the safe area added back by the thing that consumes it. A
-    /// `.height()` detent yields that height *plus* the safe area, and the
-    /// transcript's collection view adds its own safe area to whatever inset it
-    /// is handed (`contentInsetAdjustmentBehavior == .always`).
-    private var sheetChromeHeightAboveSafeArea: CGFloat {
-        max(sheetChromeHeight - windowSafeAreaInsets.bottom, 0)
+    /// Tracks the detent, because the band above the input bar does: see
+    /// `ConversationSheetMetrics.chromeTopPadding(for:)`.
+    private var sheetChromeHeight: CGFloat {
+        ConversationSheetMetrics.chromeHeight(barsHeight: sheetChromeBarsHeight, detent: sheetDetent)
+    }
+
+    /// The height the sheet rests at, for the parties that must not move when it
+    /// is dragged: the `collapsed` detent itself, and the Home's clearance.
+    private var sheetRestingHeight: CGFloat {
+        ConversationSheetMetrics.collapsedChromeHeight(barsHeight: sheetChromeBarsHeight)
+    }
+
+    /// The sheet's resting height measured from the top of the bottom safe area
+    /// rather than from the physical screen edge - the chrome ignores that safe
+    /// area and rests in it, so this is its height less the home indicator's
+    /// inset, which is the form a `.height()` detent wants: the system adds the
+    /// safe area back.
+    private var sheetRestingHeightAboveSafeArea: CGFloat {
+        max(sheetRestingHeight - windowSafeAreaInsets.bottom, 0)
     }
 
     /// The layout plus the tab/focus/session observers, split from `body`
@@ -1060,7 +1069,7 @@ private extension ConversationView {
         }
         .conversationSheetPresentation(
             detent: $sheetDetent,
-            chromeHeight: sheetChromeHeightAboveSafeArea,
+            chromeHeight: sheetRestingHeightAboveSafeArea,
             lastMessageHeight: lastMessageHeight
         ) {
             // Focus is declared inside the sheet, because that is the only
@@ -1086,7 +1095,7 @@ private extension ConversationView {
             ForEach(homeBrowserEntries) { entry in
                 HomeBrowserPageView(
                     entry: entry,
-                    sheetHeight: sheetChromeHeight,
+                    sheetHeight: sheetRestingHeight,
                     onNavigationRequest: { url in
                         pushHomeBrowserPage(for: url)
                     }
@@ -1103,7 +1112,7 @@ private extension ConversationView {
         HomeLayoutView(
             conversationId: viewModel.conversation.id,
             webURL: viewModel.conversation.spaceURL,
-            sheetHeight: sheetChromeHeight,
+            sheetHeight: sheetRestingHeight,
             onNavigationRequest: { url in
                 pushHomeBrowserPage(for: url)
             }
@@ -1154,8 +1163,8 @@ private extension ConversationView {
     ) -> some View {
         ConversationSheetContent(
             detent: sheetDetent,
-            onChromeHeightChanged: { height in
-                sheetChromeHeight = height
+            onChromeBarsHeightChanged: { height in
+                sheetChromeBarsHeight = height
             },
             transcriptContent: {
                 sheetTranscripts(groupFocus: groupFocus, agentFocus: agentFocus)

@@ -14,13 +14,78 @@ enum ConversationSheetProbe {
     }
 }
 
-/// Sheet metrics shared with the backing Home surface, which reserves bottom
-/// clearance so its content is not hidden behind the resting sheet.
+extension View {
+    /// TEMPORARY layout outline for the sheet's geometry work, so each layer's
+    /// real bounds are visible on screen. Remove with the rest of the probes.
+    func debugBorder(_ color: Color) -> some View {
+        overlay {
+            Rectangle()
+                .strokeBorder(color, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+/// How the sheet's chrome is put together, and the heights that follow from it.
+///
+/// Shared rather than private to the view because three other parties need the
+/// same arithmetic: the `collapsed` detent, the transcript's bottom clearance,
+/// and the backing Home surface, which reserves bottom clearance so its content
+/// is not hidden behind the resting sheet.
 enum ConversationSheetMetrics {
-    /// Rough intrinsic height of the sheet's chrome (composer + tab bar).
-    /// Only a first-frame estimate and the seed for the `collapsed` detent;
-    /// the chrome measures itself and publishes the real value.
-    static let estimatedCollapsedHeight: CGFloat = 172.0
+    /// Gap between the bar and the tab bar (Figma gap-12). Horizontal insets
+    /// stay with the bar content itself - the composer already carries the
+    /// 16pt inset.
+    static let chromeContentSpacing: CGFloat = DesignConstants.Spacing.step3x
+    /// Vertical space the system's drag indicator takes at the sheet's top
+    /// edge, matching the metrics the design's own grabber used: 6pt in from
+    /// the edge, 4pt tall.
+    static let dragIndicatorAllowance: CGFloat = 10.0
+    static let chromeBottomPadding: CGFloat = DesignConstants.Spacing.step4x
+
+    /// Rough intrinsic height of the chrome's bars (composer plus tab bar and
+    /// the gap between them). Only a first-frame estimate; the chrome measures
+    /// itself and publishes the real value.
+    static let estimatedBarsHeight: CGFloat = 123.0
+
+    /// `collapsedChromeHeight` for the estimate above - the first-frame resting
+    /// height, for surfaces that reserve clearance before the chrome has
+    /// measured itself.
+    static var estimatedRestingHeight: CGFloat {
+        collapsedChromeHeight(barsHeight: estimatedBarsHeight)
+    }
+
+    /// Space above the input bar, which is the one measurement that depends on
+    /// where the sheet is resting.
+    ///
+    /// At `collapsed` the sheet's top edge *is* the chrome's top edge, so the
+    /// drag indicator's band has to be cleared before the bar can sit at the
+    /// same 12pt gap the bar and tab bar have between them. At every larger
+    /// detent the indicator is up at the sheet's own top edge and the bar wants
+    /// nothing but the gap - holding the band there just pushes the transcript
+    /// 10pt further from the bar it should be resting against.
+    static func chromeTopPadding(for detent: ConversationSheetDetent) -> CGFloat {
+        guard detent == .collapsed else { return chromeContentSpacing }
+        return dragIndicatorAllowance + chromeContentSpacing
+    }
+
+    /// The chrome's frame height, which is also what the transcript keeps clear
+    /// at its bottom.
+    static func chromeHeight(barsHeight: CGFloat, detent: ConversationSheetDetent) -> CGFloat {
+        barsHeight + chromeTopPadding(for: detent) + chromeBottomPadding
+    }
+
+    /// The height the sheet rests at when collapsed: what the `collapsed`
+    /// detent resolves to, and the clearance the Home behind it reserves.
+    ///
+    /// Deliberately the collapsed geometry rather than the chrome's current
+    /// height. A detent that tracked the current height would shed the drag
+    /// indicator's band on the way up and then, once the sheet had settled back
+    /// at `collapsed` and the band returned, disagree with the height it had
+    /// just animated to - so every collapse would land 10pt short and grow.
+    static func collapsedChromeHeight(barsHeight: CGFloat) -> CGFloat {
+        chromeHeight(barsHeight: barsHeight, detent: .collapsed)
+    }
 }
 
 /// The contents of the conversation's presentation sheet: the selected
@@ -45,9 +110,12 @@ struct ConversationSheetContent<
     /// The size the sheet is resting at, which decides whether the transcript
     /// is showing at all.
     var detent: ConversationSheetDetent
-    /// Fired with the chrome's measured height. The host publishes it into the
-    /// environment, where the `collapsed` and `compact` detents read it.
-    var onChromeHeightChanged: (CGFloat) -> Void = { _ in }
+    /// Fired with the measured height of the chrome's bars, padding excluded.
+    /// The host derives the chrome's frame height and the sheet's resting height
+    /// from it - see `ConversationSheetMetrics`. The bars rather than the frame,
+    /// because the frame's top padding depends on the detent and the resting
+    /// height must not.
+    var onChromeBarsHeightChanged: (CGFloat) -> Void = { _ in }
     /// The selected transcript, given whatever height the detent leaves above
     /// the chrome and clipped to it.
     @ViewBuilder let transcriptContent: () -> TranscriptContent
@@ -92,6 +160,8 @@ struct ConversationSheetContent<
         // own `ignoresSafeArea` cannot push it outside the stack's frame, which
         // was already laid out inside the safe area.
         .ignoresSafeArea(.container, edges: .bottom)
+        // TEMPORARY: red outlines the content the sheet handed us.
+        .debugBorder(.red)
         // Above the clip, so the long-press menu can cover the whole sheet
         // rather than being cropped to the transcript's frame.
         .overlay { contextMenuOverlay() }
@@ -118,6 +188,8 @@ struct ConversationSheetContent<
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .clipped()
             .allowsHitTesting(detent.showsTranscript)
+            // TEMPORARY: blue outlines the transcript's frame.
+            .debugBorder(.blue)
     }
 
     /// Bar and tab bar - the part of the sheet present at every detent. Its
@@ -127,7 +199,7 @@ struct ConversationSheetContent<
     /// way the native floating tab bar does, rather than sitting above the home
     /// indicator with a band of sheet beneath it.
     private var chrome: some View {
-        VStack(spacing: Constant.contentSpacing) {
+        VStack(spacing: ConversationSheetMetrics.chromeContentSpacing) {
             barContent()
                 // TEMPORARY: which part of the chrome owns the space above the
                 // input bar. Remove with the rest of the geometry probes.
@@ -143,14 +215,19 @@ struct ConversationSheetContent<
                     ConversationSheetProbe.log("tabBar height=\(height)")
                 }
         }
-        .padding(.top, Constant.contentTopPadding)
-        .padding(.bottom, Constant.contentBottomPadding)
-        .background { chromeBackdrop }
+        // Measured before the padding is applied, so what the host receives is
+        // the part of the chrome that does not vary with the detent.
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.height
         } action: { height in
-            onChromeHeightChanged(height)
+            onChromeBarsHeightChanged(height)
         }
+        .padding(.top, ConversationSheetMetrics.chromeTopPadding(for: detent))
+        .padding(.bottom, ConversationSheetMetrics.chromeBottomPadding)
+        .background { chromeBackdrop }
+        // TEMPORARY: green outlines the chrome, paddings included - the height
+        // reported as `chromeHeight`.
+        .debugBorder(.green)
     }
 }
 
@@ -190,25 +267,4 @@ private extension ConversationSheetContent {
             endPoint: .bottom
         )
     }
-}
-
-// Hoisted out of the generic type: generic types cannot hold static stored
-// properties.
-private enum Constant {
-    /// Short enough to keep up with a fast collapse, slow enough not to read
-    /// as a pop.
-    static let transcriptFadeDuration: Double = 0.2
-    /// Gap between the bar and the tab bar (Figma gap-12). Horizontal insets
-    /// stay with the bar content itself - the composer already carries the
-    /// 16pt inset.
-    static let contentSpacing: CGFloat = DesignConstants.Spacing.step3x
-    /// Vertical space the system's drag indicator takes at the sheet's top
-    /// edge, matching the metrics the design's own grabber used: 6pt in from
-    /// the edge, 4pt tall.
-    static let dragIndicatorAllowance: CGFloat = 10.0
-    /// Clears the drag indicator and then leaves the same gap the bar and tab
-    /// bar have between them, so at `collapsed` the run down the sheet is
-    /// evenly spaced: grabber, gap, input bar, same gap, tab bar.
-    static let contentTopPadding: CGFloat = dragIndicatorAllowance + contentSpacing
-    static let contentBottomPadding: CGFloat = DesignConstants.Spacing.step4x
 }
