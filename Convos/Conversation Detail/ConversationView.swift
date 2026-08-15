@@ -67,16 +67,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// The measured height of the sheet chrome's bars - composer, gap, tab bar -
     /// as the chrome reports it, with none of the padding around them.
     ///
-    /// Every height the sheet needs is derived from this one measurement, in
+    /// Two heights derive from this one measurement, in
     /// `ConversationSheetMetrics`: the chrome's frame, which the transcript keeps
-    /// clear; and the sheet's resting height, which the `collapsed` detent and
-    /// the Home's bottom clearance both take. Deliberately not the sheet's live
-    /// height - the Home must not reflow every time the sheet is dragged.
+    /// clear, and the sheet's resting height, which the `collapsed` detent
+    /// resolves to and the Home's clearance floors itself at.
     @State private var sheetChromeBarsHeight: CGFloat = ConversationSheetMetrics.estimatedBarsHeight
     /// Height of the view the sheet presents over, which bounds how tall the
     /// sheet can get. The transcript holds this height at every detent so a
     /// resize never moves the messages - see `ConversationSheetContent`.
     @State private var containerHeight: CGFloat = 0
+    /// How much of the sheet is on screen, as it reports itself, which is how
+    /// much of the Home behind it is covered. Seeded with the resting height so
+    /// the first frame is sane.
+    @State private var sheetHeight: CGFloat = ConversationSheetMetrics.estimatedRestingHeight
     /// Window safe-area insets, used to convert the sheet's physical-edge
     /// clearance into the safe-area-relative inset the transcripts take.
     @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
@@ -470,10 +473,22 @@ struct ConversationView<MessagesBottomBar: View>: View {
         ConversationSheetMetrics.chromeHeight(barsHeight: sheetChromeBarsHeight, detent: sheetDetent)
     }
 
-    /// The height the sheet rests at, for the parties that must not move when it
-    /// is dragged: the `collapsed` detent itself, and the Home's clearance.
+    /// The height the sheet rests at, which the `collapsed` detent resolves to.
+    /// Deliberately not the sheet's live height - see `collapsedChromeHeight`.
     private var sheetRestingHeight: CGFloat {
         ConversationSheetMetrics.collapsedChromeHeight(barsHeight: sheetChromeBarsHeight)
+    }
+
+    /// What the Home keeps clear at its bottom: how much of it the sheet is
+    /// covering right now, so the end of its content can always be scrolled out
+    /// from behind the sheet whatever detent it is resting at.
+    ///
+    /// The live height, unlike the detents: this is a scroll inset on a web view,
+    /// which neither relayouts the page nor moves its offset, so it can follow a
+    /// drag frame by frame. Floored at the resting height, since the sheet is
+    /// never shorter than collapsed.
+    private var homeBottomClearance: CGFloat {
+        max(sheetHeight, sheetRestingHeight)
     }
 
     /// Seeds the height the transcript is held at, so the first frame is close
@@ -1111,7 +1126,7 @@ private extension ConversationView {
             ForEach(homeBrowserEntries) { entry in
                 HomeBrowserPageView(
                     entry: entry,
-                    sheetHeight: sheetRestingHeight,
+                    sheetHeight: homeBottomClearance,
                     onNavigationRequest: { url in
                         pushHomeBrowserPage(for: url)
                     }
@@ -1128,7 +1143,7 @@ private extension ConversationView {
         HomeLayoutView(
             conversationId: viewModel.conversation.id,
             webURL: viewModel.conversation.spaceURL,
-            sheetHeight: sheetRestingHeight,
+            sheetHeight: homeBottomClearance,
             onNavigationRequest: { url in
                 pushHomeBrowserPage(for: url)
             }
@@ -1182,6 +1197,9 @@ private extension ConversationView {
             transcriptHeight: transcriptHeightEstimate,
             onChromeBarsHeightChanged: { height in
                 sheetChromeBarsHeight = height
+            },
+            onSheetHeightChanged: { height in
+                sheetHeight = height
             },
             transcriptContent: {
                 sheetTranscripts(groupFocus: groupFocus, agentFocus: agentFocus)

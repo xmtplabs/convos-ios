@@ -138,6 +138,9 @@ struct ConversationSheetContent<
     /// because the frame's top padding depends on the detent and the resting
     /// height must not.
     var onChromeBarsHeightChanged: (CGFloat) -> Void = { _ in }
+    /// Fired with how much of the sheet is on screen, which is how much of the
+    /// Home behind it is covered.
+    var onSheetHeightChanged: (CGFloat) -> Void = { _ in }
     /// The selected transcript, given whatever height the detent leaves above
     /// the chrome and clipped to it.
     @ViewBuilder let transcriptContent: () -> TranscriptContent
@@ -248,6 +251,7 @@ struct ConversationSheetContent<
             } action: { height in
                 visibleHeight = height
                 largestVisibleHeight = max(largestVisibleHeight, height)
+                onSheetHeightChanged(height)
             }
             .overlay(alignment: .bottom) {
                 // Taller than the sheet at every detent but `full`, where they
