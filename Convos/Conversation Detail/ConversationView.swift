@@ -424,15 +424,22 @@ struct ConversationView<MessagesBottomBar: View>: View {
         ConversationTab.allCases
     }
 
-    /// Per-tab unread indicators, from the surfaces' own conversations. The
-    /// active tab never badges - the user is looking at it, and leaving a
-    /// tab marks its conversation read (see the tab-change handler).
+    /// Per-tab unread indicators, from the surfaces' own conversations.
+    ///
+    /// Being the selected tab is not enough to suppress the dot - being *read* is,
+    /// and at `collapsed` the selected tab is not being read: the sheet is only
+    /// its chrome and the transcript is behind it. So the selected tab badges
+    /// there too, which is the only notice a message gets once its banner is
+    /// suppressed. Above `collapsed` the user is looking at the selected
+    /// transcript, and coming up off `collapsed` marks it read (see
+    /// `claimReadingLane`).
     private var badgedTabs: Set<ConversationTab> {
+        let isReading: Bool = sheetDetent != .collapsed
         var badged: Set<ConversationTab> = []
-        if selectedTab != .group, viewModel.conversation.isUnread {
+        if !(isReading && selectedTab == .group), viewModel.conversation.isUnread {
             badged.insert(.group)
         }
-        if selectedTab != .agent,
+        if !(isReading && selectedTab == .agent),
            agentDmSession?.dmViewModel?.conversation.isUnread == true {
             badged.insert(.agent)
         }
@@ -561,6 +568,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onAppear {
             ensureNavigator()
             navState.markScreenAppeared()
+            updateGroupOnScreen(isOnScreen: true)
             captureAmbientScheme(presentedColorScheme)
             // Seed before the viewed check: a DM-notification open lands
             // straight on the agent page, and the group must not count as
@@ -568,7 +576,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // until its tab actually shows). Same when returning from a
             // push while on a non-Group tab.
             seedInitialTabIfNeeded()
-            if selectedTab == .group {
+            // A sheet that opens collapsed is showing no transcript, so no lane
+            // is being read and the conversations list's claim has to be handed
+            // straight back - otherwise a message arriving before the user opens
+            // the sheet would neither badge a tab nor raise a banner.
+            if sheetDetent == .collapsed {
+                releaseReadingLane()
+            } else if selectedTab == .group {
                 viewModel.onConversationAppeared()
             }
         }
@@ -577,6 +591,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onDisappear {
             viewModel.onConversationDisappeared()
+            updateGroupOnScreen(isOnScreen: false)
+            // The DM clears its own registration when its page unmounts, which
+            // only happens if the Agent tab was ever visited. Clearing from here
+            // too covers the conversation that binds a DM and never shows it.
+            agentDmSession?.updateDmOnScreen(isOnScreen: false)
             navigator?.closed(context: navState.closeContext())
             escalationViewModel?.stopObserving()
         }
@@ -802,6 +821,12 @@ private extension ConversationView {
             viewModel.onConversationAppeared()
             updateActiveGroupLane(isActive: true)
         }
+        // Switching tabs on a collapsed sheet is a request to see that tab -
+        // there is nothing on screen to switch between otherwise. Raising it
+        // claims the incoming lane and marks it read through the detent handler.
+        if sheetDetent == .collapsed {
+            openCollapsedSheet()
+        }
     }
 
     /// Leaving the Group tab. When the group was actually on screen,
@@ -835,6 +860,59 @@ private extension ConversationView {
         }
     }
 
+    /// The sheet collapsed over the transcript, so nobody is reading it.
+    ///
+    /// Hands back the selected lane's claim on being read, which is what makes a
+    /// message arriving now mark its lane unread and badge its tab - the claim
+    /// exists precisely to suppress that. Read receipts stop for the same reason:
+    /// the user is not looking at the transcript.
+    ///
+    /// Deliberately marks nothing read. What arrives while the sheet is down is
+    /// unread, and staying unread is the whole point.
+    private func releaseReadingLane() {
+        switch selectedTab {
+        case .group:
+            if viewModel.isViewingConversation {
+                viewModel.onConversationDisappeared()
+            }
+            updateActiveGroupLane(isActive: false)
+        case .agent:
+            agentDmSession?.updateActiveDmLane(isActive: false)
+        }
+    }
+
+    /// The sheet came up off `collapsed`, so the selected lane is being read
+    /// again: it reclaims the gate, and whatever badged while the sheet was down
+    /// is marked read, because the user is looking at it now.
+    ///
+    /// Claim before clearing, not after - a message landing between the two would
+    /// otherwise mark the lane unread and then be wiped by the clear.
+    private func claimReadingLane() {
+        switch selectedTab {
+        case .group:
+            viewModel.onConversationAppeared()
+            updateActiveGroupLane(isActive: true)
+            markGroupAsRead()
+        case .agent:
+            agentDmSession?.updateActiveDmLane(isActive: true)
+            agentDmSession?.markDmAsRead()
+        }
+    }
+
+    private func markGroupAsRead() {
+        let conversationId: String = viewModel.conversation.id
+        let messagingService = viewModel.messagingService
+        Task {
+            do {
+                try await messagingService
+                    .conversationLocalStateWriter()
+                    .setUnread(false, for: conversationId)
+            } catch {
+                Log.warning("Failed marking group as read: \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Registers (or clears) the group as the on-screen conversation. The
     /// conversations list posts the group id when this screen opens; leaving
     /// the Group tab hands the slot back so the stream's unread gate and
@@ -846,6 +924,24 @@ private extension ConversationView {
             name: .activeConversationChanged,
             object: nil,
             userInfo: isActive ? ["conversationId": conversationId] : [:]
+        )
+    }
+
+    /// Registers the group as on screen, which is what silences its banners.
+    ///
+    /// Separate from `updateActiveGroupLane`, which says the group is the lane
+    /// being *read* and goes false on a tab change or a collapse. A banner has to
+    /// stay suppressed through both: the conversation is still in front of the
+    /// user, and the tab's unread dot is the better notification. The DM lane
+    /// registers itself the same way - see `AgentDmSession`.
+    private func updateGroupOnScreen(isOnScreen: Bool) {
+        NotificationCenter.default.post(
+            name: .onScreenConversationChanged,
+            object: nil,
+            userInfo: [
+                "conversationId": viewModel.conversation.id,
+                "isOnScreen": isOnScreen,
+            ]
         )
     }
 
@@ -862,9 +958,22 @@ private extension ConversationView {
     }
 
     /// The native tab bar's re-tap contract: tapping the active tab returns
-    /// its transcript to the latest message.
+    /// its transcript to the latest message - or, while the sheet is collapsed,
+    /// opens it, since there is no transcript on screen to scroll. Tapping the tab
+    /// carrying an unread dot is how that message gets read.
     private func handleTabReselect(_ tab: ConversationTab) {
+        guard sheetDetent != .collapsed else {
+            openCollapsedSheet()
+            return
+        }
         scrollActiveTranscriptToBottom()
+    }
+
+    /// Raises a collapsed sheet far enough to read the latest message. `compact`
+    /// rather than anything taller: it answers "what just arrived" while leaving
+    /// the Home behind it visible, which is why the detent exists.
+    private func openCollapsedSheet() {
+        sheetDetent = .compact
     }
 
     /// Keeps the transcript parked at the newest message across a collapse.
@@ -879,6 +988,11 @@ private extension ConversationView {
         from oldValue: ConversationSheetDetent,
         to newValue: ConversationSheetDetent
     ) {
+        if newValue == .collapsed {
+            releaseReadingLane()
+        } else if oldValue == .collapsed {
+            claimReadingLane()
+        }
         guard newValue == .collapsed || oldValue == .collapsed else { return }
         // The sheet is still animating to its new height; the transcript's
         // frame - and so where "the bottom" is - settles a beat later.

@@ -97,6 +97,7 @@ struct AgentDmPageView: View {
         // no longer suppressed once the user has left.
         .onDisappear {
             if isActiveTab { session.updateActiveDmLane(isActive: false) }
+            session.updateDmOnScreen(isOnScreen: false)
         }
     }
 
