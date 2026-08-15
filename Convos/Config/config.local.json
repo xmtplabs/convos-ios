@@ -13,6 +13,5 @@
   "siweDomain": "dev.convos.org",
   "siweUri": "https://dev.convos.org",
   "siweChainId": 1,
-  "posthogHost": "https://us.i.posthog.com",
-  "pinnedAgentVariantSlug": "spaces"
+  "posthogHost": "https://us.i.posthog.com"
 }
