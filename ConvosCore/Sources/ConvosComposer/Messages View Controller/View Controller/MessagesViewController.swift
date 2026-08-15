@@ -4,7 +4,6 @@ import ConvosCore
 import DifferenceKit
 import Foundation
 import Observation
-import os
 import SwiftUI
 import UIKit
 
@@ -600,12 +599,14 @@ public final class MessagesViewController: UIViewController {
         super.viewDidAppear(animated)
         isSettlingInitialLayout = false
         messagesLayout.compensatesAllSelfSizingGrowth = false
-        logInsetGeometry("viewDidAppear")
     }
 
+    /// `clippedTopOverflow` can be handed over before this view has loaded, where
+    /// its own setter cannot apply it. Re-asserting each pass closes that gap and
+    /// costs nothing: it returns immediately once the inset already matches.
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        logInsetGeometry("viewDidLayoutSubviews")
+        applyClippedTopOverflow()
     }
 
     /// The SwiftUI bottom bar mounts into the safe area a render pass or two
@@ -1594,31 +1595,6 @@ extension MessagesViewController {
         guard abs(collectionView.contentInset.top - clippedTopOverflow) > 0.5 else { return }
         collectionView.contentInset.top = clippedTopOverflow
         collectionView.verticalScrollIndicatorInsets.top = clippedTopOverflow
-    }
-
-    // TEMPORARY probe for the in-sheet transcript's clearance. Uses os_log
-    // because `Log` writes to stdout, which the simulator's unified log never
-    // sees; read it with `log show --info --predicate 'subsystem ==
-    // "org.convos.sheet"'`. Remove once the geometry is settled.
-    func logInsetGeometry(_ label: String) {
-        let view = collectionView
-        let message = "[sheet-inset] \(label)"
-            + " frameH=\(view.frame.height)"
-            + " safeAreaBottom=\(view.safeAreaInsets.bottom)"
-            + " insetBottom=\(view.contentInset.bottom)"
-            + " adjustedBottom=\(view.adjustedContentInset.bottom)"
-            + " contentH=\(view.contentSize.height)"
-            + " offsetY=\(view.contentOffset.y)"
-            + " bottomBarHeight=\(bottomBarHeight)"
-            + " safeAreaTop=\(view.safeAreaInsets.top)"
-            + " indicatorTop=\(view.verticalScrollIndicatorInsets.top)"
-            + " indicatorBottom=\(view.verticalScrollIndicatorInsets.bottom)"
-            + " autoIndicator=\(view.automaticallyAdjustsScrollIndicatorInsets)"
-        os_log("%{public}@", log: Self.insetProbeLog, type: .info, message)
-    }
-
-    private static var insetProbeLog: OSLog {
-        OSLog(subsystem: "org.convos.sheet", category: "inset")
     }
 }
 #endif

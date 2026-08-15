@@ -1,30 +1,5 @@
 import ConvosComposer
-import os
 import SwiftUI
-
-/// TEMPORARY geometry probe for the sheet's layout work. Goes through os_log
-/// because the app's `Log` writes to stdout, which the simulator's unified log
-/// never captures. Read with:
-/// `xcrun simctl spawn <udid> log show --last 5m --info --predicate 'subsystem == "org.convos.sheet"'`
-enum ConversationSheetProbe {
-    private static let log: OSLog = OSLog(subsystem: "org.convos.sheet", category: "inset")
-
-    static func log(_ message: String) {
-        os_log("%{public}@", log: log, type: .info, "[sheet-inset] \(message)")
-    }
-}
-
-extension View {
-    /// TEMPORARY layout outline for the sheet's geometry work, so each layer's
-    /// real bounds are visible on screen. Remove with the rest of the probes.
-    func debugBorder(_ color: Color) -> some View {
-        overlay {
-            Rectangle()
-                .strokeBorder(color, lineWidth: 1)
-                .allowsHitTesting(false)
-        }
-    }
-}
 
 private struct TranscriptClippedTopOverflowKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
@@ -191,19 +166,9 @@ struct ConversationSheetContent<
         // own `ignoresSafeArea` cannot push it outside the stack's frame, which
         // was already laid out inside the safe area.
         .ignoresSafeArea(.container, edges: .bottom)
-        // TEMPORARY: red outlines the content the sheet handed us.
-        .debugBorder(.red)
         // Above the clip, so the long-press menu can cover the whole sheet
         // rather than being cropped to the transcript's frame.
         .overlay { contextMenuOverlay() }
-        // TEMPORARY: the sheet's own content height, to tell apart "the detent
-        // is too tall" from "the content is not filling the detent". Remove
-        // with the rest of the geometry probes.
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.height
-        } action: { height in
-            ConversationSheetProbe.log("sheetContent height=\(height)")
-        }
         .accessibilityIdentifier("conversation-bottom-sheet")
     }
 
@@ -264,8 +229,6 @@ struct ConversationSheetContent<
             // the conversation behind the sheet.
             .clipped()
             .allowsHitTesting(detent.showsTranscript)
-            // TEMPORARY: blue outlines the transcript's frame.
-            .debugBorder(.blue)
     }
 
     /// Bar and tab bar - the part of the sheet present at every detent. Its
@@ -277,19 +240,7 @@ struct ConversationSheetContent<
     private var chrome: some View {
         VStack(spacing: ConversationSheetMetrics.chromeContentSpacing) {
             barContent()
-                // TEMPORARY: which part of the chrome owns the space above the
-                // input bar. Remove with the rest of the geometry probes.
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.height
-                } action: { height in
-                    ConversationSheetProbe.log("barContent height=\(height)")
-                }
             tabBar()
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.height
-                } action: { height in
-                    ConversationSheetProbe.log("tabBar height=\(height)")
-                }
         }
         // Measured before the padding is applied, so what the host receives is
         // the part of the chrome that does not vary with the detent.
@@ -301,9 +252,6 @@ struct ConversationSheetContent<
         .padding(.top, ConversationSheetMetrics.chromeTopPadding(for: detent))
         .padding(.bottom, ConversationSheetMetrics.chromeBottomPadding)
         .background { chromeBackdrop }
-        // TEMPORARY: green outlines the chrome, paddings included - the height
-        // reported as `chromeHeight`.
-        .debugBorder(.green)
     }
 }
 
