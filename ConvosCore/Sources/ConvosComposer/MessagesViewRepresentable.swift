@@ -71,6 +71,10 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// `MessagesViewController.topContentInset`. Default 0 keeps the chat
     /// path on its existing layout.
     var topContentInset: CGFloat = 0.0
+    /// How much of the list's top the host clips away. See
+    /// `MessagesViewController.clippedTopOverflow`. Default 0 is a host that
+    /// shows the whole frame it hands over.
+    var clippedTopOverflow: CGFloat = 0.0
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
     let messageInputFocusTrigger: (@escaping () -> Void) -> Void
 
@@ -133,6 +137,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         bottomBarHeight: CGFloat,
         hasBottomBar: Bool = true,
         topContentInset: CGFloat = 0.0,
+        clippedTopOverflow: CGFloat = 0.0,
         scrollToBottomTrigger: @escaping (@escaping () -> Void) -> Void,
         messageInputFocusTrigger: @escaping (@escaping () -> Void) -> Void
     ) {
@@ -185,6 +190,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.bottomBarHeight = bottomBarHeight
         self.hasBottomBar = hasBottomBar
         self.topContentInset = topContentInset
+        self.clippedTopOverflow = clippedTopOverflow
         self.scrollToBottomTrigger = scrollToBottomTrigger
         self.messageInputFocusTrigger = messageInputFocusTrigger
     }
@@ -208,6 +214,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onUserInteraction = onUserInteraction
         messagesViewController.hasBottomBar = hasBottomBar
         messagesViewController.topContentInset = topContentInset
+        messagesViewController.clippedTopOverflow = clippedTopOverflow
         // Assign bottomBarHeight before state: its deferred inset update must be
         // enqueued ahead of the initial load's scroll-to-bottom completion.
         messagesViewController.bottomBarHeight = bottomBarHeight

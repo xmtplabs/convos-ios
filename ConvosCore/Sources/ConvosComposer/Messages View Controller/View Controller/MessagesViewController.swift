@@ -133,10 +133,6 @@ public final class MessagesViewController: UIViewController {
     /// Scrolling up flips it false via `scrollViewDidScroll`; programmatic
     /// scrolls to the bottom flip it back.
     private var isPinnedToBottom: Bool = true
-    /// The frame height at the last layout pass, so a host resize can be told
-    /// from any other reason to lay out. See
-    /// `maintainBottomAnchorAcrossHostResize`.
-    private var lastLaidOutHeight: CGFloat?
 
     // MARK: - Public
 
@@ -357,6 +353,30 @@ public final class MessagesViewController: UIViewController {
         didSet {
             guard topContentInset != oldValue else { return }
             additionalSafeAreaInsets.top = topContentInset
+        }
+    }
+
+    /// How much of this view's top the host clips away, for a host that hands
+    /// the list a taller frame than it shows: the conversation sheet holds the
+    /// transcript at one height and reveals more of it as the sheet grows, so a
+    /// detent change never resizes the list.
+    ///
+    /// Applied as a top content inset, which puts the content where it would sit
+    /// if the frame really were the visible height - a short conversation starts
+    /// at the visible top edge rather than up in the clipped region, scrolling up
+    /// stops there rather than dragging content into it, and the scroll indicator
+    /// stays inside the part the reader can see.
+    ///
+    /// Safe to track continuously through a drag: a top inset does not shift
+    /// `contentOffset`, so a list pinned to its newest message stays pinned while
+    /// this moves. It goes straight onto the collection view rather than through
+    /// `additionalSafeAreaInsets` like `topContentInset`, because the hosts that
+    /// set it run `contentInsetAdjustmentBehavior == .never` and would never see
+    /// a safe-area change.
+    var clippedTopOverflow: CGFloat = 0.0 {
+        didSet {
+            guard clippedTopOverflow != oldValue, isViewLoaded else { return }
+            applyClippedTopOverflow()
         }
     }
 
@@ -585,7 +605,6 @@ public final class MessagesViewController: UIViewController {
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        maintainBottomAnchorAcrossHostResize()
         logInsetGeometry("viewDidLayoutSubviews")
     }
 
@@ -1444,41 +1463,6 @@ extension MessagesViewController: KeyboardListenerDelegate {
     }
 }
 
-// MARK: - Host Resize
-
-extension MessagesViewController {
-    /// Keeps the message at the bottom of the viewport at the bottom when the
-    /// host resizes this view - the conversation sheet moving between detents.
-    ///
-    /// A scroll view anchors its content to the top through a frame change, so
-    /// shrinking from full to compact would slide the newest messages out of
-    /// sight and leave the user looking at older ones. Shifting the offset by
-    /// the height delta pins the bottom edge instead, which is the edge the
-    /// reader is actually following.
-    ///
-    /// Only for hosts that render no bar of their own: a host that owns the
-    /// whole screen resizes on rotation and keyboard, where its own anchoring
-    /// already applies.
-    func maintainBottomAnchorAcrossHostResize() {
-        let height: CGFloat = collectionView.frame.height
-        defer { lastLaidOutHeight = height }
-        guard !hasBottomBar,
-              let previousHeight = lastLaidOutHeight,
-              previousHeight != height,
-              !isUserInitiatedScrolling,
-              !isSettlingInitialLayout else {
-            return
-        }
-        let delta: CGFloat = previousHeight - height
-        let maxOffset: CGFloat = max(
-            collectionView.contentSize.height - height + collectionView.adjustedContentInset.bottom,
-            -collectionView.adjustedContentInset.top
-        )
-        let target: CGFloat = collectionView.contentOffset.y + delta
-        collectionView.contentOffset.y = min(max(target, -collectionView.adjustedContentInset.top), maxOffset)
-    }
-}
-
 // MARK: - Deferred Bottom Inset
 
 extension MessagesViewController {
@@ -1603,6 +1587,13 @@ extension MessagesViewController {
         // scroll indicator after the content has stopped receiving it, and the
         // track ends up inset differently from the messages beside it.
         collectionView.automaticallyAdjustsScrollIndicatorInsets = hasBottomBar
+    }
+
+    /// See `clippedTopOverflow`.
+    func applyClippedTopOverflow() {
+        guard abs(collectionView.contentInset.top - clippedTopOverflow) > 0.5 else { return }
+        collectionView.contentInset.top = clippedTopOverflow
+        collectionView.verticalScrollIndicatorInsets.top = clippedTopOverflow
     }
 
     // TEMPORARY probe for the in-sheet transcript's clearance. Uses os_log

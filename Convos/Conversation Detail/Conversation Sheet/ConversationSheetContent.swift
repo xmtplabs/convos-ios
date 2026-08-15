@@ -110,12 +110,19 @@ struct ConversationSheetContent<
     /// The size the sheet is resting at, which decides whether the transcript
     /// is showing at all.
     var detent: ConversationSheetDetent
+    /// The height to hold the transcript at, whatever the sheet is doing - the
+    /// tallest the sheet can get, so the transcript is never smaller than the
+    /// detent it is showing through. See `transcript`.
+    var transcriptHeight: CGFloat
     /// Fired with the measured height of the chrome's bars, padding excluded.
     /// The host derives the chrome's frame height and the sheet's resting height
     /// from it - see `ConversationSheetMetrics`. The bars rather than the frame,
     /// because the frame's top padding depends on the detent and the resting
     /// height must not.
     var onChromeBarsHeightChanged: (CGFloat) -> Void = { _ in }
+    /// Fired with how much of the sheet is currently on screen, which the host
+    /// turns into the transcript's clipped top overflow.
+    var onSheetHeightChanged: (CGFloat) -> Void = { _ in }
     /// The selected transcript, given whatever height the detent leaves above
     /// the chrome and clipped to it.
     @ViewBuilder let transcriptContent: () -> TranscriptContent
@@ -138,13 +145,13 @@ struct ConversationSheetContent<
     /// - `safeAreaInset` reserves layout space too - it shrinks the transcript
     ///   the same way - and its inset does not reach the hosted collection
     ///   view's `safeAreaInsets`, so it buys nothing in exchange.
-    /// - As ZStack siblings the transcript takes the whole sheet and draws
-    ///   beneath the chrome (it ignores the safe area internally), while the
-    ///   chrome respects it and stays clear of the home indicator.
+    /// - As ZStack siblings the transcript draws beneath the chrome (it ignores
+    ///   the safe area internally), while the chrome respects it and stays clear
+    ///   of the home indicator.
     ///
     /// The transcript's own bottom content inset is what keeps its newest
     /// message clear of the chrome; the host supplies it from
-    /// `onChromeHeightChanged`.
+    /// `onChromeBarsHeightChanged`.
     var body: some View {
         ZStack(alignment: .bottom) {
             transcript
@@ -165,26 +172,48 @@ struct ConversationSheetContent<
         // Above the clip, so the long-press menu can cover the whole sheet
         // rather than being cropped to the transcript's frame.
         .overlay { contextMenuOverlay() }
-        // TEMPORARY: the sheet's own content height, to tell apart "the detent
-        // is too tall" from "the content is not filling the detent". Remove
-        // with the rest of the geometry probes.
+        // How much of the sheet is on screen, which is what tells the transcript
+        // how much of its constant height is being clipped off the top.
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.height
         } action: { height in
             ConversationSheetProbe.log("sheetContent height=\(height)")
+            onSheetHeightChanged(height)
         }
         .accessibilityIdentifier("conversation-bottom-sheet")
     }
 
-    /// The selected transcript, filling the sheet at every detent.
+    /// The selected transcript, one constant height at every detent, overflowing
+    /// the sheet and clipped to it.
     ///
-    /// It stays visible even at `collapsed`, where the sheet is only as tall as
-    /// the chrome: the chrome's blurred, fading backdrop covers it there, which
-    /// reads better through a resize than cross-fading the whole transcript in
-    /// and out. Hit-testing follows the detent regardless, so a message under
-    /// the grabber cannot steal its drag.
+    /// The constant height is the point. A transcript that filled the detent
+    /// would be resized by every drag, and a scroll view anchors its content to
+    /// the top through a frame change - so the messages the reader is following
+    /// would slide with the sheet unless something shifted the offset back by
+    /// the height delta on every layout pass. That compensation is what this
+    /// replaces: it ran a frame late, so the wrong position was drawn and then
+    /// corrected, and it was not idempotent under UIKit's offset clamping - once
+    /// a clamp ate part of a shift, the next pass measured its delta from the
+    /// clamped height and the lost scroll position never came back.
+    ///
+    /// Holding the height fixed means a detent change moves nothing inside the
+    /// scroll view. The sheet's edge travels, revealing or hiding content that
+    /// was already laid out where it sits now, and the bottom the reader is
+    /// following stays exactly where it is - as does any other scroll position,
+    /// without arithmetic.
+    ///
+    /// The transcript stays visible even at `collapsed`, where the sheet is only
+    /// as tall as the chrome: the chrome's blurred, fading backdrop covers it
+    /// there. Hit-testing follows the detent regardless, so a message under the
+    /// grabber cannot steal its drag.
     private var transcript: some View {
         transcriptContent()
+            // Taller than the sheet at every detent but `full`, where they meet.
+            .frame(maxWidth: .infinity)
+            .frame(height: transcriptHeight, alignment: .bottom)
+            // Back to the sheet's own frame, so the clip below is the sheet's
+            // bounds and the overflow above its top edge is cut rather than
+            // drawn over the conversation behind it.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .clipped()
             .allowsHitTesting(detent.showsTranscript)
