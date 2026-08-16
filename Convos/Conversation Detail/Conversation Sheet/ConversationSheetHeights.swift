@@ -9,22 +9,25 @@ import CoreGraphics
 struct ConversationSheetHeights: Equatable {
     /// The collapsed chrome's height - grabber, input bar, tab bar.
     var restingHeight: CGFloat
-    /// The chrome plus the whole transcript, capped at the container: the tallest
-    /// the sheet will go, so it can never be dragged open onto empty space.
+    /// The chrome plus the whole transcript: the tallest the sheet will go, so it
+    /// can never be dragged open onto empty space.
     ///
-    /// Defaults to the container so nothing is withheld before the transcript has
-    /// measured itself - a sheet capped against a transcript of unknown height
-    /// would open barely taller than its own chrome.
-    var fittedHeight: CGFloat
-    /// The tallest the sheet can be at all.
-    var containerHeight: CGFloat
+    /// `nil` until the transcript has measured itself, and absent rather than
+    /// enormous. A sentinel standing for "no cap yet" would still be a number, and
+    /// this one reaches `PresentationDetent.height(_:)` - a conversation opened
+    /// with something unread starts at `fitted`, before any measuring has
+    /// happened, so the sentinel went straight to the system as a sheet height.
+    var fittedHeight: CGFloat?
+    /// The tallest the sheet can be at all. `nil` until measured, for the same
+    /// reason.
+    var containerHeight: CGFloat?
 
     /// Before anything has been measured. Every size is on offer, which is the
     /// right way to be wrong: the sheet opens as it always did until the
     /// transcript says otherwise.
     static let unmeasured: ConversationSheetHeights = ConversationSheetHeights(
         restingHeight: ConversationSheetMetrics.estimatedRestingHeight,
-        fittedHeight: .greatestFiniteMagnitude,
-        containerHeight: .greatestFiniteMagnitude
+        fittedHeight: nil,
+        containerHeight: nil
     )
 }

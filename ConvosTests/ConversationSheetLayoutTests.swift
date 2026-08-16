@@ -65,6 +65,22 @@ final class ConversationSheetLayoutTests: XCTestCase {
         XCTAssertFalse(offered.contains(.height(resting + 5_000)), "the ceiling never passes the container")
     }
 
+    /// Every height handed to the system has to be a real measurement or a real
+    /// detent - never a stand-in for "not measured yet".
+    ///
+    /// `fitted` is the initial size for a conversation with something unread, so it
+    /// resolves before anything has been measured. A sentinel here went to
+    /// `PresentationDetent.height(_:)` as the sheet's own height, which is a launch
+    /// crash for anyone opening the app on an unread conversation.
+    func testAnUnmeasuredFittedSizeResolvesToARealDetent() {
+        let fitted = ConversationSheetDetent.fitted.presentationDetent(heights: .unmeasured)
+
+        XCTAssertEqual(fitted, .large)
+        // The value the sentinel used to produce. `PresentationDetent` is opaque,
+        // so equality against it is the only way to say "not that".
+        XCTAssertNotEqual(fitted, .height(.greatestFiniteMagnitude))
+    }
+
     /// Nothing is withheld before the transcript has measured itself - a sheet
     /// capped against a transcript of unknown height would open barely taller than
     /// its own chrome.

@@ -694,11 +694,6 @@ public final class MessagesViewController: UIViewController {
             right: 0.0
         )
         messagesLayout.keepContentOffsetAtBottomOnBatchUpdates = true
-        // A conversation with one message in it shows that message just above the
-        // composer, where the next one will appear, rather than at the top of an
-        // empty pane. The transcript used to be padded out by the invite card at
-        // index 0 and rarely reached this; without it, every new conversation does.
-        messagesLayout.keepContentAtBottomOfVisibleArea = true
         messagesLayout.processOnlyVisibleItemsOnAnimatedBatchUpdates = true
         // Covers bottom growth that never produces a state update (e.g. an
         // attachment finishing its async load while the list sits at the
@@ -1634,19 +1629,61 @@ extension MessagesViewController {
         lastReportedContentHeight = height
         // Out of the layout pass, always. This is called from the collection
         // view's own `layoutSubviews`, and the host turns the number into
-        // presentation detents and content insets - so delivering it inline
-        // re-enters the layout that is still running. UIKit traps on that nesting
-        // rather than tolerating it.
+        // presentation detents - so delivering it inline would re-enter the layout
+        // that is still running.
+        //
+        // The top inset is re-applied here too: it holds short content against the
+        // bottom, so it has to follow the content height, and this is the one hook
+        // that fires when that changes.
         DispatchQueue.main.async { [weak self] in
-            self?.onContentHeightChanged?(height)
+            guard let self else { return }
+            applyClippedTopOverflow()
+            onContentHeightChanged?(height)
         }
     }
 
-    /// See `clippedTopOverflow`.
+    /// The list's top inset: what the host clips away, plus whatever it takes to
+    /// hold short content against the bottom. See `clippedTopOverflow` and
+    /// `shortContentTopSlack`.
     func applyClippedTopOverflow() {
-        guard abs(collectionView.contentInset.top - clippedTopOverflow) > 0.5 else { return }
-        collectionView.contentInset.top = clippedTopOverflow
-        collectionView.verticalScrollIndicatorInsets.top = clippedTopOverflow
+        let target: CGFloat = clippedTopOverflow + shortContentTopSlack
+        guard abs(collectionView.contentInset.top - target) > 0.5 else { return }
+        collectionView.contentInset.top = target
+        collectionView.verticalScrollIndicatorInsets.top = target
+    }
+
+    /// Extra top inset that rests content too short to fill the visible area
+    /// against the bottom of it, instead of leaving it at the top.
+    ///
+    /// A scroll view puts content shorter than its frame at the top, which for a
+    /// chat is the wrong end: a conversation with one message should show it just
+    /// above the composer, where the next one will appear. The transcript used to
+    /// be padded out by the invite card and rarely reached this; without it, every
+    /// new conversation does.
+    ///
+    /// An inset rather than an offset applied to the item frames themselves, and
+    /// that is the whole point. Offsetting frames inside the layout - which is what
+    /// ChatLayout's own `keepContentAtBottomOfVisibleArea` does, and what this
+    /// briefly did - puts the alignment in the middle of self-sizing: a cell
+    /// reports its preferred size, the content height changes, the offset changes,
+    /// the attributes no longer match what the cell was handed, UIKit invalidates
+    /// and asks again. That loop crashed the app on device, seven
+    /// `_updateVisibleCellsNow:` frames deep. An inset cannot join that cycle
+    /// because it does not change where any item thinks it is.
+    ///
+    /// Only for hosts that hand their clearance over rather than rendering a bar of
+    /// their own - the conversation sheet's transcripts and the thinking detail. A
+    /// host that owns the whole screen keeps the layout it had.
+    ///
+    /// Zero until the content has measured: slack against a content size of nothing
+    /// would push the first messages to the bottom and haul them back as they
+    /// arrived.
+    private var shortContentTopSlack: CGFloat {
+        guard !hasBottomBar, collectionView.contentSize.height > 0 else { return 0 }
+        let visibleHeight: CGFloat = collectionView.frame.height
+            - clippedTopOverflow
+            - collectionView.contentInset.bottom
+        return max(0, visibleHeight - collectionView.contentSize.height)
     }
 }
 #endif

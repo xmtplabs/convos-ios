@@ -19,15 +19,6 @@ open class MessagesCollectionLayout: UICollectionViewLayout {
     }
 
     var keepContentOffsetAtBottomOnBatchUpdates: Bool = false
-    /// Rests content shorter than the visible area against the bottom of it, the
-    /// way a chat reads, instead of leaving it at the top. See the offset in
-    /// `MessagesLayoutStateController.itemFrame(for:kind:at:isFinal:additionalAttributes:)`.
-    var keepContentAtBottomOfVisibleArea: Bool = false {
-        didSet {
-            guard keepContentAtBottomOfVisibleArea != oldValue else { return }
-            invalidateLayout()
-        }
-    }
     var processOnlyVisibleItemsOnAnimatedBatchUpdates: Bool = true
 
     var supportSelfSizingInvalidation: Bool {

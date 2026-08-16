@@ -20,7 +20,11 @@ extension ConversationSheetDetent {
         case .compact:
             return .fraction(Constant.compactFraction)
         case .fitted:
-            return .height(heights.fittedHeight)
+            // `.large` while unmeasured, never a stand-in number. This value goes
+            // to the system as a sheet height, so there is no safe sentinel - only
+            // a real measurement or a real detent.
+            guard let ceiling = Self.ceilingHeight(heights: heights) else { return .large }
+            return .height(ceiling)
         case .full:
             // `.large` stops at the top safe area, which already carries the
             // floating top bar - so it lands just under the conversation
@@ -50,9 +54,13 @@ extension ConversationSheetDetent {
         including current: ConversationSheetDetent
     ) -> Set<PresentationDetent> {
         var offered: Set<ConversationSheetDetent> = [.collapsed, current]
-        let ceiling: CGFloat = ceilingHeight(heights: heights)
-        let compactHeight: CGFloat = approximateHeight(of: .compact, heights: heights)
-        let fullHeight: CGFloat = approximateHeight(of: .full, heights: heights)
+        guard let ceiling = ceilingHeight(heights: heights),
+              let compactHeight = approximateHeight(of: .compact, heights: heights),
+              let fullHeight = approximateHeight(of: .full, heights: heights) else {
+            // Nothing measured yet, so nothing is withheld - the sheet behaves as
+            // it did before the cap until the transcript reports.
+            return Set(ascending.map { $0.presentationDetent(heights: heights) })
+        }
 
         if compactHeight + Constant.distinctHeightThreshold < ceiling {
             offered.insert(.compact)
@@ -80,9 +88,11 @@ extension ConversationSheetDetent {
     /// sheet as far as it goes. Asking for `full` outright would walk past the
     /// ceiling and undo the cap.
     static func tallestOffered(heights: ConversationSheetHeights) -> ConversationSheetDetent {
-        let ceiling: CGFloat = ceilingHeight(heights: heights)
-        let fullHeight: CGFloat = approximateHeight(of: .full, heights: heights)
-        guard ceiling + Constant.distinctHeightThreshold < fullHeight else { return .full }
+        guard let ceiling = ceilingHeight(heights: heights),
+              let fullHeight = approximateHeight(of: .full, heights: heights),
+              ceiling + Constant.distinctHeightThreshold < fullHeight else {
+            return .full
+        }
         return .fitted
     }
 
@@ -93,16 +103,21 @@ extension ConversationSheetDetent {
     /// conversation is only a little taller than the chrome, and is exactly as far
     /// as there is anything to see.
     static func smallestReadable(heights: ConversationSheetHeights) -> ConversationSheetDetent {
-        let ceiling: CGFloat = ceilingHeight(heights: heights)
-        let compactHeight: CGFloat = approximateHeight(of: .compact, heights: heights)
+        guard let ceiling = ceilingHeight(heights: heights),
+              let compactHeight = approximateHeight(of: .compact, heights: heights) else {
+            return .compact
+        }
         guard compactHeight + Constant.distinctHeightThreshold < ceiling else { return .fitted }
         return .compact
     }
 
     /// How tall the sheet is allowed to get: the transcript's own height, never
     /// past the container and never below the chrome it has to contain.
-    private static func ceilingHeight(heights: ConversationSheetHeights) -> CGFloat {
-        min(max(heights.fittedHeight, heights.restingHeight), heights.containerHeight)
+    private static func ceilingHeight(heights: ConversationSheetHeights) -> CGFloat? {
+        guard let fittedHeight = heights.fittedHeight, let containerHeight = heights.containerHeight else {
+            return nil
+        }
+        return min(max(fittedHeight, heights.restingHeight), containerHeight)
     }
 
     /// Roughly how tall a size resolves to, for deciding which ones are worth
@@ -113,12 +128,12 @@ extension ConversationSheetDetent {
     private static func approximateHeight(
         of detent: ConversationSheetDetent,
         heights: ConversationSheetHeights
-    ) -> CGFloat {
+    ) -> CGFloat? {
         switch detent {
         case .collapsed:
             return heights.restingHeight
         case .compact:
-            return heights.containerHeight * Constant.compactFraction
+            return heights.containerHeight.map { $0 * Constant.compactFraction }
         case .fitted:
             return ceilingHeight(heights: heights)
         case .full:

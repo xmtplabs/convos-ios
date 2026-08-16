@@ -532,8 +532,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
         guard let transcriptHeight, containerHeight > 0 else {
             return ConversationSheetHeights(
                 restingHeight: sheetRestingHeightAboveSafeArea,
-                fittedHeight: .greatestFiniteMagnitude,
-                containerHeight: .greatestFiniteMagnitude
+                fittedHeight: nil,
+                containerHeight: nil
             )
         }
         // The chrome's height at a fixed detent, never `sheetDetent`. Its top band
