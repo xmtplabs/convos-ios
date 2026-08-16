@@ -54,6 +54,13 @@ struct AgentDmPageView: View {
     /// opens on the Agent tab.
     var onContentHeightChanged: ((CGFloat) -> Void)?
 
+    /// Non-production switcher state. A local prototype lane replaces the
+    /// real DM transcript without mutating or sending to the underlying XMTP
+    /// conversation.
+    var prototypeState: AgentChatPrototypeState?
+    var selectedLane: AgentChatLane?
+    var lanes: [AgentChatLane] = []
+
     /// Fill of the preparing bar. Creeps while the agent is on its way; it
     /// tracks elapsed time, not real progress, since nothing reports any.
     @State private var preparingProgress: Double = Constant.progressStart
@@ -62,13 +69,23 @@ struct AgentDmPageView: View {
 
     var body: some View {
         Group {
-            switch phase {
-            case .ready(let dmViewModel):
-                dmMessagesViewWithSheets(dmViewModel)
-            case .preparing:
-                preparingState
-            case .noAgent:
-                addAgentState
+            if let prototypeState, let selectedLane, selectedLane.isLocalPrototype {
+                AgentChatDemoTranscript(
+                    lane: selectedLane,
+                    lanes: lanes,
+                    prototypeState: prototypeState,
+                    extraBottomInset: extraBottomInset,
+                    onContentHeightChanged: onContentHeightChanged
+                )
+            } else {
+                switch phase {
+                case .ready(let dmViewModel):
+                    dmMessagesViewWithSheets(dmViewModel)
+                case .preparing:
+                    preparingState
+                case .noAgent:
+                    addAgentState
+                }
             }
         }
         .environment(\.colorScheme, .dark)
@@ -80,7 +97,7 @@ struct AgentDmPageView: View {
         // already active, so no isActiveTab change fires; handle the initial
         // activation (mark read, register the push-suppression lane) here.
         .onAppear {
-            if isActiveTab, !isSheetCollapsed {
+            if !isShowingPrototypeLane, isActiveTab, !isSheetCollapsed {
                 handleActiveTabChange(true)
             }
         }
@@ -100,7 +117,10 @@ struct AgentDmPageView: View {
         // before the view model existed, so mark it read and register the
         // lane now.
         .onChange(of: session.dmViewModel?.conversation.id) { _, dmId in
-            guard dmId != nil, isActiveTab, !isSheetCollapsed else { return }
+            guard !isShowingPrototypeLane,
+                  dmId != nil,
+                  isActiveTab,
+                  !isSheetCollapsed else { return }
             session.markDmAsRead()
             session.updateActiveDmLane(isActive: true)
         }
@@ -117,6 +137,7 @@ struct AgentDmPageView: View {
     /// lane. Composer focus is not touched here - ConversationView's
     /// tab-change handler transfers it through the focus coordinators.
     private func handleActiveTabChange(_ active: Bool) {
+        guard !isShowingPrototypeLane else { return }
         guard active else {
             // A right-swipe can both start a reply on a DM message and switch
             // tabs. When the tab changes, cancel the in-flight swipe and clear
@@ -147,6 +168,10 @@ struct AgentDmPageView: View {
         case noAgent
         case preparing
         case ready(ConversationViewModel)
+    }
+
+    private var isShowingPrototypeLane: Bool {
+        selectedLane?.isLocalPrototype == true
     }
 
     /// Re-asks about provisioning when the conversation settles into its real
