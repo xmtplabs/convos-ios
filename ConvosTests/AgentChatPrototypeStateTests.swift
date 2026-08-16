@@ -68,4 +68,43 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         )
         XCTAssertTrue(state.messages(for: liveAgent).isEmpty)
     }
+
+    func testExternalAgentConnectionIsDeduplicatedAndKeepsPrivateDefaults() {
+        let state = AgentChatPrototypeState()
+
+        state.connect(.codex)
+        state.connect(.codex)
+
+        XCTAssertEqual(state.connectedExternalProviders, [.codex])
+        XCTAssertEqual(state.access(for: .codex), .privateDesktop)
+    }
+
+    func testExternalAgentAccessStaysScopedToProvider() {
+        let state = AgentChatPrototypeState()
+        state.connect(.codex)
+        state.connect(.openClaw)
+
+        state.accessBinding(for: .openClaw).wrappedValue = ExternalAgentAccess(
+            desktopReadWrite: true,
+            groupListenAndReply: true,
+            scopedMemberDMs: true
+        )
+
+        XCTAssertEqual(state.access(for: .codex), .privateDesktop)
+        XCTAssertTrue(state.access(for: .openClaw).groupListenAndReply)
+        XCTAssertTrue(state.access(for: .openClaw).scopedMemberDMs)
+    }
+
+    func testExternalAgentUsesItsOwnLaneState() {
+        let state = AgentChatPrototypeState()
+        let codex = AgentChatLane.external(.codex)
+        let claude = AgentChatLane.external(.claudeCode)
+
+        state.draftBinding(for: codex).wrappedValue = "Edit the Home card"
+        state.draftBinding(for: claude).wrappedValue = "Review the draft"
+
+        XCTAssertEqual(state.draftBinding(for: codex).wrappedValue, "Edit the Home card")
+        XCTAssertEqual(state.draftBinding(for: claude).wrappedValue, "Review the draft")
+        XCTAssertNotEqual(state.messages(for: codex).first?.text, state.messages(for: claude).first?.text)
+    }
 }

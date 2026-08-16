@@ -471,8 +471,29 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
 
         result.append(contentsOf: remainingLive)
+        result.append(contentsOf: agentChatPrototypeState.connectedExternalProviders.map(AgentChatLane.external))
         result.append(.ghost)
         return result
+    }
+
+    private var desktopAgentLane: AgentChatLane? {
+        if let selected = selectedAgentChatLane,
+           selected.isLocalPrototype,
+           !selected.isGhost {
+            return selected
+        }
+        return agentChatLanes.first {
+            if case .prototype(.spaceAbilities) = $0.kind { return true }
+            return false
+        } ?? agentChatLanes.first {
+            if case .prototype(.shanesAgent) = $0.kind { return true }
+            return false
+        } ?? agentChatLanes.first(where: { $0.isLocalPrototype && !$0.isGhost })
+            ?? agentChatLanes.first(where: { !$0.isGhost })
+    }
+
+    private var desktopPrototypeLinks: [DesktopPrototypeLink] {
+        DesktopPrototypeLink.displayLinks(from: viewModel.messages)
     }
 
     private var selectedAgentChatLane: AgentChatLane? {
@@ -1117,6 +1138,31 @@ private extension ConversationView {
         homeBrowserEntries.append(HomeBrowserEntry(url: url))
     }
 
+    private func openDesktopPrototypeLink(_ link: DesktopPrototypeLink) {
+        guard let url = link.url else { return }
+        pushHomeBrowserPage(for: url)
+    }
+
+    private func editDesktopPrototypeLink(_ link: DesktopPrototypeLink) {
+        openAgentForDesktopPrompt(
+            "Update the \(link.kind.rawValue.lowercased()) card “\(link.title)” on Home. Keep the source link attached and show me the proposed change before publishing."
+        )
+    }
+
+    private func editHomeWithAgent() {
+        openAgentForDesktopPrompt(
+            "Help me edit Home. Start by summarizing what is here, then ask what I want to change before publishing anything."
+        )
+    }
+
+    private func openAgentForDesktopPrompt(_ prompt: String) {
+        guard let lane = desktopAgentLane else { return }
+        agentChatPrototypeState.select(lane)
+        agentChatPrototypeState.draftBinding(for: lane).wrappedValue = prompt
+        selectTab(.agent)
+        moveSheet(to: .full)
+    }
+
     /// Walks one page back. The stack animates it, and an edge swipe does the
     /// same thing without coming through here at all.
     private func popHomeBrowserPage() {
@@ -1563,14 +1609,28 @@ private extension ConversationView {
     /// the conversation *is* behind the sheet, uncovered when the sheet rests
     /// collapsed and progressively hidden as it grows.
     var backingViews: some View {
-        HomeLayoutView(
-            conversationId: viewModel.conversation.id,
-            webURL: viewModel.conversation.spaceURL,
-            sheetGeometry: sheetGeometry,
-            onNavigationRequest: { url in
-                pushHomeBrowserPage(for: url)
+        ZStack(alignment: .top) {
+            HomeLayoutView(
+                conversationId: viewModel.conversation.id,
+                webURL: viewModel.conversation.spaceURL,
+                sheetGeometry: sheetGeometry,
+                onNavigationRequest: { url in
+                    pushHomeBrowserPage(for: url)
+                }
+            )
+
+            if showsAgentChatPrototype, let desktopAgentLane {
+                DesktopAgentPrototypeShelf(
+                    links: desktopPrototypeLinks,
+                    agent: desktopAgentLane,
+                    onOpenLink: openDesktopPrototypeLink(_:),
+                    onEditLink: editDesktopPrototypeLink(_:),
+                    onEditHome: editHomeWithAgent
+                )
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+                .padding(.top, 72)
             }
-        )
+        }
     }
 
     /// The transcripts the sheet hosts, both kept mounted once visited:

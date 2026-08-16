@@ -464,6 +464,60 @@ Required dashboards/alerts:
 5. Complete adversarial privacy tests and incident-response runbook.
 6. Only then enable “off the record” copy.
 
+### Phase D — external agent connectors
+
+1. Add a connector registry with provider type, owner account, encrypted connection material, health, revocation state, and capability manifest.
+2. Ship a Convos desktop bridge for Codex and Claude Code. The bridge owns provider login and workspace access; the mobile app receives only a one-time pairing code.
+3. Add server-side adapters for the Hermes OpenAI-compatible API server, the OpenClaw Gateway WebSocket protocol, and the xAI Responses API.
+4. Exchange pairing codes for a `connector_id`; never return provider keys or gateway tokens to iOS after setup.
+5. Add per-conversation grants for `home.read`, `home.write`, `group.read`, `group.write`, and `member_dm.scoped`.
+6. Route every agent turn through an authorization check over connector owner, convo membership, current grant, context namespace, and destination.
+7. Add health, reconnect, credential rotation, and immediate revoke endpoints before enabling outside Dev/Firebase.
+
+Suggested shapes:
+
+```text
+POST /v1/external-agent-connectors/pairing-sessions
+GET  /v1/external-agent-connectors/{connector_id}
+POST /v1/external-agent-connectors/{connector_id}/revoke
+PUT  /v1/conversations/{conversation_id}/external-agents/{connector_id}/grants
+
+grant = {
+  home_read_write: boolean,
+  group_listen_reply: boolean,
+  scoped_member_dms: boolean,
+  policy_version: string
+}
+```
+
+Codex/Claude Code pairing requires a desktop bridge session, provider-auth status, approved workspace identifiers, and a bridge public key. Hermes requires an HTTPS-reachable gateway URL plus an `API_SERVER_KEY`. OpenClaw requires a secure WebSocket gateway URL, device identity/signature, gateway token, and the minimum operator scopes. The Grok connector uses an xAI API key with explicit endpoint/model ACLs, stored only in the server credential vault.
+
+### Phase E — chat links and Home edit commands
+
+1. Emit an idempotent `HomeLinkProjection` whenever any visible group message contains a supported URL/link preview.
+2. Key the projection by `(conversation_id, source_message_id, canonical_url)` and retain the immutable source message reference.
+3. Publish projection changes through the existing encrypted conversation/Home sync path so every authorized desktop sees the same link object.
+4. Give Home objects stable IDs, revisions, visibility, layout metadata, and an optional preview image/title cache.
+5. Agent edits submit typed commands against object ID + expected revision; the server validates the agent grant and returns a preview diff.
+6. Require an explicit user approval token for publish/delete/share operations. Read-only summaries do not require a publish token.
+
+```text
+GET  /v1/conversations/{conversation_id}/home/objects
+POST /v1/conversations/{conversation_id}/home/edit-previews
+POST /v1/conversations/{conversation_id}/home/edit-previews/{preview_id}/publish
+
+edit_preview = {
+  connector_or_agent_id: string,
+  object_id: string,
+  expected_revision: integer,
+  command: typed_operation,
+  diff: object,
+  expires_at: timestamp
+}
+```
+
+Never send the full Home, full transcript, private agent DMs, or Ghost content when one object is sufficient. Context assembly must be capability-scoped and recorded in a content-free authorization audit.
+
 ## Server acceptance tests
 
 ### Model selection
@@ -493,6 +547,26 @@ Required dashboards/alerts:
 - Logs/traces/analytics contain no Ghost message or search text.
 - Provider requests carry the approved retention/training flags for every catalog model.
 
+### External agents
+
+- A replayed/expired pairing code cannot create a second connector.
+- Revoking the connector closes active streams and blocks the next turn immediately.
+- A connector with only `home.read/write` never receives group messages or member DM traffic.
+- Group participation and scoped member DMs can be enabled and revoked independently.
+- A scoped member DM cannot retrieve another group, another member’s DM, or the owner’s private lane.
+- Provider/gateway secrets never appear in mobile responses, analytics, push payloads, or general logs.
+- Losing the desktop bridge or gateway produces a reconnect state without dropping drafts or misrouting work to another agent.
+
+### Home link projections and editing
+
+- The same link message processed twice creates one Home object.
+- Links from every member and agent are eligible; hidden/deleted/inaccessible messages are not projected.
+- A card always preserves its source message and canonical URL.
+- Editing a stale revision returns a conflict and a refreshed preview; it never overwrites silently.
+- An agent without `home.write` can summarize but cannot create a publish token.
+- Publishing one card diff cannot mutate unrelated Home objects.
+- Ghost content never becomes a Home object without an explicit message-level export.
+
 ## Launch gates
 
 - [ ] Model IDs, relative credit copy, and entitlements approved by Product/Billing.
@@ -502,6 +576,9 @@ Required dashboards/alerts:
 - [ ] Ghost Mode memory is technically separate from the group/DM Hermes session.
 - [ ] Privacy policy fields reflect deployed behavior, not aspirational copy.
 - [ ] Ghost deletion and export authorization pass security review.
+- [ ] External connector credentials are vault-backed, revocable, and absent from mobile/logging surfaces.
+- [ ] Per-convo external-agent grants are enforced at context assembly and delivery.
+- [ ] Home object revisions, preview diffs, and approval tokens pass concurrency and authorization tests.
 - [ ] Rollback returns all model preferences to the safe default without losing desired state.
 
 ## Client handoff after server readiness
