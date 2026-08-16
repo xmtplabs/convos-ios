@@ -919,7 +919,15 @@ private extension ConversationView {
         // gate so incoming messages mark it unread and badge its tab.
         if oldTab == .group, newTab != .group {
             handleGroupTabLeft()
-        } else if oldTab != .group, newTab == .group {
+        } else if oldTab != .group, newTab == .group, sheetDetent != .collapsed {
+            // Not while collapsed. Arriving on the Group tab with the sheet down
+            // shows nothing, so claiming the lane there would tell the stream this
+            // transcript is being read: the next message would skip its unread
+            // mark, the tab would never badge, and read receipts would go out for
+            // messages nobody saw. If the sheet does open - see
+            // `openCollapsedSheetIfUnread` below - the detent handler claims it
+            // then. The Agent lane has always been gated this way; this side was
+            // not.
             viewModel.onConversationAppeared()
             updateActiveGroupLane(isActive: true)
         }

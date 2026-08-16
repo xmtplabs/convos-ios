@@ -1299,7 +1299,14 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
 
         self.view.keyboardLayoutGuide.keyboardDismissPadding = bottomBarHeight
 
-        if let lastKeyboardFrameChange {
+        // `hasBottomBar` gates the keyboard math here for the same reason it does
+        // in `applyDeferredBottomInset`: a host that renders no bar of its own
+        // positions its chrome against the keyboard and rises with it, so the
+        // keyboard never overlaps this list and the clearance it was handed is
+        // already the whole answer. Without the gate, a retained keyboard frame
+        // turns a later bar-height update into an overlap inset that replaces that
+        // clearance and shifts the transcript.
+        if let lastKeyboardFrameChange, hasBottomBar {
             let newBottomInset = calculateNewBottomInset(for: lastKeyboardFrameChange)
             updateBottomInset(inset: newBottomInset, info: lastKeyboardFrameChange, isComposerDriven: true)
         } else {
