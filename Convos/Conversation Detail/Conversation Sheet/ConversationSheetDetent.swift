@@ -13,12 +13,14 @@ enum ConversationSheetDetent: CaseIterable, Comparable {
     /// Chrome only - the grabber, the selected tab's bar, and the tab bar.
     /// No transcript. The floating card as it rests today.
     case collapsed
-    /// The chrome plus the transcript's last message, so the sheet shows the
-    /// latest thing said without covering the Home. Its height follows that
-    /// message, so it is the one detent whose size is content-driven.
+    /// Half the screen: enough transcript to read an exchange, with the Home
+    /// still showing above it.
+    ///
+    /// There used to be a smaller size between this and `collapsed` - the chrome
+    /// plus a fixed band of transcript - and it was not worth stopping at. A band
+    /// that shows one message answers less than the drag costs, so the middle
+    /// size is this one.
     case compact
-    /// Half the screen.
-    case half
     /// Everything up to just below the conversation indicator.
     case full
 

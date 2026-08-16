@@ -108,8 +108,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var agentFocusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
     /// Scroll-to-bottom triggers bridged out of each transcript for the
     /// sheet-hosted composers to fire on send.
-    @State private var groupScrollToBottom: (() -> Void)?
-    @State private var agentScrollToBottom: (() -> Void)?
+    @State private var groupScrollToBottom: ((Bool) -> Void)?
+    @State private var agentScrollToBottom: ((Bool) -> Void)?
     /// The home browsing chain, layered over the home and below the
     /// floating sheet so browsing never leaves the conversation screen.
     /// While non-empty, the top bar swaps the system back button for one
@@ -278,17 +278,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onRetryMessage: viewModel.retryMessage(_:),
             onDeleteMessage: viewModel.deleteMessage(_:),
             onRetryAgentJoin: { viewModel.retryAgentJoin() },
-            onCopyInviteLink: { viewModel.copyInviteLink() },
-            // "Invite friends" hands the link straight to the system share
-            // sheet - the same thing the top bar's share button does. A full
-            // conversation can't mint invites, so it explains itself instead.
-            onConvoCode: {
-                if viewModel.isFull {
-                    showingFullInfo = true
-                } else {
-                    presentingInviteShareSheet = true
-                }
-            },
             onInviteAgent: {},
             onRetryTranscript: { item in
                 viewModel.retryTranscript(for: item)
@@ -660,12 +649,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             captureAmbientScheme(scheme)
         }
         .toolbar { topBarTrailing }
-        .onReceive(NotificationCenter.default.publisher(for: .requestAddFromContactsInCurrentConversation)) { _ in
-            // Surfaces from `NewConvoIdentityView`'s invite-members menu in
-            // the new-conversation flow. Reuses the same picker state the
-            // chat plus-menu's "Add from Contacts" row drives.
-            presentingAddFromContactsPicker = true
-        }
         .onDisappear {
             VoiceMemoPlayer.shared.stop()
             viewModel.voiceMemoRecorder.cancelRecording()
@@ -865,12 +848,11 @@ private extension ConversationView {
             viewModel.onConversationAppeared()
             updateActiveGroupLane(isActive: true)
         }
-        // Switching tabs on a collapsed sheet is a request to see that tab -
-        // there is nothing on screen to switch between otherwise. Raising it
-        // claims the incoming lane and marks it read through the detent handler.
-        if sheetDetent == .collapsed {
-            openCollapsedSheet()
-        }
+        // Switching to a tab that is holding something unread opens the sheet on
+        // it; switching to one that is not leaves the sheet down, with the Home
+        // still in view. Raising it claims the incoming lane and marks it read
+        // through the detent handler.
+        openCollapsedSheetIfUnread(for: newTab)
     }
 
     /// Leaving the Group tab. When the group was actually on screen,
@@ -1028,31 +1010,49 @@ private extension ConversationView {
 
     /// The native tab bar's re-tap contract: tapping the active tab returns
     /// its transcript to the latest message - or, while the sheet is collapsed,
-    /// opens it, since there is no transcript on screen to scroll. Tapping the tab
-    /// carrying an unread dot is how that message gets read.
+    /// opens it if that tab is holding something unread.
     private func handleTabReselect(_ tab: ConversationTab) {
         guard sheetDetent != .collapsed else {
-            openCollapsedSheet()
+            openCollapsedSheetIfUnread(for: tab)
             return
         }
         scrollActiveTranscriptToBottom()
     }
 
-    /// Raises a collapsed sheet far enough to read the latest message. `compact`
-    /// rather than anything taller: it answers "what just arrived" while leaving
-    /// the Home behind it visible, which is why the detent exists.
-    private func openCollapsedSheet() {
+    /// Opens a collapsed sheet when the tapped tab is the one carrying an unread
+    /// dot, and only then.
+    ///
+    /// A tab tap is not by itself a request to open the sheet: with the sheet
+    /// down the user is looking at the Home, and may be picking which lane the
+    /// composer belongs to while leaving it in view. It is the dot that makes the
+    /// tap mean "show me what arrived".
+    ///
+    /// `compact` rather than anything taller - it answers that question while
+    /// leaving the Home visible, which is why the detent exists.
+    private func openCollapsedSheetIfUnread(for tab: ConversationTab) {
+        guard sheetDetent == .collapsed, badgedTabs.contains(tab) else { return }
         sheetDetent = .compact
     }
 
-    /// Keeps the transcript parked at the newest message across a collapse.
+    /// Every expansion opens on the newest message, and gets there without the
+    /// reset ever being watched.
     ///
-    /// Collapsing hides the transcript, so wherever the user had scrolled to is
-    /// no longer something they are looking at - and re-expanding onto stale
-    /// history reads as the sheet having lost its place. Resetting on the way
-    /// down means every expansion opens on the latest message. Drags between
-    /// the larger detents leave the scroll position alone, since the transcript
-    /// stayed visible throughout.
+    /// The reset happens on the way *up*, not on the way down. Collapsing leaves
+    /// the transcript exactly where the reader left it - the sheet closing over
+    /// what they were reading - and the reset lands as the sheet leaves
+    /// `collapsed`, before any of the transcript has been revealed. Doing it on
+    /// the way down put a scroll in flight while the transcript was still on
+    /// screen, so the reset was the last thing the user saw before the sheet
+    /// closed.
+    ///
+    /// Synchronously, and unanimated, for the same reason. The transcript holds
+    /// one height now (see `ConversationSheetContent.transcript`), so "the
+    /// bottom" does not move as the sheet does and there is nothing to wait for -
+    /// the old deferral existed only because the frame settled a beat later.
+    ///
+    /// Drags between the larger detents leave the scroll position alone: the
+    /// transcript stayed visible throughout, so it is still what the reader is
+    /// looking at.
     private func handleSheetDetentChanged(
         from oldValue: ConversationSheetDetent,
         to newValue: ConversationSheetDetent
@@ -1061,12 +1061,7 @@ private extension ConversationView {
             releaseReadingLane()
         } else if oldValue == .collapsed {
             claimReadingLane()
-        }
-        guard newValue == .collapsed || oldValue == .collapsed else { return }
-        // The sheet is still animating to its new height; the transcript's
-        // frame - and so where "the bottom" is - settles a beat later.
-        DispatchQueue.main.async {
-            scrollActiveTranscriptToBottom()
+            scrollActiveTranscriptToBottom(animated: false)
         }
     }
 
@@ -1095,22 +1090,27 @@ private extension ConversationView {
     private func parkIncomingTranscriptIfCollapsed(_ tab: ConversationTab) {
         guard sheetDetent == .collapsed else { return }
         DispatchQueue.main.async {
-            switch tab {
-            case .group:
-                groupScrollToBottom?()
-            case .agent:
-                agentScrollToBottom?()
-            }
+            scrollTranscriptToBottom(tab, animated: false)
         }
     }
 
-    private func scrollActiveTranscriptToBottom() {
-        switch selectedTab {
+    /// Returns a transcript to its newest message.
+    ///
+    /// `animated: false` for everything the sheet drives. An animated scroll is
+    /// for a send, where the user is watching their message arrive; a reset the
+    /// sheet performs on a transcript it has collapsed over is housekeeping, and
+    /// animating it only risks the motion being seen.
+    private func scrollTranscriptToBottom(_ tab: ConversationTab, animated: Bool) {
+        switch tab {
         case .group:
-            groupScrollToBottom?()
+            groupScrollToBottom?(animated)
         case .agent:
-            agentScrollToBottom?()
+            agentScrollToBottom?(animated)
         }
+    }
+
+    private func scrollActiveTranscriptToBottom(animated: Bool = true) {
+        scrollTranscriptToBottom(selectedTab, animated: animated)
     }
 
     /// True while the Home is showing an open browsing chain: the top bar pops
@@ -1477,7 +1477,7 @@ private extension ConversationView {
                     focusState: groupFocus,
                     focusCoordinator: focusCoordinator,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
-                    scrollToBottom: { groupScrollToBottom?() },
+                    scrollToBottom: { groupScrollToBottom?(true) },
                     onDebugAttachmentTap: debugAttachmentTapHandler,
                     extraBarContent: { groupExtraBarContent }
                 )
@@ -1493,7 +1493,7 @@ private extension ConversationView {
                     focusState: agentFocus,
                     focusCoordinator: agentFocusCoordinator,
                     isReadOnly: effectiveReadOnly,
-                    scrollToBottom: { agentScrollToBottom?() }
+                    scrollToBottom: { agentScrollToBottom?(true) }
                 )
                 // The participation control governs the group room; it has
                 // no meaning in a 1:1 agent DM.

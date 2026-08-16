@@ -49,7 +49,7 @@ struct AgentDmPageView: View {
     let focusCoordinator: FocusCoordinator
     /// Bridges the DM transcript's scroll-to-bottom up to the sheet's
     /// composer, which fires it on send.
-    var onScrollToBottomAvailable: ((@escaping () -> Void) -> Void)?
+    var onScrollToBottomAvailable: ((@escaping (Bool) -> Void) -> Void)?
 
     /// Fill of the preparing bar. Creeps while the agent is on its way; it
     /// tracks elapsed time, not real progress, since nothing reports any.
@@ -246,7 +246,7 @@ struct AgentDmPageView: View {
     private func dmItems(_ dmVm: ConversationViewModel) -> [MessagesListItemType] {
         var items = dmVm.messagesWithThinkingIndicators.compactMap { (item: MessagesListItemType) -> MessagesListItemType? in
             switch item {
-            case .invite, .update, .agentPresentInfo, .conversationInfo, .agentJoinStatus:
+            case .update, .agentPresentInfo, .conversationInfo, .agentJoinStatus:
                 return nil
             case .messages(var group):
                 // The processor pins the agent contact card to the agent's
@@ -355,8 +355,6 @@ struct AgentDmPageView: View {
             onRetryMessage: dmVm.retryMessage(_:),
             onDeleteMessage: dmVm.deleteMessage(_:),
             onRetryAgentJoin: {},
-            onCopyInviteLink: {},
-            onConvoCode: {},
             onInviteAgent: {},
             onRetryTranscript: { item in
                 dmVm.retryTranscript(for: item)

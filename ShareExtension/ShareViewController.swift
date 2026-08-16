@@ -1136,8 +1136,6 @@ struct ShareComposeView: View {
                 onRetryMessage: { _ in },
                 onDeleteMessage: { _ in },
                 onRetryAgentJoin: {},
-                onCopyInviteLink: {},
-                onConvoCode: {},
                 onInviteAgent: {},
                 onRetryTranscript: { _ in },
                 profileSheetForMember: { _ in AnyView(EmptyView()) },

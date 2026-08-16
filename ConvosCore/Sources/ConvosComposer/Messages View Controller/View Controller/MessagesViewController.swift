@@ -393,8 +393,11 @@ public final class MessagesViewController: UIViewController {
     }
 
     /// Call this when user taps send to immediately scroll to bottom before message appears
-    func scrollToBottomForSend() {
-        scrollToBottom()
+    /// `animated: false` is for a host resetting the list while it is not being
+    /// looked at - the conversation sheet parking a transcript it has collapsed
+    /// over - where an animated scroll would be visible motion for no reason.
+    func scrollToBottomForSend(animated: Bool = true) {
+        scrollToBottom(animated: animated)
     }
 
     // MARK: - Initialization
@@ -495,8 +498,6 @@ public final class MessagesViewController: UIViewController {
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryAgentJoin: (() -> Void)?
-    var onCopyInviteLink: (() -> Void)?
-    var onConvoCode: (() -> Void)?
     var onInviteAgent: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var profileSheetForMember: ((ConversationMember) -> AnyView)?
@@ -688,6 +689,11 @@ public final class MessagesViewController: UIViewController {
             right: 0.0
         )
         messagesLayout.keepContentOffsetAtBottomOnBatchUpdates = true
+        // A conversation with one message in it shows that message just above the
+        // composer, where the next one will appear, rather than at the top of an
+        // empty pane. The transcript used to be padded out by the invite card at
+        // index 0 and rarely reached this; without it, every new conversation does.
+        messagesLayout.keepContentAtBottomOfVisibleArea = true
         messagesLayout.processOnlyVisibleItemsOnAnimatedBatchUpdates = true
         // Covers bottom growth that never produces a state update (e.g. an
         // attachment finishing its async load while the list sits at the
@@ -801,12 +807,6 @@ public final class MessagesViewController: UIViewController {
         }
         dataSource.onRetryAgentJoin = { [weak self] in
             self?.onRetryAgentJoin?()
-        }
-        dataSource.onCopyInviteLink = { [weak self] in
-            self?.onCopyInviteLink?()
-        }
-        dataSource.onConvoCode = { [weak self] in
-            self?.onConvoCode?()
         }
         dataSource.onInviteAgent = { [weak self] in
             self?.onInviteAgent?()
@@ -1018,10 +1018,6 @@ extension MessagesViewController {
         var cells: [MessagesListItemType] = messages
         let hasVerifiedConvosAgent: Bool = conversation.members.contains(where: \.isVerifiedConvosAgent)
 
-        // Mirror the conversation's persisted "hide invite QR" flag onto the
-        // data source so the `.invite` cell renderer can drop the QR card
-        // while keeping the invite menu visible.
-        dataSource.hidesInviteCard = conversation.hidesInviteCard
         // Add invite or conversation info at the beginning if all messages are loaded.
         // A home-flow Agent Builder summary suppresses this whole block - the
         // summary card already announces the agent via its "You created an
@@ -1030,13 +1026,17 @@ extension MessagesViewController {
         // different: it targets a real group, so its invite affordances stay
         // visible while the card shows.
         let summaryAllowsInvite: Bool = agentBuilderSummary == nil || agentBuilderSummary?.existingConversation == true
-        // The `.invite` cell is the top-of-convo invite surface: the inviter's
-        // QR plus the invite menu.
+        // No `.invite` cell any more: the inviter's QR and the "Invite members"
+        // pill it carried are both gone from the transcript, leaving the top bar's
+        // invite button as the one place to add someone. An inviter now opens on
+        // their messages rather than on a card about the room.
+        //
+        // The condition it used to guard is kept, negated, so nothing else moves:
+        // whoever was getting the info preview still gets it, and an inviter who
+        // was getting the QR now gets no leading cell rather than a different one.
         if hasLoadedAllMessages, summaryAllowsInvite, headerMode != .suppressed {
             let hostsInviteHeader = !conversation.isDraft && conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull
-            if hostsInviteHeader {
-                cells.insert(.invite(invite), at: 0)
-            } else if !conversation.isDraft, headerMode == .standard, !hasVerifiedConvosAgent {
+            if !hostsInviteHeader, !conversation.isDraft, headerMode == .standard, !hasVerifiedConvosAgent {
                 cells.insert(.conversationInfo(conversation), at: 0)
             }
         }

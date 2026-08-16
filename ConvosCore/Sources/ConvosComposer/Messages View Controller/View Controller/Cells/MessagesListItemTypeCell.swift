@@ -86,19 +86,6 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                 case .messages(let group):
                     MessagesListItemTypeCell.messagesGroupContent(group: group, config: config)
 
-                case .invite(let invite):
-                    VStack(spacing: DesignConstants.Spacing.step4x) {
-                        if config.headerMode == .standard, !config.hidesInviteCard {
-                            InviteView(invite: invite)
-                        }
-                        NewConvoIdentityView(
-                            onCopyLink: config.onCopyInviteLink,
-                            onConvoCode: config.onConvoCode
-                        )
-                    }
-                    .padding(.vertical, DesignConstants.Spacing.step4x)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-
                 case .conversationInfo(let conversation):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
                         ConversationInfoPreview(

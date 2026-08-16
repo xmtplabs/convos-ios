@@ -88,8 +88,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAgentJoin: () -> Void
-    let onCopyInviteLink: () -> Void
-    let onConvoCode: () -> Void
     let onInviteAgent: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
@@ -118,7 +116,7 @@ struct MessagesView<BottomBarContent: View>: View {
     /// Surfaces the transcript's scroll-to-bottom trigger to an external
     /// composer host, which fires it on send (the internal bar wires this
     /// itself).
-    var onScrollToBottomAvailable: ((@escaping () -> Void) -> Void)?
+    var onScrollToBottomAvailable: ((@escaping (Bool) -> Void) -> Void)?
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     /// Set by a host that shows less of this view than the frame it hands over -
@@ -126,7 +124,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @Environment(\.transcriptClippedTopOverflow) private var clippedTopOverflow: CGFloat
     @State private var bottomBarHeight: CGFloat = 0.0
     @State private var isPhotoPickerPresented: Bool = false
-    @State private var scrollToBottom: (() -> Void)?
+    @State private var scrollToBottom: ((Bool) -> Void)?
     @State private var notifyMessageInputFocused: (() -> Void)?
     /// Drives the SwiftUI sheet presentation of `AttachmentPreviewSheet`
     /// for HTML attachments. Non-HTML previews still go through the
@@ -211,8 +209,6 @@ struct MessagesView<BottomBarContent: View>: View {
             onRetryMessage: onRetryMessage,
             onDeleteMessage: onDeleteMessage,
             onRetryAgentJoin: onRetryAgentJoin,
-            onCopyInviteLink: onCopyInviteLink,
-            onConvoCode: onConvoCode,
             onInviteAgent: onInviteAgent,
             onRetryTranscript: onRetryTranscript,
             profileSheetForMember: profileSheetForMember,
@@ -296,7 +292,7 @@ struct MessagesView<BottomBarContent: View>: View {
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
                     messagePlaceholder: messagePlaceholder,
                     onSendMessage: {
-                        scrollToBottom?()
+                        scrollToBottom?(true)
                         onSendMessage()
                     },
                     onClearInvite: onClearInvite,

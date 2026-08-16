@@ -19,9 +19,7 @@ extension ConversationSheetDetent {
         case .collapsed:
             return .height(restingHeight)
         case .compact:
-            return .height(restingHeight + Constant.compactTranscriptHeight)
-        case .half:
-            return .fraction(Constant.halfFraction)
+            return .fraction(Constant.compactFraction)
         case .full:
             // `.large` stops at the top safe area, which already carries the
             // floating top bar - so it lands just under the conversation
@@ -47,18 +45,11 @@ extension ConversationSheetDetent {
     /// The largest size at which the Home behind the sheet stays touchable.
     /// Above this the sheet has covered it anyway.
     static var backgroundInteractionCeiling: PresentationDetent {
-        .fraction(Constant.halfFraction)
+        .fraction(Constant.compactFraction)
     }
 
     private enum Constant {
-        static let halfFraction: CGFloat = 0.5
-        /// Transcript showing above the chrome at `compact`.
-        ///
-        /// A fixed allowance rather than the last message's measured height: the
-        /// measured version has to travel from a UIKit collection view into a
-        /// detent, changes as messages arrive, and resizes the sheet under the
-        /// reader when it does. This is the one number to change if compact
-        /// should show more or less.
-        static let compactTranscriptHeight: CGFloat = 96.0
+        /// How much of the screen `compact` takes.
+        static let compactFraction: CGFloat = 0.5
     }
 }

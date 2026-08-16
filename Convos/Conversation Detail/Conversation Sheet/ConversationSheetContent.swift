@@ -197,10 +197,22 @@ struct ConversationSheetContent<
     /// following stays exactly where it is - as does any other scroll position,
     /// without arithmetic.
     ///
-    /// The transcript stays visible even at `collapsed`, where the sheet is only
-    /// as tall as the chrome: the chrome's blurred, fading backdrop covers it
-    /// there. Hit-testing follows the detent regardless, so a message under the
-    /// grabber cannot steal its drag.
+    /// Hidden once the sheet has settled at `collapsed`, where the sheet is only
+    /// as tall as the chrome and there is nothing to read.
+    ///
+    /// The chrome's backdrop cannot be what hides it. The backdrop is deliberately
+    /// near-transparent at its top edge so content dissolves into it while
+    /// scrolling, and a conversation shorter than the transcript's held height
+    /// sits against that edge: the top inset places its first message where the
+    /// sheet's top edge is, and short content flows down from there - straight
+    /// into the band the backdrop barely tints.
+    ///
+    /// On the detent rather than on the live height, so this happens on settle and
+    /// not during a drag. Dragging keeps the transcript visible the whole way,
+    /// dissolving into the backdrop, which is what the blur is for.
+    ///
+    /// Hit-testing follows the same flag, so a message under the grabber cannot
+    /// steal its drag.
     private var transcript: some View {
         // An overlay on a sheet-sized spacer, rather than a sized view in the
         // stack. An overlay never contributes to its parent's size, and that is
@@ -234,6 +246,7 @@ struct ConversationSheetContent<
             // Cuts the overflow at the sheet's bounds, so it is not drawn over
             // the conversation behind the sheet.
             .clipped()
+            .opacity(detent.showsTranscript ? 1 : 0)
             .allowsHitTesting(detent.showsTranscript)
     }
 

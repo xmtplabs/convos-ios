@@ -13,6 +13,7 @@ protocol MessagesLayoutProtocol: AnyObject, Sendable {
     var layoutFrame: CGRect { get }
     var adjustedContentInset: UIEdgeInsets { get }
     var keepContentOffsetAtBottomOnBatchUpdates: Bool { get }
+    var keepContentAtBottomOfVisibleArea: Bool { get }
     var processOnlyVisibleItemsOnAnimatedBatchUpdates: Bool { get }
     func numberOfItems(in section: Int) -> Int
     func configuration(for element: ItemKind, at indexPath: IndexPath) -> ItemModel.Configuration
@@ -349,6 +350,23 @@ final class MessagesLayoutStateController<Layout: MessagesLayoutProtocol> {
 
         if isFinal {
             offsetByCompensation(frame: &itemFrame, at: itemPath, for: state, backward: true)
+        }
+
+        // Telegram-style: a transcript with less content than fits sits against
+        // the bottom of the visible area rather than at the top of it, so a
+        // conversation with one message in it shows that message where the next
+        // one will appear. Only when the content really is shorter - once it
+        // overflows, the offset would push the newest messages out of view.
+        //
+        // Ported from ChatLayout's `keepContentAtBottomOfVisibleArea`, which this
+        // layout is a vendored copy of. Done here rather than as a top content
+        // inset in the host so the layout stays the single authority on where
+        // items sit: an inset computed alongside it would be a second answer to
+        // the same question, and the two would disagree while the sheet resizes.
+        if layoutRepresentation.keepContentAtBottomOfVisibleArea,
+           !isLayoutBiggerThanVisibleBounds(at: state, visibleBounds: visibleBounds) {
+            let slack: CGFloat = visibleBounds.height.rounded() - contentSize(for: state).height.rounded()
+            itemFrame.offsettingBy(dx: 0, dy: slack)
         }
 
         return itemFrame

@@ -46,7 +46,6 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case update(id: String, update: ConversationUpdate, origin: AnyMessage.Origin)
     case date(DateGroup)
     case messages(MessagesGroup)
-    case invite(Invite)
     case conversationInfo(Conversation)
     case agentOutOfCredits(ConversationMember, showsUpgradeCTA: Bool)
     case agentJoinStatus(AgentJoinStatus, requesterName: String?, date: Date)
@@ -68,15 +67,6 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "date-\(dateGroup.hashValue)"
         case .messages(let group):
             return "messages-group-\(group.id)"
-        case .invite:
-            // The transcript hosts at most one invite card (index 0), so its
-            // identity is the slot, not the invite payload. Keying on the
-            // payload made every invite change (hydration, the embedded
-            // new-convo flow's created->claimed swap) an animated
-            // delete+insert that cross-faded two full cards and restarted
-            // the Scan tab camera; a stable id turns those into in-place
-            // reconfigurations of the single card.
-            return "invite"
         case .conversationInfo(let conversation):
             return "conversation-info-\(conversation.id)"
         case .agentOutOfCredits(let member, _):
@@ -133,7 +123,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .agentActivating, .agentDmInfo, .typingIndicator:
+        case .date, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .agentActivating, .agentDmInfo, .typingIndicator:
             return nil
         case .connectionEvent(_, _, let origin):
             return origin
@@ -148,7 +138,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
 
     public var alignment: MessagesListItemAlignment {
         switch self {
-        case .invite, .conversationInfo, .agentBuilderSummary, .agentActivating:
+        case .conversationInfo, .agentBuilderSummary, .agentActivating:
             return .center
         case .agentOutOfCredits:
             return .fullWidth
@@ -165,8 +155,6 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "MessagesListItemTypeCell-update"
         case .messages:
             return "MessagesListItemTypeCell-messages"
-        case .invite:
-            return "MessagesListItemTypeCell-invite"
         case .conversationInfo:
             return "MessagesListItemTypeCell-conversationInfo"
         case .agentOutOfCredits:
@@ -195,7 +183,6 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             "MessagesListItemTypeCell-date",
             "MessagesListItemTypeCell-update",
             "MessagesListItemTypeCell-messages",
-            "MessagesListItemTypeCell-invite",
             "MessagesListItemTypeCell-conversationInfo",
             "MessagesListItemTypeCell-agentOutOfCredits",
             "MessagesListItemTypeCell-agentJoinStatus",

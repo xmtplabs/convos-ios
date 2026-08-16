@@ -18,13 +18,12 @@ final class ConversationSheetLayoutTests: XCTestCase {
         XCTAssertEqual(detent, .height(151))
     }
 
-    /// Compact shows a fixed band of transcript above the chrome rather than the
-    /// last message's measured height, which changed as messages arrived and
-    /// resized the sheet under the reader.
-    func testCompactAddsAFixedTranscriptBandToTheRestingHeight() {
+    /// Compact is half the screen. It replaced a smaller size - the chrome plus a
+    /// fixed band of transcript - that was not worth stopping at.
+    func testCompactIsHalfTheScreen() {
         let detent = ConversationSheetDetent.compact.presentationDetent(restingHeight: resting)
 
-        XCTAssertEqual(detent, .height(151 + 96))
+        XCTAssertEqual(detent, .fraction(0.5))
     }
 
     /// Full stops at the top safe area, which already carries the floating top
@@ -37,14 +36,26 @@ final class ConversationSheetLayoutTests: XCTestCase {
 
     // MARK: - Which sizes are offered
 
-    /// Every size is offered at once: none of them collapse onto each other now
-    /// that compact carries a band of its own.
+    /// Every size is offered at once, and each resolves to a distinct height - a
+    /// set that collapsed two of them together would leave a detent a drag could
+    /// never land on separately.
     func testEverySizeIsOffered() {
         let offered = ConversationSheetDetent.presentationDetents(restingHeight: resting)
 
         XCTAssertEqual(offered.count, ConversationSheetDetent.ascending.count)
         XCTAssertTrue(offered.contains(.height(151)))
-        XCTAssertTrue(offered.contains(.height(151 + 96)))
+        XCTAssertTrue(offered.contains(.fraction(0.5)))
+        XCTAssertTrue(offered.contains(.large))
+    }
+
+    /// The Home stops taking touches at the same size `compact` rests at, so a
+    /// user who has dragged the sheet to its middle size can still reach the page
+    /// behind it.
+    func testBackgroundInteractionStopsAtCompact() {
+        XCTAssertEqual(
+            ConversationSheetDetent.backgroundInteractionCeiling,
+            ConversationSheetDetent.compact.presentationDetent(restingHeight: resting)
+        )
     }
 
     // MARK: - What the Home keeps clear

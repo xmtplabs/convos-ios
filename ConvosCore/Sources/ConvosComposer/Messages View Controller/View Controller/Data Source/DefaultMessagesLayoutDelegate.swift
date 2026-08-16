@@ -28,8 +28,6 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             let item = sections[indexPath.section].cells[indexPath.item]
             let width = messagesLayout.layoutFrame.width
             switch item {
-            case .invite:
-                return .estimated(CGSize(width: width, height: 348.0))
             case .conversationInfo:
                 return .estimated(CGSize(width: width, height: 300.0))
             case .date:
