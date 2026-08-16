@@ -46,7 +46,10 @@ final class ConversationInitialTabTests: XCTestCase {
     func testUnreadOpensOntoTheTranscript() {
         let detent = ConversationSheetDetent.initial(hasUnread: true, agentDmRequested: false)
 
-        XCTAssertEqual(detent, .full)
+        // `fitted`, not `full`: as much transcript as there is, which is the whole
+        // screen for a backlog and a small card for two messages. Opening at `full`
+        // regardless landed a short conversation on mostly empty space.
+        XCTAssertEqual(detent, .fitted)
         XCTAssertTrue(detent.showsTranscript)
     }
 
@@ -54,6 +57,6 @@ final class ConversationInitialTabTests: XCTestCase {
     func testAgentDmRequestOpensOntoTheTranscript() {
         let detent = ConversationSheetDetent.initial(hasUnread: false, agentDmRequested: true)
 
-        XCTAssertEqual(detent, .full)
+        XCTAssertEqual(detent, .fitted)
     }
 }

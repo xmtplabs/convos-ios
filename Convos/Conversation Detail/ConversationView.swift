@@ -83,6 +83,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// The in-flight write clearing the group's unread flag, held so a collapse
     /// can abandon it. See `markGroupAsRead`.
     @State private var groupMarkReadTask: Task<Void, Never>?
+    /// Each lane's transcript content height, which caps how far the sheet opens
+    /// on that lane - see `sheetHeights`.
+    ///
+    /// Per lane so a tab switch does not have to wait for the incoming transcript
+    /// to re-measure. `nil` until measured, which leaves the sheet uncapped rather
+    /// than pinned to a transcript of unknown height.
+    @State private var groupTranscriptHeight: CGFloat?
+    @State private var agentTranscriptHeight: CGFloat?
     /// Window safe-area insets, used to convert the sheet's physical-edge
     /// clearance into the safe-area-relative inset the transcripts take.
     @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
@@ -302,6 +310,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // `sheetBarContent`), so the transcript renders no bar of its own.
             hostsBottomBar: false,
             hostRendersContextMenu: true,
+            onContentHeightChanged: { height in
+                handleTranscriptContentHeightChanged(height, for: .group)
+            },
             onScrollToBottomAvailable: { scrollFn in
                 // Fires from inside the representable's make pass; defer the
                 // state write out of the view-update transaction or SwiftUI
@@ -509,6 +520,59 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Deliberately not the sheet's live height - see `collapsedChromeHeight`.
     private var sheetRestingHeight: CGFloat {
         ConversationSheetMetrics.collapsedChromeHeight(barsHeight: sheetChromeBarsHeight)
+    }
+
+    /// Everything the sheet's sizes resolve against, for the selected lane.
+    ///
+    /// The fitted height is the chrome plus that lane's transcript, so the sheet
+    /// stops where the messages do. Unmeasured until the transcript reports, and
+    /// uncapped until then.
+    private var sheetHeights: ConversationSheetHeights {
+        let transcriptHeight: CGFloat? = selectedTab == .agent ? agentTranscriptHeight : groupTranscriptHeight
+        guard let transcriptHeight, containerHeight > 0 else {
+            return ConversationSheetHeights(
+                restingHeight: sheetRestingHeightAboveSafeArea,
+                fittedHeight: .greatestFiniteMagnitude,
+                containerHeight: .greatestFiniteMagnitude
+            )
+        }
+        // The chrome's height at a fixed detent, never `sheetDetent`. Its top band
+        // is 10pt taller while collapsed, so a ceiling derived from the live height
+        // would change every time the sheet changed size - and at `fitted`, where
+        // the ceiling *is* the sheet's height, the sheet would resize itself for
+        // having resized. That loop moved the chrome and disturbed the scroll.
+        let chromeHeight: CGFloat = ConversationSheetMetrics.chromeHeight(
+            barsHeight: sheetChromeBarsHeight,
+            detent: .fitted
+        )
+        return ConversationSheetHeights(
+            restingHeight: sheetRestingHeightAboveSafeArea,
+            fittedHeight: max(chromeHeight - windowSafeAreaInsets.bottom, 0) + transcriptHeight,
+            containerHeight: presentationContainerHeight - windowSafeAreaInsets.bottom
+        )
+    }
+
+    /// Records a lane's transcript height, which is what caps the sheet on it.
+    ///
+    /// Raising the ceiling is all this does. It deliberately does not move the
+    /// sheet: a message arriving is not a request to resize, and the sheet growing
+    /// on its own read as the conversation taking over the screen. The taller size
+    /// is simply there for the next drag.
+    ///
+    /// Not while the sheet is resting at `fitted`, where the ceiling *is* the
+    /// sheet's height - changing it there would resize the sheet under the reader,
+    /// which is the same thing by another route. It catches up on the next drag
+    /// away from that size.
+    private func handleTranscriptContentHeightChanged(_ height: CGFloat, for tab: ConversationTab) {
+        guard sheetDetent != .fitted || tab != selectedTab else { return }
+        switch tab {
+        case .group:
+            guard groupTranscriptHeight != height else { return }
+            groupTranscriptHeight = height
+        case .agent:
+            guard agentTranscriptHeight != height else { return }
+            agentTranscriptHeight = height
+        }
     }
 
     /// Keeps `sheetGeometry` fed with the two heights it cannot measure itself.
@@ -1031,7 +1095,10 @@ private extension ConversationView {
     /// leaving the Home visible, which is why the detent exists.
     private func openCollapsedSheetIfUnread(for tab: ConversationTab) {
         guard sheetDetent == .collapsed, badgedTabs.contains(tab) else { return }
-        sheetDetent = .compact
+        // The smallest size that shows anything, which for a short conversation is
+        // only a little taller than the chrome. Asking for `compact` outright would
+        // be asking for a size the sheet may not be offering.
+        sheetDetent = ConversationSheetDetent.smallestReadable(heights: sheetHeights)
     }
 
     /// Every expansion opens on the newest message, and gets there without the
@@ -1073,9 +1140,14 @@ private extension ConversationView {
     /// tall empty card above the composer. Promoting keeps our state in step
     /// with what is on screen, and matches the intent: typing means the user
     /// wants the conversation, not the Home behind it.
+    ///
+    /// To the transcript's own ceiling rather than to `full`, which would walk
+    /// straight past the cap: focusing the composer of a conversation with two
+    /// messages in it was opening the sheet onto a screen of empty room, and on a
+    /// brand new one onto nothing at all.
     private func handleComposerFocusChanged(_ focus: MessagesViewInputFocus?) {
         guard focus == .message, sheetDetent == .collapsed else { return }
-        sheetDetent = .full
+        sheetDetent = ConversationSheetDetent.tallestOffered(heights: sheetHeights)
     }
 
     /// Parks a transcript at its newest message as it becomes the selected one,
@@ -1322,7 +1394,7 @@ private extension ConversationView {
         }
         .conversationSheetPresentation(
             detent: $sheetDetent,
-            restingHeight: sheetRestingHeightAboveSafeArea
+            heights: sheetHeights
         ) {
             // Focus is declared inside the sheet, because that is the only
             // place a `@FocusState` can reach the composers. See
@@ -1406,6 +1478,9 @@ private extension ConversationView {
                         DispatchQueue.main.async {
                             agentScrollToBottom = scrollFn
                         }
+                    },
+                    onContentHeightChanged: { height in
+                        handleTranscriptContentHeightChanged(height, for: .agent)
                     }
                 )
                 .opacity(selectedTab == .agent ? 1 : 0)

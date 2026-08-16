@@ -379,6 +379,11 @@ public final class MessagesViewController: UIViewController {
         }
     }
 
+    /// Fired with the transcript's content height whenever it changes. See
+    /// `reportContentHeightIfChanged`.
+    var onContentHeightChanged: ((CGFloat) -> Void)?
+    private var lastReportedContentHeight: CGFloat?
+
     private var lastKeyboardFrameChange: KeyboardInfo?
 
     var onUserInteraction: (() -> Void)?
@@ -731,6 +736,9 @@ public final class MessagesViewController: UIViewController {
         collectionView.alwaysBounceVertical = true
         collectionView.dataSource = dataSource
         collectionView.delegate = self
+        (collectionView as? MessagesCollectionView)?.onDidLayoutSubviews = { [weak self] in
+            self?.reportContentHeightIfChanged()
+        }
         messagesLayout.delegate = dataSource
         collectionView.keyboardDismissMode = .interactive
 
@@ -884,19 +892,29 @@ public final class MessagesViewController: UIViewController {
         flushPendingBottomBarInsetUpdate()
         flushPendingComposerInset()
 
+        // Clamped to the lowest offset the scroll view will hold, not floored at
+        // zero. Zero is only the lowest when nothing is inset off the top, and a
+        // host that hands this list a frame taller than it shows - the conversation
+        // sheet, which clips it and insets by the clipped part - breaks that: for
+        // any transcript shorter than the frame the arithmetic lands well below
+        // zero. A `> 0` guard read that as "already at the bottom" and returned
+        // without scrolling, so sending a message never moved the list.
+        let lowestOffset: CGFloat = -collectionView.adjustedContentInset.top
         let contentOffsetAtBottom = CGPoint(
             x: collectionView.contentOffset.x,
-            y: (messagesLayout.collectionViewContentSize.height -
-                collectionView.frame.height +
-                bottomAnchorInset)
+            y: max(
+                messagesLayout.collectionViewContentSize.height
+                    - collectionView.frame.height
+                    + bottomAnchorInset,
+                lowestOffset
+            )
         )
 
         // Exit before cancelling in-flight animations: when the layout's
         // animated bottom-pinning compensation is already scrolling to the
         // bottom, the model offset is at the target and this call must not
         // stamp the presentation mid-flight (which would snap the scroll).
-        guard contentOffsetAtBottom.y > 0,
-              abs(contentOffsetAtBottom.y - collectionView.contentOffset.y) > 0.5 else {
+        guard abs(contentOffsetAtBottom.y - collectionView.contentOffset.y) > 0.5 else {
             completion?()
             return
         }
@@ -1039,6 +1057,19 @@ extension MessagesViewController {
             if !hostsInviteHeader, !conversation.isDraft, headerMode == .standard, !hasVerifiedConvosAgent {
                 cells.insert(.conversationInfo(conversation), at: 0)
             }
+        }
+
+        // A conversation nobody has said anything in yet gets a stand-in, so the
+        // transcript is never entirely blank - and so the conversation sheet, which
+        // sizes itself to the transcript, has a height to size itself to.
+        //
+        // Unless the transcript already carries something that says the same thing:
+        // the agent DM's disclosure header always shows, so a "no comments" line
+        // under it is the empty state twice.
+        if hasLoadedAllMessages,
+           !cells.contains(where: \.isMessages),
+           !cells.contains(where: \.explainsAnEmptyTranscript) {
+            cells.append(.noComments)
         }
 
         // The per-agent "lost power" cell derives ONLY from the backend's
@@ -1588,6 +1619,27 @@ extension MessagesViewController {
         // scroll indicator after the content has stopped receiving it, and the
         // track ends up inset differently from the messages beside it.
         collectionView.automaticallyAdjustsScrollIndicatorInsets = hasBottomBar
+    }
+
+    /// Reports the transcript's content height when it changes, for a host that
+    /// sizes itself to the messages - the conversation sheet, which will not offer
+    /// a detent taller than there is transcript to put in it.
+    ///
+    /// Rounded to a point and compared before reporting: this runs on every layout
+    /// pass, and the host turns the number into a set of presentation detents, so
+    /// a report that carries no news is a rebuild for nothing.
+    func reportContentHeightIfChanged() {
+        let height: CGFloat = collectionView.contentSize.height.rounded()
+        guard height > 0, height != lastReportedContentHeight else { return }
+        lastReportedContentHeight = height
+        // Out of the layout pass, always. This is called from the collection
+        // view's own `layoutSubviews`, and the host turns the number into
+        // presentation detents and content insets - so delivering it inline
+        // re-enters the layout that is still running. UIKit traps on that nesting
+        // rather than tolerating it.
+        DispatchQueue.main.async { [weak self] in
+            self?.onContentHeightChanged?(height)
+        }
     }
 
     /// See `clippedTopOverflow`.

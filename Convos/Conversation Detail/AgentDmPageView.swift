@@ -50,6 +50,9 @@ struct AgentDmPageView: View {
     /// Bridges the DM transcript's scroll-to-bottom up to the sheet's
     /// composer, which fires it on send.
     var onScrollToBottomAvailable: ((@escaping (Bool) -> Void) -> Void)?
+    /// Surfaces this transcript's content height, which caps how far the sheet
+    /// opens on the Agent tab.
+    var onContentHeightChanged: ((CGFloat) -> Void)?
 
     /// Fill of the preparing bar. Creeps while the agent is on its way; it
     /// tracks elapsed time, not real progress, since nothing reports any.
@@ -371,6 +374,7 @@ struct AgentDmPageView: View {
             extraBottomInset: extraBottomInset,
             hostsBottomBar: false,
             hostRendersContextMenu: true,
+            onContentHeightChanged: onContentHeightChanged,
             onScrollToBottomAvailable: onScrollToBottomAvailable,
             bottomBarContent: { EmptyView() }
         )

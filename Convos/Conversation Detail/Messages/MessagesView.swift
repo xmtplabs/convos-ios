@@ -116,6 +116,9 @@ struct MessagesView<BottomBarContent: View>: View {
     /// Surfaces the transcript's scroll-to-bottom trigger to an external
     /// composer host, which fires it on send (the internal bar wires this
     /// itself).
+    /// Surfaces the transcript's content height to the host, which sizes the
+    /// conversation sheet's detents to it.
+    var onContentHeightChanged: ((CGFloat) -> Void)?
     var onScrollToBottomAvailable: ((@escaping (Bool) -> Void) -> Void)?
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
@@ -245,6 +248,7 @@ struct MessagesView<BottomBarContent: View>: View {
             // revealing the list.
             hasBottomBar: !isReadOnly && hostsBottomBar,
             clippedTopOverflow: clippedTopOverflow,
+            onContentHeightChanged: onContentHeightChanged,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn
                 onScrollToBottomAvailable?(scrollFn)

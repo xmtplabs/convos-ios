@@ -86,6 +86,9 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                 case .messages(let group):
                     MessagesListItemTypeCell.messagesGroupContent(group: group, config: config)
 
+                case .noComments:
+                    NoCommentsCellContent()
+
                 case .conversationInfo(let conversation):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
                         ConversationInfoPreview(
@@ -246,6 +249,23 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 /// profile when the inbox is a known contact, so a row like "Alice
 /// joined" renders Alice's actual avatar instead of an "S" monogram
 /// derived from the placeholder per-conversation profile.
+/// The empty transcript's stand-in, styled like a conversation update so it reads
+/// as something the room is telling you rather than a message someone sent.
+///
+/// Its height is fixed at `NoCommentsCellContent.height`, which the layout
+/// delegate returns verbatim: the sheet sizes itself to the transcript, and a
+/// self-sizing empty state would make the sheet's ceiling depend on how the text
+/// happened to wrap.
+struct NoCommentsCellContent: View {
+    static let height: CGFloat = 120.0
+
+    var body: some View {
+        TextTitleContentView(title: "No comments yet", profile: nil)
+            .frame(height: Self.height)
+            .frame(maxWidth: .infinity)
+    }
+}
+
 private struct UpdateCellContent: View {
     let update: ConversationUpdate
     let config: CellConfig

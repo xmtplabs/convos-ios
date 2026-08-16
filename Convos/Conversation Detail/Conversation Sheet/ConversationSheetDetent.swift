@@ -16,11 +16,17 @@ enum ConversationSheetDetent: CaseIterable, Comparable {
     /// Half the screen: enough transcript to read an exchange, with the Home
     /// still showing above it.
     ///
-    /// There used to be a smaller size between this and `collapsed` - the chrome
-    /// plus a fixed band of transcript - and it was not worth stopping at. A band
-    /// that shows one message answers less than the drag costs, so the middle
-    /// size is this one.
+    /// A stop on the way rather than a ceiling, and only offered when it is
+    /// meaningfully below `fitted` - otherwise it is a second name for the same
+    /// height and catches a drag for no reason.
     case compact
+    /// As tall as there is transcript to show, and no taller.
+    ///
+    /// The ceiling. Its height is the chrome plus the messages, so a conversation
+    /// with two messages in it stops just past them instead of opening onto most
+    /// of a screen of nothing. Once the transcript reaches the container this is
+    /// `full` in all but name, and `full` is offered in its place.
+    case fitted
     /// Everything up to just below the conversation indicator.
     case full
 
@@ -40,7 +46,12 @@ enum ConversationSheetDetent: CaseIterable, Comparable {
     /// collapsed and leaves it uncovered. Anything unread - or a tap that
     /// asked for the agent DM outright - opens onto the transcript holding it,
     /// so a backlog is never hidden behind the Home.
+    ///
+    /// `fitted` rather than `full`: it is as much transcript as there is, which is
+    /// the whole screen for a long conversation and only a little card for a short
+    /// one. Opening at `full` regardless would land a two-message conversation on
+    /// mostly empty space.
     static func initial(hasUnread: Bool, agentDmRequested: Bool) -> ConversationSheetDetent {
-        hasUnread || agentDmRequested ? .full : .collapsed
+        hasUnread || agentDmRequested ? .fitted : .collapsed
     }
 }

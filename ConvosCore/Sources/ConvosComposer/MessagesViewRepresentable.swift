@@ -73,6 +73,9 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// `MessagesViewController.clippedTopOverflow`. Default 0 is a host that
     /// shows the whole frame it hands over.
     var clippedTopOverflow: CGFloat = 0.0
+    /// Called with the transcript's content height when it changes, for a host
+    /// that will not offer a detent taller than there is transcript to fill it.
+    var onContentHeightChanged: ((CGFloat) -> Void)?
     let scrollToBottomTrigger: (@escaping (Bool) -> Void) -> Void
     let messageInputFocusTrigger: (@escaping () -> Void) -> Void
 
@@ -134,6 +137,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         hasBottomBar: Bool = true,
         topContentInset: CGFloat = 0.0,
         clippedTopOverflow: CGFloat = 0.0,
+        onContentHeightChanged: ((CGFloat) -> Void)? = nil,
         scrollToBottomTrigger: @escaping (@escaping (Bool) -> Void) -> Void,
         messageInputFocusTrigger: @escaping (@escaping () -> Void) -> Void
     ) {
@@ -185,6 +189,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.hasBottomBar = hasBottomBar
         self.topContentInset = topContentInset
         self.clippedTopOverflow = clippedTopOverflow
+        self.onContentHeightChanged = onContentHeightChanged
         self.scrollToBottomTrigger = scrollToBottomTrigger
         self.messageInputFocusTrigger = messageInputFocusTrigger
     }
@@ -209,6 +214,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.hasBottomBar = hasBottomBar
         messagesViewController.topContentInset = topContentInset
         messagesViewController.clippedTopOverflow = clippedTopOverflow
+        messagesViewController.onContentHeightChanged = onContentHeightChanged
         // Assign bottomBarHeight before state: its deferred inset update must be
         // enqueued ahead of the initial load's scroll-to-bottom completion.
         messagesViewController.bottomBarHeight = bottomBarHeight

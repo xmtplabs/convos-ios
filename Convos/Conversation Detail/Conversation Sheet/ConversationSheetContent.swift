@@ -35,6 +35,10 @@ enum ConversationSheetMetrics {
     /// the edge, 4pt tall.
     static let dragIndicatorAllowance: CGFloat = 10.0
     static let chromeBottomPadding: CGFloat = DesignConstants.Spacing.step4x
+    /// How far the sheet has to open past its chrome for the transcript to be
+    /// fully faded in - roughly a message's worth, so the fade is finished about
+    /// when there is something worth reading.
+    static let transcriptRevealRamp: CGFloat = 80.0
     /// Height of the strip at the sheet's top edge that catches the resize drag,
     /// at the detent where the grabber is hardest to reach - well past the 44pt
     /// minimum touch target, and far past the indicator's own 10pt band, because
@@ -140,6 +144,10 @@ struct ConversationSheetContent<
     /// in.
     @State private var visibleHeight: CGFloat = 0
     @State private var largestVisibleHeight: CGFloat = 0
+    /// The chrome's own frame height, measured here rather than derived, so the
+    /// reveal compares two numbers this view took itself. See
+    /// `transcriptRevealProgress`.
+    @State private var chromeHeight: CGFloat = 0
 
     /// Siblings in a ZStack rather than a `safeAreaInset` or a `VStack`, and
     /// the distinction is what makes messages pass under the chrome:
@@ -246,7 +254,10 @@ struct ConversationSheetContent<
             // Cuts the overflow at the sheet's bounds, so it is not drawn over
             // the conversation behind the sheet.
             .clipped()
-            .opacity(detent.showsTranscript ? 1 : 0)
+            .opacity(transcriptRevealProgress)
+            // On the settled detent, unlike the fade. A half-faded message should
+            // not take a tap, and the drag that is revealing it belongs to the
+            // sheet until it stops.
             .allowsHitTesting(detent.showsTranscript)
     }
 
@@ -298,6 +309,14 @@ struct ConversationSheetContent<
         }
         .padding(.top, ConversationSheetMetrics.chromeTopPadding(for: detent))
         .padding(.bottom, ConversationSheetMetrics.chromeBottomPadding)
+        // Measured after the padding this time: the reveal wants the chrome's
+        // whole frame, since that is the sheet height at which no transcript is
+        // showing yet.
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { height in
+            chromeHeight = height
+        }
         .background { chromeBackdrop }
     }
 }
@@ -317,6 +336,25 @@ private extension ConversationSheetContent {
     /// `MessagesViewController.clippedTopOverflow`.
     var clippedTopOverflow: CGFloat {
         max(heldTranscriptHeight - visibleHeight, 0)
+    }
+
+    /// How faded in the transcript is: nothing at chrome-only, fully in once the
+    /// sheet has opened `transcriptRevealRamp` past it.
+    ///
+    /// Driven by the sheet's live height rather than by the settled detent, which
+    /// is the difference between a fade that follows the finger and one that
+    /// happens after the drag has already finished. The height arrives every frame
+    /// from the spacer this view measures - the same signal the clipped overflow
+    /// rides - so tracking it costs nothing new.
+    ///
+    /// The floor matters as much as the ramp: at chrome-only this reaches exactly
+    /// zero, which is what keeps a short conversation's messages from showing
+    /// through the near-transparent top of the chrome's backdrop.
+    var transcriptRevealProgress: Double {
+        guard chromeHeight > 0 else { return 1 }
+        let revealed: CGFloat = visibleHeight - chromeHeight
+        let progress: CGFloat = revealed / ConversationSheetMetrics.transcriptRevealRamp
+        return Double(min(max(progress, 0), 1))
     }
 
     /// Blur and tint behind the composer and tab bar, so transcript content
