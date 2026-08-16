@@ -20,7 +20,7 @@ The three features form one system:
 ## 1. Agent switcher at the composer
 
 - Put a 44-point circular agent-avatar button immediately left of the existing camera/attachment controls. The image is the active agent's real profile photo; Space Abilities uses the orange star avatar shown in the supplied references.
-- A tap opens a native selection sheet. Initial prototype content: Flight Tracker, Shane's Agent, Space Abilities, and Ghost Mode. The current lane has a checkmark; Ghost Mode uses an SF Symbol ghost and a short privacy subtitle.
+- A tap opens a native selection sheet. Initial prototype content: Flight Tracker, Shane's Agent, Space Abilities, and Ghost Mode. The current lane has a checkmark; Ghost Mode uses a custom ghost glyph and a short privacy subtitle.
 - Selecting an agent keeps the user in the same group, replaces the agent transcript/composer context, updates the avatar and placeholder, preserves each lane's scroll position, and dismisses the sheet.
 - Draft text, attachments, and response progress belong to their lane. Switching does not cancel an in-flight response; the destination row shows activity, and returning restores the draft and scroll position exactly.
 - Empty, unavailable, unread, and loading states must be represented. Agent names truncate to one line, every row remains at least 44 points, and VoiceOver announces current/unread/private state.
@@ -41,7 +41,17 @@ The three features form one system:
 - Prototype persistence is per-agent and on-device. Production requires a runtime-owned catalog (`id`, display name, provider, credit multiplier, required plan, availability) plus read/update endpoints on the agent instance. The server must remain authoritative for entitlement and credit charging.
 - Until that runtime contract exists, the selector is available only in non-production app environments. A purchase callback never unlocks a model optimistically; activation waits for the subscription service to publish a confirmed entitlement.
 
-## Acceptance path
+## Acceptance paths
+
+### Agent switching and Ghost Mode
+
+1. Open any convo in a non-production build and tap **Agent**. The sheet opens to full height on Flight Tracker when no real agent lane is available.
+2. Tap the circular avatar immediately left of the composer and see Flight Tracker, Shane's Agent, Space Abilities, and Ghost Mode.
+3. Select Ghost Mode and see the private intro, private composer, and share control on each completed message.
+4. Tap a message's Share control and see **Send to** destinations plus **Save to Desktop**, with copy that only the selected message leaves.
+5. Tap the selected **Agent** tab to collapse or reopen the sheet; tapping **Group** opens that tab fully.
+
+### Agent model selection
 
 1. Open Space Abilities' profile and see GPT-5.6 Sol as the current model.
 2. Open the model list, inspect model power/cost, and choose Claude Fable.
@@ -53,5 +63,6 @@ The three features form one system:
 
 - Model names, providers, credit multipliers, and plan mapping are illustrative until the runtime returns a canonical catalog.
 - Existing Plus is the only purchasable paid entitlement, so all non-default prototype models map to Plus.
-- Agent switching and Ghost Mode are specified here but intentionally follow the model selector in implementation order.
+- Agent switching and Ghost Mode are interactive local prototypes in non-production builds. They demonstrate lane behavior and selective sharing but do not claim a deployed multi-agent or privacy-isolated server runtime.
+- A real agent destination reports an explicit preview-only/not-sent result until the Ghost export contract is connected; the prototype never displays false delivery success.
 - This branch includes a Debug-only, account-free Space Abilities profile host for design review. Set `CONVOS_AGENT_MODEL_PROTOTYPE=1`; optional `CONVOS_AGENT_MODEL_PROTOTYPE_STATE` values are `picker`, `upgrade`, and `paywall`. The production root view is unchanged when that flag is absent.

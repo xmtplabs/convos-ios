@@ -17,9 +17,9 @@ struct ConversationTabBar: View {
     /// corner (Figma 7488:14106). Hosts exclude the active tab - the user
     /// is looking at it.
     var badgedTabs: Set<ConversationTab> = []
-    /// Fired when a tap lands on the already-selected tab (the native tab
-    /// bar's re-tap contract: pop to root / scroll to top). Not fired when a
-    /// drag visits other slots before returning.
+    /// Fired when a tap lands on the already-selected tab. The conversation
+    /// host uses this to toggle the sheet fully open or collapsed. Not fired
+    /// when a drag visits other slots before returning.
     var onReselect: (ConversationTab) -> Void = { _ in }
 
     /// True while a finger is on the bar; compresses the thumb slightly,
@@ -122,8 +122,24 @@ struct ConversationTabBar: View {
         .animation(.easeInOut(duration: 0.2), value: isSelected)
         .accessibilityLabel(tab.title)
         .accessibilityValue(isBadged ? "Unread" : "")
+        .accessibilityHint(
+            isSelected
+                ? "Double tap to expand or collapse the conversation"
+                : "Double tap to open this conversation"
+        )
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { accessibilityActivate(tab) }
         .accessibilityIdentifier("conversation-tab-\(tab.rawValue)")
+    }
+
+    private func accessibilityActivate(_ tab: ConversationTab) {
+        if tab == selectedTab {
+            onReselect(tab)
+        } else {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                selectedTab = tab
+            }
+        }
     }
 
     /// The unread indicator, riding the icon's top-right corner. The ring
