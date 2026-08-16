@@ -2,7 +2,7 @@
 version: 1
 slug: "convos-conversation-detail-agentdmpageview-swift"
 primary_target: "Convos/Conversation Detail/AgentDmPageView.swift"
-related_targets: ["Convos/Conversation Detail/Conversation Sheet/AgentChatPrototype.swift","Convos/Conversation Detail/Conversation Sheet/ExternalAgentPrototype.swift","Convos/Conversation Detail/Home/DesktopAgentPrototype.swift","Convos/Conversation Detail/Conversation Sheet/AgentComposerBar.swift","Convos/Conversation Detail/ConversationView.swift","Convos/Conversation Detail/Conversation Sheet/ConversationTabBar.swift"]
+related_targets: ["Convos/Conversation Detail/Conversation Sheet/AgentChatPrototype.swift","Convos/Conversation Detail/Conversation Sheet/ExternalAgentPrototype.swift","Convos/Conversation Detail/Conversation Sheet/AgentComposerBar.swift","Convos/Conversation Detail/ConversationView.swift","Convos/Conversation Detail/Conversation Sheet/ConversationTabBar.swift"]
 ---
 
 # Agent chat lanes and Ghost Mode prototype
@@ -19,7 +19,7 @@ The agent side of a conversation is a private, controllable workspace. The activ
 - Connecting is explicitly a local demo. Each connected external lane exposes per-conversation access for private Home editing, group participation, and scoped member DMs; all access defaults private/off except the user's own Home read/write permission.
 - Each local prototype lane keeps its own draft, transcript, and working state. Switching lanes never redirects or cancels in-flight work.
 - Ghost Mode uses the custom ghost glyph, the heading **Completely off the record.**, and message-level Share actions. The native **Send to** menu states that only the selected message leaves.
-- The Home surface exposes a compact **From the chat** link shelf. Real links from group messages become cards and determine the count; clearly labeled Demo cards fill the prototype when needed. Each card has an agent affordance that opens the Agent sheet fully with an object-specific, preview-first edit draft.
+- Home remains an unobstructed WebView owned by the desktop surface. Native agent prototypes must not overlay controls or intercept touches above that WebView.
 - Choosing a different Group/Agent tab opens the persistent sheet fully. Tapping the already-selected tab toggles fully open/collapsed, while drag behavior remains available.
 
 ## Truth boundary
@@ -43,4 +43,3 @@ Ghost sharing completes inside local prototype lanes. A real agent destination m
 5. Open Ghost Mode, share one message to an agent or the desktop, and confirm the UI identifies the single-message scope.
 6. Tap selected **Agent** to collapse and reopen; switch to **Group** and confirm it opens fully.
 7. Choose **Add an external agent**, inspect every provider, connect one, and confirm its access controls and chat lane appear.
-8. On Home, open a link card, then tap its agent avatar and confirm Agent opens fully with the relevant card named in the draft.
