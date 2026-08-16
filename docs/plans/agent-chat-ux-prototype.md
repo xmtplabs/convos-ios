@@ -46,12 +46,11 @@ The three features form one system:
 - Finishing the demo adds that external agent as a real selectable prototype lane. Its transcript, draft, and response state stay isolated from every other lane.
 - The lane’s **Agent access** setting exposes three independent permissions: private read/write access to this convo’s Home; listening/replying in the group; and member DMs limited to context from this group. Everything starts off except the private Home collaboration permission.
 
-## 5. Links as agent-editable Home objects
+## 5. Links as agent-editable Home objects — WebView-owned follow-up
 
-- Link previews in the group transcript are projected into a **From the chat** shelf on Home. The card keeps the source URL, title, site, preview image when available, sender, and source message ID.
-- Each card has a small active-agent avatar. Tapping it opens the Agent sheet fully, selects a non-Ghost lane, and seeds a draft that names the object and requires a preview before publishing.
-- **Edit Home** provides the same loop for the whole desktop. The agent first summarizes what it can see and asks what to change; it does not publish on the first tap.
-- The prototype supplies three cards labeled **Demo** when a convo has no link previews so the interaction remains testable. Demo cards do not inflate the **From the chat** count, and real cards immediately replace them as links arrive.
+- Home is a WebView and remains fully unobstructed in the iOS prototype. The removed native shelf must not be reintroduced above it.
+- Link cards and their agent affordances should be rendered by the Home web experience itself. The WebView can use the existing navigation bridge to request a native Agent sheet when that contract is implemented.
+- A future card keeps the source URL, title, site, preview image when available, sender, and source message ID. Its edit action should name the object and require a preview before publishing.
 - Production edits must target stable Home object IDs and use optimistic concurrency. The source chat message remains immutable; the Home projection can be rearranged, annotated, hidden, or replaced without rewriting message history.
 
 ## Acceptance paths
@@ -73,20 +72,18 @@ The three features form one system:
 4. Open the existing membership sheet from the upgrade button.
 5. After a successful purchase, return to the profile with Claude Fable active for Space Abilities only.
 
-### External agent and Home editing
+### External agent
 
 1. Open the agent switcher and tap **Add an external agent** before Ghost Mode.
 2. Inspect all five providers, open one connection explanation, and complete **Connect demo** without entering a secret.
 3. Return to the selected external-agent lane and open **Agent access**. Confirm private Home access is on and the group/DM permissions are off.
-4. Collapse the conversation sheet and see the **From the chat** link shelf on Home.
-5. Tap a card’s agent avatar and confirm the Agent sheet opens fully with an object-specific draft in the selected lane.
-6. Tap **Edit Home** and confirm the sheet opens with a safe preview-first editing prompt.
+4. Collapse the conversation sheet and confirm the Home WebView remains unobstructed and fully interactive.
 
 ## Explicit prototype assumptions
 
 - Model names, providers, credit multipliers, and plan mapping are illustrative until the runtime returns a canonical catalog.
 - Existing Plus is the only purchasable paid entitlement, so all non-default prototype models map to Plus.
 - Agent switching and Ghost Mode are interactive local prototypes in non-production builds. They demonstrate lane behavior and selective sharing but do not claim a deployed multi-agent or privacy-isolated server runtime.
-- External connections, permission changes, and Home edits are also local non-production demonstrations. The UI says **demo** at the connection boundary and sends no provider credential, remote request, or Home mutation.
+- External connections and permission changes are local non-production demonstrations. The UI says **demo** at the connection boundary and sends no provider credential or remote request. Home-edit controls are deferred to the WebView implementation.
 - Ghost sharing completes inside local prototype lanes. If a requested row resolves to a real agent lane before the export contract exists, the UI explicitly says the preview was not sent rather than reporting a false success.
 - This branch includes a Debug-only, account-free Space Abilities profile host for design review. Set `CONVOS_AGENT_MODEL_PROTOTYPE=1`; optional `CONVOS_AGENT_MODEL_PROTOTYPE_STATE` values are `picker`, `upgrade`, and `paywall`. The production root view is unchanged when that flag is absent.
