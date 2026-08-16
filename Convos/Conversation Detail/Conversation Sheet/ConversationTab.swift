@@ -28,11 +28,18 @@ enum ConversationTab: String, CaseIterable, Identifiable, Hashable {
     ///
     /// Whether that transcript is actually showing on arrival is the detent's
     /// business - see `ConversationSheetDetent.initial`.
+    /// - Parameter agentDmHoldsTheUnread: the DM lane is the one with something
+    ///   waiting and the group is not. Opening onto the group would show a read
+    ///   transcript while the dot sat on the other tab, so the unread lane gets
+    ///   the open. When both lanes have something, the group wins - it is the
+    ///   conversation the row was for.
     static func initial(
         available: [ConversationTab],
-        agentDmRequested: Bool
+        agentDmRequested: Bool,
+        agentDmHoldsTheUnread: Bool = false
     ) -> ConversationTab {
-        if agentDmRequested, available.contains(.agent) {
+        guard available.contains(.agent) else { return .group }
+        if agentDmRequested || agentDmHoldsTheUnread {
             return .agent
         }
         return .group

@@ -45,6 +45,16 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onAppear { isPresented = true }
+            // Dismissed as the pop begins, so it slides down with the screen it
+            // belongs to. A sheet is a presentation over the whole window, so it
+            // does not travel with a navigation transition: left alone it sits
+            // there while the conversation slides away, then blinks out when the
+            // screen is finally torn down. `onDisappear` is too late to animate
+            // from - see `ScreenExitReporter`.
+            .background {
+                ScreenExitReporter { isPresented = false }
+                    .frame(width: 0, height: 0)
+            }
             .sheet(isPresented: $isPresented) {
                 sheetContent()
                     .presentationDetents(

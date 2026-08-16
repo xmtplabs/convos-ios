@@ -367,7 +367,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
         )
         let tab: ConversationTab = ConversationTab.initial(
             available: availableTabs,
-            agentDmRequested: agentDmRequested
+            agentDmRequested: agentDmRequested,
+            agentDmHoldsTheUnread: agentDmHoldsTheUnread
         )
         guard tab != selectedTab else { return }
         selectTab(tab)
@@ -380,6 +381,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var hasUnreadToRead: Bool {
         if viewModel.conversation.isUnread { return true }
         if initialAgentDmInboxId != nil { return true }
+        return agentDmSession?.dmViewModel?.conversation.isUnread == true
+    }
+
+    /// Whether the DM lane is the one holding something to read, so the open lands
+    /// there rather than on a group transcript that has nothing new in it.
+    ///
+    /// Only when the group has nothing of its own: with both unread, the group is
+    /// what the list row was for.
+    private var agentDmHoldsTheUnread: Bool {
+        guard !viewModel.conversation.isUnread else { return false }
         return agentDmSession?.dmViewModel?.conversation.isUnread == true
     }
 

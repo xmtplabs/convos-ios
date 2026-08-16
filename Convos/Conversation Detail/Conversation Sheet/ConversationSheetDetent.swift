@@ -47,11 +47,12 @@ enum ConversationSheetDetent: CaseIterable, Comparable {
     /// asked for the agent DM outright - opens onto the transcript holding it,
     /// so a backlog is never hidden behind the Home.
     ///
-    /// `fitted` rather than `full`: it is as much transcript as there is, which is
-    /// the whole screen for a long conversation and only a little card for a short
-    /// one. Opening at `full` regardless would land a two-message conversation on
-    /// mostly empty space.
+    /// `compact`, not the ceiling. Opening a conversation is not a request to be
+    /// taken to full screen: the unread message is at the bottom of the
+    /// transcript, half a screen shows it and what came before it, and the Home
+    /// stays in view above. Anyone who wants the rest can drag - which is a
+    /// gesture, where arriving at full screen unasked is a surprise.
     static func initial(hasUnread: Bool, agentDmRequested: Bool) -> ConversationSheetDetent {
-        hasUnread || agentDmRequested ? .fitted : .collapsed
+        hasUnread || agentDmRequested ? .compact : .collapsed
     }
 }

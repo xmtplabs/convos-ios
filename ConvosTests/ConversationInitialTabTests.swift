@@ -31,6 +31,31 @@ final class ConversationInitialTabTests: XCTestCase {
         XCTAssertEqual(tab, .group)
     }
 
+    /// Opening onto the group would show a read transcript while the dot sat on
+    /// the other tab, so the lane holding the unread gets the open.
+    func testAnUnreadDmOpensTheDmWithoutBeingAskedFor() {
+        let tab = ConversationTab.initial(
+            available: allTabs,
+            agentDmRequested: false,
+            agentDmHoldsTheUnread: true
+        )
+
+        XCTAssertEqual(tab, .agent)
+    }
+
+    /// With both lanes unread the group wins - it is the conversation the list row
+    /// was for. The host decides this by only reporting the DM when the group has
+    /// nothing of its own.
+    func testTheGroupKeepsTheOpenWhenItAlsoHasSomethingUnread() {
+        let tab = ConversationTab.initial(
+            available: allTabs,
+            agentDmRequested: false,
+            agentDmHoldsTheUnread: false
+        )
+
+        XCTAssertEqual(tab, .group)
+    }
+
     // MARK: - How much of it is showing
 
     /// Nothing to read means the Home is the point, so the sheet leaves it
@@ -49,7 +74,10 @@ final class ConversationInitialTabTests: XCTestCase {
         // `fitted`, not `full`: as much transcript as there is, which is the whole
         // screen for a backlog and a small card for two messages. Opening at `full`
         // regardless landed a short conversation on mostly empty space.
-        XCTAssertEqual(detent, .fitted)
+        // `compact`, not the ceiling: opening a conversation is not a request to
+        // be taken to full screen. The unread message is at the bottom, half a
+        // screen shows it and its context, and the Home stays in view.
+        XCTAssertEqual(detent, .compact)
         XCTAssertTrue(detent.showsTranscript)
     }
 
@@ -57,6 +85,6 @@ final class ConversationInitialTabTests: XCTestCase {
     func testAgentDmRequestOpensOntoTheTranscript() {
         let detent = ConversationSheetDetent.initial(hasUnread: false, agentDmRequested: true)
 
-        XCTAssertEqual(detent, .fitted)
+        XCTAssertEqual(detent, .compact)
     }
 }
