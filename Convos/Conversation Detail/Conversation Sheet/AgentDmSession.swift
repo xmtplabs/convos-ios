@@ -34,6 +34,9 @@ final class AgentDmSession {
     private(set) var isProvisioningDefaultAgent: Bool = false
     @ObservationIgnored
     private var requestTimeoutTask: Task<Void, Never>?
+    /// The in-flight read mark, held so it can be abandoned if the lane stops
+    /// being read first. See `cancelPendingReadMark`.
+    private var markReadTask: Task<Void, Never>?
 
     init(originViewModel: ConversationViewModel) {
         self.originViewModel = originViewModel
@@ -207,7 +210,8 @@ final class AgentDmSession {
         guard let dmViewModel else { return }
         let conversationId: String = dmViewModel.conversation.id
         let messagingService = dmViewModel.messagingService
-        Task {
+        markReadTask?.cancel()
+        markReadTask = Task {
             do {
                 try await messagingService
                     .conversationLocalStateWriter()
@@ -216,6 +220,17 @@ final class AgentDmSession {
                 Log.warning("Failed marking agent DM as read: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Abandons an in-flight read mark, for when the lane stops being read before
+    /// the write lands.
+    ///
+    /// Without this the write outlives the reason for it: the sheet collapses, a
+    /// message arrives and marks the lane unread, and then the stale
+    /// `setUnread(false)` clears an unread the user never saw.
+    func cancelPendingReadMark() {
+        markReadTask?.cancel()
+        markReadTask = nil
     }
 
     /// Registers (or clears) this DM lane as the on-screen conversation with

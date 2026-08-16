@@ -80,6 +80,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// a reference type nothing in this body reads: see
     /// `ConversationSheetGeometry`.
     @State private var sheetGeometry: ConversationSheetGeometry = ConversationSheetGeometry()
+    /// The in-flight write clearing the group's unread flag, held so a collapse
+    /// can abandon it. See `markGroupAsRead`.
+    @State private var groupMarkReadTask: Task<Void, Never>?
     /// Window safe-area insets, used to convert the sheet's physical-edge
     /// clearance into the safe-area-relative inset the transcripts take.
     @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
@@ -173,6 +176,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private func handleTranscriptReply(_ message: AnyMessage) {
         viewModel.onReply(message)
         focusCoordinator.moveFocus(to: .message)
+    }
+
+    /// Reply chosen from the sheet's long-press menu, which is shared by both
+    /// transcripts - so it has to be aimed at the lane the message came from
+    /// rather than at the group. `handleTranscriptReply` above is the group
+    /// transcript's own swipe-to-reply and stays group-only.
+    private func handleContextMenuReply(_ message: AnyMessage) {
+        activeLaneViewModel.onReply(message)
+        activeLaneFocusCoordinator.moveFocus(to: .message)
     }
 
     private func handleTranscriptOpenMessageDetail(_ message: AnyMessage) {
@@ -424,6 +436,30 @@ struct ConversationView<MessagesBottomBar: View>: View {
         ConversationTab.allCases
     }
 
+    /// The view model behind the transcript the selected tab is showing.
+    ///
+    /// The sheet renders one long-press menu over both transcripts, because the
+    /// menu has to escape the clip the detent puts on them - so the menu cannot
+    /// take its handlers from the transcript that raised it, and has to resolve
+    /// the lane itself. Aim an action at the wrong one and it lands in the wrong
+    /// conversation: a reaction carrying a DM message's id sent through the
+    /// group's view model targets a message the group does not have.
+    ///
+    /// Falls back to the group when the Agent tab has no DM bound yet, which has
+    /// no transcript and so no message to act on.
+    private var activeLaneViewModel: ConversationViewModel {
+        guard selectedTab == .agent, let dmViewModel = agentDmSession?.dmViewModel else {
+            return viewModel
+        }
+        return dmViewModel
+    }
+
+    /// The focus coordinator for the selected lane's composer, so a reply opens
+    /// the composer the reply will be sent from.
+    private var activeLaneFocusCoordinator: FocusCoordinator {
+        selectedTab == .agent ? agentFocusCoordinator : focusCoordinator
+    }
+
     /// Per-tab unread indicators, from the surfaces' own conversations.
     ///
     /// Being the selected tab is not enough to suppress the dot - being *read* is,
@@ -539,6 +575,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
             if newURL == nil {
                 homeBrowserEntries.removeAll()
             }
+        }
+        // The new-convo flow swaps a placeholder view model for the real
+        // conversation, and the on-screen registration has to follow it: the
+        // placeholder's id is the one held otherwise, so the conversation the
+        // user is actually looking at keeps raising banners while the
+        // placeholder's registration leaks past this screen.
+        .onChange(of: viewModel.conversation.id) { oldId, newId in
+            handleConversationIdChanged(from: oldId, to: newId)
         }
         // Keeps the Agent tab bound to the conversation's current agent, and
         // keeps retrying the DM bind until the agent-created DM syncs in.
@@ -870,6 +914,10 @@ private extension ConversationView {
     /// Deliberately marks nothing read. What arrives while the sheet is down is
     /// unread, and staying unread is the whole point.
     private func releaseReadingLane() {
+        // Both lanes, not just the selected one: an in-flight read mark from
+        // either would clear an unread that arrives once the sheet is down.
+        groupMarkReadTask?.cancel()
+        agentDmSession?.cancelPendingReadMark()
         switch selectedTab {
         case .group:
             if viewModel.isViewingConversation {
@@ -899,10 +947,18 @@ private extension ConversationView {
         }
     }
 
+    /// Clears the group's unread flag, abandoning the write if the lane stops
+    /// being read before it lands.
+    ///
+    /// The cancellation is the point. Without it the write outlives its reason:
+    /// the sheet collapses, a message arrives and marks the group unread, and the
+    /// stale `setUnread(false)` then clears an unread the user never saw. The
+    /// tab-leaving path guards the same race by re-checking the selected tab.
     private func markGroupAsRead() {
         let conversationId: String = viewModel.conversation.id
         let messagingService = viewModel.messagingService
-        Task {
+        groupMarkReadTask?.cancel()
+        groupMarkReadTask = Task {
             do {
                 try await messagingService
                     .conversationLocalStateWriter()
@@ -935,11 +991,24 @@ private extension ConversationView {
     /// user, and the tab's unread dot is the better notification. The DM lane
     /// registers itself the same way - see `AgentDmSession`.
     private func updateGroupOnScreen(isOnScreen: Bool) {
+        postOnScreenConversation(viewModel.conversation.id, isOnScreen: isOnScreen)
+    }
+
+    /// Moves the registration when the group's own id changes under it, which the
+    /// new-convo flow does when the real conversation replaces the placeholder.
+    /// Deregister first, so the outgoing id cannot be left behind.
+    private func handleConversationIdChanged(from oldId: String, to newId: String) {
+        guard oldId != newId else { return }
+        postOnScreenConversation(oldId, isOnScreen: false)
+        postOnScreenConversation(newId, isOnScreen: true)
+    }
+
+    private func postOnScreenConversation(_ conversationId: String, isOnScreen: Bool) {
         NotificationCenter.default.post(
             name: .onScreenConversationChanged,
             object: nil,
             userInfo: [
-                "conversationId": viewModel.conversation.id,
+                "conversationId": conversationId,
                 "isOnScreen": isOnScreen,
             ]
         )
@@ -1328,6 +1397,7 @@ private extension ConversationView {
                     extraBottomInset: sheetChromeHeight,
                     isReadOnly: effectiveReadOnly,
                     isActiveTab: selectedTab == .agent,
+                    isSheetCollapsed: sheetDetent == .collapsed,
                     contextMenuState: agentContextMenuState,
                     focusState: agentFocus,
                     focusCoordinator: agentFocusCoordinator,
@@ -1444,17 +1514,18 @@ private extension ConversationView {
         let state: MessageContextMenuState = selectedTab == .agent
             ? agentContextMenuState
             : contextMenuState
+        let lane: ConversationViewModel = activeLaneViewModel
         MessageContextMenuOverlay(
             state: state,
             isReadOnly: effectiveReadOnly,
-            onReaction: viewModel.onReaction(emoji:messageId:),
-            onReply: handleTranscriptReply(_:),
+            onReaction: lane.onReaction(emoji:messageId:),
+            onReply: handleContextMenuReply(_:),
             onCopy: { text in
                 UIPasteboard.general.string = text
             }
         )
-        .environment(\.agentShareResolver, viewModel.agentShareResolver)
-        .environment(\.inviteMembershipResolver, viewModel.inviteMembershipResolver)
+        .environment(\.agentShareResolver, lane.agentShareResolver)
+        .environment(\.inviteMembershipResolver, lane.inviteMembershipResolver)
     }
 
     /// Extra rows above the group composer: the injected bottom-bar slot plus

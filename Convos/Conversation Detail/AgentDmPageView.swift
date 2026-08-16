@@ -31,6 +31,15 @@ struct AgentDmPageView: View {
     /// ConversationView's tab-change handler, through the focus
     /// coordinators.)
     let isActiveTab: Bool
+    /// True while the conversation sheet rests collapsed, which puts this
+    /// transcript behind the chrome.
+    ///
+    /// The read state keys off it, not off `isActiveTab` alone: nothing here has
+    /// been read while it is true, so the lane must not be marked read nor claim
+    /// to be the lane being read. Otherwise a bind landing while the sheet is
+    /// down - the reconciler creating the DM as the user waits - would quietly
+    /// clear the unread state its own arrival should have set.
+    var isSheetCollapsed: Bool = false
     /// Owned by ConversationView so the sheet can hide while the DM's
     /// long-press context menu is presented.
     @Bindable var contextMenuState: MessageContextMenuState
@@ -68,7 +77,7 @@ struct AgentDmPageView: View {
         // already active, so no isActiveTab change fires; handle the initial
         // activation (mark read, register the push-suppression lane) here.
         .onAppear {
-            if isActiveTab {
+            if isActiveTab, !isSheetCollapsed {
                 handleActiveTabChange(true)
             }
         }
@@ -88,7 +97,7 @@ struct AgentDmPageView: View {
         // before the view model existed, so mark it read and register the
         // lane now.
         .onChange(of: session.dmViewModel?.conversation.id) { _, dmId in
-            guard dmId != nil, isActiveTab else { return }
+            guard dmId != nil, isActiveTab, !isSheetCollapsed else { return }
             session.markDmAsRead()
             session.updateActiveDmLane(isActive: true)
         }
@@ -114,11 +123,15 @@ struct AgentDmPageView: View {
             session.dmViewModel?.replyingToMessage = nil
             // The user just had the DM on screen: anything that arrived
             // while they watched is read, so it doesn't badge the tab they
-            // left.
-            session.markDmAsRead()
+            // left. Unless the sheet was collapsed over it, where nothing was
+            // on screen to have been read.
+            if !isSheetCollapsed {
+                session.markDmAsRead()
+            }
             session.updateActiveDmLane(isActive: false)
             return
         }
+        guard !isSheetCollapsed else { return }
         session.markDmAsRead()
         session.updateActiveDmLane(isActive: true)
     }

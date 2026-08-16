@@ -44,7 +44,9 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
             ])
         })
 
-        let layout = try XCTUnwrap(await ConversationViewModel.computeCapabilityPickerLayout(
+        // Awaited into a local first: `XCTUnwrap` takes an autoclosure, which
+        // cannot carry an `await`.
+        let computedLayout = await ConversationViewModel.computeCapabilityPickerLayout(
             request: makeRequest(),
             registry: registry,
             resolver: resolver,
@@ -52,7 +54,8 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
             servicesStore: servicesStore,
             cloudConnectionRepository: MockConnectionRepository(),
             conversationId: "test-convo"
-        ))
+        )
+        let layout = try XCTUnwrap(computedLayout)
 
         XCTAssertEqual(layout.serviceBundles.count, 1,
                        "Catalog-backed services must surface their bundle rows")
