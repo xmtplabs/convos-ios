@@ -11,6 +11,7 @@ struct AgentChatLane: Identifiable {
     enum Kind: Equatable {
         case live(inboxId: String)
         case prototype(PrototypeAgent)
+        case external(ExternalAgentProvider)
         case ghost
     }
 
@@ -66,13 +67,18 @@ struct AgentChatLane: Identifiable {
 
     var isLocalPrototype: Bool {
         switch kind {
-        case .prototype, .ghost: true
+        case .prototype, .external, .ghost: true
         case .live: false
         }
     }
 
     var isGhost: Bool {
         kind == .ghost
+    }
+
+    var externalProvider: ExternalAgentProvider? {
+        guard case .external(let provider) = kind else { return nil }
+        return provider
     }
 
     static func live(profile: Profile, verification: AgentVerification) -> AgentChatLane {
@@ -92,6 +98,17 @@ struct AgentChatLane: Identifiable {
             name: agent.displayName,
             subtitle: agent.subtitle,
             kind: .prototype(agent),
+            profile: nil,
+            agentVerification: .unverified
+        )
+    }
+
+    static func external(_ provider: ExternalAgentProvider) -> AgentChatLane {
+        AgentChatLane(
+            id: "prototype:external:\(provider.rawValue)",
+            name: provider.displayName,
+            subtitle: provider.chatSubtitle,
+            kind: .external(provider),
             profile: nil,
             agentVerification: .unverified
         )
@@ -134,6 +151,28 @@ final class AgentChatPrototypeState {
     private(set) var draftsByLane: [String: String] = [:]
     private(set) var workingLaneIds: Set<String> = []
     private(set) var shareConfirmation: String?
+    private(set) var connectedExternalProviders: [ExternalAgentProvider] = []
+    private(set) var externalAccessByProvider: [ExternalAgentProvider: ExternalAgentAccess] = [:]
+
+    func connect(_ provider: ExternalAgentProvider) {
+        if !connectedExternalProviders.contains(provider) {
+            connectedExternalProviders.append(provider)
+        }
+        if externalAccessByProvider[provider] == nil {
+            externalAccessByProvider[provider] = .privateDesktop
+        }
+    }
+
+    func access(for provider: ExternalAgentProvider) -> ExternalAgentAccess {
+        externalAccessByProvider[provider, default: .privateDesktop]
+    }
+
+    func accessBinding(for provider: ExternalAgentProvider) -> Binding<ExternalAgentAccess> {
+        Binding(
+            get: { [weak self] in self?.access(for: provider) ?? .privateDesktop },
+            set: { [weak self] access in self?.externalAccessByProvider[provider] = access }
+        )
+    }
 
     func select(_ lane: AgentChatLane) {
         selectedLaneId = lane.id
@@ -224,6 +263,13 @@ final class AgentChatPrototypeState {
                     text: "Tokyo redesign is live. I can update Home, check in with members, or turn the next idea into a plan."
                 ),
             ]
+        case .external(let provider):
+            [
+                AgentChatPrototypeMessage(
+                    sender: .agent,
+                    text: provider.welcomeMessage
+                ),
+            ]
         case .ghost:
             [
                 AgentChatPrototypeMessage(
@@ -244,6 +290,8 @@ final class AgentChatPrototypeState {
             "Got it. I’d turn “\(userText)” into the next concrete action and keep the working context in this lane."
         case .prototype(.spaceAbilities):
             "I can work with that privately here, then update Home or ping the right member once you approve it."
+        case .external(let provider):
+            "Demo connection active. \(provider.displayName) would work on “\(userText)” with only the access you approved for this convo."
         case .ghost:
             "Here’s a private first pass: keep the core idea, remove anything identifying, and share only the sentence you want another agent to act on."
         case .live:
@@ -281,6 +329,12 @@ struct AgentChatLaneAvatar: View {
                 .foregroundStyle(agent == .spaceAbilities ? Color.yellow : Color.white)
                 .frame(width: size, height: size)
                 .background(agent.tint, in: .circle)
+        case .external(let provider):
+            Image(systemName: provider.symbolName)
+                .font(.system(size: size * 0.38, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .frame(width: size, height: size)
+                .background(provider.tint, in: .circle)
         case .ghost:
             GhostGlyph()
                 .frame(width: size * 0.48, height: size * 0.52)
@@ -338,6 +392,7 @@ struct AgentSwitcherSheet: View {
     let onSelect: (AgentChatLane) -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @State private var isExternalOnboardingPresented: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -346,6 +401,37 @@ struct AgentSwitcherSheet: View {
                     ForEach(lanes.filter { !$0.isGhost }) { lane in
                         laneButton(lane)
                     }
+                }
+
+                Section {
+                    Button {
+                        isExternalOnboardingPresented = true
+                    } label: {
+                        HStack(spacing: DesignConstants.Spacing.step3x) {
+                            Image(systemName: "plus")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.colorTextPrimaryInverted)
+                                .frame(width: 44, height: 44)
+                                .background(.colorFillPrimary, in: .circle)
+                            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                                Text("Add an external agent")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.colorTextPrimary)
+                                Text("Bring Codex, Claude Code, Hermes, OpenClaw, or Grok")
+                                    .font(.footnote)
+                                    .foregroundStyle(.colorTextSecondary)
+                                    .lineLimit(2)
+                            }
+                            Spacer(minLength: DesignConstants.Spacing.step2x)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.colorTextSecondary)
+                                .accessibilityHidden(true)
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens the external agent setup demo")
                 }
 
                 Section {
@@ -366,6 +452,21 @@ struct AgentSwitcherSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .fullScreenCover(isPresented: $isExternalOnboardingPresented) {
+            ExternalAgentOnboardingView(
+                prototypeState: prototypeState,
+                onConnected: { provider in
+                    let lane: AgentChatLane = .external(provider)
+                    prototypeState.connect(provider)
+                    onSelect(lane)
+                    isExternalOnboardingPresented = false
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(250))
+                        dismiss()
+                    }
+                }
+            )
+        }
     }
 
     private func laneButton(_ lane: AgentChatLane) -> some View {
@@ -426,6 +527,7 @@ struct AgentChatDemoTranscript: View {
     @State private var messageToShare: AgentChatPrototypeMessage?
     @State private var isShareDialogPresented: Bool = false
     @State private var isNativeSharePresented: Bool = false
+    @State private var isExternalAccessPresented: Bool = false
 
     private var messages: [AgentChatPrototypeMessage] {
         prototypeState.messages(for: lane)
@@ -493,6 +595,14 @@ struct AgentChatDemoTranscript: View {
             isPresented: $isNativeSharePresented,
             items: messageToShare.map { [$0.text] } ?? []
         )
+        .sheet(isPresented: $isExternalAccessPresented) {
+            if let provider = lane.externalProvider {
+                ExternalAgentAccessSheet(
+                    provider: provider,
+                    access: prototypeState.accessBinding(for: provider)
+                )
+            }
+        }
     }
 
     @ViewBuilder
@@ -530,6 +640,19 @@ struct AgentChatDemoTranscript: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
                 Spacer()
+                if lane.externalProvider != nil {
+                    Button {
+                        isExternalAccessPresented = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.colorTextPrimary)
+                            .frame(width: 44, height: 44)
+                            .background(.colorFillSubtle, in: .circle)
+                    }
+                    .accessibilityLabel("Agent access")
+                    .accessibilityHint("Choose where this external agent can read and respond")
+                }
             }
             .padding(.bottom, DesignConstants.Spacing.step4x)
         }
