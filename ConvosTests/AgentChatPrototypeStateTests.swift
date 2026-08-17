@@ -107,4 +107,45 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         XCTAssertEqual(state.draftBinding(for: claude).wrappedValue, "Review the draft")
         XCTAssertNotEqual(state.messages(for: codex).first?.text, state.messages(for: claude).first?.text)
     }
+
+    func testCrossConvoLinkIsDeduplicatedAndSharesFullAgentLayer() {
+        let state = AgentChatPrototypeState()
+        let link = ConvoAgentMemoryLink.allCapabilities(for: .flightTracker)
+
+        state.link(.flightTracker, configuration: link)
+        state.link(.flightTracker, configuration: link)
+
+        XCTAssertEqual(state.linkedConvoAgents, [.flightTracker])
+        XCTAssertEqual(state.memoryLink(for: .flightTracker), link)
+        XCTAssertEqual(
+            link.sharedCapabilityIds,
+            Set(ConvoOwnedAgent.flightTracker.portableCapabilities.map(\.id))
+        )
+    }
+
+    func testDisconnectRemovesOnlyTheSelectedCrossConvoAgent() {
+        let state = AgentChatPrototypeState()
+        state.link(.flightTracker, configuration: .allCapabilities(for: .flightTracker))
+        state.link(.hotelScout, configuration: .allCapabilities(for: .hotelScout))
+
+        state.unlink(.flightTracker)
+
+        XCTAssertEqual(state.linkedConvoAgents, [.hotelScout])
+        XCTAssertEqual(
+            state.memoryLink(for: .hotelScout),
+            .allCapabilities(for: .hotelScout)
+        )
+    }
+
+    func testCrossConvoAgentUsesItsOwnLaneState() {
+        let state = AgentChatPrototypeState()
+        let sharedFlightAgent = AgentChatLane.linkedConvo(.flightTracker)
+        let localFlightAgent = AgentChatLane.prototype(.flightTracker)
+
+        state.draftBinding(for: sharedFlightAgent).wrappedValue = "Track the shared flight"
+
+        XCTAssertEqual(state.draftBinding(for: sharedFlightAgent).wrappedValue, "Track the shared flight")
+        XCTAssertTrue(state.draftBinding(for: localFlightAgent).wrappedValue.isEmpty)
+        XCTAssertTrue(state.messages(for: sharedFlightAgent).first?.text.contains("now shared") == true)
+    }
 }
