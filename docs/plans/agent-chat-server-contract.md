@@ -518,6 +518,35 @@ edit_preview = {
 
 Never send the full Home, full transcript, private agent DMs, or Ghost content when one object is sufficient. Context assembly must be capability-scoped and recorded in a content-free authorization audit.
 
+### Phase F — cross-convo shared agents
+
+1. Add an owner-scoped query for agents the user owns in other active convos. Return the origin convo label plus summaries of durable memory, abilities, connections, and installed skills without returning memory content to the picker.
+2. Model a link as one agent identity and one durable memory namespace authorized for two or more convo IDs. Do not clone the agent, copy memory records, or merge message histories.
+3. Require the actor to own the agent and be an active member of every linked convo at creation. Re-check ownership and membership on every memory read/write and ability, connection, or skill invocation.
+4. The agent's full versioned capability manifest travels with the link: abilities, vault-backed connections, installed skills, runtime/model configuration, and policy version. Secrets never leave the existing credential vault.
+5. Tag every durable memory item with source convo, author/agent, content class, creation time, and policy version. Only reviewed durable-memory classes may enter the shared namespace.
+6. Exclude raw messages/transcripts, Ghost content, private agent DMs, member DMs, membership lists, and unsaved attachments from shared-memory retrieval and indexing.
+7. Publish visible link-state events to every linked convo. Disconnecting a convo must immediately stop its retrieval, writes, and capability invocations without deleting the surviving agent or its memory.
+
+Suggested shapes:
+
+```text
+GET    /v1/owned-agents?exclude_conversation_id={conversation_id}
+POST   /v1/agents/{agent_id}/convo-links
+GET    /v1/agents/{agent_id}/convo-links/{link_id}
+DELETE /v1/agents/{agent_id}/convo-links/{link_id}/conversations/{conversation_id}
+
+convo_link = {
+  id: string,
+  agent_id: string,
+  memory_namespace_id: string,
+  conversation_ids: string[],
+  capability_manifest_version: string,
+  policy_version: string,
+  created_by_inbox_id: string
+}
+```
+
 ## Server acceptance tests
 
 ### Model selection
@@ -567,6 +596,17 @@ Never send the full Home, full transcript, private agent DMs, or Ghost content w
 - Publishing one card diff cannot mutate unrelated Home objects.
 - Ghost content never becomes a Home object without an explicit message-level export.
 
+### Cross-convo shared agents
+
+- A non-owner cannot create, expand, or disconnect an agent link.
+- A user who is not an active member of every target convo cannot create the link.
+- Linking never copies raw transcript rows or changes their convo IDs.
+- Retrieval returns only allowed durable-memory content classes and records the requesting convo.
+- Ghost, private DM, membership, and unsaved-attachment fixtures never appear in shared-memory indexes or provider prompts.
+- The same versioned abilities, connections, and skills are resolvable from both convos, while provider secrets remain absent from responses, prompts, analytics, and logs.
+- Disconnecting one convo immediately blocks its reads, writes, and capability invocations while preserving the agent and memory for remaining authorized convos.
+- Every linked convo receives a visible, idempotent link-state update and can resolve the other linked convo's display label.
+
 ## Launch gates
 
 - [ ] Model IDs, relative credit copy, and entitlements approved by Product/Billing.
@@ -579,6 +619,7 @@ Never send the full Home, full transcript, private agent DMs, or Ghost content w
 - [ ] External connector credentials are vault-backed, revocable, and absent from mobile/logging surfaces.
 - [ ] Per-convo external-agent grants are enforced at context assembly and delivery.
 - [ ] Home object revisions, preview diffs, and approval tokens pass concurrency and authorization tests.
+- [ ] Cross-convo links enforce agent ownership, membership in every convo, content-class exclusions, portable capability versioning, visible link state, and immediate disconnect.
 - [ ] Rollback returns all model preferences to the safe default without losing desired state.
 
 ## Client handoff after server readiness

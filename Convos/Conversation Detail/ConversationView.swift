@@ -471,6 +471,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
 
         result.append(contentsOf: remainingLive)
+        result.append(contentsOf: agentChatPrototypeState.linkedConvoAgents.map(AgentChatLane.linkedConvo))
         result.append(contentsOf: agentChatPrototypeState.connectedExternalProviders.map(AgentChatLane.external))
         result.append(.ghost)
         return result
