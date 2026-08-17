@@ -114,10 +114,16 @@ final class FeatureFlags {
 
     /// Off by default -- gates the V2 abilities surfaces (the abilities
     /// catalog list in App Settings and the per-conversation abilities
-    /// section), currently backed by `MockAbilitiesService`. Toggle from
-    /// App Settings -> Debug. Hard-locked off in production so the V1
-    /// connections UI stays the default until the live transport ships;
-    /// public enablement is a default flip in a client release.
+    /// section), backed by the live abilities backend once enabled (see
+    /// `AbilitiesServices.useLiveBackend`, which reports live unconditionally
+    /// whenever this flag is on). Toggle from App Settings -> Debug in
+    /// non-production builds, or from the curated prod debug menu in
+    /// production. Deliberately not prod-locked like most flags above: the
+    /// control is reachable everywhere so V2 can be dogfooded in production,
+    /// same posture as `isListenParticipationEnabled`. Default stays off in
+    /// every environment -- enabling it in production points the client at
+    /// whatever the production abilities backend currently serves, which may
+    /// lag what dev has.
     ///
     /// Coupled to `AbilitiesServices.useLiveBackend` in both directions so
     /// V2 running against the mock (instead of the live backend) can never
@@ -125,15 +131,15 @@ final class FeatureFlags {
     /// (write-time, below). `AbilitiesServices.useLiveBackend`'s getter
     /// enforces the same invariant independent of what is in storage, which
     /// is what actually keeps a value restored from persistence at launch
-    /// from resurfacing the invalid combination.
+    /// from resurfacing the invalid combination -- and in production that
+    /// getter reports live regardless of storage, so the coupling holds
+    /// there without needing a production guard of its own.
     var isAbilitiesV2Enabled: Bool {
         get {
             access(keyPath: \.isAbilitiesV2Enabled)
-            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
             return UserDefaults.standard.bool(forKey: Constant.abilitiesV2EnabledKey)
         }
         set {
-            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
             withMutation(keyPath: \.isAbilitiesV2Enabled) {
                 UserDefaults.standard.set(newValue, forKey: Constant.abilitiesV2EnabledKey)
             }
