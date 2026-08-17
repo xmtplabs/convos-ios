@@ -748,7 +748,7 @@ extension ConversationInfoView {
             Task {
                 await spaceShareCoordinator.share(
                     conversationId: viewModel.conversation.id,
-                    variantId: viewModel.conversation.agentVariant?.slug
+                    variantId: viewModel.conversationAgentVariantSlug
                 )
             }
         } label: {
@@ -764,6 +764,7 @@ extension ConversationInfoView {
         .disabled(spaceShareCoordinator.isBusy)
         .accessibilityIdentifier("share-space-button")
         .accessibilityLabel("Copy Space share message")
+        .accessibilityHint("Creates a share link that works for 7 days and copies it to the clipboard")
         .alert(
             spaceShareCoordinator.alert?.title ?? "",
             isPresented: spaceShareAlertIsPresented,
