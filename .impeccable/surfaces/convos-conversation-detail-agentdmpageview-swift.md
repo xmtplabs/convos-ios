@@ -18,8 +18,8 @@ The agent side of a conversation is a private, controllable workspace. The activ
 - **Connect an agent from another convo** sits immediately above **Add an external agent**. It presents an owner-scoped agent list and a full-screen review of the portable agent layer.
 - Linking creates one two-way shared memory and makes all of the agent's abilities, connections, and installed skills available in both convos. Raw transcripts, Ghost Mode, private DMs, member lists, and unsaved files never cross.
 - Confirmation warns that people in either convo can influence future saved memory. The linked lane's settings show the full shared layer and allow the owner to disconnect it from the current convo without deleting the original agent.
-- **Add an external agent** sits immediately before Ghost Mode. It presents a full-screen context-handoff explanation for Codex, Claude Code, Hermes, OpenClaw, and GrokBot.
-- Adding an external agent creates a handoff lane, never a fake chat. The lane lets the user select one hour, 24 hours, seven days, or all available group history; optionally include group desktop information; copy one clearly scoped context block; and open the provider's fixed web destination to paste it.
+- **Add an external agent** sits immediately before Ghost Mode. It presents a full-screen context-handoff explanation for Codex, Claude Code, Hermes, OpenClaw, and Grok Bot. Grok Bot is the separate macOS/iOS app and opens through `sand://app/v1/open`, not the Grok website.
+- Adding an external agent creates a handoff lane, never a fake chat. The lane lets the user select one hour, 24 hours, seven days, or all available group history; optionally include group desktop information; copy one clearly scoped context block; and open the provider's fixed allowlisted app or web destination to paste it.
 - External context never travels in a URL or automatic request. Ghost Mode, private agent chats, member DMs, other convos, membership lists, and unsaved files remain excluded.
 - **Copy key** demonstrates a future one-time, revocable Home return connector. The prototype key is visibly demo-only and cannot write to Convos; production access is limited to visible Home summaries and link/widget update proposals.
 - Each local prototype lane keeps its own draft, transcript, and working state. Switching lanes never redirects or cancels in-flight work.
@@ -47,5 +47,5 @@ Ghost sharing completes inside local prototype lanes. External handoff destinati
 4. Send in one lane, switch away while it works, and return to the completed response.
 5. Open Ghost Mode, share one message to an agent or the desktop, and confirm the UI identifies the single-message scope.
 6. Tap selected **Agent** to collapse and reopen; switch to **Group** and confirm it opens fully.
-7. Choose **Add an external agent**, add GrokBot, select a time window, toggle group desktop context, copy the demo context, open GrokBot, and copy the visibly non-functional demo return key.
+7. Choose **Add an external agent**, add Grok Bot, select a time window, toggle group desktop context, copy the demo context, open the Grok Bot app, and copy the visibly non-functional demo return key.
 8. Choose **Connect an agent from another convo**, select an owned agent, review the warning and full portable layer, link it, and confirm its shared lane and disconnect control appear.
