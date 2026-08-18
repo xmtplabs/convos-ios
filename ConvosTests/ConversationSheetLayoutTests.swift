@@ -10,113 +10,59 @@ final class ConversationSheetLayoutTests: XCTestCase {
     /// The sheet's resting height as measured on a 6.3" phone.
     private let resting: CGFloat = 151
 
-    // MARK: - Sizing to the transcript
+    // MARK: - The sizes
 
-    /// Heights as measured on a 6.3" phone, with a transcript of `transcript`.
-    private func heights(transcript: CGFloat, container: CGFloat = 815) -> ConversationSheetHeights {
-        ConversationSheetHeights(
-            restingHeight: resting,
-            fittedHeight: resting + transcript,
-            containerHeight: container
-        )
+    private var measurements: ConversationSheetHeights {
+        ConversationSheetHeights(restingHeight: resting)
     }
 
-    /// The ceiling is the transcript's own height, so two messages cannot be
-    /// dragged open onto most of a screen of nothing: neither `compact` nor `full`
-    /// is on offer, only the size that stops just past them.
-    func testAShortTranscriptOffersNeitherCompactNorFull() {
-        let offered = ConversationSheetDetent.presentationDetents(
-            heights: heights(transcript: 120),
-            including: .collapsed
-        )
-
-        XCTAssertEqual(offered.count, 2)
-        XCTAssertTrue(offered.contains(.height(resting)), "collapsed is always offered")
-        XCTAssertTrue(offered.contains(.height(resting + 120)), "the ceiling is the transcript")
-        XCTAssertFalse(offered.contains(.large))
-    }
-
-    /// `compact` joins once it sits meaningfully below the ceiling - a stop on the
-    /// way rather than a second name for the same height.
-    func testCompactJoinsOnceTheCeilingClearsIt() {
-        let justBelow = ConversationSheetDetent.presentationDetents(
-            heights: heights(transcript: 815 * 0.5 - resting),
-            including: .collapsed
-        )
-        let wellAbove = ConversationSheetDetent.presentationDetents(
-            heights: heights(transcript: 815 * 0.5),
-            including: .collapsed
-        )
-
-        XCTAssertFalse(justBelow.contains(.fraction(0.5)))
-        XCTAssertTrue(wellAbove.contains(.fraction(0.5)))
-    }
-
-    /// A transcript that reaches the container offers `full` instead of a fitted
-    /// height of its own: they are the same size, and `.large` is the better
-    /// spelling because the system fits it to the device.
-    func testATranscriptThatFillsTheScreenOffersFull() {
-        let offered = ConversationSheetDetent.presentationDetents(
-            heights: heights(transcript: 5_000),
-            including: .collapsed
-        )
-
-        XCTAssertTrue(offered.contains(.large))
-        XCTAssertFalse(offered.contains(.height(resting + 5_000)), "the ceiling never passes the container")
-    }
-
-    /// Every height handed to the system has to be a real measurement or a real
-    /// detent - never a stand-in for "not measured yet".
+    /// Three fixed sizes, always all on offer.
     ///
-    /// `fitted` is the initial size for a conversation with something unread, so it
-    /// resolves before anything has been measured. A sentinel here went to
-    /// `PresentationDetent.height(_:)` as the sheet's own height, which is a launch
-    /// crash for anyone opening the app on an unread conversation.
-    func testAnUnmeasuredFittedSizeResolvesToARealDetent() {
-        let fitted = ConversationSheetDetent.fitted.presentationDetent(heights: .unmeasured)
+    /// The set used to depend on the selected lane's transcript, which meant it was
+    /// rebuilt underneath a live sheet whenever a transcript re-measured, and meant
+    /// the same detent was two different heights on the two tabs. Nothing here
+    /// depends on either any more, so the set is built once.
+    func testEverySizeIsAlwaysOffered() {
+        let offered = ConversationSheetDetent.presentationDetents(heights: measurements)
 
-        XCTAssertEqual(fitted, .large)
-        // The value the sentinel used to produce. `PresentationDetent` is opaque,
-        // so equality against it is the only way to say "not that".
-        XCTAssertNotEqual(fitted, .height(.greatestFiniteMagnitude))
+        XCTAssertEqual(offered, [.height(resting), .fraction(0.5), .large])
     }
 
-    /// Nothing is withheld before the transcript has measured itself - a sheet
-    /// capped against a transcript of unknown height would open barely taller than
-    /// its own chrome.
-    func testAnUnmeasuredTranscriptWithholdsNothing() {
-        let offered = ConversationSheetDetent.presentationDetents(
-            heights: .unmeasured,
-            including: .collapsed
-        )
+    /// The chrome's height is the only measurement a size depends on, so the set is
+    /// the same shape before it has been taken.
+    func testTheSetHasTheSameShapeBeforeTheChromeIsMeasured() {
+        let offered = ConversationSheetDetent.presentationDetents(heights: .unmeasured)
 
-        XCTAssertTrue(offered.contains(.large))
+        XCTAssertEqual(offered.count, 3)
         XCTAssertTrue(offered.contains(.fraction(0.5)))
-    }
-
-    /// Dropping the resting detent out of the set makes the system re-resolve the
-    /// selection and snap the sheet, so a ceiling that falls has to leave the user
-    /// where they are.
-    func testTheRestingSizeIsOfferedEvenAboveTheCeiling() {
-        let offered = ConversationSheetDetent.presentationDetents(
-            heights: heights(transcript: 120),
-            including: .full
-        )
-
         XCTAssertTrue(offered.contains(.large))
     }
 
-    /// Opening on an unread message uses the smallest size that shows anything,
-    /// which for a short conversation is the ceiling rather than half a screen.
-    func testTheSmallestReadableSizeFollowsTheTranscript() {
-        XCTAssertEqual(ConversationSheetDetent.smallestReadable(heights: heights(transcript: 120)), .fitted)
-        XCTAssertEqual(ConversationSheetDetent.smallestReadable(heights: heights(transcript: 5_000)), .compact)
+    /// A move the user did not make offers a single size until it lands.
+    ///
+    /// With one size on offer there is no selection for the system to re-resolve,
+    /// so it resizes in one step with the presented view's bottom edge pinned - the
+    /// same shape as a drag. Offering the full set instead let the origin land on
+    /// the new size a layout pass before the height did, and the bottom-anchored
+    /// chrome rode the difference off the screen and back.
+    func testAForcedMoveOffersOneSize() {
+        let offered = ConversationSheetDetent.presentationDetents(
+            heights: measurements,
+            forcing: .compact
+        )
+
+        XCTAssertEqual(offered, [.fraction(0.5)])
+    }
+
+    /// Opening on an unread message shows the transcript without taking the screen.
+    func testTheSmallestReadableSizeIsCompact() {
+        XCTAssertEqual(ConversationSheetDetent.smallestReadable, .compact)
+        XCTAssertEqual(ConversationSheetDetent.tallest, .full)
     }
 
     /// The system writes its settled detent back through the selection binding, so
     /// every size has to survive the round trip.
     func testEverySizeRoundTrips() {
-        let measurements = heights(transcript: 300)
         for size in ConversationSheetDetent.ascending {
             let presentation = size.presentationDetent(heights: measurements)
             let recovered = ConversationSheetDetent.from(
@@ -128,16 +74,21 @@ final class ConversationSheetLayoutTests: XCTestCase {
         }
     }
 
-    /// A detent the sheet never offered resolves to the least intrusive size.
-    func testAnUnknownDetentResolvesToCollapsed() {
+    /// A detent these measurements do not describe resolves to nothing, so the
+    /// caller leaves the sheet where it is.
+    ///
+    /// Deliberately not `collapsed`. This runs on the way back in, where the answer
+    /// is written into the sheet's detent - so a fallback would be an instruction to
+    /// collapse, issued every time a detent in flight outlived the heights that
+    /// produced it.
+    func testAnUnknownDetentResolvesToNothing() {
         let recovered = ConversationSheetDetent.from(
             presentationDetent: .fraction(0.77),
-            heights: heights(transcript: 300)
+            heights: measurements
         )
 
-        XCTAssertEqual(recovered, .collapsed)
+        XCTAssertNil(recovered)
     }
-
 
     // MARK: - What the Home keeps clear
 

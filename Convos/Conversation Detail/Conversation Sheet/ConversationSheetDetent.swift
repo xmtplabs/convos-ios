@@ -9,24 +9,23 @@ import Foundation
 /// These map onto system presentation detents - see
 /// `ConversationSheetPresentationDetents` - so the sheet is a real `.sheet`
 /// and the system owns the drag and the physics.
+///
+/// Three fixed sizes, and the fixedness is the point. An earlier version had a
+/// fourth, `fitted`, whose height was the selected lane's transcript, so that the
+/// sheet stopped where the messages did. It cost more than it bought. Its height
+/// moved whenever a transcript re-measured, which rebuilt the set of sizes on
+/// offer underneath a live sheet; and because each lane had its own, the same
+/// detent meant two different heights on the two tabs, so switching tabs resized
+/// the sheet without anything asking it to. These three are the same height on
+/// both lanes and never move, so the offered set is built once and the only thing
+/// that changes the sheet's size is somebody asking it to change.
 enum ConversationSheetDetent: CaseIterable, Comparable {
     /// Chrome only - the grabber, the selected tab's bar, and the tab bar.
     /// No transcript. The floating card as it rests today.
     case collapsed
     /// Half the screen: enough transcript to read an exchange, with the Home
     /// still showing above it.
-    ///
-    /// A stop on the way rather than a ceiling, and only offered when it is
-    /// meaningfully below `fitted` - otherwise it is a second name for the same
-    /// height and catches a drag for no reason.
     case compact
-    /// As tall as there is transcript to show, and no taller.
-    ///
-    /// The ceiling. Its height is the chrome plus the messages, so a conversation
-    /// with two messages in it stops just past them instead of opening onto most
-    /// of a screen of nothing. Once the transcript reaches the container this is
-    /// `full` in all but name, and `full` is offered in its place.
-    case fitted
     /// Everything up to just below the conversation indicator.
     case full
 
@@ -39,6 +38,13 @@ enum ConversationSheetDetent: CaseIterable, Comparable {
     var showsTranscript: Bool {
         self != .collapsed
     }
+
+    /// The smallest size that shows any transcript, for opening the sheet on
+    /// something the user asked to read.
+    static let smallestReadable: ConversationSheetDetent = .compact
+
+    /// The tallest size, for anything that wants the sheet open as far as it goes.
+    static let tallest: ConversationSheetDetent = .full
 
     /// The size a conversation opens at.
     ///

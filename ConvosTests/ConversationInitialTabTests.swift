@@ -71,10 +71,7 @@ final class ConversationInitialTabTests: XCTestCase {
     func testUnreadOpensOntoTheTranscript() {
         let detent = ConversationSheetDetent.initial(hasUnread: true, agentDmRequested: false)
 
-        // `fitted`, not `full`: as much transcript as there is, which is the whole
-        // screen for a backlog and a small card for two messages. Opening at `full`
-        // regardless landed a short conversation on mostly empty space.
-        // `compact`, not the ceiling: opening a conversation is not a request to
+        // `compact`, not `full`: opening a conversation is not a request to
         // be taken to full screen. The unread message is at the bottom, half a
         // screen shows it and its context, and the Home stays in view.
         XCTAssertEqual(detent, .compact)

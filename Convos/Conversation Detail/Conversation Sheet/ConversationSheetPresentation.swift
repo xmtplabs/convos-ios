@@ -22,6 +22,9 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
     /// Every height the sizes resolve against. Sizes above the transcript's own
     /// height are withheld, so the sheet cannot be dragged open onto empty space.
     var heights: ConversationSheetHeights
+    /// While a programmatic move is in flight, the only size offered. See
+    /// `ConversationView.moveSheet`.
+    var forcedDetent: ConversationSheetDetent?
     @ViewBuilder let sheetContent: () -> SheetContent
 
     @State private var isPresented: Bool = false
@@ -34,10 +37,15 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
                 detent.presentationDetent(heights: heights)
             },
             set: { newValue in
-                detent = ConversationSheetDetent.from(
+                // Only when these measurements describe it. A detent in flight can
+                // outlive the heights that produced it, and writing a guess back
+                // here is an instruction to the sheet, not a reading of it - see
+                // `ConversationSheetDetent.from`.
+                guard let resolved = ConversationSheetDetent.from(
                     presentationDetent: newValue,
                     heights: heights
-                )
+                ) else { return }
+                detent = resolved
             }
         )
     }
@@ -60,7 +68,7 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
                     .presentationDetents(
                         ConversationSheetDetent.presentationDetents(
                             heights: heights,
-                            including: detent
+                            forcing: forcedDetent
                         ),
                         selection: presentationSelection
                     )
@@ -100,12 +108,14 @@ extension View {
     func conversationSheetPresentation<SheetContent: View>(
         detent: Binding<ConversationSheetDetent>,
         heights: ConversationSheetHeights,
+        forcedDetent: ConversationSheetDetent? = nil,
         @ViewBuilder content: @escaping () -> SheetContent
     ) -> some View {
         modifier(
             ConversationSheetPresentation(
                 detent: detent,
                 heights: heights,
+                forcedDetent: forcedDetent,
                 sheetContent: content
             )
         )

@@ -76,6 +76,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// sheet can get. The transcript holds this height at every detent so a
     /// resize never moves the messages - see `ConversationSheetContent`.
     @State private var containerHeight: CGFloat = 0
+    /// The screen's width, which the back swipe measures its completion against.
+    @State private var containerWidth: CGFloat = 0
+    /// The size a programmatic move is travelling to, for as long as it is
+    /// travelling. See `moveSheet`.
+    @State private var forcedSheetDetent: ConversationSheetDetent?
     /// The sheet's live geometry, for the Home's bottom clearance. Deliberately
     /// a reference type nothing in this body reads: see
     /// `ConversationSheetGeometry`.
@@ -89,8 +94,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Per lane so a tab switch does not have to wait for the incoming transcript
     /// to re-measure. `nil` until measured, which leaves the sheet uncapped rather
     /// than pinned to a transcript of unknown height.
-    @State private var groupTranscriptHeight: CGFloat?
-    @State private var agentTranscriptHeight: CGFloat?
     /// Window safe-area insets, used to convert the sheet's physical-edge
     /// clearance into the safe-area-relative inset the transcripts take.
     @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
@@ -310,9 +313,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // `sheetBarContent`), so the transcript renders no bar of its own.
             hostsBottomBar: false,
             hostRendersContextMenu: true,
-            onContentHeightChanged: { height in
-                handleTranscriptContentHeightChanged(height, for: .group)
-            },
             onScrollToBottomAvailable: { scrollFn in
                 // Fires from inside the representable's make pass; defer the
                 // state write out of the view-update transaction or SwiftUI
@@ -533,57 +533,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
         ConversationSheetMetrics.collapsedChromeHeight(barsHeight: sheetChromeBarsHeight)
     }
 
-    /// Everything the sheet's sizes resolve against, for the selected lane.
+    /// Everything the sheet's sizes resolve against.
     ///
-    /// The fitted height is the chrome plus that lane's transcript, so the sheet
-    /// stops where the messages do. Unmeasured until the transcript reports, and
-    /// uncapped until then.
+    /// One measurement now: the chrome's own height, which `collapsed` resolves to.
+    /// `compact` and `full` are fractions of the screen, so nothing here depends on
+    /// which tab is selected or on how much transcript there is.
     private var sheetHeights: ConversationSheetHeights {
-        let transcriptHeight: CGFloat? = selectedTab == .agent ? agentTranscriptHeight : groupTranscriptHeight
-        guard let transcriptHeight, containerHeight > 0 else {
-            return ConversationSheetHeights(
-                restingHeight: sheetRestingHeightAboveSafeArea,
-                fittedHeight: nil,
-                containerHeight: nil
-            )
-        }
-        // The chrome's height at a fixed detent, never `sheetDetent`. Its top band
-        // is 10pt taller while collapsed, so a ceiling derived from the live height
-        // would change every time the sheet changed size - and at `fitted`, where
-        // the ceiling *is* the sheet's height, the sheet would resize itself for
-        // having resized. That loop moved the chrome and disturbed the scroll.
-        let chromeHeight: CGFloat = ConversationSheetMetrics.chromeHeight(
-            barsHeight: sheetChromeBarsHeight,
-            detent: .fitted
-        )
-        return ConversationSheetHeights(
-            restingHeight: sheetRestingHeightAboveSafeArea,
-            fittedHeight: max(chromeHeight - windowSafeAreaInsets.bottom, 0) + transcriptHeight,
-            containerHeight: presentationContainerHeight - windowSafeAreaInsets.bottom
-        )
-    }
-
-    /// Records a lane's transcript height, which is what caps the sheet on it.
-    ///
-    /// Raising the ceiling is all this does. It deliberately does not move the
-    /// sheet: a message arriving is not a request to resize, and the sheet growing
-    /// on its own read as the conversation taking over the screen. The taller size
-    /// is simply there for the next drag.
-    ///
-    /// Not while the sheet is resting at `fitted`, where the ceiling *is* the
-    /// sheet's height - changing it there would resize the sheet under the reader,
-    /// which is the same thing by another route. It catches up on the next drag
-    /// away from that size.
-    private func handleTranscriptContentHeightChanged(_ height: CGFloat, for tab: ConversationTab) {
-        guard sheetDetent != .fitted || tab != selectedTab else { return }
-        switch tab {
-        case .group:
-            guard groupTranscriptHeight != height else { return }
-            groupTranscriptHeight = height
-        case .agent:
-            guard agentTranscriptHeight != height else { return }
-            agentTranscriptHeight = height
-        }
+        ConversationSheetHeights(restingHeight: sheetRestingHeightAboveSafeArea)
     }
 
     /// Keeps `sheetGeometry` fed with the two heights it cannot measure itself.
@@ -1080,44 +1036,98 @@ private extension ConversationView {
     }
 
     private func pushHomeBrowserPage(for url: URL) {
-        withAnimation(.easeInOut(duration: 0.25)) {
-            homeBrowserEntries.append(HomeBrowserEntry(url: url))
-        }
+        homeBrowserEntries.append(HomeBrowserEntry(url: url))
     }
 
+    /// Walks one page back. The stack animates it, and an edge swipe does the
+    /// same thing without coming through here at all.
     private func popHomeBrowserPage() {
-        withAnimation(.easeInOut(duration: 0.25)) {
-            _ = homeBrowserEntries.popLast()
-        }
+        guard !homeBrowserEntries.isEmpty else { return }
+        homeBrowserEntries.removeLast()
     }
 
-    /// The native tab bar's re-tap contract: tapping the active tab returns
-    /// its transcript to the latest message - or, while the sheet is collapsed,
-    /// opens it if that tab is holding something unread.
+    /// The re-tap contract for a tab bar that raises a sheet rather than swapping
+    /// a root: the active tab is the toggle for the sheet it selects. Tapping it
+    /// with the sheet up puts it back down, tapping it with the sheet down brings
+    /// it back.
+    ///
+    /// Collapsing rather than scrolling to the latest message: the tap the user
+    /// has to hand while the sheet is up is the one asking to see the Home again,
+    /// and the sheet is what is covering it. The transcript is already parked at
+    /// its newest message on every expansion, so the scroll the native contract
+    /// offers had nothing left to do here.
     private func handleTabReselect(_ tab: ConversationTab) {
         guard sheetDetent != .collapsed else {
-            openCollapsedSheetIfUnread(for: tab)
+            expandCollapsedSheet()
             return
         }
-        scrollActiveTranscriptToBottom()
+        collapseSheet()
     }
 
-    /// Opens a collapsed sheet when the tapped tab is the one carrying an unread
-    /// dot, and only then.
+    /// Puts the sheet back down to `collapsed`, keyboard included.
     ///
-    /// A tab tap is not by itself a request to open the sheet: with the sheet
-    /// down the user is looking at the Home, and may be picking which lane the
-    /// composer belongs to while leaving it in view. It is the dot that makes the
-    /// tap mean "show me what arrived".
+    /// Focus has to go first. A focused composer holds the sheet up - the system
+    /// raises a sheet to clear the keyboard regardless of the detent it is asked
+    /// for - so setting the detent alone would collapse our state while the sheet
+    /// stayed where it was. Both lanes are dismissed because either composer can
+    /// be the one holding the keyboard.
+    private func collapseSheet() {
+        focusCoordinator.dismissMessageComposerIfNeeded()
+        agentFocusCoordinator.dismissMessageComposerIfNeeded()
+        moveSheet(to: .collapsed)
+    }
+
+    /// Brings a collapsed sheet back up, the other half of the toggle.
+    private func expandCollapsedSheet() {
+        guard sheetDetent == .collapsed else { return }
+        moveSheet(to: .smallestReadable)
+    }
+
+    /// Opens a collapsed sheet when the tab being *switched to* is the one
+    /// carrying an unread dot, and only then.
+    ///
+    /// Switching tabs is not by itself a request to open the sheet: with the
+    /// sheet down the user is looking at the Home, and may be picking which lane
+    /// the composer belongs to while leaving it in view. It is the dot that makes
+    /// the switch mean "show me what arrived".
     ///
     /// `compact` rather than anything taller - it answers that question while
     /// leaving the Home visible, which is why the detent exists.
     private func openCollapsedSheetIfUnread(for tab: ConversationTab) {
         guard sheetDetent == .collapsed, badgedTabs.contains(tab) else { return }
-        // The smallest size that shows anything, which for a short conversation is
-        // only a little taller than the chrome. Asking for `compact` outright would
-        // be asking for a size the sheet may not be offering.
-        sheetDetent = ConversationSheetDetent.smallestReadable(heights: sheetHeights)
+        moveSheet(to: .smallestReadable)
+    }
+
+    /// Moves the sheet to a size the user did not drag it to.
+    ///
+    /// Writing the detent alone is not enough, and the reason is worth keeping. A
+    /// sheet asked to change its selected detent resizes its presented view in two
+    /// steps: the origin lands on the new size a layout pass before the height
+    /// does. Anything anchored to the bottom of that view - here the whole chrome -
+    /// is then laid out against a frame whose bottom edge is briefly wrong by the
+    /// difference between the two sizes, so the input bar and the tab bar leave the
+    /// screen and come back. Measured at 107.8pt for the collapsed/fitted pair, and
+    /// it scales with the gap, which is why compact looks worse than fitted.
+    ///
+    /// Dragging never shows it. An interactive resize keeps the presented view's
+    /// bottom edge pinned and moves only its top, so the chrome never moves at all.
+    ///
+    /// So leave the system nothing to re-resolve. With a single size on offer there
+    /// is no selection to settle, and the resize happens in one step with the bottom
+    /// edge pinned - the same shape as a drag. The full set goes back as soon as the
+    /// move lands, so the sheet is only undraggable for the length of its own
+    /// animation.
+    ///
+    /// Reproduced outside this app in ~180 lines of plain SwiftUI - two `.height()`
+    /// detents and one bottom-aligned child - so this is the platform's behaviour
+    /// rather than something the conversation is doing to itself.
+    private func moveSheet(to target: ConversationSheetDetent) {
+        forcedSheetDetent = target
+        sheetDetent = target
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            forcedSheetDetent = nil
+        }
     }
 
     /// Every expansion opens on the newest message, and gets there without the
@@ -1166,7 +1176,7 @@ private extension ConversationView {
     /// brand new one onto nothing at all.
     private func handleComposerFocusChanged(_ focus: MessagesViewInputFocus?) {
         guard focus == .message, sheetDetent == .collapsed else { return }
-        sheetDetent = ConversationSheetDetent.tallestOffered(heights: sheetHeights)
+        moveSheet(to: .tallest)
     }
 
     /// Parks a transcript at its newest message as it becomes the selected one,
@@ -1398,22 +1408,46 @@ private extension ConversationView {
     /// bottom safe area like the native tab bar while still riding the
     /// keyboard.
     var conversationLayout: some View {
+        // A navigation stack of its own, rooted at the Home and living entirely
+        // *below* the conversation sheet.
+        //
+        // The pages used to be layers in a ZStack with a hand-rolled transition,
+        // because a sheet does not travel with a navigation transition: pushing a
+        // page onto the conversation's own stack would slide the Home away and
+        // leave the sheet sitting there. Nesting the stack inside the Home avoids
+        // that entirely - the sheet is a presentation over the window and never
+        // participates - and hands back the push and pop animation, the back
+        // button's semantics, and the interactive edge swipe, none of which are
+        // worth reimplementing.
+        // The stack wraps the Home *only*. Everything that has to stay put while a
+        // page is pushed - the geometry the sheet sizes against, and the sheet
+        // presentation itself - hangs off the ZStack outside it. Wrapping the whole
+        // layout instead made the stack the view presenting the sheet, so pushing a
+        // page changed the presenting context out from under it: the conversation
+        // read as deselected, which took the conversation indicator with it and
+        // brought the root tab bar back.
         ZStack {
-            backingViews
-            homeBrowserLayers
+            HomeBrowserNavigationHost(
+                entries: $homeBrowserEntries,
+                root: { AnyView(backingViews) },
+                page: { entry in AnyView(homeBrowserPage(for: entry)) }
+            )
+            .ignoresSafeArea()
         }
         // The container the sheet presents over, which is what caps how tall the
         // sheet can get - and so the height the transcript holds. See
         // `ConversationSheetContent.transcript`.
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.height
-        } action: { height in
-            containerHeight = height
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { size in
+            containerWidth = size.width
+            containerHeight = size.height
             updateSheetGeometryBounds()
         }
         .conversationSheetPresentation(
             detent: $sheetDetent,
-            heights: sheetHeights
+            heights: sheetHeights,
+            forcedDetent: forcedSheetDetent
         ) {
             // Focus is declared inside the sheet, because that is the only
             // place a `@FocusState` can reach the composers. See
@@ -1432,24 +1466,17 @@ private extension ConversationView {
         }
     }
 
-    /// The home browsing chain: full-screen pages sliding in above the
-    /// home, below the floating sheet. Like the backing views, the chain
-    /// stays mounted across tab switches (hidden, not torn down) so
-    /// returning to the Home tab lands back on the same page.
+    /// One page in the home browsing chain: an external page pushed over the
+    /// Home, below the floating sheet, so browsing never leaves the conversation.
     @ViewBuilder
-    var homeBrowserLayers: some View {
-        ZStack {
-            ForEach(homeBrowserEntries) { entry in
-                HomeBrowserPageView(
-                    entry: entry,
-                    sheetGeometry: sheetGeometry,
-                    onNavigationRequest: { url in
-                        pushHomeBrowserPage(for: url)
-                    }
-                )
-                .transition(.move(edge: .trailing))
+    func homeBrowserPage(for entry: HomeBrowserEntry) -> some View {
+        HomeBrowserPageView(
+            entry: entry,
+            sheetGeometry: sheetGeometry,
+            onNavigationRequest: { url in
+                pushHomeBrowserPage(for: url)
             }
-        }
+        )
     }
 
     /// The permanent backing surface. The Home is no longer a tab: it is what
@@ -1498,9 +1525,6 @@ private extension ConversationView {
                             agentScrollToBottom = scrollFn
                         }
                     },
-                    onContentHeightChanged: { height in
-                        handleTranscriptContentHeightChanged(height, for: .agent)
-                    }
                 )
                 .opacity(selectedTab == .agent ? 1 : 0)
                 .allowsHitTesting(selectedTab == .agent)
