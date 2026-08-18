@@ -1462,7 +1462,7 @@ private extension ConversationView {
         let mode = viewModel.conversation.participationMode
         let store = AgentParticipationStore(
             conversationId: viewModel.conversation.id,
-            variantId: FeatureFlags.shared.effectiveAgentVariantSlug,
+            variantId: viewModel.conversationAgentVariantSlug,
             service: ConversationAppDataParticipationService(
                 metadataWriter: viewModel.conversationMetadataWriter,
                 mode: mode

@@ -1578,7 +1578,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             )
             let response = try await client.getAgentParticipation(
                 conversationId: conversation.id,
-                variantId: FeatureFlags.shared.effectiveAgentVariantSlug
+                variantId: conversationAgentVariantSlug
             )
             // A newer refresh started while this one was in flight; its
             // response is the fresher truth, so this one must not land.
@@ -4302,21 +4302,36 @@ extension ConversationViewModel {
     /// the flow that created it, so later joins in the same convo keep that
     /// variant even after the global default moves on.
     /// With no per-conversation assignment this falls back to
-    /// `FeatureFlags.effectiveAgentVariantSlug`. The store is consulted only
-    /// while the selector flag is on, so a stale assignment can't silently
-    /// route joins once the dev toggle is off.
+    /// `FeatureFlags.effectiveAgentVariantSlug`. A conversation's binding is
+    /// authoritative for the life of that conversation and is honored even when
+    /// the selector UI is later toggled off — the agent was created on that
+    /// variant's runtime, so every later call (join, participation, power) must
+    /// keep reaching it; only the *global* default follows the selector. Still
+    /// dev-only: assignments are never written in production (the selector can't
+    /// be enabled there) and the API client strips any variant on prod.
     @MainActor
     private static func selectedAgentVariantSlug(for conversationId: String) -> String? {
-        guard FeatureFlags.shared.isAgentVariantSelectorEnabled else {
+        guard !ConfigManager.shared.currentEnvironment.isProduction else {
             return FeatureFlags.shared.effectiveAgentVariantSlug
         }
         if let assigned = AgentVariantAssignmentStore.shared.slug(for: conversationId) {
-            Log.info("AgentVariant: join for \(conversationId) routing to assigned variant \(assigned)")
+            Log.info("AgentVariant: \(conversationId) routing to assigned variant \(assigned)")
             return assigned
         }
         let fallback = FeatureFlags.shared.effectiveAgentVariantSlug
-        Log.info("AgentVariant: join for \(conversationId) has no assignment, using \(fallback ?? "none")")
+        Log.info("AgentVariant: \(conversationId) has no assignment, using \(fallback ?? "none")")
         return fallback
+    }
+
+    /// The agent-variant slug bound to THIS conversation — the per-conversation
+    /// pick, falling back to the global default. Every per-conversation agent
+    /// call (join, participation, power) must use this rather than the global
+    /// `FeatureFlags.effectiveAgentVariantSlug`; reading the global slug routes
+    /// the call by whatever variant happens to be selected now, which can
+    /// disagree with the one this conversation was actually created with, and
+    /// the backend then silently provisions/queries against the wrong runtime.
+    var conversationAgentVariantSlug: String? {
+        Self.selectedAgentVariantSlug(for: conversation.id)
     }
 
     private static func performAgentJoinCall(
