@@ -73,7 +73,7 @@ extension AbilitiesServiceError: LocalizedError {
         case .needsEntitlement:
             "Connect this ability before sharing it with a convo."
         case .unknownAbility:
-            "This ability is no longer available."
+            "This connection is no longer available."
         case .accountRequired:
             "Sign in to connect abilities."
         }
