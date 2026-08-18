@@ -4302,20 +4302,24 @@ extension ConversationViewModel {
     /// the flow that created it, so later joins in the same convo keep that
     /// variant even after the global default moves on.
     /// With no per-conversation assignment this falls back to
-    /// `FeatureFlags.effectiveAgentVariantSlug`. The store is consulted only
-    /// while the selector flag is on, so a stale assignment can't silently
-    /// route joins once the dev toggle is off.
+    /// `FeatureFlags.effectiveAgentVariantSlug`. A conversation's binding is
+    /// authoritative for the life of that conversation and is honored even when
+    /// the selector UI is later toggled off — the agent was created on that
+    /// variant's runtime, so every later call (join, participation, power) must
+    /// keep reaching it; only the *global* default follows the selector. Still
+    /// dev-only: assignments are never written in production (the selector can't
+    /// be enabled there) and the API client strips any variant on prod.
     @MainActor
     private static func selectedAgentVariantSlug(for conversationId: String) -> String? {
-        guard FeatureFlags.shared.isAgentVariantSelectorEnabled else {
+        guard !ConfigManager.shared.currentEnvironment.isProduction else {
             return FeatureFlags.shared.effectiveAgentVariantSlug
         }
         if let assigned = AgentVariantAssignmentStore.shared.slug(for: conversationId) {
-            Log.info("AgentVariant: join for \(conversationId) routing to assigned variant \(assigned)")
+            Log.info("AgentVariant: \(conversationId) routing to assigned variant \(assigned)")
             return assigned
         }
         let fallback = FeatureFlags.shared.effectiveAgentVariantSlug
-        Log.info("AgentVariant: join for \(conversationId) has no assignment, using \(fallback ?? "none")")
+        Log.info("AgentVariant: \(conversationId) has no assignment, using \(fallback ?? "none")")
         return fallback
     }
 
