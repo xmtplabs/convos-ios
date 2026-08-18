@@ -984,7 +984,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
-        CapabilityRequestRepository(dbReader: databaseReader, conversationId: conversationId)
+        CapabilityRequestRepository(
+            dbReader: databaseReader,
+            conversationId: conversationId,
+            viewerInboxId: MessagesRepository.currentInboxId(from: databaseReader)
+        )
     }
 
     public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {

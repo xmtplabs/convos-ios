@@ -587,6 +587,7 @@ extension Array where Element == DBMessage {
             return resolveCapabilityConnectContent(
                 jsonText: dbMessage.text,
                 resultsByRequestId: capabilityResultsByRequestId,
+                viewerInboxId: currentInboxId,
                 latestPendingRequestId: latestPendingCapabilityRequestId
             )
         case .capabilityRequestResult:
@@ -612,6 +613,7 @@ extension Array where Element == DBMessage {
     private static func resolveCapabilityConnectContent(
         jsonText: String?,
         resultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]],
+        viewerInboxId: String,
         latestPendingRequestId: String?
     ) -> MessageContent? {
         guard let jsonText,
@@ -621,6 +623,7 @@ extension Array where Element == DBMessage {
         let prompt = CapabilityConnectPrompt.make(
             request: request,
             results: resultsByRequestId[request.requestId] ?? [],
+            viewerInboxId: viewerInboxId,
             isLatestUnresolvedRequest: request.requestId == latestPendingRequestId
         )
         return .capabilityConnect(prompt: prompt)
@@ -1165,13 +1168,13 @@ fileprivate extension Database {
         // ValueObservation: the main message query already tracks the table,
         // so a late-arriving result row still re-fires composition.
         //
-        // First decision wins, in message-time order: one capability request
-        // is one connection ask for the whole conversation — the earliest
-        // validated (non-asker) result flips the pill for every member; the
-        // agent re-requests under a new requestId if it needs more. Both the
-        // resolution rule and the latest-pending computation are shared with
-        // CapabilityRequestRepository (the tap path), so a pill rendered
-        // `.pending` is always the request the approval sheet would open for.
+        // Resolution is per viewer: only the current member's own validated
+        // (non-asker) result rows flip the pill they see — the earliest of
+        // their decisions wins, and other members' decisions leave their pill
+        // actionable. Both the resolution rule and the latest-pending
+        // computation are shared with CapabilityRequestRepository (the tap
+        // path), so a pill rendered `.pending` is always the request the
+        // approval sheet would open for.
         var capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:]
         var latestPendingCapabilityRequestId: String?
         if rawMessages.contains(where: { $0.contentType == .capabilityRequest }) {
@@ -1181,6 +1184,7 @@ fileprivate extension Database {
             )
             latestPendingCapabilityRequestId = try CapabilityRequestRepository.computeLatestPendingRequest(
                 conversationId: conversationId,
+                viewerInboxId: currentInboxId,
                 db: self,
                 resultsByRequestId: capabilityResultsByRequestId
             )?.requestId

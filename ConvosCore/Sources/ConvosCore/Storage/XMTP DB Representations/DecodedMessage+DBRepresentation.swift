@@ -641,11 +641,11 @@ extension XMTPiOS.DecodedMessage {
 
     /// Result rows are persisted verbatim; legitimacy is enforced at derivation
     /// time by `CapabilityConnectPrompt.resolution`, which only lets a result
-    /// resolve a request when the row's XMTP-attested sender differs from the
-    /// request's asker. Unlike `CloudConnectionGrantRequest` (validated above
+    /// resolve a request for the member who authored it (never the request's
+    /// asker). Unlike `CloudConnectionGrantRequest` (validated above
     /// via `validateConnectionGrantRequest`), the result payload carries no
     /// sender claim to cross-check here — and the matching request row may not
-    /// have synced yet, so the asker comparison can only happen at the join.
+    /// have synced yet, so the sender comparisons can only happen at the join.
     private func handleCapabilityRequestResultContent() throws -> DBMessageComponents {
         let content = try content() as Any
         guard let result = content as? CapabilityRequestResult else {
