@@ -41,10 +41,10 @@ The three features form one system:
 ## 4. Bring an external agent
 
 - The agent switcher places **Add an external agent** immediately before Ghost Mode. It opens a full-screen explanation rather than asking for a credential inside the small selector.
-- The prototype catalog is Codex, Claude Code, Hermes, OpenClaw, and GrokBot. Adding one creates a selectable handoff lane, not a duplicate chat or a provider-authenticated runtime inside Convos.
+- The prototype catalog is Codex, Claude Code, Hermes, OpenClaw, and Grok Bot. Grok Bot is a separate macOS/iOS app from Grok. Adding one creates a selectable handoff lane, not a duplicate chat or a provider-authenticated runtime inside Convos.
 - The handoff lane defaults to **Share last 24 hours + group desktop info**. The user can choose one hour, 24 hours, seven days, or all available group history and can independently exclude the group desktop.
 - **Copy context** puts one paste-ready block on the iOS clipboard. The block names the time window and included surfaces. Ghost Mode, private agent chats, member DMs, other convos, membership lists, and unsaved files are always excluded.
-- **Open [agent]** opens a fixed official web destination. The context is never placed in a URL, query string, or automatic provider request; the user pastes it into the external agent themselves.
+- **Open [agent]** opens a fixed allowlisted provider destination. Grok Bot uses its existing native `sand://app/v1/open` deep link; it does not open `grok.com`. The context is never placed in a URL, query string, or automatic provider request; the user pastes it into the external agent themselves.
 - The lane has no transcript, draft, or composer. Its only primary loop is choose scope → copy → open and paste.
 - An optional **Copy key** demonstrates return access. Production must copy a one-time pairing code—not a bearer secret—which the external agent’s secure Convos connector exchanges for a revocable, least-privilege credential. Return access can read visible Home object summaries and create link/widget update proposals; it cannot read group messages, Ghost content, private DMs, or publish changes without the existing approval flow.
 - The Firebase build copies clearly labeled demo context and a non-functional demo key. It does not export real group content or grant write access.
@@ -87,9 +87,9 @@ The three features form one system:
 ### External agent
 
 1. Open the agent switcher and tap **Add an external agent** before Ghost Mode.
-2. Choose GrokBot, review the context-handoff explanation, and tap **Add GrokBot**.
-3. In the selected GrokBot lane, change the context window and toggle **Include group desktop info**. Confirm the scope sentence updates.
-4. Tap **Copy context**, open GrokBot from the fixed bottom action, and paste the clearly labeled prototype block.
+2. Choose Grok Bot, review the context-handoff explanation, and tap **Add Grok Bot**.
+3. In the selected Grok Bot lane, change the context window and toggle **Include group desktop info**. Confirm the scope sentence updates.
+4. Tap **Copy context**, open the Grok Bot app from the fixed bottom action, and paste the clearly labeled prototype block.
 5. Return to Convos, tap **Copy key**, and confirm the UI states that it is a non-functional demo key. Review the proposed Home-only return scopes.
 6. Collapse the conversation sheet and confirm the Home WebView remains unobstructed and fully interactive.
 

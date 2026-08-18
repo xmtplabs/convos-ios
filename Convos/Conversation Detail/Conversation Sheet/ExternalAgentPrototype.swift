@@ -17,7 +17,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .claudeCode: "Claude Code"
         case .hermes: "Hermes"
         case .openClaw: "OpenClaw"
-        case .grokBot: "GrokBot"
+        case .grokBot: "Grok Bot"
         }
     }
 
@@ -27,7 +27,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .claudeCode: "Take group context to Claude Code"
         case .hermes: "Copy context to your Hermes agent"
         case .openClaw: "Open your OpenClaw gateway with context"
-        case .grokBot: "Open Grok with scoped Convos context"
+        case .grokBot: "Open the Grok Bot app with scoped Convos context"
         }
     }
 
@@ -41,7 +41,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .claudeCode: "terminal.fill"
         case .hermes: "h.circle.fill"
         case .openClaw: "antenna.radiowaves.left.and.right"
-        case .grokBot: "xmark"
+        case .grokBot: "desktopcomputer"
         }
     }
 
@@ -69,7 +69,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .claudeCode: "https://claude.ai/new"
         case .hermes: "https://github.com/NousResearch/hermes-agent"
         case .openClaw: "https://github.com/openclaw/openclaw"
-        case .grokBot: "https://grok.com"
+        case .grokBot: "sand://app/v1/open"
         }
         guard let url = URL(string: destination) else {
             return URL(fileURLWithPath: "/")

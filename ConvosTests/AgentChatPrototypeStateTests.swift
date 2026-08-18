@@ -106,8 +106,11 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         XCTAssertTrue(payload.contains("group desktop information"))
         XCTAssertTrue(payload.contains("Ghost Mode"))
         XCTAssertTrue(payload.contains("does not export real conversation content"))
-        XCTAssertTrue(AgentChatLane.external(.grokBot).subtitle.contains("Opens GrokBot"))
-        XCTAssertEqual(ExternalAgentProvider.grokBot.launchURL.host, "grok.com")
+        XCTAssertTrue(AgentChatLane.external(.grokBot).subtitle.contains("Opens Grok Bot"))
+        XCTAssertEqual(
+            ExternalAgentProvider.grokBot.launchURL.absoluteString,
+            "sand://app/v1/open"
+        )
         XCTAssertTrue(ExternalAgentProvider.grokBot.connectorKey.contains("DEMO"))
     }
 
