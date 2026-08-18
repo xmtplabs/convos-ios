@@ -1578,7 +1578,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             )
             let response = try await client.getAgentParticipation(
                 conversationId: conversation.id,
-                variantId: FeatureFlags.shared.effectiveAgentVariantSlug
+                variantId: conversationAgentVariantSlug
             )
             // A newer refresh started while this one was in flight; its
             // response is the fresher truth, so this one must not land.
@@ -4317,6 +4317,17 @@ extension ConversationViewModel {
         let fallback = FeatureFlags.shared.effectiveAgentVariantSlug
         Log.info("AgentVariant: join for \(conversationId) has no assignment, using \(fallback ?? "none")")
         return fallback
+    }
+
+    /// The agent-variant slug bound to THIS conversation — the per-conversation
+    /// pick, falling back to the global default. Every per-conversation agent
+    /// call (join, participation, power) must use this rather than the global
+    /// `FeatureFlags.effectiveAgentVariantSlug`; reading the global slug routes
+    /// the call by whatever variant happens to be selected now, which can
+    /// disagree with the one this conversation was actually created with, and
+    /// the backend then silently provisions/queries against the wrong runtime.
+    var conversationAgentVariantSlug: String? {
+        Self.selectedAgentVariantSlug(for: conversation.id)
     }
 
     private static func performAgentJoinCall(
