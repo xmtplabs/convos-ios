@@ -7,19 +7,20 @@ import Foundation
 /// Built at compose time. `status` is derived by joining
 /// `capability_request_result` rows on `requestId` (same shape as the
 /// reaction join on `sourceMessageId`) — the request row itself is never
-/// edited, so the pill stays in history and flips state on every member's
-/// device as result rows sync in.
+/// edited, so the pill stays in history. Resolution is per viewer: only the
+/// viewing member's own result rows flip the state that member sees, so one
+/// member acting leaves every other member's pill actionable.
 public struct CapabilityConnectPrompt: Hashable, Codable, Sendable {
     public enum Status: String, Hashable, Codable, Sendable {
-        /// No validated result row resolves the request yet and it is the
-        /// conversation's latest unresolved ask — tapping opens the approval
-        /// sheet.
+        /// The viewing member has no validated decision of their own on the
+        /// request yet and it is the conversation's latest ask unresolved for
+        /// them — tapping opens the approval sheet.
         case pending
-        /// The first validated result row (in message-time order, from any
-        /// member's device) was an approval.
+        /// The viewer's first validated result row (in message-time order)
+        /// was an approval.
         case connected
-        /// The first validated result row (in message-time order) was a
-        /// denial or cancellation.
+        /// The viewer's first validated result row (in message-time order)
+        /// was a denial or cancellation.
         case dismissed
         /// Still unresolved, but a newer unresolved request has taken over as
         /// the conversation's single actionable ask. Rendered inert; flips
@@ -31,7 +32,7 @@ public struct CapabilityConnectPrompt: Hashable, Codable, Sendable {
     /// needs: who sent it, what they decided, and where the row sits in
     /// message time. `sentAtNs` (the message's `dateNs`) plus `messageId` (the
     /// stable tiebreaker for identical timestamps) give
-    /// `resolution(results:askerInboxId:)` its first-decision ordering; both
+    /// `resolution(results:askerInboxId:viewerInboxId:)` its first-decision ordering; both
     /// come off the synced message row, so every device sorts identically.
     public struct ResultRecord: Hashable, Sendable {
         public let senderId: String
@@ -84,12 +85,14 @@ public struct CapabilityConnectPrompt: Hashable, Codable, Sendable {
 public extension CapabilityConnectPrompt {
     /// `isLatestUnresolvedRequest`: whether this request is the one
     /// `CapabilityRequestRepository.computeLatestPendingRequest` would surface
-    /// — i.e. the conversation's single actionable ask. Unresolved requests
-    /// that aren't it render `.superseded` instead of `.pending`, so the pill
-    /// is never tappable-looking while the tap path would refuse it.
+    /// for the viewer — i.e. their single actionable ask. Requests the viewer
+    /// hasn't resolved that aren't it render `.superseded` instead of
+    /// `.pending`, so the pill is never tappable-looking while the tap path
+    /// would refuse it.
     static func make(
         request: CapabilityRequest,
         results: [ResultRecord],
+        viewerInboxId: String,
         isLatestUnresolvedRequest: Bool
     ) -> CapabilityConnectPrompt {
         let preferredProviderId = request.preferredProviders?.first
@@ -102,6 +105,7 @@ public extension CapabilityConnectPrompt {
             status: displayStatus(
                 results: results,
                 askerInboxId: request.askerInboxId,
+                viewerInboxId: viewerInboxId,
                 isLatestUnresolvedRequest: isLatestUnresolvedRequest
             )
         )
@@ -112,31 +116,31 @@ public extension CapabilityConnectPrompt {
     /// picker layout, i.e. the tap path) — both layers must always agree on
     /// whether a request is still open.
     ///
-    /// First decision wins, in message-time order: one capability request is
-    /// one connection ask for the whole conversation, and the EARLIEST
-    /// validated result resolves it for every member — approved flips the
-    /// pill to `.connected` conversation-wide (and the grant separately
-    /// broadcasts as a `connection_event`); denied/cancelled resolves to
-    /// `.dismissed` just as finally — an agent that still needs access
-    /// re-requests under a new `requestId`. Results are sorted here (sent
-    /// timestamp, then message id as the stable tiebreaker) rather than
-    /// trusting callers to pass them ordered, so the temporal guarantee
-    /// holds in every call path.
+    /// Resolution is per viewer: a result row only counts toward the status
+    /// the viewing member sees when its XMTP-attested sender (the envelope's
+    /// `senderInboxId`, persisted as the row's `senderId`) is the viewer
+    /// themselves. Each member answers the same request independently — one
+    /// member approving grants their own connection (broadcast separately as
+    /// a `connection_event`) and leaves every other member's pill actionable;
+    /// a denial or cancellation dismisses the ask for its author alone. Among
+    /// the viewer's own rows the first decision wins, in message-time order
+    /// (sent timestamp, then message id as the stable tiebreaker); results
+    /// are sorted here rather than trusting callers to pass them ordered, so
+    /// the temporal guarantee holds in every call path.
     ///
-    /// Validation: a result only counts when its XMTP-attested sender (the
-    /// envelope's `senderInboxId`, persisted as the row's `senderId`) is not
-    /// the request's asker — the requesting agent can't approve, deny, or
-    /// cancel its own ask. This mirrors the attested-sender posture of
+    /// The request's asker can never resolve its own ask, even as the viewer
+    /// — the requesting agent can't approve, deny, or cancel what it asked
+    /// for. This mirrors the attested-sender posture of
     /// `validateConnectionGrantRequest`; the result payload carries no sender
     /// claim of its own, so the envelope identity is the only trusted input.
     /// `staleResource` and forward-compat `unknown` statuses are not user
-    /// decisions, so they are skipped, never resolving. Returns nil while
-    /// unresolved.
-    static func resolution(results: [ResultRecord], askerInboxId: String) -> Status? {
+    /// decisions, so they are skipped, never resolving. Returns nil while the
+    /// viewer hasn't decided.
+    static func resolution(results: [ResultRecord], askerInboxId: String, viewerInboxId: String) -> Status? {
         let ordered = results.sorted {
             ($0.sentAtNs, $0.messageId) < ($1.sentAtNs, $1.messageId)
         }
-        for record in ordered where record.senderId != askerInboxId {
+        for record in ordered where record.senderId == viewerInboxId && record.senderId != askerInboxId {
             switch record.status {
             case .approved:
                 return .connected
@@ -149,16 +153,18 @@ public extension CapabilityConnectPrompt {
         return nil
     }
 
-    /// Folds the validated resolution (see `resolution(results:askerInboxId:)`)
-    /// into the pill's display state. Unresolved requests are `.pending` only
-    /// when they are the conversation's latest unresolved ask; older ones are
+    /// Folds the viewer's validated resolution (see
+    /// `resolution(results:askerInboxId:viewerInboxId:)`) into the pill's
+    /// display state. Requests the viewer hasn't resolved are `.pending` only
+    /// when they are the conversation's latest such ask; older ones are
     /// `.superseded` (visible but inert).
     static func displayStatus(
         results: [ResultRecord],
         askerInboxId: String,
+        viewerInboxId: String,
         isLatestUnresolvedRequest: Bool
     ) -> Status {
-        if let resolution = resolution(results: results, askerInboxId: askerInboxId) {
+        if let resolution = resolution(results: results, askerInboxId: askerInboxId, viewerInboxId: viewerInboxId) {
             return resolution
         }
         return isLatestUnresolvedRequest ? .pending : .superseded
