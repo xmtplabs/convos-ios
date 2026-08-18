@@ -69,7 +69,14 @@ struct AgentDmPageView: View {
 
     var body: some View {
         Group {
-            if let prototypeState, let selectedLane, selectedLane.isLocalPrototype {
+            if let prototypeState, let selectedLane, let provider = selectedLane.externalProvider {
+                ExternalAgentContextHandoffView(
+                    provider: provider,
+                    prototypeState: prototypeState,
+                    extraBottomInset: extraBottomInset,
+                    onContentHeightChanged: onContentHeightChanged
+                )
+            } else if let prototypeState, let selectedLane, selectedLane.isLocalPrototype {
                 AgentChatDemoTranscript(
                     lane: selectedLane,
                     lanes: lanes,

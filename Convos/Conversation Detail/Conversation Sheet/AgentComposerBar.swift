@@ -85,7 +85,9 @@ struct AgentComposerBar: View {
         state: AgentChatPrototypeState,
         selectedLane: AgentChatLane
     ) -> some View {
-        if selectedLane.isLocalPrototype {
+        if let provider = selectedLane.externalProvider {
+            ExternalAgentLaunchBar(provider: provider)
+        } else if selectedLane.isLocalPrototype {
             AgentChatDemoComposer(
                 lane: selectedLane,
                 prototypeState: state,

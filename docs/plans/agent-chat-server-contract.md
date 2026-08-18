@@ -464,33 +464,45 @@ Required dashboards/alerts:
 5. Complete adversarial privacy tests and incident-response runbook.
 6. Only then enable “off the record” copy.
 
-### Phase D — external agent connectors
+### Phase D — external context handoffs and Home return connectors
 
-1. Add a connector registry with provider type, owner account, encrypted connection material, health, revocation state, and capability manifest.
-2. Ship a Convos desktop bridge for Codex and Claude Code. The bridge owns provider login and workspace access; the mobile app receives only a one-time pairing code.
-3. Add server-side adapters for the Hermes OpenAI-compatible API server, the OpenClaw Gateway WebSocket protocol, and the xAI Responses API.
-4. Exchange pairing codes for a `connector_id`; never return provider keys or gateway tokens to iOS after setup.
-5. Add per-conversation grants for `home.read`, `home.write`, `group.read`, `group.write`, and `member_dm.scoped`.
-6. Route every agent turn through an authorization check over connector owner, convo membership, current grant, context namespace, and destination.
-7. Add health, reconnect, credential rotation, and immediate revoke endpoints before enabling outside Dev/Firebase.
+1. Treat the external lane as an explicit export, not a hosted agent session. iOS submits a context window (`1h`, `24h`, `7d`, or bounded all-available), whether to include visible Home summaries, and the destination label.
+2. Build a deterministic export manifest before returning content: exact start/end timestamps, included message count, included Home object IDs/revisions, truncation reason, policy version, and excluded content classes. Require active convo membership at assembly time.
+3. Export only ordinary visible group messages inside the selected window plus optional visible Home object summaries. Exclude Ghost content, agent/private/member DMs, other convos, membership lists, deleted/hidden messages, raw credentials, tool traces, and unsaved files.
+4. Return one paste-ready plaintext block to the authenticated iOS client. Never put exported content, identifiers, or a pairing key in the provider deep-link URL; iOS opens only a fixed allowlisted HTTPS destination after the user copies the block.
+5. Do not create a provider credential or automatic outbound request for context-only handoff. Clipboard exposure is explicit in the client copy and privacy review.
+6. For optional return access, mint a random single-use pairing code with at least 128 bits of entropy, a 10-minute maximum lifetime, one convo ID, one owner, and requested scopes limited to `home.visible_summary.read`, `home.link.proposal.create`, and `home.widget_update.proposal.create`.
+7. The external agent's secure Convos connector exchanges the code over TLS while proving its connector identity (public-key/PKCE or stronger). The exchange returns short-lived access tokens plus a revocable refresh credential bound to that connector; iOS never receives those credentials.
+8. Return connectors can create idempotent Home edit proposals against stable object IDs/revisions. They cannot read messages, publish/delete/share Home objects, expand their own scopes, or bypass the existing user preview/approval flow.
+9. Store return credentials in the connector's secret store, never in a model prompt, tool result, analytics event, push payload, crash report, or general log. Support immediate owner revocation and expiry-driven cleanup.
 
 Suggested shapes:
 
 ```text
-POST /v1/external-agent-connectors/pairing-sessions
-GET  /v1/external-agent-connectors/{connector_id}
-POST /v1/external-agent-connectors/{connector_id}/revoke
-PUT  /v1/conversations/{conversation_id}/external-agents/{connector_id}/grants
+POST /v1/conversations/{conversation_id}/context-exports
+POST /v1/conversations/{conversation_id}/external-return-pairing-sessions
+POST /v1/external-return-pairing-sessions/{pairing_id}/exchange
+GET  /v1/external-return-connectors/{connector_id}
+POST /v1/external-return-connectors/{connector_id}/revoke
 
-grant = {
-  home_read_write: boolean,
-  group_listen_reply: boolean,
-  scoped_member_dms: boolean,
+context_export_request = {
+  window: "1h" | "24h" | "7d" | "all_bounded",
+  include_home: boolean,
+  destination_label: string,
   policy_version: string
+}
+
+pairing_session = {
+  id: string,
+  display_code: string,
+  conversation_id: string,
+  scopes: string[],
+  expires_at: timestamp,
+  consumed_at: timestamp | null
 }
 ```
 
-Codex/Claude Code pairing requires a desktop bridge session, provider-auth status, approved workspace identifiers, and a bridge public key. Hermes requires an HTTPS-reachable gateway URL plus an `API_SERVER_KEY`. OpenClaw requires a secure WebSocket gateway URL, device identity/signature, gateway token, and the minimum operator scopes. The Grok connector uses an xAI API key with explicit endpoint/model ACLs, stored only in the server credential vault.
+The context-only flow works with any destination that accepts pasted text and requires no provider integration. Return access works only where the external environment can install or invoke a secure Convos connector/tool; the consumer Grok app must not be presented as supporting this until such a connector path is verified. Provider app authentication remains entirely provider-owned.
 
 ### Phase E — chat links and Home edit commands
 
@@ -578,13 +590,15 @@ convo_link = {
 
 ### External agents
 
-- A replayed/expired pairing code cannot create a second connector.
-- Revoking the connector closes active streams and blocks the next turn immediately.
-- A connector with only `home.read/write` never receives group messages or member DM traffic.
-- Group participation and scoped member DMs can be enabled and revoked independently.
-- A scoped member DM cannot retrieve another group, another member’s DM, or the owner’s private lane.
-- Provider/gateway secrets never appear in mobile responses, analytics, push payloads, or general logs.
-- Losing the desktop bridge or gateway produces a reconnect state without dropping drafts or misrouting work to another agent.
+- Every time window uses inclusive/exclusive timestamp boundaries consistently and cannot return messages outside the requested range.
+- Turning Home off yields zero Home object content; turning it on returns only visible summaries and stable IDs/revisions, never hidden fields or credentials.
+- Ghost, private agent/member DMs, other convos, memberships, deleted/hidden messages, tool traces, and unsaved files never appear in an export fixture.
+- Exported plaintext never appears in a deep-link URL, analytics, push payloads, crash reports, or general logs.
+- A replayed, expired, wrong-owner, wrong-convo, or already-consumed return pairing code fails closed and cannot create a second connector.
+- A return connector cannot request or self-expand beyond Home summary/proposal scopes and cannot retrieve any message transcript.
+- Proposal writes are idempotent, revision-checked, visibly attributed to the connector, and require the normal user preview/approval before publish.
+- Revoking a return connector blocks the next read/proposal immediately and invalidates refresh credentials.
+- Pairing codes, access tokens, and refresh credentials never appear in model prompts, iOS responses after exchange, analytics, push payloads, or general logs.
 
 ### Home link projections and editing
 
@@ -616,8 +630,9 @@ convo_link = {
 - [ ] Ghost Mode memory is technically separate from the group/DM Hermes session.
 - [ ] Privacy policy fields reflect deployed behavior, not aspirational copy.
 - [ ] Ghost deletion and export authorization pass security review.
-- [ ] External connector credentials are vault-backed, revocable, and absent from mobile/logging surfaces.
-- [ ] Per-convo external-agent grants are enforced at context assembly and delivery.
+- [ ] External context export windows, Home inclusion, exclusions, truncation, and fixed-URL handoff pass privacy/security review.
+- [ ] Return pairing codes are single-use, short-lived, owner/convo-bound, and exchanged for vault-backed revocable connector credentials.
+- [ ] Return connectors are limited to visible Home summaries and approval-gated link/widget proposals; message and direct-publish access fail closed.
 - [ ] Home object revisions, preview diffs, and approval tokens pass concurrency and authorization tests.
 - [ ] Cross-convo links enforce agent ownership, membership in every convo, content-class exclusions, portable capability versioning, visible link state, and immediate disconnect.
 - [ ] Rollback returns all model preferences to the safe default without losing desired state.

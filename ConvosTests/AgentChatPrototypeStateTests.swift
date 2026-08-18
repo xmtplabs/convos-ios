@@ -69,43 +69,46 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         XCTAssertTrue(state.messages(for: liveAgent).isEmpty)
     }
 
-    func testExternalAgentConnectionIsDeduplicatedAndKeepsPrivateDefaults() {
+    func testExternalAgentConnectionIsDeduplicatedAndKeepsHandoffDefaults() {
         let state = AgentChatPrototypeState()
 
         state.connect(.codex)
         state.connect(.codex)
 
         XCTAssertEqual(state.connectedExternalProviders, [.codex])
-        XCTAssertEqual(state.access(for: .codex), .privateDesktop)
+        XCTAssertEqual(state.handoff(for: .codex), .standard)
     }
 
-    func testExternalAgentAccessStaysScopedToProvider() {
+    func testExternalAgentContextWindowStaysScopedToProvider() {
         let state = AgentChatPrototypeState()
         state.connect(.codex)
         state.connect(.openClaw)
 
-        state.accessBinding(for: .openClaw).wrappedValue = ExternalAgentAccess(
-            desktopReadWrite: true,
-            groupListenAndReply: true,
-            scopedMemberDMs: true
+        state.setHandoff(
+            ExternalAgentHandoffConfiguration(
+                contextWindow: .sevenDays,
+                includesGroupDesktop: false
+            ),
+            for: .openClaw
         )
 
-        XCTAssertEqual(state.access(for: .codex), .privateDesktop)
-        XCTAssertTrue(state.access(for: .openClaw).groupListenAndReply)
-        XCTAssertTrue(state.access(for: .openClaw).scopedMemberDMs)
+        XCTAssertEqual(state.handoff(for: .codex), .standard)
+        XCTAssertEqual(state.handoff(for: .openClaw).contextWindow, .sevenDays)
+        XCTAssertFalse(state.handoff(for: .openClaw).includesGroupDesktop)
     }
 
-    func testExternalAgentUsesItsOwnLaneState() {
-        let state = AgentChatPrototypeState()
-        let codex = AgentChatLane.external(.codex)
-        let claude = AgentChatLane.external(.claudeCode)
+    func testExternalAgentPayloadNamesScopeAndPrivacyBoundary() {
+        let payload = ExternalAgentProvider.grokBot.contextPayload(
+            configuration: .standard
+        )
 
-        state.draftBinding(for: codex).wrappedValue = "Edit the Home card"
-        state.draftBinding(for: claude).wrappedValue = "Review the draft"
-
-        XCTAssertEqual(state.draftBinding(for: codex).wrappedValue, "Edit the Home card")
-        XCTAssertEqual(state.draftBinding(for: claude).wrappedValue, "Review the draft")
-        XCTAssertNotEqual(state.messages(for: codex).first?.text, state.messages(for: claude).first?.text)
+        XCTAssertTrue(payload.contains("Last 24 hours"))
+        XCTAssertTrue(payload.contains("group desktop information"))
+        XCTAssertTrue(payload.contains("Ghost Mode"))
+        XCTAssertTrue(payload.contains("does not export real conversation content"))
+        XCTAssertTrue(AgentChatLane.external(.grokBot).subtitle.contains("Opens GrokBot"))
+        XCTAssertEqual(ExternalAgentProvider.grokBot.launchURL.host, "grok.com")
+        XCTAssertTrue(ExternalAgentProvider.grokBot.connectorKey.contains("DEMO"))
     }
 
     func testCrossConvoLinkIsDeduplicatedAndSharesFullAgentLayer() {
