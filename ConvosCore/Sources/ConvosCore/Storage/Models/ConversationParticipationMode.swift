@@ -18,6 +18,12 @@ import Foundation
 /// mirror the agent runtime reads.
 public enum ConversationParticipationMode: String, CaseIterable, Codable, Sendable {
     case speakFreely = "speak"
+    /// The quiet-but-listening mode: the agent keeps working but only speaks
+    /// when it is addressed (an @mention or its name). Its wire value is
+    /// `"mention"` and its user-facing name is "Listen mode" (see `title`) —
+    /// they are the SAME mode. There is no separate `listen` wire value; if you
+    /// see "listen" in a transcript, screenshot, or product copy, it means this
+    /// case.
     case mentionsOnly = "mention"
     case paused
 
@@ -37,7 +43,9 @@ public enum ConversationParticipationMode: String, CaseIterable, Codable, Sendab
     }
 
     /// User-visible name of the mode, as it reads in the participation menu and
-    /// in the transcript row a change leaves behind.
+    /// in the transcript row a change leaves behind. Note `.mentionsOnly`
+    /// (wire value `"mention"`) reads as "Listen mode" here — the label and the
+    /// wire vocabulary are deliberately different names for one mode.
     public var title: String {
         switch self {
         case .speakFreely: "Speak freely"
