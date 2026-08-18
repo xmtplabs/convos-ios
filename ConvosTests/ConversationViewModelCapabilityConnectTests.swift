@@ -153,36 +153,50 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
     }
 
     func testConnectUnlinkedProvidersSucceedsThroughOAuth() async {
-        let linked = await ConversationViewModel.connectUnlinkedProviders(
+        let outcome = await ConversationViewModel.connectUnlinkedProviders(
             [ProviderID(rawValue: "composio.googlecalendar")],
             authorizer: StubDeviceAuthorizer(),
             registry: InMemoryCapabilityProviderRegistry(),
             cloudConnectionManager: MockCloudConnectionManager()
         )
 
-        XCTAssertTrue(linked)
+        XCTAssertEqual(outcome, .linked)
     }
 
-    func testConnectUnlinkedProvidersFailsClosedWhenOAuthCancelled() async {
-        let linked = await ConversationViewModel.connectUnlinkedProviders(
+    func testConnectUnlinkedProvidersInterruptsWhenOAuthCancelled() async {
+        let outcome = await ConversationViewModel.connectUnlinkedProviders(
             [ProviderID(rawValue: "composio.googlecalendar")],
             authorizer: StubDeviceAuthorizer(),
             registry: InMemoryCapabilityProviderRegistry(),
             cloudConnectionManager: CancelledCloudConnectionManager()
         )
 
-        XCTAssertFalse(linked, "A cancelled OAuth must never let the approval proceed")
+        XCTAssertEqual(outcome, .interrupted, "A cancelled OAuth must never let the approval proceed, and must not surface an error banner")
     }
 
-    func testConnectUnlinkedProvidersFailsClosedForUnknownProvider() async {
-        let linked = await ConversationViewModel.connectUnlinkedProviders(
+    func testConnectUnlinkedProvidersInterruptsForUnknownProvider() async {
+        let outcome = await ConversationViewModel.connectUnlinkedProviders(
             [ProviderID(rawValue: "bogus.provider")],
             authorizer: StubDeviceAuthorizer(),
             registry: InMemoryCapabilityProviderRegistry(),
             cloudConnectionManager: MockCloudConnectionManager()
         )
 
-        XCTAssertFalse(linked, "Providers with no connect path must fail closed")
+        XCTAssertEqual(outcome, .interrupted, "Providers with no connect path must not let the approval proceed")
+    }
+
+    func testConnectUnlinkedProvidersSurfacesErrorWhenConnectFails() async {
+        let outcome = await ConversationViewModel.connectUnlinkedProviders(
+            [ProviderID(rawValue: "composio.googlecalendar")],
+            authorizer: StubDeviceAuthorizer(),
+            registry: InMemoryCapabilityProviderRegistry(),
+            cloudConnectionManager: FailingCloudConnectionManager()
+        )
+
+        guard case .failed = outcome else {
+            XCTFail("A genuine connect failure must surface an error so the sheet stops looking inert")
+            return
+        }
     }
 
     // MARK: - Helpers
@@ -260,6 +274,13 @@ private struct StubDeviceAuthorizer: DeviceConnectionAuthorizer {
 
 private struct CancelledCloudConnectionManager: CloudConnectionManagerProtocol {
     func connect(serviceId: String) async throws -> CloudConnection { throw OAuthError.cancelled }
+    func disconnect(connectionId: String) async throws {}
+    func refreshConnections() async throws -> [CloudConnection] { [] }
+}
+
+private struct FailingCloudConnectionManager: CloudConnectionManagerProtocol {
+    enum StubError: Error { case connectFailed }
+    func connect(serviceId: String) async throws -> CloudConnection { throw StubError.connectFailed }
     func disconnect(connectionId: String) async throws {}
     func refreshConnections() async throws -> [CloudConnection] { [] }
 }

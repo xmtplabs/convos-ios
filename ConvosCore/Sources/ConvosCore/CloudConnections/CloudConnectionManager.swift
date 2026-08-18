@@ -42,17 +42,56 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
             redirectUri: redirectUri
         )
 
-        guard let oauthURL = URL(string: initiation.redirectUrl) else {
+        guard let redirectUrlString = initiation.redirectUrl else {
+            return try await resolveConnectionWithoutOAuth(serviceId: serviceId, initiation: initiation)
+        }
+
+        guard let oauthURL = URL(string: redirectUrlString) else {
             throw CloudConnectionManagerError.invalidOAuthURL
         }
 
         _ = try await oauthProvider.authenticate(url: oauthURL, callbackURLScheme: callbackURLScheme)
 
         let completion = try await apiClient.completeCloudConnection(connectionRequestId: initiation.connectionRequestId)
+        return try await persistCompletedConnection(completion, fallbackServiceId: serviceId)
+    }
 
+    /// Resolves a connect whose `/initiate` came back with a null redirectUrl,
+    /// meaning no OAuth step. The backend's authoritative signal is
+    /// `alreadyConnected`: when true, the account already authorized this
+    /// service, so the connection is finalized without a browser -- returning a
+    /// cached live local connection when present, otherwise completing the
+    /// request to materialize it. When the field is false or absent (backends
+    /// predating it), a cached live local connection is still accepted as a
+    /// transitional fallback; with neither signal the service is not connected
+    /// here, so a typed error surfaces instead of the sheet hanging.
+    private func resolveConnectionWithoutOAuth(
+        serviceId: String,
+        initiation: CloudConnectionsAPI.InitiateResponse
+    ) async throws -> CloudConnection {
+        if initiation.alreadyConnected {
+            if let existing = try await existingActiveConnection(serviceId: serviceId) {
+                return existing
+            }
+            let completion = try await apiClient.completeCloudConnection(connectionRequestId: initiation.connectionRequestId)
+            return try await persistCompletedConnection(completion, fallbackServiceId: serviceId)
+        }
+        if let existing = try await existingActiveConnection(serviceId: serviceId) {
+            return existing
+        }
+        throw CloudConnectionManagerError.oauthUrlUnavailable
+    }
+
+    /// Builds and persists a `CloudConnection` from a completion response.
+    /// `fallbackServiceId` is used only when the backend echoes an empty
+    /// service id.
+    private func persistCompletedConnection(
+        _ completion: CloudConnectionsAPI.CompleteResponse,
+        fallbackServiceId: String
+    ) async throws -> CloudConnection {
         // Backend echoes Composio's slug. Fall back to the original arg only if
         // the response somehow comes back with no service id at all.
-        let finalServiceId = completion.serviceId.isEmpty ? serviceId : completion.serviceId
+        let finalServiceId = completion.serviceId.isEmpty ? fallbackServiceId : completion.serviceId
 
         let connection = CloudConnection(
             id: completion.connectionId,
@@ -71,6 +110,21 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
         }
 
         return connection
+    }
+
+    /// The most recently connected active local connection for `serviceId`, or
+    /// nil when none exists. Reads the same store that feeds a provider's
+    /// `linked` state and grant confirmation, so a null-redirect initiate can
+    /// resolve to success without a further backend round-trip.
+    private func existingActiveConnection(serviceId: String) async throws -> CloudConnection? {
+        try await databaseWriter.read { db in
+            try DBCloudConnection
+                .filter(DBCloudConnection.Columns.serviceId == serviceId)
+                .filter(DBCloudConnection.Columns.status == CloudConnectionStatus.active.rawValue)
+                .order(DBCloudConnection.Columns.connectedAt.desc)
+                .fetchOne(db)?
+                .toConnection()
+        }
     }
 
     public func disconnect(connectionId: String) async throws {
@@ -326,11 +380,14 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
 
 enum CloudConnectionManagerError: LocalizedError {
     case invalidOAuthURL
+    case oauthUrlUnavailable
 
     var errorDescription: String? {
         switch self {
         case .invalidOAuthURL:
             "Invalid OAuth URL received from server"
+        case .oauthUrlUnavailable:
+            "Couldn't start sign-in for this service. Please try again."
         }
     }
 }

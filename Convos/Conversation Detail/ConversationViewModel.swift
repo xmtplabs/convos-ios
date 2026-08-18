@@ -2104,7 +2104,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let registry = session.capabilityProviderRegistry()
         let manager = session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme)
         Task { [weak self] in
-            let allLinked = await Self.connectUnlinkedProviders(
+            let outcome = await Self.connectUnlinkedProviders(
                 unlinked,
                 authorizer: authorizer,
                 registry: registry,
@@ -2113,8 +2113,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.connectOnApproveInFlightRequestId = nil
-                if allLinked {
-                    // Always approve the *captured* request — a newer request
+                switch outcome {
+                case .linked:
+                    // Always approve the *captured* request -- a newer request
                     // might have arrived during the connect step and replaced
                     // the picker layout's request, and we must not approve it
                     // on the old tap's behalf. The captured conversationId
@@ -2129,7 +2130,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                         bundleSelection: bundleSelection,
                         conversationId: conversationId
                     )
-                } else {
+                case .interrupted:
+                    self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
+                case .failed(let message):
+                    self.capabilityApprovalErrorMessage = message
                     self.recomputeCapabilityPickerLayout(for: request, conversationId: conversationId)
                 }
             }
@@ -2339,7 +2343,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let registry = session.capabilityProviderRegistry()
         let manager = session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme)
         Task { [weak self] in
-            let allLinked = await Self.connectUnlinkedProviders(
+            let outcome = await Self.connectUnlinkedProviders(
                 providers,
                 authorizer: authorizer,
                 registry: registry,
@@ -2348,7 +2352,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.connectOnApproveInFlightRequestId = nil
-                guard allLinked else {
+                guard case .linked = outcome else {
                     self.capabilityApprovalErrorMessage = Constant.capabilityApprovalFailedMessage
                     return
                 }
@@ -2758,38 +2762,49 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// when EVERY provider ends up linked; the caller must not send the
     /// approval otherwise (fail closed — granting an unlinked provider would
     /// persist a resolution that can't deliver data).
+    /// Outcome of the connect-on-approve step. Distinguishes a clean link
+    /// (approve), a user-driven interruption that should leave the sheet up
+    /// with no error banner (OAuth cancel, an ungranted device permission),
+    /// and a genuine failure whose message must show so the Connect button
+    /// stops looking inert.
+    enum ConnectOnApproveOutcome: Equatable {
+        case linked
+        case interrupted
+        case failed(message: String)
+    }
+
     static func connectUnlinkedProviders(
         _ providerIds: [ProviderID],
         authorizer: any DeviceConnectionAuthorizer,
         registry: any CapabilityProviderRegistry,
         cloudConnectionManager: any CloudConnectionManagerProtocol
-    ) async -> Bool {
+    ) async -> ConnectOnApproveOutcome {
         for providerId in providerIds {
             if let kind = ConnectionKind.fromDeviceProviderId(providerId) {
                 guard await linkDeviceProvider(kind: kind, authorizer: authorizer, registry: registry) else {
-                    return false
+                    return .interrupted
                 }
             } else if let serviceId = providerId.cloudServiceId {
                 do {
                     _ = try await cloudConnectionManager.connect(serviceId: serviceId)
                 } catch let oauthError as OAuthError {
                     if case .cancelled = oauthError {
-                        // User backed out of the OAuth sheet — the approval
+                        // User backed out of the OAuth sheet; the approval
                         // sheet stays up so they can retry or swipe down.
-                    } else {
-                        Log.error("OAuth failed for \(serviceId): \(oauthError.localizedDescription)")
+                        return .interrupted
                     }
-                    return false
+                    Log.error("OAuth failed for \(serviceId): \(oauthError.localizedDescription)")
+                    return .failed(message: Constant.capabilityApprovalFailedMessage)
                 } catch {
                     Log.error("Cloud connect failed for \(serviceId): \(error.localizedDescription)")
-                    return false
+                    return .failed(message: Constant.capabilityApprovalFailedMessage)
                 }
             } else {
                 Log.warning("Unsupported provider for connect-on-approve: \(providerId.rawValue)")
-                return false
+                return .interrupted
             }
         }
-        return true
+        return .linked
     }
 
     private static func linkDeviceProvider(
