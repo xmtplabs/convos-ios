@@ -274,7 +274,7 @@ struct AppSettingsView: View {
     @ViewBuilder
     private var connectionsRowLabel: some View {
         let isAbilitiesV2: Bool = FeatureFlags.shared.isAbilitiesV2Enabled
-        let title: String = isAbilitiesV2 ? "Abilities" : "Connections"
+        let title: String = "Connections"
         let connectionsCount: Int = viewModel.connectionsListViewModel.connections.count
         let showsCount: Bool = !isAbilitiesV2 && connectionsCount > 0
         HStack {

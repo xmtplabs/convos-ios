@@ -124,13 +124,13 @@ struct DebugViewSection: View {
     /// take effect on the next read (no relaunch needed).
     @ViewBuilder
     private var abilitiesFeatureToggles: some View {
-        Toggle("Abilities v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
+        Toggle("Connections v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
         if FeatureFlags.shared.isAbilitiesV2Enabled {
-            Toggle("Abilities: v1 awareness shim", isOn: $abilitiesV1ShimEnabled)
+            Toggle("Connections: v1 awareness shim", isOn: $abilitiesV1ShimEnabled)
                 .onChange(of: abilitiesV1ShimEnabled) { _, newValue in
                     AbilitiesServices.setV1AwarenessShimEnabled(newValue)
                 }
-            Toggle("Abilities: consent flow (mock)", isOn: $abilitiesEscalationMockEnabled)
+            Toggle("Connections: consent flow (mock)", isOn: $abilitiesEscalationMockEnabled)
                 .onChange(of: abilitiesEscalationMockEnabled) { _, newValue in
                     AbilitiesServices.setEscalationMockEnabled(newValue)
                 }

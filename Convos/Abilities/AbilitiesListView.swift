@@ -54,7 +54,7 @@ struct AbilitiesListView: View {
 
     var body: some View {
         catalogList
-            .searchable(text: $viewModel.searchText, prompt: "Search abilities")
+            .searchable(text: $viewModel.searchText, prompt: "Search connections")
             .overlay { listOverlay }
             .task { await viewModel.refresh() }
             .selfSizingSheet(item: $viewModel.pendingAuthorization, onDismiss: handleAuthorizationDismissed) { context in
@@ -85,7 +85,7 @@ struct AbilitiesListView: View {
     private var headerSection: some View {
         Section {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                Text("Abilities")
+                Text("Connections")
                     .font(.convosTitle)
                     .tracking(Font.convosTitleTracking)
                     .foregroundStyle(.colorTextPrimary)
@@ -111,7 +111,7 @@ struct AbilitiesListView: View {
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.colorLava)
-                Text("Can't check ability status right now. Showing the last-known state.")
+                Text("Can't check connection status right now. Showing the last-known state.")
                     .font(.footnote)
                     .foregroundStyle(.colorTextSecondary)
             }
@@ -174,7 +174,7 @@ struct AbilitiesListView: View {
                     unknownStateRow(ability)
                 }
             } header: {
-                sectionHeader("Abilities")
+                sectionHeader("Connections")
             }
         }
     }

@@ -35,7 +35,7 @@ struct ConversationAbilitiesSection: View {
                 abilityRow(row)
             }
         } header: {
-            Text("Abilities")
+            Text("Connections")
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(.colorTextSecondary)
         }

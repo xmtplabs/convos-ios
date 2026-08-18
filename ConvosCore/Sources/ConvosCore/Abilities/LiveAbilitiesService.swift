@@ -23,7 +23,7 @@ extension LiveAbilitiesServiceError: LocalizedError {
         case .missingConnectionRequest:
             "Sign-in session expired. Try connecting again."
         case .noBundlesSelected:
-            "This ability has no permissions to share yet."
+            "This connection has no permissions to share yet."
         }
     }
 }

@@ -338,11 +338,11 @@ extension AbilitiesAPI.EndpointError: LocalizedError {
         case .authIncomplete:
             "Still finishing sign-in. Try again in a moment."
         case .entitlementsUnavailable:
-            "Abilities are updating. Try again in a moment."
+            "Connections are updating. Try again in a moment."
         case .needsEntitlement:
             "Connect this ability before sharing it with a convo."
         case .unknownAbility:
-            "This ability is no longer available."
+            "This connection is no longer available."
         case .unknownBundle:
             "This permission is out of date. Refresh and try again."
         case .connectionNotOwned:
