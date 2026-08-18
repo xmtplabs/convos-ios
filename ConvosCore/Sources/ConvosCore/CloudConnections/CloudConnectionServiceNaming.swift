@@ -14,6 +14,7 @@ public enum CloudConnectionServiceNaming {
     private static let displayNameOverrides: [String: String] = [
         "googlecalendar": "Google Calendar",
         "googledrive": "Google Drive",
+        "googledocs": "Google Docs",
         "googlecontacts": "Google Contacts",
         "googletasks": "Google Tasks",
         "microsoftoutlook": "Microsoft Outlook",

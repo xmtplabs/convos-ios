@@ -53,6 +53,10 @@ public extension CloudCapabilityProvider {
         "googletasks": .tasks,
         "todoist": .tasks,
         "gmail": .mail,
+        // No documents/files subject exists yet; googledocs rides .photos the
+        // same way googledrive does above. One connection covers docs
+        // create/edit, link-sharing, and comments.
+        "googledocs": .photos,
     ]
 
     /// Default capability lists per service. Approximate for v1 — agents that hit a verb
@@ -69,6 +73,9 @@ public extension CloudCapabilityProvider {
         "googletasks": [.read, .writeCreate, .writeUpdate, .writeDelete],
         "todoist": [.read, .writeCreate, .writeUpdate, .writeDelete],
         "gmail": [.read, .writeCreate],
+        // Read + create/update only — mirrors the served bundle surface
+        // (markdown docs, sharing, comments; no delete).
+        "googledocs": [.read, .writeCreate, .writeUpdate],
     ]
 
     /// User-facing display name per service. Used when constructing a placeholder
@@ -85,6 +92,7 @@ public extension CloudCapabilityProvider {
         "googletasks": "Google Tasks",
         "todoist": "Todoist",
         "gmail": "Gmail",
+        "googledocs": "Google Docs",
     ]
 
     /// Build a provider from a `CloudConnection`, or `nil` if its `serviceId` isn't in
