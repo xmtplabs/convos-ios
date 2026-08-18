@@ -183,15 +183,6 @@ class NewConversationViewModel: Identifiable, Hashable {
     let allowsDismissingScanner: Bool
     private let autoCreateConversation: Bool
     /// True when this conversation was entered from "Show an invite code".
-    /// The chat opens showing the invite QR at the top (the standard header)
-    /// and its trailing toolbar item is the scan viewfinder, whose tap opens
-    /// a brand-new conversation (via `onScanInviteCode`) rather than scanning
-    /// into this one. Drives `trailingItemForReadyState`.
-    let showsEmbeddedInvite: Bool
-    /// Segment the embedded Scan/Invite toggle starts on. `.scan` for the
-    /// home scan entry (so the viewfinder + "Or scan from camera roll" are the first
-    /// thing shown); `.invite` for "Show an invite code" and normal convos.
-    var embeddedInviteInitialSegment: ScanInviteSegment = .invite
     private(set) var showingFullScreenScanner: Bool
     var presentingJoinConversationSheet: Bool = false
     var displayError: IdentifiableError? {
@@ -214,7 +205,7 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// `session.prepareNewConversation()`, or - for deferred-visibility
     /// modes when the pool was empty - the row the state machine created
     /// on demand (`startsUnused`), captured at `.ready`. Kept here so
-    /// wrapping VMs (e.g. `AgentBuilderViewModel`) can promote the row at
+    /// wrapping VMs can promote the row at
     /// their own commit moment via `commitConversationVisibility()` without
     /// re-deriving the id from the draft-vs-real
     /// `conversationViewModel.conversation.id`.
@@ -225,6 +216,11 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// acquire; the cache-miss path defers by creating the conversation
     /// with `startsUnused: true`.
     private let defersVisibilityUntilCommit: Bool
+    /// Whether this flow's conversation should carry the default agent and
+    /// receive the `conversation_ready` greeting cue. True for the plain
+    /// new-convo modes; false for joins, existing conversations, and
+    /// template spawns (which bring their own agent).
+    private let wantsDefaultAgent: Bool
 
     /// Set when `commitConversationVisibility()` runs before the
     /// auto-created conversation reaches `.ready` (no id to flip yet).
@@ -257,7 +253,7 @@ class NewConversationViewModel: Identifiable, Hashable {
     }
 
     /// Fires exactly once when the state machine first reaches `.ready`.
-    /// Wrappers (e.g. `AgentBuilderViewModel`) use this to kick off
+    /// Wrappers use this to kick off
     /// follow-on work like inviting an agent once the conversation
     /// has an invite slug.
     var onReachedReady: (() -> Void)?
@@ -355,15 +351,11 @@ class NewConversationViewModel: Identifiable, Hashable {
     init(
         session: any SessionManagerProtocol,
         mode: NewConversationMode,
-        showsEmbeddedInvite: Bool = false,
-        embeddedInviteInitialSegment: ScanInviteSegment = .invite,
         defersInviteVisibilityUntilEntered: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
         self.coreActions = coreActions
-        self.showsEmbeddedInvite = showsEmbeddedInvite
-        self.embeddedInviteInitialSegment = embeddedInviteInitialSegment
         self.qrScannerViewModel = QRScannerViewModel()
         switch mode {
         case .scanner:
@@ -430,8 +422,10 @@ class NewConversationViewModel: Identifiable, Hashable {
 
         self.isExistingConversation = if case .existingConversation = mode { true } else { false }
 
+        self.wantsDefaultAgent = mode.wantsDefaultAgent
+
         self.isCreatingConversation = mode.isNewConversation
-        self.messagesTopBarTrailingItem = showsEmbeddedInvite ? .scan : .share
+        self.messagesTopBarTrailingItem = .share
         createPlaceholderConversationViewModel()
         acquireInbox(mode: mode)
         resolveOptimisticAgentIdentityIfNeeded()
@@ -459,12 +453,10 @@ class NewConversationViewModel: Identifiable, Hashable {
         autoCreateConversation: Bool = false,
         showingFullScreenScanner: Bool = false,
         allowsDismissingScanner: Bool = true,
-        showsEmbeddedInvite: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions()
     ) {
         self.session = session
         self.coreActions = coreActions
-        self.showsEmbeddedInvite = showsEmbeddedInvite
         self.qrScannerViewModel = QRScannerViewModel()
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
@@ -472,11 +464,16 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.seededMemberInboxIds = []
         self.seededAgentTemplateIds = []
         self.defersVisibilityUntilCommit = false
+        self.wantsDefaultAgent = false
         // Tests-only init - the warm-cache flow goes through the
         // public init. Existing-conversation cleanup guard stays off.
         self.isExistingConversation = false
         self.showingFullScreenScanner = showingFullScreenScanner
         self.allowsDismissingScanner = allowsDismissingScanner
+        // `acquireInbox` records the warm-cache id as the claimed row before
+        // configuring; mirror that here so a fixture built with one starts in
+        // the same state the real flow reaches.
+        self.claimedConversationId = existingConversationId
 
         configureWithMessagingService(
             messagingService,
@@ -523,7 +520,7 @@ class NewConversationViewModel: Identifiable, Hashable {
                 Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
                 claimedConversationId = existingConversationId
                 // `.newAgent` defers commit until the user actually taps Make
-                // in the Agent Builder (`AgentBuilderViewModel.commit`) so the
+                // in the Agent Builder so the
                 // claimed cache row stays hidden from the chats list during
                 // compose. The other modes drop straight into a chat composer
                 // — committing here mirrors the previous behavior of making
@@ -578,9 +575,22 @@ class NewConversationViewModel: Identifiable, Hashable {
         }
     }
 
+    /// The emoji the conversation this flow is about to claim will carry.
+    /// Emoji are derived from the conversation id, and this screen opens on a
+    /// placeholder whose id is a throwaway draft, so without this the header
+    /// paints one emoji and swaps to another the moment the real conversation
+    /// binds. Nil when the pool is empty, which is the one case that still
+    /// swaps - there is no id to derive from yet.
+    private var pooledConversationEmoji: String? {
+        session.peekPreparedConversationId().map(EmojiSelector.emoji(for:))
+    }
+
     private func createPlaceholderConversationViewModel() {
         let draftId: String = "draft-\(UUID().uuidString)"
-        let draftConversation: Conversation = makeDraftConversation(id: draftId)
+        let draftConversation: Conversation = makeDraftConversation(
+            id: draftId,
+            emoji: pooledConversationEmoji
+        )
         let messagesRepo = MockMessagesRepository(conversationId: draftId)
         let draftRepo = MockDraftConversationRepository(conversation: draftConversation, messagesRepository: messagesRepo)
         let stateManager = MockConversationStateManager(
@@ -720,8 +730,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         didTriggerAgentJoin = false
         showingFullScreenScanner = false
 
-        // The home-scan embedded flow (`.newConversation` + showsEmbeddedInvite)
-        // auto-creates its conversation up front, so the state machine is already
+        // A flow that auto-creates its conversation up front is already
         // past `.uninitialized` and a second `createConversation()` would be
         // dropped as an invalid transition -- silently losing the scanned agent.
         // Route it into that conversation instead: fire now if it is already
@@ -867,9 +876,16 @@ class NewConversationViewModel: Identifiable, Hashable {
         let actions: any CoreActions = coreActions
         Task { await actions.joinedConversation(verificationDuration: waitDuration, memberCount: nil, hasAssistant: nil, source: source, isSuccess: false) }
     }
+}
 
-    // MARK: - Private
+// MARK: - Join handling
 
+/// Join success / failure handling and its timeout bookkeeping. Split into
+/// an extension purely to keep the type body within SwiftLint's
+/// `type_body_length` budget; everything stays `@MainActor`-isolated
+/// (inherited from the type), so behavior is identical to when these lived
+/// inline.
+extension NewConversationViewModel {
     @MainActor
     private func handleJoinSuccess() {
         joinTimeoutTask?.cancel()
@@ -918,11 +934,8 @@ class NewConversationViewModel: Identifiable, Hashable {
     }
 
     /// The trailing toolbar item for an interactive new conversation.
-    /// "Show an invite code" convos surface the scan viewfinder (whose tap
-    /// opens a new conversation); every other new convo surfaces the share /
-    /// add-people menu.
     private var defaultTrailingItem: MessagesViewTopBarTrailingItem {
-        showsEmbeddedInvite ? .scan : .share
+        .share
     }
 
     @MainActor
@@ -1015,7 +1028,7 @@ extension NewConversationViewModel {
     /// excluded, so a freshly created (but unused) convo still reads as empty.
     @discardableResult
     func cleanUpEmptyEmbeddedInviteIfNeeded() -> Bool {
-        guard showsEmbeddedInvite, !_cleanedUp, !isExistingConversation else { return false }
+        guard defersVisibilityUntilCommit, !_cleanedUp, !isExistingConversation else { return false }
         guard engagement.isEmpty else { return true }
         let hasMessages = (conversationViewModel?.messages.countMessages ?? 0) > 0
         let hasOtherMembers = (conversationViewModel?.conversation.membersWithoutCurrent.count ?? 0) > 0
@@ -1110,7 +1123,7 @@ extension NewConversationViewModel {
     }
 
     /// Send a first message through the state machine. Used by wrapping
-    /// flows (e.g. AgentBuilderViewModel) that commit a draft before
+    /// flows that commit a draft before
     /// the user sees the chat view. If the state machine hasn't reached
     /// `.ready` yet, the existing message-stream queue inside
     /// `ConversationStateMachine.sendMessage` holds the send until it does.
@@ -1369,15 +1382,9 @@ extension NewConversationViewModel {
                         await session.commitClaimedConversation(id: conversationId)
                     }
                 }
-            } else if showsEmbeddedInvite, result.origin == .created, claimedConversationId == nil {
-                // Non-deferred embedded auto-create (home Scan / show-invite-code
-                // on a cache miss): the state machine published a real,
-                // already-visible group but no warm-cache id was claimed up
-                // front. Adopt its id -- no register/commit, the row is already
-                // visible -- so a later scan-join supersession or teardown can
-                // leave the MLS group instead of stranding it on the network.
-                claimedConversationId = result.conversationId
             }
+
+            notifyDefaultAgentConversationReadyIfNeeded(result)
 
             // Agent-template spawn: the conversation now exists with a
             // shareable invite, so request a fresh instance for each
@@ -1573,10 +1580,10 @@ private extension NewConversationViewModel {
     /// synthetic human members with the real ones keyed by the same
     /// `inboxId`, so the transition is a no-op re-render rather than a
     /// flicker.
-    func makeDraftConversation(id: String) -> Conversation {
+    func makeDraftConversation(id: String, emoji: String? = nil) -> Conversation {
         guard startedWithSeededMembers,
               !(seededMemberInboxIds.isEmpty && seededAgentTemplateIds.isEmpty) else {
-            return .empty(id: id)
+            return .empty(id: id, emoji: emoji)
         }
         let contactsRepository = session.messagingServiceSync().contactsRepository()
         let seededContacts: [Contact] = seededMemberInboxIds.compactMap { contactsRepository.contact(for: $0) }
@@ -1605,5 +1612,38 @@ private extension NewConversationViewModel {
             )
         }
         return .draft(id: id, seededMembers: members)
+    }
+}
+
+// MARK: - Default agent readiness
+
+extension NewConversationViewModel {
+    /// Cache-miss fallback for the default agent: a conversation the state
+    /// machine created fresh never passes through
+    /// `commitClaimedConversation`, so ensure the agent and fire its greeting
+    /// cue here. Idempotent for warm-cache conversations (the commit path
+    /// already latched the ready signal); deferred-visibility flows wait for
+    /// their commit instead.
+    fileprivate func notifyDefaultAgentConversationReadyIfNeeded(_ result: ConversationReadyResult) {
+        guard result.origin == .created, wantsDefaultAgent, !defersVisibilityUntilCommit else { return }
+        let readyConversationId = result.conversationId
+        Task { [session] in
+            await session.ensureDefaultAgentConversationReady(id: readyConversationId)
+        }
+    }
+}
+
+extension NewConversationMode {
+    /// Whether this mode's conversation should carry the default agent and
+    /// receive the `conversation_ready` greeting cue. False for joins,
+    /// existing conversations, and template spawns (which bring their own
+    /// agent).
+    var wantsDefaultAgent: Bool {
+        switch self {
+        case .newConversation, .newConversationWithMembers:
+            return true
+        case .newAgent, .newConversationWithTemplate, .existingConversation, .scanner, .joinInvite:
+            return false
+        }
     }
 }

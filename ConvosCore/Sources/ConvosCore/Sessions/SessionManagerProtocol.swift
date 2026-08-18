@@ -79,6 +79,13 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// the cache claim dropped, `releaseClaimedConversation`.
     func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?)
 
+    /// The id `prepareNewConversation` is expected to hand out next, or nil
+    /// when nothing is pooled. Readable synchronously so a new-conversation
+    /// screen can paint the identity the conversation will actually have -
+    /// its emoji is derived from this id - rather than a placeholder's, then
+    /// changing it a frame later. A best guess: the claim still decides.
+    nonisolated func peekPreparedConversationId() -> String?
+
     /// Promotes a row previously claimed via `prepareNewConversation()`
     /// into a real visible conversation: flips `isUnused = false` and
     /// refreshes its `createdAt` so it sorts at the top of the chats
@@ -126,6 +133,19 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// must never be silently overridden by the gate.
     func discardClaimedConversationIfUnengaged(id conversationId: String) async
 
+    /// Cache-miss fallback for the default-agent flow: a conversation the
+    /// state machine created fresh (no warm-cache claim, so
+    /// `commitClaimedConversation` never fires) is already visible and in use.
+    /// Ensures the default agent is provisioned into it and sends the one-shot
+    /// `conversation_ready` greeting cue. Best-effort and idempotent.
+    func ensureDefaultAgentConversationReady(id conversationId: String) async
+
+    /// True while this conversation's silent default-agent join is in flight
+    /// (or has already landed) - the conversation was claimed from the warm
+    /// cache, which provisions an agent into it. Surfaces so the Agent tab
+    /// waits on that join instead of offering to add another agent.
+    func isProvisioningDefaultAgent(id conversationId: String) async -> Bool
+
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 
@@ -149,6 +169,12 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
         options: ConvosAPI.AgentJoinOptions?,
         forceErrorCode: Int?
     ) async throws -> ConvosAPI.AgentJoinResponse
+
+    /// Configures the gate consulted before auto-enabling the user's live
+    /// cloud connections for an agent they add. The host app wires this to
+    /// the flag check that decides whether the v1 connections toggle
+    /// renders; sessions that are never configured leave auto-enable off.
+    func configureAutoEnableAbilities(isEnabled: @escaping @Sendable () async -> Bool)
 
     /// Opportunistic foreground republish of the user's timezone across every
     /// agent conversation (agent-timezone Channel B refresh). Throttled so a
@@ -192,6 +218,10 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func inviteMembershipResolver() -> any InviteMembershipResolving
 
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol
+    /// Windowed variant of `conversationsRepository` for the conversations
+    /// list screen: pinned rows unlimited, unpinned rows behind a growing
+    /// LIMIT window. Full-list consumers keep using `conversationsRepository`.
+    func conversationsPager(for consent: [Consent]) -> any ConversationsPagerProtocol
     func conversationsCountRepo(
         for consent: [Consent],
         kinds: [ConversationKind]
@@ -331,4 +361,11 @@ extension SessionManagerProtocol {
     ) async throws -> ConvosAPI.AgentJoinResponse {
         try await addAgentToConversation(conversationId: conversationId, templateId: templateId, options: nil, forceErrorCode: nil)
     }
+
+    /// Configures the gate for auto-enabling the user's live cloud
+    /// connections when they add an agent. Default no-op so conformers
+    /// without the grant machinery (test mocks) compile unchanged; the
+    /// real storage lives on `SessionManager`, and an unconfigured session
+    /// leaves auto-enable off.
+    public func configureAutoEnableAbilities(isEnabled _: @escaping @Sendable () async -> Bool) {}
 }

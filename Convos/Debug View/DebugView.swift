@@ -49,8 +49,8 @@ struct DebugViewSection: View {
     @State private var creditsPresetSelection: CreditsStatePreset = FeatureFlags.shared.mockCreditsPreset
     @State private var useRealStoreKit: Bool = SubscriptionServices.useRealStoreKit
     @State private var useRealCredits: Bool = CreditsServices.useRealBackend
-    @State private var useLiveAbilities: Bool = AbilitiesServices.useLiveBackend
     @State private var abilitiesV1ShimEnabled: Bool = AbilitiesServices.isV1AwarenessShimEnabled
+    @State private var abilitiesEscalationMockEnabled: Bool = AbilitiesServices.isEscalationMockEnabled
     @State private var identity: DeviceIdentitySnapshot?
 
     var body: some View {
@@ -102,21 +102,25 @@ struct DebugViewSection: View {
         }
     }
 
-    /// The Abilities V2 flag with its sub-toggles: mock/live backend
-    /// selection (default live) and the V1 awareness shim (default off).
-    /// Sub-toggles only render while the flag is on; both take effect on
-    /// the next read (no relaunch needed).
+    /// The Abilities V2 flag with its sub-toggles: the V1 awareness shim
+    /// (default off) and the mock consent flow (default on). There is
+    /// deliberately no separate mock/live backend toggle here -- enabling
+    /// V2 always enables the live backend (`FeatureFlags.isAbilitiesV2Enabled`
+    /// and `AbilitiesServices.useLiveBackend` are coupled in both directions
+    /// so that combination can't be split), so "Abilities v2" is the single
+    /// control for both. Sub-toggles only render while the flag is on; all
+    /// take effect on the next read (no relaunch needed).
     @ViewBuilder
     private var abilitiesFeatureToggles: some View {
         Toggle("Abilities v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
         if FeatureFlags.shared.isAbilitiesV2Enabled {
-            Toggle("Abilities: live backend", isOn: $useLiveAbilities)
-                .onChange(of: useLiveAbilities) { _, newValue in
-                    AbilitiesServices.setUseLiveBackend(newValue)
-                }
             Toggle("Abilities: v1 awareness shim", isOn: $abilitiesV1ShimEnabled)
                 .onChange(of: abilitiesV1ShimEnabled) { _, newValue in
                     AbilitiesServices.setV1AwarenessShimEnabled(newValue)
+                }
+            Toggle("Abilities: consent flow (mock)", isOn: $abilitiesEscalationMockEnabled)
+                .onChange(of: abilitiesEscalationMockEnabled) { _, newValue in
+                    AbilitiesServices.setEscalationMockEnabled(newValue)
                 }
         }
     }

@@ -61,11 +61,6 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// When true the index-0 `.invite` cell renders the full inline
     /// Invite/Scan card (`InviteCodeBody`) for an active hosted session,
     /// instead of the regular inviter QR + menu.
-    var showsInviteScanCard: Bool = false
-    var inviteScanMode: InviteCodeMode = .inConvo
-    var inviteScanInitialSegment: ScanInviteSegment = .invite
-    var onScannedInviteCode: ((String) -> Void)?
-    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
     let bottomBarHeight: CGFloat
     /// Hosts that intentionally have no composer (the thinking detail sheet)
     /// pass `false` so the controller doesn't wait for a non-existent bottom
@@ -132,11 +127,6 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         htmlAttachmentTransitionNamespace: Namespace.ID? = nil,
         onPresentHTMLAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)? = nil,
         onPresentFileAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)? = nil,
-        showsInviteScanCard: Bool = false,
-        inviteScanMode: InviteCodeMode = .inConvo,
-        inviteScanInitialSegment: ScanInviteSegment = .invite,
-        onScannedInviteCode: ((String) -> Void)? = nil,
-        onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)? = nil,
         agentBuilderSummaryProvider: ((AgentBuilderCardContent) -> AnyView)? = nil,
         currentUserProfileImage: (() -> UIImage?)? = nil,
         backwardsSecrecyInfoSheet: (() -> AnyView)? = nil,
@@ -189,11 +179,6 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.onOpenMessageDetail = onOpenMessageDetail
         self.expandedMessageIds = expandedMessageIds
         self.onToggleMessageExpanded = onToggleMessageExpanded
-        self.showsInviteScanCard = showsInviteScanCard
-        self.inviteScanMode = inviteScanMode
-        self.inviteScanInitialSegment = inviteScanInitialSegment
-        self.onScannedInviteCode = onScannedInviteCode
-        self.onInviteShareCompleted = onInviteShareCompleted
         self.agentBuilderSummaryProvider = agentBuilderSummaryProvider
         self.currentUserProfileImage = currentUserProfileImage
         self.backwardsSecrecyInfoSheet = backwardsSecrecyInfoSheet
@@ -283,11 +268,6 @@ let menuPresented = contextMenuState.isPresented
         }
         messagesViewController.onPresentHTMLAttachmentPreview = onPresentHTMLAttachmentPreview
         messagesViewController.onPresentFileAttachmentPreview = onPresentFileAttachmentPreview
-        messagesViewController.showsInviteScanCard = showsInviteScanCard
-        messagesViewController.inviteScanMode = inviteScanMode
-        messagesViewController.inviteScanInitialSegment = inviteScanInitialSegment
-        messagesViewController.onScannedInviteCode = onScannedInviteCode
-        messagesViewController.onInviteShareCompleted = onInviteShareCompleted
         messagesViewController.state = .init(
             conversation: conversation,
             messages: messages,

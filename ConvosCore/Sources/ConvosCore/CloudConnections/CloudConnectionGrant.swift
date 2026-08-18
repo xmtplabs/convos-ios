@@ -12,6 +12,11 @@ public struct CloudConnectionGrant: Codable, Sendable, Hashable {
     /// "calendar.events"). Nil for legacy whole-toolkit grants or services
     /// outside the catalog.
     public let bundleIds: [String]?
+    /// Id of the backend ConnectionGrant record created when this grant was
+    /// pushed to the server. Nil when the push hasn't happened or failed --
+    /// consumers that need a server-confirmed grant (the capability approval
+    /// flow) treat a nil id as a push still owed and retry it.
+    public let backendGrantId: String?
 
     public init(
         connectionId: String,
@@ -19,7 +24,8 @@ public struct CloudConnectionGrant: Codable, Sendable, Hashable {
         serviceId: String,
         grantedToInboxId: String,
         grantedAt: Date,
-        bundleIds: [String]? = nil
+        bundleIds: [String]? = nil,
+        backendGrantId: String? = nil
     ) {
         self.connectionId = connectionId
         self.conversationId = conversationId
@@ -27,5 +33,6 @@ public struct CloudConnectionGrant: Codable, Sendable, Hashable {
         self.grantedToInboxId = grantedToInboxId
         self.grantedAt = grantedAt
         self.bundleIds = bundleIds
+        self.backendGrantId = backendGrantId
     }
 }

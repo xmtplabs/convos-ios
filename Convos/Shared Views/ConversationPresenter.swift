@@ -64,9 +64,15 @@ struct ConversationPresenter<Content: View>: View {
     /// the matched-geometry interpolation and the blur transition.
     @Namespace private var indicatorNamespace: Namespace.ID
 
-    private var isShowingShareOverlay: Bool {
-        guard let viewModel else { return false }
-        return viewModel.presentingShareView
+    /// Presents the conversation's invite code as a sheet. It used to be a
+    /// full-screen overlay drawn inside this presenter, which meant its own
+    /// nav row sat on top of whatever chrome the presenting surface already
+    /// had - two backs and a close for one screen.
+    private var inviteCodeBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel?.presentingInviteCode ?? false },
+            set: { viewModel?.presentingInviteCode = $0 }
+        )
     }
 
     /// Read-only when the host asks for it (stale/removed device) or when
@@ -79,7 +85,6 @@ struct ConversationPresenter<Content: View>: View {
     var body: some View {
         ZStack {
             content($focusState, focusCoordinator)
-                .toolbar(isShowingShareOverlay ? .hidden : .automatic, for: .navigationBar)
 
             VStack {
                 indicatorOverlay
@@ -89,27 +94,10 @@ struct ConversationPresenter<Content: View>: View {
             .ignoresSafeArea()
             .allowsHitTesting(true)
             .zIndex(1000)
-
-            if let viewModel, viewModel.presentingShareView {
-                ConversationShareOverlay(
-                    conversation: viewModel.conversation,
-                    invite: viewModel.invite,
-                    isPresented: Binding(
-                        get: { viewModel.presentingShareView },
-                        set: { newValue in
-                            viewModel.presentingShareView = newValue
-                            if !newValue {
-                                viewModel.shareViewInitialSegment = .invite
-                            }
-                        }
-                    ),
-                    topSafeAreaInset: insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x,
-                    coreActions: viewModel.coreActions,
-                    initialSegment: viewModel.shareViewInitialSegment,
-                    onScannedCode: { code in viewModel.handleScannedCodeInCurrentConversation(code) }
-                )
-                .ignoresSafeArea()
-                .zIndex(2000)
+        }
+        .sheet(isPresented: inviteCodeBinding) {
+            if let viewModel {
+                InviteCodeSheet(conversation: viewModel.conversation, invite: viewModel.invite)
             }
         }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
@@ -170,9 +158,9 @@ struct ConversationPresenter<Content: View>: View {
 
     @ViewBuilder
     private var indicatorOverlay: some View {
-        if let viewModel = viewModel, viewModel.showsInfoView, !isShowingShareOverlay, rendersConversationIndicator {
+        if let viewModel = viewModel, viewModel.showsInfoView, rendersConversationIndicator {
             conversationIndicatorView(for: viewModel)
-        } else if viewModel == nil, !isShowingShareOverlay, let appContext = appIndicatorContext {
+        } else if viewModel == nil, let appContext = appIndicatorContext {
             appIndicatorView(for: appContext)
         }
     }

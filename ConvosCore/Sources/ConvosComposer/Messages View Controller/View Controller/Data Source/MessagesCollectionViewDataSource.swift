@@ -52,12 +52,6 @@ final class MessagesCollectionViewDataSource: NSObject {
     var agentBuilderSummaryProvider: ((AgentBuilderCardContent) -> AnyView)?
     var currentUserProfileImage: (() -> UIImage?)?
     var backwardsSecrecyInfoSheet: (() -> AnyView)?
-    var showsInviteScanCard: Bool = false
-    var inviteScanConversation: Conversation?
-    var inviteScanMode: InviteCodeMode = .inConvo
-    var inviteScanInitialSegment: ScanInviteSegment = .invite
-    var onScannedInviteCode: ((String) -> Void)?
-    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
 
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] {
         sections.flatMap(\.cells).reduce(into: [:]) { result, item in
@@ -188,16 +182,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             agentBuilderSummaryProvider: agentBuilderSummaryProvider,
             currentUserProfileImage: currentUserProfileImage,
             backwardsSecrecyInfoSheet: backwardsSecrecyInfoSheet,
-            showsInviteScanCard: showsInviteScanCard,
-            inviteScanConversation: inviteScanConversation,
-            inviteScanMode: inviteScanMode,
-            inviteScanInitialSegment: inviteScanInitialSegment,
-            onScannedInviteCode: { [weak self] code in
-                self?.onScannedInviteCode?(code)
-            },
-            onInviteShareCompleted: { [weak self] activityType, completed, error in
-                self?.onInviteShareCompleted?(activityType, completed, error)
-            }
         )
         return CellFactory.createCell(
             in: collectionView,

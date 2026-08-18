@@ -20,8 +20,9 @@ Firebase App Check / backend-provisioning prerequisites.
   template-backed agent contact to offer that isn't already in the first agent's
   conversation. Requires backend provisioning (templateId) like test 36.
 - The add picker is reached from the first agent's contact card: `contact-detail-chat`
-  -> confirm the One-agent sheet -> land in the conversation -> `add-to-conversation-button`
-  -> `context-menu-add-from-contacts` -> the picker.
+  -> confirm the One-agent sheet -> land in the conversation -> `conversation-info-button`
+  -> `info-add-button` -> `context-menu-add-from-contacts` -> the picker. (The chat
+  toolbar's trailing button shares the invite link; it no longer opens the picker.)
 - The first agent (a member of that conversation) shows the "in chat" badge and is
   `.disabled`; selecting the second agent + confirming must not spawn it (hasAgent guard).
 

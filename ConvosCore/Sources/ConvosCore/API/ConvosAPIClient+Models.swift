@@ -221,6 +221,12 @@ public enum ConvosAPI {
         public let slug: String?
         public let conversationId: String?
         public let templateId: String?
+        /// Raw profile name of the joining user, sent on default-agent joins
+        /// so the backend can compose the agent's display name ("Saul's
+        /// agent"). Composition stays server-side so the copy can change
+        /// without a client release. Optional and nil-omitted so other joins
+        /// stay byte-identical.
+        public let ownerProfileName: String?
         /// Optional and nil-omitted by Codable, so default joins stay
         /// byte-identical and the wire format remains backward-compatible.
         public let idempotencyKey: JoinIdempotencyKey?
@@ -239,6 +245,7 @@ public enum ConvosAPI {
             slug: String? = nil,
             conversationId: String? = nil,
             templateId: String? = nil,
+            ownerProfileName: String? = nil,
             idempotencyKey: JoinIdempotencyKey? = nil,
             options: AgentJoinOptions? = nil,
             timezone: String? = nil
@@ -246,6 +253,7 @@ public enum ConvosAPI {
             self.slug = slug
             self.conversationId = conversationId
             self.templateId = templateId
+            self.ownerProfileName = ownerProfileName
             self.idempotencyKey = idempotencyKey
             self.options = options
             self.timezone = timezone
@@ -268,13 +276,36 @@ public enum ConvosAPI {
         /// joins stay byte-identical. The backend strips it before forwarding to
         /// the worker.
         public let variantId: String?
+        /// Asks the assistant runtime to hold its greeting after attaching.
+        /// Omitted from the encoded body when `nil` so existing joins stay
+        /// byte-identical.
+        public let skipGreeting: Bool?
 
-        public init(onboarding: String?, variantId: String? = nil) {
+        public init(onboarding: String?, variantId: String? = nil, skipGreeting: Bool? = nil) {
             self.onboarding = onboarding
             self.variantId = variantId
+            self.skipGreeting = skipGreeting
         }
 
         public static let agentBuilder: AgentJoinOptions = AgentJoinOptions(onboarding: "agent-builder")
+
+        /// Join options for the silent bare default agent pre-added to every
+        /// new conversation: no onboarding arc - the Home screen owns the
+        /// welcome, and the agent speaks only when addressed.
+        ///
+        /// `skipGreeting` is sent explicitly rather than left to the worker's
+        /// bare-join default: runtimes that predate that default greet the
+        /// group on attach, and the user meets a conversation they never
+        /// spoke in with a message already in it. Asking costs nothing where
+        /// the default already holds. `variantId` (dev only) routes the join
+        /// to an ephemeral variant runtime.
+        public static func defaultConversationAgent(variantId: String? = nil) -> AgentJoinOptions {
+            AgentJoinOptions(
+                onboarding: nil,
+                variantId: variantId,
+                skipGreeting: true
+            )
+        }
     }
 
     public struct AgentJoinResponse: Codable {

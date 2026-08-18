@@ -31,12 +31,11 @@ steps:
       It will be extracted from the CLI join response in a later step.
 
   - id: copy_invite
-    name: "Copy invite URL via menu"
+    name: "Copy invite URL from the share sheet"
     actions:
       - clear_clipboard: {}
-      - tap: { id: "add-to-conversation-button" }
-      - wait_for_element: { id: "context-menu-copy-link", timeout: 5 }
-      - tap: { id: "context-menu-copy-link" }
+      - tap: { id: "share-invite-button" }
+      - tap: { label: "Copy", timeout: 10 }
       - read_clipboard: {}
     save:
       invite_url: clipboard

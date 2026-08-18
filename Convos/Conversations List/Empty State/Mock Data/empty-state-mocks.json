@@ -3,43 +3,26 @@
     {
       "id": "soccer-club",
       "name": "Dunes Soccer Club",
-      "emoji": "⚽️",
-      "messageText": "Skipper: need 3 more RSVPs for tomorrow's match — Emily, Ray…"
+      "emoji": "\u26bd\ufe0f",
+      "messageText": "Skipper: need 3 more RSVPs for tomorrow's match \u2014 Emily, Ray\u2026"
     },
     {
       "id": "fam",
       "name": "Fam",
-      "emoji": "🏡",
-      "messageText": "Mealplanner: this week's dinner plan is ready — taco Tuesday is confirmed"
+      "emoji": "\ud83c\udfe1",
+      "messageText": "Mealplanner: this week's dinner plan is ready \u2014 taco Tuesday is confirmed"
     },
     {
       "id": "book-club",
       "name": "Book Club",
-      "emoji": "📚",
-      "messageText": "Bookworm: reminder — we're discussing chapters 4–6 on Thursday"
+      "emoji": "\ud83d\udcda",
+      "messageText": "Bookworm: reminder \u2014 we're discussing chapters 4\u20136 on Thursday"
     },
     {
       "id": "tahoe-trip",
       "name": "Tahoe Trip",
-      "emoji": "🏔️",
+      "emoji": "\ud83c\udfd4\ufe0f",
       "messageText": "Trip Planner: cabin booked! I made a packing list for everyone"
-    }
-  ],
-  "things": [
-    {
-      "id": "dinner-suggestion",
-      "conversationName": "The Kitchen",
-      "htmlFile": "mock-thing-dinner.html"
-    },
-    {
-      "id": "pushup-streak",
-      "conversationName": "Pushup Party",
-      "htmlFile": "mock-thing-pushups.html"
-    },
-    {
-      "id": "departure-countdown",
-      "conversationName": "Sedona Weekend",
-      "htmlFile": "mock-thing-countdown.html"
     }
   ]
 }

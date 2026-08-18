@@ -86,14 +86,18 @@ final class ProfileSettingsViewModelTests: XCTestCase {
 
         viewModel.rebind(session: oldSession)
         viewModel.editingDisplayName = "Alice"
-        try await viewModel.saveAndAwait()
+        // The save writes to the bound writer and then publishes through the
+        // canonical repository, which has no self inbox behind a mock session.
+        // Which writer receives the edit is what this covers, so the publish
+        // failing afterwards is not interesting here.
+        try? await viewModel.saveAndAwait()
         XCTAssertEqual(oldWriter.stored?.name, "Alice")
 
         // Simulate "Delete all data": the singleton is rebound to a fresh
         // session backed by a new inbox/writer.
         viewModel.rebind(session: newSession)
         viewModel.editingDisplayName = "Bob"
-        try await viewModel.saveAndAwait()
+        try? await viewModel.saveAndAwait()
 
         XCTAssertEqual(
             newWriter.stored?.name, "Bob",

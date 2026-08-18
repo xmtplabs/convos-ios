@@ -63,9 +63,11 @@ steps:
     name: "Create conversation and add verified assistant"
     actions:
       - tap: { id: "compose-button" }
-      - wait_for_element: { id: "add-to-conversation-button", timeout: 5 }
-      - tap: { id: "add-to-conversation-button" }
-      - tap: { id: "context-menu-add-assistant" }
+      - wait_for_element: { id: "conversation-info-button", timeout: 5 }
+      - tap: { id: "conversation-info-button" }
+      - wait_for_element: { id: "info-add-button", timeout: 10 }
+      - tap: { id: "info-add-button" }
+      - tap: { id: "context-menu-add-agent" }
       - wait_for_element: { label_contains: "Assistant joined", timeout: 15 }
       - screenshot: {}
     verify:

@@ -74,10 +74,13 @@ struct ContactsSearchBar: View {
         }
     }
 
+    /// A menu whenever there is something to put in it. A surface that offers
+    /// neither an audience filter nor the blocked toggle (the contacts tab
+    /// browses people only, so it offers just the toggle) gets an inert icon.
     @ViewBuilder
     private var emptyQueryAccessory: some View {
-        if let filter {
-            filterMenu(filter)
+        if filter != nil || showBlocked != nil {
+            filterMenu
         } else {
             Image(systemName: "line.3.horizontal.decrease")
                 .font(.title3)
@@ -87,17 +90,20 @@ struct ContactsSearchBar: View {
     }
 
     @ViewBuilder
-    private func filterMenu(_ filter: Binding<ContactsFilter>) -> some View {
+    private var filterMenu: some View {
         // Active treatment fires for either the audience narrowing OR the
         // include-blocked toggle, so the user has a single visual cue that
         // *something* about the list is filtered.
         let isShowingBlocked: Bool = showBlocked?.wrappedValue == true
-        let isActive: Bool = filter.wrappedValue.isActive || isShowingBlocked
+        let isNarrowedByAudience: Bool = filter?.wrappedValue.isActive ?? false
+        let isActive: Bool = isNarrowedByAudience || isShowingBlocked
         let iconColor: Color = isActive ? .colorTextPrimary : .colorTextSecondary
         Menu {
-            Picker("Filter contacts", selection: filter) {
-                ForEach(ContactsFilter.allCases) { option in
-                    Text(option.title).tag(option)
+            if let filter {
+                Picker("Filter contacts", selection: filter) {
+                    ForEach(ContactsFilter.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
                 }
             }
             if let showBlocked {

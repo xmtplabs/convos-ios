@@ -122,11 +122,7 @@ public struct ConversationsListItem: View {
 
     // Extract computed values to prevent unnecessary recalculations
     private var title: String {
-        let base: String = conversation.title(memberNameOverride: memberNameOverride)
-        guard !ConfigManager.shared.currentEnvironment.isProduction, conversation.agentVariant != nil else {
-            return base
-        }
-        return "🧪 \(base)"
+        conversation.title(memberNameOverride: memberNameOverride)
     }
     private var isMuted: Bool { conversation.isMuted }
     private var createdAt: Date { conversation.createdAt }

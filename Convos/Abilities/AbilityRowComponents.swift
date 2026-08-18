@@ -6,6 +6,10 @@ import SwiftUI
 /// ability id (the backend omits icons until its asset story lands).
 struct AbilityIconView: View {
     let ability: AbilitiesAPI.Ability
+    /// Defaults preserve every existing call site's 40pt chip.
+    var iconSize: CGFloat = Constant.iconSize
+    /// Defaults preserve every existing call site's filled background.
+    var showsBackground: Bool = true
 
     var body: some View {
         Group {
@@ -21,11 +25,16 @@ struct AbilityIconView: View {
                 symbolImage
             }
         }
-        .frame(width: Constant.iconSize, height: Constant.iconSize)
-        .background(
+        .frame(width: iconSize, height: iconSize)
+        .background(backgroundChip)
+    }
+
+    @ViewBuilder
+    private var backgroundChip: some View {
+        if showsBackground {
             RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
                 .fill(Color.colorFillMinimal)
-        )
+        }
     }
 
     private var iconUrl: URL? {
@@ -107,6 +116,40 @@ struct AbilityNeutralBadge: View {
     }
 }
 
+/// Capsule chip for a delegation's derived lifecycle state. Sibling of
+/// `AbilityStatusBadge`: delegation states are client-vocabulary, so they
+/// never borrow the entitlement badge's server-owned labels.
+struct AbilityDelegationStateChip: View {
+    let state: AbilityDelegationState
+
+    var body: some View {
+        Text(label)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(labelColor)
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .padding(.vertical, DesignConstants.Spacing.stepHalf)
+            .background(Capsule().fill(Color.colorFillMinimal))
+            .accessibilityLabel("Status: \(label)")
+    }
+
+    private var label: String {
+        switch state {
+        case .active: "Active"
+        case .consumed: "Used"
+        case .expired: "Expired"
+        case .revoked: "Revoked"
+        }
+    }
+
+    private var labelColor: Color {
+        switch state {
+        case .active: .colorGreen
+        case .consumed: .colorTextSecondary
+        case .expired, .revoked: .colorCaution
+        }
+    }
+}
+
 #Preview("Badges") {
     VStack(spacing: DesignConstants.Spacing.step2x) {
         AbilityStatusBadge(status: .active)
@@ -115,6 +158,10 @@ struct AbilityNeutralBadge: View {
         AbilityStatusBadge(status: .expired)
         AbilityStatusBadge(status: .revoked)
         AbilityNeutralBadge(label: "Not connected")
+        AbilityDelegationStateChip(state: .active)
+        AbilityDelegationStateChip(state: .consumed)
+        AbilityDelegationStateChip(state: .expired)
+        AbilityDelegationStateChip(state: .revoked)
     }
     .padding(DesignConstants.Spacing.step4x)
 }

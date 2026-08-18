@@ -13,25 +13,23 @@ import Observation
 /// shape (mode enum + parameterized view) over duplicating the view.
 enum ContactsPickerMode: Hashable {
     case newConversation
-    /// First step of the compose flow (`ComposeFlowView`): the picker is the
-    /// root of the host navigation stack and selecting contacts is optional
-    /// (the bottom CTA stays hidden until a contact is picked, then reads
-    /// "Continue"), then the new conversation is pushed rather than presented.
-    case compose
     case addToConversation(conversationId: String, conversationTitle: String?)
 
     var isAddToConversation: Bool {
         switch self {
-        case .newConversation, .compose:
+        case .newConversation:
             return false
         case .addToConversation:
             return true
         }
     }
 
-    var isCompose: Bool {
-        if case .compose = self { return true }
-        return false
+    /// Whether agents belong in the list. Inviting someone into an existing
+    /// conversation is about people: that conversation already has its agent,
+    /// and adding another is not something the picker offers. Drives the
+    /// search placeholder too ("People" rather than "Contacts").
+    var showsAgents: Bool {
+        !isAddToConversation
     }
 }
 
@@ -151,19 +149,12 @@ final class ContactsPickerViewModel {
     }
 
     var canConfirm: Bool {
-        // Compose allows proceeding once a contact is picked (its CTA is hidden
-        // while empty); other modes need at least one contact too.
-        switch mode {
-        case .compose:
-            return true
-        case .newConversation, .addToConversation:
-            return !selectedInboxIds.isEmpty
-        }
+        !selectedInboxIds.isEmpty
     }
 
     var headerTitle: String {
         switch mode {
-        case .newConversation, .compose:
+        case .newConversation:
             return "New conversation"
         case .addToConversation(_, let title):
             if let title, !title.isEmpty {
@@ -178,7 +169,7 @@ final class ContactsPickerViewModel {
     /// the picker is scoped to an existing chat.
     var pillTitle: String {
         switch mode {
-        case .newConversation, .compose:
+        case .newConversation:
             return "New Convo"
         case .addToConversation(_, let title):
             if let title, !title.isEmpty {
@@ -201,15 +192,6 @@ final class ContactsPickerViewModel {
 
     var confirmButtonTitle: String {
         return "Continue"
-    }
-
-    /// The compose picker hides its bottom CTA until something is selected --
-    /// there is no "Skip" affordance; an empty compose picker is left via the
-    /// top-three invite actions or Cancel. Other modes always show the button
-    /// (disabled until a contact is picked).
-    var showsConfirmButton: Bool {
-        guard case .compose = mode else { return true }
-        return !selectedInboxIds.isEmpty
     }
 
     // MARK: - Mutations
@@ -258,12 +240,6 @@ final class ContactsPickerViewModel {
         !contact.isBlocked && contact.isVisibleInContactsList
     }
 
-    /// Contacts selectable in the picker, used by `ConversationsViewModel` to
-    /// size its compose entry point.
-    static func pickableContacts(_ contacts: [Contact]) -> [Contact] {
-        contacts.filter(isPickable)
-    }
-
     // MARK: - Section building
 
     private func applyContacts(_ contacts: [Contact]) {
@@ -289,7 +265,8 @@ final class ContactsPickerViewModel {
         // valid target. Unlike the browse list (which exposes a "Show blocked"
         // toggle so the user can reach the unblock CTA on the contact card),
         // the picker always filters them out via `Self.isPickable`.
-        let visible = allContacts.filter(Self.isPickable)
+        let pickable = allContacts.filter(Self.isPickable)
+        let visible = mode.showsAgents ? pickable : pickable.filter { !$0.isAgent }
         let filtered = filterByQuery(filterByAudience(visible))
         let grouped: [String: [Contact]] = Dictionary(
             grouping: filtered,
@@ -316,7 +293,7 @@ final class ContactsPickerViewModel {
             return Section(id: key, title: key, rows: rows)
         }
 
-        if let suggested = buildSuggestedAgentsSection() {
+        if mode.showsAgents, let suggested = buildSuggestedAgentsSection() {
             rebuilt.append(suggested)
         }
         sections = rebuilt

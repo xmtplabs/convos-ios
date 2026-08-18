@@ -315,18 +315,41 @@ public final class MessagesListProcessor: Sendable {
             }
         }
 
-        if let agent = verifiedAgent {
-            items = insertingContactCard(in: items, agent: agent)
-        } else if let agentActivating {
-            // Direct builder, pending the agent's join: append the progressive
+        // An agent that is simply in the chat gets no card: it is a member,
+        // and the member list already says so. A pasted agent link still
+        // renders, as an `agentShare` message rather than this card.
+        if verifiedAgent == nil, let agentActivating {
+            // Direct builder, pending the agent's join: the progressive
             // "activating" card (avatar + name + description + progress)
-            // beneath the prompt summary. Dropped the moment a verified agent
-            // joins (the branch above takes over with the real contact card).
+            // beneath the prompt summary.
             items.append(.agentActivating(agentActivating))
         }
 
+        // After the contact card has anchored on it: a join row that only ever
+        // added agents is the silent default agent arriving, which the user
+        // never asked for and shouldn't have to read about. Removed here
+        // rather than at emission so the card still anchors where the agent
+        // actually joined, and keyed on the row's own added members so it
+        // stays hidden once real people arrive later.
+        items = removingAgentOnlyJoinUpdates(from: items)
+
         items = reconcilingFullBleedAdjacency(in: items)
         return clearingDuplicatedLastGroupFlags(in: items)
+    }
+
+    /// Drops membership updates whose only added members are Convos-verified
+    /// agents (and which removed nobody). The agent's arrival is announced by
+    /// its contact card and its own first message; the terse "joined ·
+    /// Invited by" row adds nothing and, for the silently provisioned default
+    /// agent, is a member the user never added.
+    private static func removingAgentOnlyJoinUpdates(
+        from items: [MessagesListItemType]
+    ) -> [MessagesListItemType] {
+        items.filter { item in
+            guard case .update(_, let update, _) = item else { return true }
+            guard update.removedMembers.isEmpty, !update.addedMembers.isEmpty else { return true }
+            return !update.addedMembers.allSatisfy(\.isVerifiedConvosAgent)
+        }
     }
 
     /// Strip date separators that no longer precede a message group. A
@@ -850,87 +873,6 @@ private extension MessagesListProcessor {
             }
             if changed { items[index] = .messages(group) }
         }
-        return items
-    }
-
-    /// Insert the agent contact card as its own standalone row. The card has
-    /// a single placement rule, so it never relocates as the agent's
-    /// messages, connection events, or user replies stream in around it.
-    /// Anchor chain: right after this agent's builder summary card (the
-    /// first summary between the agent's join row and the agent's first
-    /// message group -- the summary always sits above the card, and later
-    /// Makes add summaries further down that must not steal the card); else
-    /// right after this agent's most recent join update row (non-builder
-    /// agent conversations; matching on inboxId keeps the card off other or
-    /// former agents' join rows, and re-adds anchor on the latest join);
-    /// else right before the agent's first message group (join row outside
-    /// the loaded window); else the top of the list.
-    static func insertingContactCard(
-        in baseItems: [MessagesListItemType],
-        agent: ConversationMember
-    ) -> [MessagesListItemType] {
-        var items: [MessagesListItemType] = baseItems
-        var cardGroup = MessagesGroup(
-            id: "agent-contact-card-\(agent.profile.inboxId)",
-            sender: agent,
-            messages: [],
-            isLastGroup: false,
-            isLastGroupSentByCurrentUser: false
-        )
-        cardGroup.agentContactCard = AgentContactCardInfo(
-            profile: agent.profile,
-            agentDescription: agent.profile.agentDescription
-        )
-        let joinUpdateIndex: Int? = items.lastIndex { item in
-            guard case .update(_, let update, _) = item else { return false }
-            return update.addedVerifiedAgent
-                && update.addedMembers.contains { $0.profile.inboxId == agent.profile.inboxId }
-        }
-        let firstAgentGroupIndex: Int? = items.firstIndex { item in
-            guard case .messages(let group) = item else { return false }
-            return group.sender.profile.inboxId == agent.profile.inboxId
-        }
-        // This agent's Make summary lives between its join row and its first
-        // message group (in the home flow the join sorts directly above the
-        // summary). Bounding the search keeps the card anchored to its own
-        // summary when later Makes append summaries further down the list.
-        // A re-added agent's old messages can sit above its latest join row;
-        // the clamp collapses the range so the card anchors on the join.
-        let searchStart: Int = joinUpdateIndex ?? 0
-        let searchEnd: Int = max(searchStart, firstAgentGroupIndex ?? items.count)
-        let summarySearchRange: Range<Int> = searchStart..<searchEnd
-        let builderCardIndex: Int? = items[summarySearchRange].firstIndex { item in
-            if case .agentBuilderSummary = item { return true }
-            return false
-        }
-        let insertionIndex: Int = builderCardIndex.map { $0 + 1 }
-            ?? joinUpdateIndex.map { $0 + 1 }
-            ?? firstAgentGroupIndex
-            ?? 0
-        // When the agent's own messages sit directly below the card, the
-        // pair renders as one visual run: the card keeps the sender label,
-        // the group below drops its duplicate label, and the leading avatar
-        // attaches to that group's last message instead of the card.
-        if insertionIndex < items.count,
-           case .messages(var below) = items[insertionIndex],
-           below.sender.profile.inboxId == agent.profile.inboxId {
-            below.hidesSenderLabel = true
-            items[insertionIndex] = .messages(below)
-            cardGroup.contactCardPrecedesAgentMessages = true
-        }
-        // The full-bleed adjacency pass ran before the splice, so groups on
-        // either side of the card may still carry flags from when they were
-        // adjacent to each other. The card row is never full bleed; clear
-        // the flags facing it.
-        if insertionIndex > 0, case .messages(var above) = items[insertionIndex - 1] {
-            above.adjacentToFullBleedBelow = false
-            items[insertionIndex - 1] = .messages(above)
-        }
-        if insertionIndex < items.count, case .messages(var below) = items[insertionIndex] {
-            below.adjacentToFullBleedAbove = false
-            items[insertionIndex] = .messages(below)
-        }
-        items.insert(.messages(cardGroup), at: insertionIndex)
         return items
     }
 

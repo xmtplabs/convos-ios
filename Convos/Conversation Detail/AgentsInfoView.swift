@@ -2,12 +2,6 @@ import ConvosComposer
 import SwiftUI
 
 struct AgentsInfoView: View {
-    /// When set, the primary button reads "Make an agent" and tapping it runs
-    /// this action then dismisses -- used as the first-run intro before the
-    /// agent builder, so the builder opens only if the user opts in. When nil,
-    /// the button is a plain "Awesome" dismiss (the "About agents" info sheet).
-    var onMakeAgent: (() -> Void)?
-
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @State private var safariURL: URL?
@@ -37,24 +31,12 @@ struct AgentsInfoView: View {
                 .padding(.top, DesignConstants.Spacing.step2x)
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
-                if let onMakeAgent {
-                    let makeAgentAction = {
-                        onMakeAgent()
-                        dismiss()
-                    }
-                    Button(action: makeAgentAction) {
-                        Text("Make an agent")
-                            .font(.body)
-                    }
-                    .convosButtonStyle(.rounded(fullWidth: true))
-                } else {
-                    let dismissAction = { dismiss() }
-                    Button(action: dismissAction) {
-                        Text("Awesome")
-                            .font(.body)
-                    }
-                    .convosButtonStyle(.rounded(fullWidth: true))
+                let dismissAction = { dismiss() }
+                Button(action: dismissAction) {
+                    Text("Awesome")
+                        .font(.body)
                 }
+                .convosButtonStyle(.rounded(fullWidth: true))
 
                 let learnMoreAction = { safariURL = URL(string: "https://learn.convos.org/assistants") }
                 Button(action: learnMoreAction) {

@@ -18,6 +18,7 @@ public enum SupportedConnections {
     public static let supportedDeviceKinds: Set<ConnectionKind> = []
 
     public static let supportedCloudServiceIds: Set<String> = [
+        "gmail",
         "googlecalendar",
     ]
 

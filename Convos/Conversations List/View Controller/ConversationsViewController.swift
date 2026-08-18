@@ -8,13 +8,18 @@ import UIKit
 final class ConversationsViewController: UIViewController {
     // MARK: - Types
 
-    struct State {
+    struct State: Equatable {
         var pinnedConversations: [Conversation]
         var unpinnedConversations: [Conversation]
         var selectedConversationId: String?
         var isFilteredResultEmpty: Bool
         var filterEmptyMessage: String
         var horizontalSizeClass: UserInterfaceSizeClass?
+        var hasMoreConversations: Bool
+        /// False while the boot catch-up burst is still landing. Snapshots
+        /// apply via `applySnapshotUsingReloadData` (no diffing, no
+        /// animation) until this flips true.
+        var isBootSettled: Bool
 
         static let empty: State = State(
             pinnedConversations: [],
@@ -22,7 +27,9 @@ final class ConversationsViewController: UIViewController {
             selectedConversationId: nil,
             isFilteredResultEmpty: false,
             filterEmptyMessage: "",
-            horizontalSizeClass: nil
+            horizontalSizeClass: nil,
+            hasMoreConversations: false,
+            isBootSettled: false
         )
     }
 
@@ -76,6 +83,13 @@ final class ConversationsViewController: UIViewController {
     }()
     private lazy var dataSource: UICollectionViewDiffableDataSource<ConversationsSection, Item> = makeDataSource()
     private var currentState: State = .empty
+    private var hasAppliedInitialSnapshot: Bool = false
+    /// Whether a snapshot containing at least one conversation row has been
+    /// applied. Until then the layout keeps UIKit's standard appearing-item
+    /// attributes, so the initial population can never be stranded at the
+    /// insert animation's alpha-0 starting state (see
+    /// `ConversationsCompositionalLayout.animatesAppearingItems`).
+    private var hasAppliedPopulatedSnapshot: Bool = false
 
     /// Inbox → user-contact override applied to auto-generated cell
     /// titles and avatar substitution. Set by the SwiftUI parent
@@ -95,17 +109,18 @@ final class ConversationsViewController: UIViewController {
     var onToggleReadState: ((Conversation) -> Void)?
     var onTogglePin: ((Conversation) -> Void)?
     var onShowAllFilter: (() -> Void)?
-    /// Fired on every scroll tick with the latest content offset Y. Used
-    /// by the host SwiftUI shell (`MainTabView`) to flip the agent
-    /// builder bar between expanded and collapsed states based on whether
-    /// the list is at the top.
+    /// Fired on every scroll tick with the latest content offset Y, so the
+    /// host SwiftUI shell can react to whether the list is at the top.
     var onScrollOffsetChange: ((CGFloat) -> Void)?
+    /// Fired when the list approaches its end and `hasMoreConversations`
+    /// is set - asks the view model to grow the paged window.
+    var onLoadMoreConversations: (() -> Void)?
 
-    /// Extra top inset to clear the SwiftUI top chrome (the agent builder
-    /// bar that lives under the nav bar in the host's safe-area inset
-    /// chain). The chain doesn't always propagate to UIKit-hosted
-    /// collection views, so the SwiftUI host pushes this value down and
-    /// we apply it via `additionalSafeAreaInsets`.
+    /// Extra top inset to clear whatever SwiftUI chrome the host draws under
+    /// the nav bar. That chrome lives in the host's safe-area inset chain,
+    /// which doesn't always propagate to UIKit-hosted collection views, so
+    /// the host pushes the value down and we apply it via
+    /// `additionalSafeAreaInsets`.
     var topChromeInset: CGFloat = 0 {
         didSet {
             guard isViewLoaded, oldValue != topChromeInset else { return }
@@ -113,9 +128,8 @@ final class ConversationsViewController: UIViewController {
         }
     }
 
-    /// Bottom counterpart to `topChromeInset`, used when the agent builder
-    /// bar pins to the bottom edge (iPad, where the standard tab bar is at
-    /// the top).
+    /// Bottom counterpart to `topChromeInset`, for chrome pinned to the
+    /// bottom edge (iPad, where the standard tab bar is at the top).
     var bottomChromeInset: CGFloat = 0 {
         didSet {
             guard isViewLoaded, oldValue != bottomChromeInset else { return }
@@ -128,21 +142,17 @@ final class ConversationsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupCollectionView()
-        // Apply any inset values that landed before the view loaded —
-        // the `didSet`s short-circuit while `isViewLoaded` is false, so
-        // without this the values silently vanish.
-        if topChromeInset != 0 {
-            additionalSafeAreaInsets.top = topChromeInset
-        }
-        if bottomChromeInset != 0 {
-            additionalSafeAreaInsets.bottom = bottomChromeInset
-        }
         _ = dataSource
     }
 
     // MARK: - Public API
 
     func updateState(_ state: State) {
+        // SwiftUI calls updateUIViewController on every render of the
+        // conversations screen, most of which change nothing list-related.
+        // Applying a snapshot for those is pure waste - during boot each
+        // one is a full reload that re-configures every visible cell.
+        guard state != currentState else { return }
         let oldState = currentState
         let oldPinnedIds = Set(oldState.pinnedConversations.map(\.id))
         let newPinnedIds = Set(state.pinnedConversations.map(\.id))
@@ -154,11 +164,15 @@ final class ConversationsViewController: UIViewController {
             collectionView.setCollectionViewLayout(createLayout(), animated: false)
         }
 
-        let changedIds = changedConversationIds(old: oldState, new: state, selectionChanged: selectionChanged)
-        applySnapshot(animated: !pinnedMembershipChanged, changedIds: changedIds)
+        // Pre-settle applies go through the reload path, which re-dequeues
+        // every visible cell, so computing per-row changes would be wasted work.
+        let changedIds = state.isBootSettled
+            ? changedConversationIds(old: oldState, new: state, selectionChanged: selectionChanged)
+            : []
+        applySnapshot(animated: state.isBootSettled && !pinnedMembershipChanged, changedIds: changedIds)
     }
 
-    private func changedConversationIds(old: State, new: State, selectionChanged: Bool) -> Set<String> {
+    func changedConversationIds(old: State, new: State, selectionChanged: Bool) -> Set<String> {
         let oldMap = Dictionary(
             uniqueKeysWithValues: (old.pinnedConversations + old.unpinnedConversations).map { ($0.id, $0) }
         )
@@ -168,22 +182,30 @@ final class ConversationsViewController: UIViewController {
 
         var changed = Set<String>()
         for (id, newConvo) in newMap {
-            guard let oldConvo = oldMap[id] else {
-                changed.insert(id)
-                continue
-            }
+            // A row with no old counterpart is inserted by this apply, so its
+            // cell is dequeued fresh with current content. Reconfiguring it is
+            // redundant and the follow-up non-animated apply interrupts the
+            // row's in-flight insert animation.
+            guard let oldConvo = oldMap[id] else { continue }
             // `avatarType` encodes the rendered avatar (the clustered member
             // profiles and their avatar URLs), so comparing it reconfigures the
             // cell when a member changes their photo. Without this, a member
             // avatar update re-emits a fresh conversation but no tracked field
             // here changes, so every group showing that member keeps a stale
             // cluster until something else about the row changes.
+            // `agentDm` is the folded-in agent DM lane, which the row renders as
+            // the preview text, the sender prefix, and the unread badge. An
+            // agent reply lands only in that lane and changes nothing else
+            // compared here, so omitting it left the row showing its previous
+            // content, and its previous timestamp, until a scroll recycled the
+            // cell.
             if oldConvo.isMuted != newConvo.isMuted ||
                 oldConvo.isUnread != newConvo.isUnread ||
                 oldConvo.isPinned != newConvo.isPinned ||
                 oldConvo.scheduledExplosionDate != newConvo.scheduledExplosionDate ||
                 oldConvo.displayName != newConvo.displayName ||
                 oldConvo.lastMessage != newConvo.lastMessage ||
+                oldConvo.agentDm != newConvo.agentDm ||
                 oldConvo.avatarType != newConvo.avatarType {
                 changed.insert(id)
             }
@@ -191,7 +213,9 @@ final class ConversationsViewController: UIViewController {
 
         if selectionChanged {
             if let id = old.selectedConversationId { changed.insert(id) }
-            if let id = new.selectedConversationId { changed.insert(id) }
+            // Same inserted-row exemption as above: a newly inserted selected
+            // row already renders with the current selection state.
+            if let id = new.selectedConversationId, oldMap[id] != nil { changed.insert(id) }
         }
 
         return changed
@@ -220,7 +244,7 @@ final class ConversationsViewController: UIViewController {
     }
 
     private func createLayout() -> UICollectionViewLayout {
-        ConversationsCompositionalLayout { [weak self] sectionIndex, environment in
+        let layout = ConversationsCompositionalLayout { [weak self] sectionIndex, environment in
             guard let self = self else { return nil }
 
             // Determine section based on current state and index
@@ -239,6 +263,11 @@ final class ConversationsViewController: UIViewController {
                 return self.createListSectionLayout(environment: environment)
             }
         }
+        // Layout recreations (pinned-section bucket changes) must carry the
+        // flag forward, otherwise a recreation would re-suppress the insert
+        // animation mid-session.
+        layout.animatesAppearingItems = hasAppliedPopulatedSnapshot
+        return layout
     }
 
     private func createPinnedSectionLayout(environment: NSCollectionLayoutEnvironment) -> NSCollectionLayoutSection? {
@@ -451,22 +480,42 @@ final class ConversationsViewController: UIViewController {
             snapshot.appendItems(listItems, toSection: .list)
         }
 
-        dataSource.apply(snapshot, animatingDifferences: animated)
+        if currentState.isBootSettled && hasAppliedInitialSnapshot {
+            dataSource.apply(snapshot, animatingDifferences: animated)
 
-        if !changedIds.isEmpty {
-            var applied = dataSource.snapshot()
-            let itemsToReconfigure = applied.itemIdentifiers.filter { item in
-                switch item {
-                case .pinned(let c), .conversation(let c):
-                    return changedIds.contains(c.id)
-                case .filteredEmpty:
-                    return false
+            if !changedIds.isEmpty {
+                var applied = dataSource.snapshot()
+                let itemsToReconfigure = applied.itemIdentifiers.filter { item in
+                    switch item {
+                    case .pinned(let c), .conversation(let c):
+                        return changedIds.contains(c.id)
+                    case .filteredEmpty:
+                        return false
+                    }
+                }
+                if !itemsToReconfigure.isEmpty {
+                    applied.reconfigureItems(itemsToReconfigure)
+                    dataSource.apply(applied, animatingDifferences: false)
                 }
             }
-            if !itemsToReconfigure.isEmpty {
-                applied.reconfigureItems(itemsToReconfigure)
-                dataSource.apply(applied, animatingDifferences: false)
-            }
+        } else {
+            // Boot burst (or the very first apply): skip diffing entirely.
+            // The reload re-dequeues every visible cell, so the reconfigure
+            // pass above has no stale-cell case to fix.
+            dataSource.applySnapshotUsingReloadData(snapshot)
+        }
+        hasAppliedInitialSnapshot = true
+
+        // Enable the insert fade-in only after the apply that populated the
+        // list has completed, so the initial rows themselves never start at
+        // alpha 0. Flipped after the apply on purpose: the flag must not
+        // affect the apply that is landing the first rows.
+        let hasConversationRows = !currentState.pinnedConversations.isEmpty
+            || (!currentState.isFilteredResultEmpty && !currentState.unpinnedConversations.isEmpty)
+        if !hasAppliedPopulatedSnapshot && hasConversationRows {
+            hasAppliedPopulatedSnapshot = true
+            let layout = collectionView.collectionViewLayout as? ConversationsCompositionalLayout
+            layout?.animatesAppearingItems = true
         }
 
         updateSelection()
@@ -657,6 +706,14 @@ extension ConversationsViewController: UICollectionViewDelegate {
         onSelectConversation?(conversation)
     }
 
+    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        guard currentState.hasMoreConversations else { return }
+        guard let item = dataSource.itemIdentifier(for: indexPath), case .conversation = item else { return }
+        let listCount = currentState.unpinnedConversations.count
+        guard listCount > 0, indexPath.item >= listCount - Constant.loadMoreThreshold else { return }
+        onLoadMoreConversations?()
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         // Report scrolled distance from the natural top — zero when the
         // list is at rest at the top, positive when scrolled down,
@@ -802,4 +859,9 @@ extension ConversationsViewController: UICollectionViewDelegate {
 
         return UIMenu(title: "", children: actions)
     }
+}
+
+private enum Constant {
+    /// How many rows before the end of the list the next page is requested.
+    static let loadMoreThreshold: Int = 10
 }

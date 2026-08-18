@@ -33,6 +33,12 @@ extension DecodedMessage {
         return contentType.authorityID == ContentTypeBuilderBundleManifest.authorityID
             && contentType.typeID == ContentTypeBuilderBundleManifest.typeID
     }
+
+    var isConversationReady: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        return contentType.authorityID == ContentTypeConversationReady.authorityID
+            && contentType.typeID == ContentTypeConversationReady.typeID
+    }
 }
 
 enum ConversationWriterError: Error {
@@ -260,12 +266,24 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
     /// Async, network-bound, transaction-free. Safe to call concurrently for
     /// many conversations.
+    ///
+    /// `syncFirst` controls the per-group network `conversation.sync()`.
+    /// Callers with no other freshness source (the NSE message paths, the
+    /// stream processor) must leave it on: it is the only thing pulling new
+    /// commits before the group's roster and metadata are read. The batch
+    /// catch-up path passes `false` when its client-wide
+    /// `syncAllConversations` completed - the per-group sync would be
+    /// redundant network work multiplied by every conversation in the
+    /// batch - and `true` when that sync failed or timed out.
     func prepare(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        clientConversationId: String? = nil
+        clientConversationId: String? = nil,
+        syncFirst: Bool = true
     ) async throws -> PreparedConversation {
-        try await conversation.sync()
+        if syncFirst {
+            try await conversation.sync()
+        }
         try await denyConsentIfInviteWasLocallyDeleted(for: conversation)
         let metadata = try await extractConversationMetadata(from: conversation)
         let members = try await conversation.members
@@ -792,6 +810,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         /// metadata; nil for non-DMs or DMs without a recorded origin.
         let originConversationId: String?
         let participationMode: ConversationParticipationMode?
+        /// The deployed Space web URL carried in the group's appData; the
+        /// Assistant Worker is the sole authority. Nil until one is published.
+        let spaceURLString: String?
         let memberCount: Int
     }
 
@@ -842,6 +863,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isAgentDm: isAgentDm,
             originConversationId: originConversationId,
             participationMode: try? conversation.participationMode,
+            spaceURLString: (try? conversation.spaceURL).flatMap { $0 },
             memberCount: memberCount
         )
     }
@@ -996,6 +1018,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
             isAgentDm: metadata.isAgentDm,
             participationMode: metadata.participationMode,
+            spaceURLString: metadata.spaceURLString,
             // Shares one definition of the empty-vs-throw semantics with the
             // consent gate (`StreamProcessor.contactsVouch`). A failed read
             // persists as `.unresolved` rather than being flattened to "no

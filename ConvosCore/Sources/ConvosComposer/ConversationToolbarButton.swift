@@ -38,11 +38,7 @@ public struct ConversationToolbarButton: View {
     }
 
     var title: String {
-        let base: String = conversationName.isEmpty ? placeholderName : conversationName
-        guard !ConfigManager.shared.currentEnvironment.isProduction, conversation.agentVariant != nil else {
-            return base
-        }
-        return "🧪 \(base)"
+        conversationName.isEmpty ? placeholderName : conversationName
     }
 
     @ViewBuilder

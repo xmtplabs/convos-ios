@@ -265,6 +265,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         base.conversationsRepository(for: consent)
     }
 
+    func conversationsPager(for consent: [Consent]) -> any ConversationsPagerProtocol {
+        base.conversationsPager(for: consent)
+    }
+
     func conversationsCountRepo(for consent: [Consent], kinds: [ConversationKind]) -> any ConversationsCountRepositoryProtocol {
         base.conversationsCountRepo(for: consent, kinds: kinds)
     }
@@ -363,6 +367,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.hasAnyUsedConversations()
     }
 
+    nonisolated func peekPreparedConversationId() -> String? {
+        base.peekPreparedConversationId()
+    }
+
     func commitClaimedConversation(id conversationId: String) async {
         await base.commitClaimedConversation(id: conversationId)
     }
@@ -381,6 +389,14 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
 
     func discardClaimedConversationIfUnengaged(id conversationId: String) async {
         await base.discardClaimedConversationIfUnengaged(id: conversationId)
+    }
+
+    func ensureDefaultAgentConversationReady(id conversationId: String) async {
+        await base.ensureDefaultAgentConversationReady(id: conversationId)
+    }
+
+    func isProvisioningDefaultAgent(id conversationId: String) async -> Bool {
+        await base.isProvisioningDefaultAgent(id: conversationId)
     }
 
     func pendingInviteDetails() throws -> [PendingInviteDetail] {

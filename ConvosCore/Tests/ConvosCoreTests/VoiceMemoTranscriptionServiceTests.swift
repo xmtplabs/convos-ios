@@ -26,7 +26,10 @@ struct VoiceMemoTranscriptionServiceTests {
             mimeType: "audio/m4a"
         )
 
-        try await waitUntil(timeout: .seconds(10)) { await writer.completedSnapshot().count == 1 }
+        // The service transcribes on a detached task, which can starve for
+        // several seconds while the full parallel suite spins up; this test
+        // runs first in the serialized suite, so give it extra headroom.
+        try await waitUntil(timeout: .seconds(30)) { await writer.completedSnapshot().count == 1 }
 
         let pendingCount = await writer.pendingSnapshot().count
         let completed = await writer.completedSnapshot()

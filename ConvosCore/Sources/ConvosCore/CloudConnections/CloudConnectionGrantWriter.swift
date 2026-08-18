@@ -7,7 +7,24 @@ public protocol CloudConnectionGrantWriterProtocol: Sendable {
     /// service (catalog ids like "calendar.events"). Pass nil when no picker
     /// was involved (full-service consent paths); the writer then grants
     /// every bundle the catalog lists for the service.
+    ///
+    /// The backend consent POST is part of the contract: when the push fails
+    /// (or fails closed without reaching the server), the writer rolls the
+    /// local grant row and published metadata back to their pre-attempt
+    /// state and throws. A failed enable therefore leaves nothing behind
+    /// that could make retry paths treat the grant as already applied — the
+    /// next attempt re-runs the whole flow, including after an app relaunch.
     func grantConnection(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String,
+        bundleIds: [String]?
+    ) async throws
+    /// Same contract as `grantConnection`. The separate name predates the
+    /// unification of the two variants' failure posture and is kept for the
+    /// capability approval flow's call sites, which must not act on an
+    /// unconfirmed grant.
+    func grantConnectionConfirmingBackend(
         _ connectionId: String,
         to conversationId: String,
         grantedToInboxId: String,
@@ -63,6 +80,122 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         grantedToInboxId: String,
         bundleIds: [String]?
     ) async throws {
+        try await grantRollingBackOnPushFailure(
+            connectionId,
+            to: conversationId,
+            grantedToInboxId: grantedToInboxId,
+            bundleIds: bundleIds
+        )
+    }
+
+    func grantConnectionConfirmingBackend(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String,
+        bundleIds: [String]?
+    ) async throws {
+        try await grantRollingBackOnPushFailure(
+            connectionId,
+            to: conversationId,
+            grantedToInboxId: grantedToInboxId,
+            bundleIds: bundleIds
+        )
+    }
+
+    /// Shared enable core: persist locally, push to the backend, and on a
+    /// terminal push failure restore the pre-attempt state before
+    /// propagating. Leaving the unconfirmed row behind is what used to wedge
+    /// the conversation toggle: the row made `isGrantedForConversation` read
+    /// true, so every subsequent tap routed to the revoke leg and no grant
+    /// POST was ever attempted again — and the row survived relaunch. The
+    /// `unknown_bundle` rejection already gets its single retry inside
+    /// `pushGrantToBackend`; any error that escapes it is terminal here.
+    private func grantRollingBackOnPushFailure(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String,
+        bundleIds: [String]?
+    ) async throws {
+        let priorRow = try await databaseReader.read { db in
+            try DBCloudConnectionGrant
+                .filter(
+                    DBCloudConnectionGrant.Columns.connectionId == connectionId
+                        && DBCloudConnectionGrant.Columns.conversationId == conversationId
+                        && DBCloudConnectionGrant.Columns.grantedToInboxId == grantedToInboxId
+                )
+                .fetchOne(db)
+        }
+        let (grant, connection) = try await persistGrantLocally(
+            connectionId,
+            to: conversationId,
+            grantedToInboxId: grantedToInboxId,
+            bundleIds: bundleIds
+        )
+        do {
+            try await pushGrantToBackend(grant, connection: connection)
+        } catch {
+            logBackendPushFailure(for: grant, error: error)
+            await rollBackUnconfirmedGrant(grant, restoring: priorRow)
+            throw error
+        }
+    }
+
+    /// Restores the pre-attempt state after a failed backend push: the
+    /// unconfirmed row is deleted, or — when the attempt overwrote an
+    /// existing row (a re-approval over a confirmed grant) — the prior row
+    /// is put back, so a failed re-push can't regress a live backend grant
+    /// into a locally-off toggle. The metadata republish is best-effort: the
+    /// local rollback must stand even when the group can't be updated, so a
+    /// relaunch never finds a poisoned row; a failed republish is superseded
+    /// by the next successful grant/revoke publish.
+    private func rollBackUnconfirmedGrant(
+        _ grant: DBCloudConnectionGrant,
+        restoring priorRow: DBCloudConnectionGrant?
+    ) async {
+        do {
+            try await databaseWriter.write { db in
+                try DBCloudConnectionGrant
+                    .filter(
+                        DBCloudConnectionGrant.Columns.connectionId == grant.connectionId
+                            && DBCloudConnectionGrant.Columns.conversationId == grant.conversationId
+                            && DBCloudConnectionGrant.Columns.grantedToInboxId == grant.grantedToInboxId
+                    )
+                    .deleteAll(db)
+                if let priorRow {
+                    try priorRow.save(db)
+                }
+            }
+        } catch {
+            Log.error(
+                "[CloudConnections] failed to roll back the unconfirmed grant row after a backend " +
+                "push failure; the toggle may read granted until the next successful grant/revoke " +
+                "(connectionId=\(grant.connectionId), conversationId=\(grant.conversationId), " +
+                "grantedToInboxId=\(grant.grantedToInboxId)): \(error.localizedDescription)"
+            )
+            return
+        }
+        do {
+            let remaining = try await projectedGrants(
+                for: grant.conversationId,
+                addingOrReplacing: nil,
+                removing: nil
+            )
+            try await syncGrantsToMetadata(for: grant.conversationId, desiredGrants: remaining)
+        } catch {
+            Log.warning(
+                "[CloudConnections] failed to republish grants metadata after rolling back a " +
+                "failed grant push (conversationId=\(grant.conversationId)); the next successful " +
+                "grant/revoke publish supersedes it: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func persistGrantLocally(
+        _ connectionId: String,
+        to conversationId: String,
+        grantedToInboxId: String,
+        bundleIds: [String]?
+    ) async throws -> (DBCloudConnectionGrant, DBCloudConnection) {
         guard !grantedToInboxId.isEmpty else {
             throw CloudConnectionGrantError.missingGrantedToInboxId
         }
@@ -98,8 +231,16 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         try await databaseWriter.write { db in
             try grant.save(db)
         }
+        return (grant, connection)
+    }
 
-        await pushGrantToBackend(grant, connection: connection)
+    private func logBackendPushFailure(for grant: DBCloudConnectionGrant, error: Error) {
+        Log.error(
+            "[CloudConnections] backend grant push failed; rolling the local grant back so the " +
+            "next enable attempt retries the push (connectionId=\(grant.connectionId), " +
+            "conversationId=\(grant.conversationId), grantedToInboxId=\(grant.grantedToInboxId)): " +
+            error.localizedDescription
+        )
     }
 
     func revokeGrant(
@@ -152,68 +293,86 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
     /// Grants are bundle-scoped against the services catalog (see
     /// `resolveBundleScope`); a 400 `unknown_bundle` rejection means our
     /// catalog cache is stale, so the push refetches it, drops ids the fresh
-    /// catalog no longer knows, and retries exactly once. Otherwise
-    /// best-effort with no retry: on failure the local grant stands, but the
-    /// backend will deny the agent's tool execution (403) until the user
-    /// re-grants, so the failure is logged at error level.
-    private func pushGrantToBackend(_ grant: DBCloudConnectionGrant, connection: DBCloudConnection) async {
-        do {
-            let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-            guard let scope = await resolveBundleScope(
-                toolkit: connection.serviceId,
-                explicitSelection: grant.bundleIds
-            ) else { return }
-            let response: CloudConnectionsAPI.CreateGrantResponse
-            let pushedScope: BundleScope
-            do {
-                response = try await inboxReady.apiClient.createConnectionGrant(
-                    ownerInboxId: inboxReady.client.inboxId,
-                    granteeInboxId: grant.grantedToInboxId,
-                    conversationId: grant.conversationId,
-                    toolkit: connection.serviceId,
-                    bundleIds: scope.bundleIds,
-                    serviceVersion: scope.serviceVersion
-                )
-                pushedScope = scope
-            } catch CloudConnectionsAPI.GrantError.unknownBundle(let bundleId) {
-                Log.warning(
-                    "[CloudConnections] grant rejected for stale bundle id " +
-                    "(toolkit=\(connection.serviceId), bundleId=\(bundleId ?? "?")); " +
-                    "refetching services catalog and retrying once"
-                )
-                guard let retryScope = try await retryScope(
-                    afterUnknownBundleFor: connection.serviceId,
-                    firstAttempt: scope
-                ) else { return }
-                response = try await inboxReady.apiClient.createConnectionGrant(
-                    ownerInboxId: inboxReady.client.inboxId,
-                    granteeInboxId: grant.grantedToInboxId,
-                    conversationId: grant.conversationId,
-                    toolkit: connection.serviceId,
-                    bundleIds: retryScope.bundleIds,
-                    serviceVersion: retryScope.serviceVersion
-                )
-                pushedScope = retryScope
-            }
-            let updated = DBCloudConnectionGrant(
-                connectionId: grant.connectionId,
-                conversationId: grant.conversationId,
-                serviceId: grant.serviceId,
-                grantedToInboxId: grant.grantedToInboxId,
-                grantedAt: grant.grantedAt,
-                backendGrantId: response.id,
-                bundleIds: pushedScope.bundleIds,
-                serviceVersion: pushedScope.serviceVersion
+    /// catalog no longer knows, and retries exactly once. Throws when the
+    /// push could not be confirmed -- an API failure, or a scope resolution
+    /// that fails closed without reaching the server. The caller rolls the
+    /// local grant back and propagates the error, so a failed push never
+    /// leaves an unconfirmed row that later attempts mistake for an applied
+    /// grant. A failure persisting the returned id locally is logged, not
+    /// thrown: the push itself was confirmed by then.
+    private func pushGrantToBackend(_ grant: DBCloudConnectionGrant, connection: DBCloudConnection) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        guard let scope = await resolveBundleScope(
+            toolkit: connection.serviceId,
+            explicitSelection: grant.bundleIds
+        ) else {
+            throw CloudConnectionGrantError.backendPushNotConfirmed(
+                "bundle scope for \(connection.serviceId) could not be resolved; push skipped fail-closed"
             )
+        }
+        let response: CloudConnectionsAPI.CreateGrantResponse
+        let pushedScope: BundleScope
+        do {
+            response = try await inboxReady.apiClient.createConnectionGrant(
+                ownerInboxId: inboxReady.client.inboxId,
+                granteeInboxId: grant.grantedToInboxId,
+                conversationId: grant.conversationId,
+                toolkit: connection.serviceId,
+                bundleIds: scope.bundleIds,
+                serviceVersion: scope.serviceVersion
+            )
+            pushedScope = scope
+        } catch CloudConnectionsAPI.GrantError.unknownBundle(let bundleId) {
+            Log.warning(
+                "[CloudConnections] grant rejected for stale bundle id " +
+                "(toolkit=\(connection.serviceId), bundleId=\(bundleId ?? "?")); " +
+                "refetching services catalog and retrying once"
+            )
+            guard let retryScope = try await retryScope(
+                afterUnknownBundleFor: connection.serviceId,
+                firstAttempt: scope
+            ) else {
+                throw CloudConnectionGrantError.backendPushNotConfirmed(
+                    "no valid bundle scope for \(connection.serviceId) after unknown_bundle rejection"
+                )
+            }
+            response = try await inboxReady.apiClient.createConnectionGrant(
+                ownerInboxId: inboxReady.client.inboxId,
+                granteeInboxId: grant.grantedToInboxId,
+                conversationId: grant.conversationId,
+                toolkit: connection.serviceId,
+                bundleIds: retryScope.bundleIds,
+                serviceVersion: retryScope.serviceVersion
+            )
+            pushedScope = retryScope
+        }
+        let updated = DBCloudConnectionGrant(
+            connectionId: grant.connectionId,
+            conversationId: grant.conversationId,
+            serviceId: grant.serviceId,
+            grantedToInboxId: grant.grantedToInboxId,
+            grantedAt: grant.grantedAt,
+            backendGrantId: response.id,
+            bundleIds: pushedScope.bundleIds,
+            serviceVersion: pushedScope.serviceVersion
+        )
+        // The backend confirmed the grant above; recording the returned id is
+        // local bookkeeping. Throwing here would make a confirming caller
+        // treat a live backend grant as unconfirmed and surface a retryable
+        // error for an authorization that already exists. Instead the row
+        // keeps its nil backendGrantId, so the next approval re-runs the push;
+        // the backend upserts the same tuple and returns the same id, and
+        // revocation targets the natural key rather than the stored id.
+        do {
             try await databaseWriter.write { db in
                 try updated.save(db)
             }
         } catch {
             Log.error(
-                "[CloudConnections] backend grant push failed; agent will get 403 from backend-mediated " +
-                "execution until the user re-grants (connectionId=\(grant.connectionId), " +
-                "conversationId=\(grant.conversationId), grantedToInboxId=\(grant.grantedToInboxId)): " +
-                error.localizedDescription
+                "[CloudConnections] backend grant confirmed (id=\(response.id)) but persisting the " +
+                "backend id locally failed; the next approval re-runs the idempotent push " +
+                "(connectionId=\(grant.connectionId), conversationId=\(grant.conversationId), " +
+                "grantedToInboxId=\(grant.grantedToInboxId)): \(error.localizedDescription)"
             )
         }
     }
@@ -528,6 +687,7 @@ enum CloudConnectionGrantError: LocalizedError {
     case connectionNotActive(String, status: String)
     case conversationNotFound(String)
     case missingGrantedToInboxId
+    case backendPushNotConfirmed(String)
 
     var errorDescription: String? {
         switch self {
@@ -539,6 +699,8 @@ enum CloudConnectionGrantError: LocalizedError {
             "Conversation not found: \(id)"
         case .missingGrantedToInboxId:
             "grantedToInboxId is required and cannot be empty"
+        case .backendPushNotConfirmed(let reason):
+            "Backend grant push not confirmed: \(reason)"
         }
     }
 }

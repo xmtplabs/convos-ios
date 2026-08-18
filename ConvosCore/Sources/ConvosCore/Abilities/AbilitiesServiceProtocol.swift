@@ -83,8 +83,10 @@ extension AbilitiesServiceError: LocalizedError {
 /// Backend-owned abilities: catalog enumeration, account-level entitlement
 /// lifecycle, and extension of entitlements to agents within conversations.
 /// The backend is the only source of truth; clients read statuses, never
-/// derive them. `MockAbilitiesService` drives every V2 surface until the
-/// live transport lands.
+/// derive them. `LiveAbilitiesService` is the default implementation once
+/// the Abilities V2 flag is on; `MockAbilitiesService` only drives V2
+/// surfaces when the mock/live sub-toggle is explicitly flipped to mock in
+/// a non-production Debug menu.
 public protocol AbilitiesServiceProtocol: Sendable {
     /// Fetches the full catalog crossed with the caller's entitlement
     /// state, resolved per the availability contract: a response carrying

@@ -82,6 +82,7 @@ struct ConvosApp: App {
         QAEvent.emit(.app, "launched", ["environment": environment.name])
         QALaunchHooks.run(environment: environment)
 
+        Self.wireDefaultAgentVariantProvider()
         Self.configureFirebase(environment: environment)
 
         #if DEBUG
@@ -161,6 +162,8 @@ struct ConvosApp: App {
             metricsDelegate: metricsDelegate
         )
 
+        HomeWebViewPrewarmer.prewarmIfNeeded(session: convos.session)
+
         Self.configureTabBarItemColors()
     }
 
@@ -228,6 +231,13 @@ struct ConvosApp: App {
     /// the surfaces refresh again on appear.
     private static func configureAbilities(session: any SessionManagerProtocol, environment: AppEnvironment) {
         AbilitiesServices.configure(session: session, environment: environment)
+        // Auto-enable mirrors the v1 connections toggle, so it runs exactly
+        // when that surface renders: whenever the abilities v2 flag is off.
+        // The flag is re-read on every agent add, so a debug-menu flip takes
+        // effect without a relaunch.
+        session.configureAutoEnableAbilities {
+            await MainActor.run { !FeatureFlags.shared.isAbilitiesV2Enabled }
+        }
         if FeatureFlags.shared.isAbilitiesV2Enabled {
             Task { await AbilitiesServices.refreshCatalogInBackground() }
         }
@@ -249,6 +259,15 @@ struct ConvosApp: App {
             }
         }
         bar.unselectedItemTintColor = inactive
+    }
+
+    /// Routes cache-time default-agent joins to the same variant as every other
+    /// agent call. Read live at join time; hops to the main actor because
+    /// FeatureFlags is main-actor-isolated.
+    private static func wireDefaultAgentVariantProvider() {
+        SessionManager.defaultAgentVariantIdProvider = {
+            await MainActor.run { FeatureFlags.shared.effectiveAgentVariantSlug }
+        }
     }
 
     var body: some Scene {

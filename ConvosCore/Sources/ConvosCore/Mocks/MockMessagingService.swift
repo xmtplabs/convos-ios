@@ -107,8 +107,12 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _conversationStateManager
     }
 
+    /// The injected double, same as the no-argument accessor. Handing back a
+    /// throwaway here meant a caller resuming a known conversation got a
+    /// manager the test could not reach, so driving the injected one moved
+    /// nothing.
     public func conversationStateManager(for conversationId: String) -> any ConversationStateManagerProtocol {
-        MockConversationStateManager(conversationId: conversationId)
+        _conversationStateManager
     }
 
     public func conversationConsentWriter() -> any ConversationConsentWriterProtocol {
