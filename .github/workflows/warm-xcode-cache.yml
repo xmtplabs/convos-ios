@@ -147,17 +147,31 @@ jobs:
           KEEP: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
         run: |
           echo "Keeping: $KEEP"
-          gh api "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" --paginate \
-            -q '.actions_caches[] | [.key, .size_in_bytes] | @tsv' \
-          | while IFS=$'\t' read -r key size; do
-              case "$key" in
-                "${RUNNER_OS}-spm-"*)
-                  if [[ "$key" != "$KEEP" ]]; then
-                    echo "Deleting $key ($(( size / 1000000 ))MB)"
-                    gh api -X DELETE \
-                      "repos/${GITHUB_REPOSITORY}/actions/caches?key=${key}" >/dev/null \
-                      || echo "  (delete failed, continuing)"
-                  fi
-                  ;;
-              esac
-            done
+          # One listing serves both the guard and the loop below.
+          CACHES="$(gh api "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" --paginate \
+            -q '.actions_caches[] | [.key, .size_in_bytes] | @tsv')"
+
+          # The save step is continue-on-error (a same-key entry already
+          # existing reads as a failure), so a save that failed for a real
+          # reason lands here with $KEEP never written. Pruning then deletes
+          # every fallback entry and leaves the next job with no cache at all -
+          # precisely the total miss, and the 41 minute libxmtp clone behind
+          # it, that this workflow exists to prevent. Only prune once the entry
+          # being kept is known to exist.
+          if ! cut -f1 <<<"$CACHES" | grep -Fxq "$KEEP"; then
+            echo "Cache entry not present (save did not land); skipping prune"
+            exit 0
+          fi
+
+          while IFS=$'\t' read -r key size; do
+            case "$key" in
+              "${RUNNER_OS}-spm-"*)
+                if [[ "$key" != "$KEEP" ]]; then
+                  echo "Deleting $key ($(( size / 1000000 ))MB)"
+                  gh api -X DELETE \
+                    "repos/${GITHUB_REPOSITORY}/actions/caches?key=${key}" >/dev/null \
+                    || echo "  (delete failed, continuing)"
+                fi
+                ;;
+            esac
+          done <<<"$CACHES"
