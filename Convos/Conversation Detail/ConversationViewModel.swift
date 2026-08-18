@@ -4281,9 +4281,9 @@ extension ConversationViewModel {
     /// single-flight and batched callers can share the same body without
     /// holding `self`.
     /// The agent variant slug an agent join routes to, scoped to the
-    /// conversation. The pick made at creation is claimed by this
-    /// conversation's first join and stays bound to it, so later joins in the
-    /// same convo keep that variant even after the global default moves on.
+    /// conversation. The pick made at creation is bound to the conversation by
+    /// the flow that created it, so later joins in the same convo keep that
+    /// variant even after the global default moves on.
     /// With no per-conversation assignment this falls back to
     /// `FeatureFlags.effectiveAgentVariantSlug`. The store is consulted only
     /// while the selector flag is on, so a stale assignment can't silently
@@ -4293,7 +4293,7 @@ extension ConversationViewModel {
         guard FeatureFlags.shared.isAgentVariantSelectorEnabled else {
             return FeatureFlags.shared.effectiveAgentVariantSlug
         }
-        if let assigned = AgentVariantAssignmentStore.shared.claimPendingSlug(for: conversationId) {
+        if let assigned = AgentVariantAssignmentStore.shared.slug(for: conversationId) {
             Log.info("AgentVariant: join for \(conversationId) routing to assigned variant \(assigned)")
             return assigned
         }

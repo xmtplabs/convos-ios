@@ -522,11 +522,12 @@ final class ConversationsViewModel {
     /// Mints the conversation the compose button asks for. Split out of
     /// `onStartConvo` so the variant picker can run ahead of it and then
     /// continue into the same flow.
-    func startNewConversation() {
+    func startNewConversation(agentVariantSlug: String? = nil) {
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation,
-            coreActions: coreActions
+            coreActions: coreActions,
+            agentVariantSlug: agentVariantSlug
         )
     }
 

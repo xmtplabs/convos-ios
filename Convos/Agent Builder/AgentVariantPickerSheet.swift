@@ -6,12 +6,11 @@ import SwiftUI
 /// `FeatureFlags.isAgentVariantSelectorEnabled` is on, ahead of the
 /// new-conversation flow.
 ///
-/// The pick is written to `AgentVariantAssignmentStore.pendingSlug`; the
-/// conversation claims it on its first agent join and keeps it from then on.
-/// Starts on the Debug default so the common case is Continue without touching
-/// the dropdown.
+/// The pick is handed to the caller, which passes it to the creation flow so it
+/// binds to that specific conversation once it has an id. Starts on the Debug
+/// default so the common case is Continue without touching the dropdown.
 struct AgentVariantPickerSheet: View {
-    let onContinue: () -> Void
+    let onContinue: (String?) -> Void
 
     @State private var registry: AgentVariantRegistry = .shared
     @State private var selectedSlug: String?
@@ -62,10 +61,10 @@ struct AgentVariantPickerSheet: View {
 
     private var continueButton: some View {
         let confirm: () -> Void = {
-            AgentVariantAssignmentStore.shared.pendingSlug = selectedSlug
-            Log.info("AgentVariant: pending pick for next conversation: \(selectedSlug ?? "none")")
+            let slug = selectedSlug
+            Log.info("AgentVariant: new conversation starting under variant \(slug ?? "none")")
             dismiss()
-            onContinue()
+            onContinue(slug)
         }
         return Button(action: confirm) {
             Text("Continue")

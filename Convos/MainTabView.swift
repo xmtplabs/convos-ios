@@ -639,8 +639,8 @@ struct MainTabSheetsModifier: ViewModifier {
             // compose button is about to create.
             .selfSizingSheet(isPresented: $conversationsViewModel.presentingVariantPicker) {
                 AgentVariantPickerSheet(
-                    onContinue: {
-                        conversationsViewModel.startNewConversation()
+                    onContinue: { slug in
+                        conversationsViewModel.startNewConversation(agentVariantSlug: slug)
                     }
                 )
             }

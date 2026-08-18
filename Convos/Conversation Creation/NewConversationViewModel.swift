@@ -235,6 +235,13 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// leave a stale id in the cache's claim set.
     private var claimRegistrationTask: Task<Void, Never>?
 
+    /// The dev-only agent variant this conversation was started under, chosen
+    /// before the conversation existed. Carried on the flow rather than in a
+    /// shared slot so two overlapping creations can't bind each other's pick;
+    /// written to `AgentVariantAssignmentStore` once `.ready` supplies an id.
+    @ObservationIgnored
+    private let agentVariantSlug: String?
+
     private(set) var isCreatingConversation: Bool = false
     private(set) var currentError: Error?
     private(set) var conversationState: ConversationStateMachine.State = .uninitialized {
@@ -352,10 +359,12 @@ class NewConversationViewModel: Identifiable, Hashable {
         session: any SessionManagerProtocol,
         mode: NewConversationMode,
         defersInviteVisibilityUntilEntered: Bool = false,
-        coreActions: any CoreActions = NoOpCoreActions()
+        coreActions: any CoreActions = NoOpCoreActions(),
+        agentVariantSlug: String? = nil
     ) {
         self.session = session
         self.coreActions = coreActions
+        self.agentVariantSlug = agentVariantSlug
         self.qrScannerViewModel = QRScannerViewModel()
         switch mode {
         case .scanner:
@@ -457,6 +466,7 @@ class NewConversationViewModel: Identifiable, Hashable {
     ) {
         self.session = session
         self.coreActions = coreActions
+        self.agentVariantSlug = nil
         self.qrScannerViewModel = QRScannerViewModel()
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
@@ -1383,6 +1393,13 @@ extension NewConversationViewModel {
                     }
                 }
             }
+
+            // Bind this flow's variant pick to the conversation now that it
+            // has an id, before any agent join reads it.
+            AgentVariantAssignmentStore.shared.assignIfUnset(
+                slug: agentVariantSlug,
+                to: result.conversationId
+            )
 
             notifyDefaultAgentConversationReadyIfNeeded(result)
 
