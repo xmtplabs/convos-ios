@@ -1395,11 +1395,17 @@ extension NewConversationViewModel {
             }
 
             // Bind this flow's variant pick to the conversation now that it
-            // has an id, before any agent join reads it.
-            AgentVariantAssignmentStore.shared.assignIfUnset(
-                slug: agentVariantSlug,
-                to: result.conversationId
-            )
+            // has an id, before any agent join reads it. Only for a
+            // conversation this flow created: a `.joined` result is somebody
+            // else's existing conversation that superseded ours, and the pick
+            // was made for the conversation we were going to create, not that
+            // one.
+            if result.origin == .created {
+                AgentVariantAssignmentStore.shared.assignIfUnset(
+                    slug: agentVariantSlug,
+                    to: result.conversationId
+                )
+            }
 
             notifyDefaultAgentConversationReadyIfNeeded(result)
 

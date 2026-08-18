@@ -31,6 +31,14 @@ struct AgentVariantPickerSheet: View {
         .task {
             selectedSlug = FeatureFlags.shared.selectedAgentVariant?.slug
             await registry.loadIfNeeded()
+            // The persisted default may name a variant that has since been
+            // retired -- `loadIfNeeded` clears it from FeatureFlags during
+            // reconciliation, so drop it here too rather than handing a dead
+            // slug to the new conversation. Validated against the live list so
+            // a pick made while the fetch was in flight survives.
+            if registry.loadState == .loaded, registry.variant(withSlug: selectedSlug) == nil {
+                selectedSlug = nil
+            }
         }
     }
 
