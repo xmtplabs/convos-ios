@@ -543,6 +543,32 @@ struct ConnectionManagerTests {
         #expect(saved != nil, "The materialized connection must be persisted so the grant can confirm")
     }
 
+    @Test(
+        "connect fails closed when /complete returns a non-active status",
+        arguments: ["INITIALIZING", "INITIATED", "EXPIRED", "FAILED", "SOMETHING_UNKNOWN"]
+    )
+    func connectRejectsNonActiveCompletion(status: String) async throws {
+        let fixtures = try await makeTestFixtures()
+        let apiClient = StubAPIClient()
+        apiClient.stubbedInitiateRedirectUrl = nil
+        apiClient.stubbedInitiateAlreadyConnected = true
+        apiClient.stubbedCompleteStatus = status
+        let grantWriter = RecordingGrantWriter()
+        let manager = makeManager(fixtures: fixtures, apiClient: apiClient, grantWriter: grantWriter)
+
+        do {
+            _ = try await manager.connect(serviceId: "googlecalendar")
+            Issue.record("Expected connect to fail closed for a non-active /complete status \(status)")
+        } catch CloudConnectionManagerError.connectionNotActive {
+            // expected: a not-yet-live connection surfaces at connect time
+        }
+
+        let saved = try await fixtures.dbReader.read { db in
+            try DBCloudConnection.fetchOne(db, key: "stub-conn")
+        }
+        #expect(saved == nil, "A non-active completion must never persist a live connection")
+    }
+
     @Test("connect accepts a cached connection when alreadyConnected is absent (transitional fallback)")
     func connectNullRedirectFallsBackToCachedConnection() async throws {
         let fixtures = try await makeTestFixtures()
@@ -677,6 +703,7 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
     var stubbedConnections: [CloudConnectionsAPI.ConnectionResponse] = []
     var stubbedInitiateRedirectUrl: String? = "https://example.com/oauth"
     var stubbedInitiateAlreadyConnected: Bool = false
+    var stubbedCompleteStatus: String = "ACTIVE"
     private(set) var completeCallCount: Int = 0
     private(set) var revokedConnectionIds: [String] = []
 
@@ -749,7 +776,7 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
             serviceName: "Google Calendar",
             composioEntityId: "entity",
             composioConnectionId: "ca",
-            status: "ACTIVE"
+            status: stubbedCompleteStatus
         )
     }
 

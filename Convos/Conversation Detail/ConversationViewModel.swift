@@ -277,9 +277,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var latestObservedCapabilityRequest: CapabilityRequest?
     @ObservationIgnored
     private var locallyHandledCapabilityRequestIds: Set<String> = []
-    /// Request id whose connect-before-grant step (OS prompt / OAuth) is in
-    /// flight — re-entrancy guard for `onCapabilityApprove`.
-    @ObservationIgnored
+    /// Request id whose connect-before-grant step (OS prompt / OAuth / headless
+    /// completion) is in flight -- re-entrancy guard for `onCapabilityApprove`
+    /// and part of the sheet's busy state so the button shows progress while a
+    /// no-browser connect runs. Observed (not `@ObservationIgnored`) so the busy
+    /// state reacts when it changes.
     private var connectOnApproveInFlightRequestId: String?
     @ObservationIgnored
     var lastReadReceiptSentAt: Date?
@@ -953,7 +955,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// succeeds; until then the pill stays pending.
     private(set) var capabilityApprovalInFlightRequestId: String?
     var capabilityApprovalInFlight: Bool {
-        capabilityApprovalInFlightRequestId != nil
+        capabilityApprovalInFlightRequestId != nil || connectOnApproveInFlightRequestId != nil
     }
     /// Failure the approval sheet surfaces when an approval could not be
     /// completed -- the backend grant POST or the result send failed. The
