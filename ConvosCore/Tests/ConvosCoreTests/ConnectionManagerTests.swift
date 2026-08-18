@@ -474,6 +474,110 @@ struct ConnectionManagerTests {
         }
         #expect(connectionRow == nil)
     }
+
+    // MARK: - Null redirectUrl on /initiate
+
+    @Test("InitiateResponse decodes a null redirectUrl with alreadyConnected true")
+    func initiateResponseDecodesNullRedirectAlreadyConnected() throws {
+        let json = Data(#"{"connectionRequestId":"ca_stuck","redirectUrl":null,"alreadyConnected":true}"#.utf8)
+        let response = try JSONDecoder().decode(CloudConnectionsAPI.InitiateResponse.self, from: json)
+        #expect(response.connectionRequestId == "ca_stuck")
+        #expect(response.redirectUrl == nil)
+        #expect(response.alreadyConnected == true)
+    }
+
+    @Test("InitiateResponse decodes the mint case with alreadyConnected false and a present redirectUrl")
+    func initiateResponseDecodesMintCase() throws {
+        let json = Data(#"{"connectionRequestId":"ca_ok","redirectUrl":"https://example.com/oauth","alreadyConnected":false}"#.utf8)
+        let response = try JSONDecoder().decode(CloudConnectionsAPI.InitiateResponse.self, from: json)
+        #expect(response.redirectUrl == "https://example.com/oauth")
+        #expect(response.alreadyConnected == false)
+    }
+
+    @Test("InitiateResponse decodes an absent alreadyConnected as false without throwing")
+    func initiateResponseDecodesAbsentAlreadyConnectedAsFalse() throws {
+        let json = Data(#"{"connectionRequestId":"ca_legacy","redirectUrl":null}"#.utf8)
+        let response = try JSONDecoder().decode(CloudConnectionsAPI.InitiateResponse.self, from: json)
+        #expect(response.redirectUrl == nil)
+        #expect(response.alreadyConnected == false)
+    }
+
+    @Test("connect resolves alreadyConnected true from the cached local connection without completing")
+    func connectAlreadyConnectedUsesCachedConnection() async throws {
+        let fixtures = try await makeTestFixtures()
+        let apiClient = StubAPIClient()
+        apiClient.stubbedInitiateRedirectUrl = nil
+        apiClient.stubbedInitiateAlreadyConnected = true
+        let grantWriter = RecordingGrantWriter()
+        let manager = makeManager(fixtures: fixtures, apiClient: apiClient, grantWriter: grantWriter)
+
+        try await fixtures.dbWriter.write { db in
+            try makeDBConnection(id: "conn-live", serviceId: "googlecalendar").insert(db)
+        }
+
+        let connection = try await manager.connect(serviceId: "googlecalendar")
+
+        #expect(connection.id == "conn-live")
+        #expect(connection.status == .active)
+        #expect(apiClient.completeCallCount == 0, "A cached live connection needs no completion round-trip")
+    }
+
+    @Test("connect materializes alreadyConnected true via completion when nothing is cached")
+    func connectAlreadyConnectedMaterializesViaCompletion() async throws {
+        let fixtures = try await makeTestFixtures()
+        let apiClient = StubAPIClient()
+        apiClient.stubbedInitiateRedirectUrl = nil
+        apiClient.stubbedInitiateAlreadyConnected = true
+        let grantWriter = RecordingGrantWriter()
+        let manager = makeManager(fixtures: fixtures, apiClient: apiClient, grantWriter: grantWriter)
+
+        let connection = try await manager.connect(serviceId: "googlecalendar")
+
+        #expect(connection.id == "stub-conn")
+        #expect(connection.status == .active)
+        #expect(apiClient.completeCallCount == 1, "With no cached connection, completion finalizes the already-authorized account")
+
+        let saved = try await fixtures.dbReader.read { db in
+            try DBCloudConnection.fetchOne(db, key: "stub-conn")
+        }
+        #expect(saved != nil, "The materialized connection must be persisted so the grant can confirm")
+    }
+
+    @Test("connect accepts a cached connection when alreadyConnected is absent (transitional fallback)")
+    func connectNullRedirectFallsBackToCachedConnection() async throws {
+        let fixtures = try await makeTestFixtures()
+        let apiClient = StubAPIClient()
+        apiClient.stubbedInitiateRedirectUrl = nil
+        // alreadyConnected defaults to false, standing in for a backend that
+        // predates the field.
+        let grantWriter = RecordingGrantWriter()
+        let manager = makeManager(fixtures: fixtures, apiClient: apiClient, grantWriter: grantWriter)
+
+        try await fixtures.dbWriter.write { db in
+            try makeDBConnection(id: "conn-live", serviceId: "googlecalendar").insert(db)
+        }
+
+        let connection = try await manager.connect(serviceId: "googlecalendar")
+
+        #expect(connection.id == "conn-live")
+        #expect(apiClient.completeCallCount == 0)
+    }
+
+    @Test("connect surfaces an error for a null redirectUrl with no signal and nothing cached")
+    func connectNullRedirectWithoutConnectionThrows() async throws {
+        let fixtures = try await makeTestFixtures()
+        let apiClient = StubAPIClient()
+        apiClient.stubbedInitiateRedirectUrl = nil
+        let grantWriter = RecordingGrantWriter()
+        let manager = makeManager(fixtures: fixtures, apiClient: apiClient, grantWriter: grantWriter)
+
+        do {
+            _ = try await manager.connect(serviceId: "googlecalendar")
+            Issue.record("Expected connect to throw when no local connection backs a null redirectUrl")
+        } catch CloudConnectionManagerError.oauthUrlUnavailable {
+            // expected: the sheet surfaces this instead of hanging
+        }
+    }
 }
 
 // MARK: - Helpers
@@ -571,6 +675,9 @@ private extension ConnectionManagerTests {
 
 private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
     var stubbedConnections: [CloudConnectionsAPI.ConnectionResponse] = []
+    var stubbedInitiateRedirectUrl: String? = "https://example.com/oauth"
+    var stubbedInitiateAlreadyConnected: Bool = false
+    private(set) var completeCallCount: Int = 0
     private(set) var revokedConnectionIds: [String] = []
 
     func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
@@ -627,11 +734,16 @@ private final class StubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
     }
 
     func initiateCloudConnection(serviceId: String, redirectUri: String) async throws -> CloudConnectionsAPI.InitiateResponse {
-        .init(connectionRequestId: "stub-request", redirectUrl: "https://example.com/oauth")
+        .init(
+            connectionRequestId: "stub-request",
+            redirectUrl: stubbedInitiateRedirectUrl,
+            alreadyConnected: stubbedInitiateAlreadyConnected
+        )
     }
 
     func completeCloudConnection(connectionRequestId: String) async throws -> CloudConnectionsAPI.CompleteResponse {
-        .init(
+        completeCallCount += 1
+        return .init(
             connectionId: "stub-conn",
             serviceId: "googlecalendar",
             serviceName: "Google Calendar",

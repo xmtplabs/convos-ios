@@ -3,7 +3,33 @@ import Foundation
 public enum CloudConnectionsAPI {
     public struct InitiateResponse: Codable, Sendable {
         public let connectionRequestId: String
-        public let redirectUrl: String
+        /// The OAuth URL to open, or nil when the backend signals that no
+        /// browser step is needed. Optional so a null (or omitted) value
+        /// decodes cleanly instead of throwing and stalling the connect sheet.
+        public let redirectUrl: String?
+        /// Authoritative "the account already authorized this service, no OAuth
+        /// needed" signal that accompanies a null redirectUrl. Backends
+        /// predating this field omit it; an absent value decodes to false.
+        public let alreadyConnected: Bool
+
+        public init(connectionRequestId: String, redirectUrl: String?, alreadyConnected: Bool = false) {
+            self.connectionRequestId = connectionRequestId
+            self.redirectUrl = redirectUrl
+            self.alreadyConnected = alreadyConnected
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            connectionRequestId = try container.decode(String.self, forKey: .connectionRequestId)
+            redirectUrl = try container.decodeIfPresent(String.self, forKey: .redirectUrl)
+            alreadyConnected = try container.decodeIfPresent(Bool.self, forKey: .alreadyConnected) ?? false
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case connectionRequestId
+            case redirectUrl
+            case alreadyConnected
+        }
     }
 
     public struct CompleteResponse: Codable, Sendable {
