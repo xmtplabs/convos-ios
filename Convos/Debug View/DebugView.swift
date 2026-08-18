@@ -78,7 +78,7 @@ struct DebugViewSection: View {
     private var featuresSection: some View {
         Section("Features") {
             Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
-            Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
+            agentVariantToggles
             Toggle("Listen (agent participation)", isOn: Bindable(FeatureFlags.shared).isListenParticipationEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
             abilitiesFeatureToggles
@@ -99,6 +99,18 @@ struct DebugViewSection: View {
             .sheet(isPresented: $showingSafariTestSheet) {
                 SafariTestSheet()
             }
+        }
+    }
+
+    /// The agent-variant flag with its picker. The dropdown only renders while
+    /// the flag is on, mirroring the abilities sub-toggles below. The pick is
+    /// stored globally (`FeatureFlags.selectedAgentVariant`) and read at agent-
+    /// join time, so it applies to conversations created after it is set.
+    @ViewBuilder
+    private var agentVariantToggles: some View {
+        Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
+        if FeatureFlags.shared.isAgentVariantSelectorEnabled {
+            AgentVariantDebugPicker()
         }
     }
 

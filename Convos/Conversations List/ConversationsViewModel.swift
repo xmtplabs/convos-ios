@@ -169,6 +169,9 @@ final class ConversationsViewModel {
     }
     /// Drives the scanner sheet the home's scan button presents.
     var presentingScanner: Bool = false
+    /// Drives the dev-only agent-variant sheet shown ahead of a new
+    /// conversation while `FeatureFlags.isAgentVariantSelectorEnabled` is on.
+    var presentingVariantPicker: Bool = false
     /// Owned here so the sheet's viewfinder survives re-renders and can be
     /// re-armed between presentations.
     let scannerViewModel: QRScannerViewModel = QRScannerViewModel()
@@ -505,6 +508,21 @@ final class ConversationsViewModel {
     /// are brought in from inside it, by sharing its invite link. Picking
     /// contacts up front was a detour on the way to the same place.
     func onStartConvo() {
+        // While the dev variant selector is on, every new conversation picks
+        // the variant its agent builds under before the conversation exists.
+        // The pick is held as pending and claimed by the conversation's first
+        // agent join, so the convo keeps that variant for its lifetime.
+        guard !FeatureFlags.shared.isAgentVariantSelectorEnabled else {
+            presentingVariantPicker = true
+            return
+        }
+        startNewConversation()
+    }
+
+    /// Mints the conversation the compose button asks for. Split out of
+    /// `onStartConvo` so the variant picker can run ahead of it and then
+    /// continue into the same flow.
+    func startNewConversation() {
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation,
