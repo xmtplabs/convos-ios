@@ -169,15 +169,15 @@ enum AbilitiesServices {
     }
 
     /// Debug sub-toggle for the mock consent flow (agent ability-use
-    /// requests and delegations). Default on in non-production so enabling
-    /// the abilities flag is the only step needed to demo the full consent
-    /// flow; production always reads false.
+    /// requests and delegations). Default off; a dev flips this sub-toggle to
+    /// demo the full consent flow so enabling the abilities flag alone does
+    /// not inject the scripted card; production always reads false.
     static var isEscalationMockEnabled: Bool {
         guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
         if let stored = UserDefaults.standard.object(forKey: Constant.escalationMockEnabledKey) as? Bool {
             return stored
         }
-        return true
+        return false
     }
 
     static func setEscalationMockEnabled(_ value: Bool) {

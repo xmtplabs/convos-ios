@@ -115,7 +115,7 @@ struct DebugViewSection: View {
     }
 
     /// The Abilities V2 flag with its sub-toggles: the V1 awareness shim
-    /// (default off) and the mock consent flow (default on). There is
+    /// (default off) and the mock consent flow (default off). There is
     /// deliberately no separate mock/live backend toggle here -- enabling
     /// V2 always enables the live backend (`FeatureFlags.isAbilitiesV2Enabled`
     /// and `AbilitiesServices.useLiveBackend` are coupled in both directions
