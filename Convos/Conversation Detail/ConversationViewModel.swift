@@ -4055,7 +4055,7 @@ extension ConversationViewModel {
         let taskId = requestId
         let session = self.session
         let actions: any CoreActions = coreActions
-        let variantId = Self.selectedAgentVariantSlug()
+        let variantId = Self.selectedAgentVariantSlug(for: conversationId)
         agentJoinTask = Task { [weak self] in
             let outcome = await Self.performAgentJoinCall(
                 templateId: templateId,
@@ -4147,7 +4147,7 @@ extension ConversationViewModel {
         let forceErrorCode = agentJoinForceErrorCode
         let conversationId = conversation.id
         let session = self.session
-        let variantId = Self.selectedAgentVariantSlug()
+        let variantId = Self.selectedAgentVariantSlug(for: conversationId)
         Task { [weak self] in
             var failed: [AgentJoinAttempt] = []
             var anySucceeded = false
@@ -4280,10 +4280,26 @@ extension ConversationViewModel {
     /// `.noAgentsAvailable`) on error. Static + parameterized so both the
     /// single-flight and batched callers can share the same body without
     /// holding `self`.
-    /// The agent variant slug an agent join routes to. See
-    /// `FeatureFlags.effectiveAgentVariantSlug`.
-    private static func selectedAgentVariantSlug() -> String? {
-        FeatureFlags.shared.effectiveAgentVariantSlug
+    /// The agent variant slug an agent join routes to, scoped to the
+    /// conversation. The pick made at creation is bound to the conversation by
+    /// the flow that created it, so later joins in the same convo keep that
+    /// variant even after the global default moves on.
+    /// With no per-conversation assignment this falls back to
+    /// `FeatureFlags.effectiveAgentVariantSlug`. The store is consulted only
+    /// while the selector flag is on, so a stale assignment can't silently
+    /// route joins once the dev toggle is off.
+    @MainActor
+    private static func selectedAgentVariantSlug(for conversationId: String) -> String? {
+        guard FeatureFlags.shared.isAgentVariantSelectorEnabled else {
+            return FeatureFlags.shared.effectiveAgentVariantSlug
+        }
+        if let assigned = AgentVariantAssignmentStore.shared.slug(for: conversationId) {
+            Log.info("AgentVariant: join for \(conversationId) routing to assigned variant \(assigned)")
+            return assigned
+        }
+        let fallback = FeatureFlags.shared.effectiveAgentVariantSlug
+        Log.info("AgentVariant: join for \(conversationId) has no assignment, using \(fallback ?? "none")")
+        return fallback
     }
 
     private static func performAgentJoinCall(

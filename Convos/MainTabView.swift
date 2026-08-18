@@ -635,6 +635,15 @@ struct MainTabSheetsModifier: ViewModifier {
                     }
                 )
             }
+            // Dev-only: pick the agent variant for the conversation the
+            // compose button is about to create.
+            .selfSizingSheet(isPresented: $conversationsViewModel.presentingVariantPicker) {
+                AgentVariantPickerSheet(
+                    onContinue: { slug in
+                        conversationsViewModel.startNewConversation(agentVariantSlug: slug)
+                    }
+                )
+            }
     }
 }
 
