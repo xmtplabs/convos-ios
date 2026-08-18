@@ -93,6 +93,17 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
         // the response somehow comes back with no service id at all.
         let finalServiceId = completion.serviceId.isEmpty ? fallbackServiceId : completion.serviceId
 
+        // Only an active completion is a usable connection. A non-active status
+        // (INITIALIZING/EXPIRED/FAILED/unknown maps to .expired/.revoked) means
+        // there is no live credential behind it; persisting and returning it
+        // would read as connected while the repository still treats the service
+        // as disconnected -- a phantom-linked false success. Fail closed so the
+        // connect surfaces an actionable error instead.
+        let status = CloudConnectionStatus.from(composioStatus: completion.status)
+        guard status == .active else {
+            throw CloudConnectionManagerError.connectionNotActive
+        }
+
         let connection = CloudConnection(
             id: completion.connectionId,
             serviceId: finalServiceId,
@@ -100,7 +111,7 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
             provider: .composio,
             composioEntityId: completion.composioEntityId,
             composioConnectionId: completion.composioConnectionId,
-            status: CloudConnectionStatus.from(composioStatus: completion.status),
+            status: status,
             connectedAt: Date()
         )
 
@@ -381,6 +392,7 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
 enum CloudConnectionManagerError: LocalizedError {
     case invalidOAuthURL
     case oauthUrlUnavailable
+    case connectionNotActive
 
     var errorDescription: String? {
         switch self {
@@ -388,6 +400,8 @@ enum CloudConnectionManagerError: LocalizedError {
             "Invalid OAuth URL received from server"
         case .oauthUrlUnavailable:
             "Couldn't start sign-in for this service. Please try again."
+        case .connectionNotActive:
+            "This service isn't finished connecting yet. Please try again."
         }
     }
 }
