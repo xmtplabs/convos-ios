@@ -9,7 +9,7 @@ The three features form one system:
 1. The composer identifies who the user is talking to and makes switching agents immediate.
 2. Ghost Mode creates an explicitly private lane and lets the user release only one chosen message at a time.
 3. Each agent profile exposes the model powering that agent, its credit cost, and any plan requirement before activation.
-4. External agents can enter the same lane model through a deliberate pairing and permission flow.
+4. External agents remain in their own apps; Convos provides a deliberate, time-bounded context handoff and an optional scoped return connector.
 5. Links shared in chat become editable Home objects with an agent entry point attached to each object.
 6. An agent the user owns can span two convos as one shared operating layer: memory, abilities, connections, and skills.
 
@@ -41,11 +41,13 @@ The three features form one system:
 ## 4. Bring an external agent
 
 - The agent switcher places **Add an external agent** immediately before Ghost Mode. It opens a full-screen explanation rather than asking for a credential inside the small selector.
-- The prototype catalog is Codex, Claude Code, Hermes, OpenClaw, and GrokBot. The GrokBot name represents a Convos bot powered by the xAI API; it is not presented as an official standalone xAI product.
-- Codex and Claude Code pair through a desktop bridge, where the user signs in with the provider and approves a workspace. Hermes pairs to its OpenAI-compatible API server with a gateway URL and revocable API server key. OpenClaw pairs as an approved device to its WebSocket gateway with a token and explicit scopes. Grok uses a server-held, scoped xAI project key.
-- The mobile client never stores raw provider credentials. The production connector must return a revocable Convos connection ID and a human-readable summary of its runtime, workspace, and granted capabilities.
-- Finishing the demo adds that external agent as a real selectable prototype lane. Its transcript, draft, and response state stay isolated from every other lane.
-- The lane’s **Agent access** setting exposes three independent permissions: private read/write access to this convo’s Home; listening/replying in the group; and member DMs limited to context from this group. Everything starts off except the private Home collaboration permission.
+- The prototype catalog is Codex, Claude Code, Hermes, OpenClaw, and GrokBot. Adding one creates a selectable handoff lane, not a duplicate chat or a provider-authenticated runtime inside Convos.
+- The handoff lane defaults to **Share last 24 hours + group desktop info**. The user can choose one hour, 24 hours, seven days, or all available group history and can independently exclude the group desktop.
+- **Copy context** puts one paste-ready block on the iOS clipboard. The block names the time window and included surfaces. Ghost Mode, private agent chats, member DMs, other convos, membership lists, and unsaved files are always excluded.
+- **Open [agent]** opens a fixed official web destination. The context is never placed in a URL, query string, or automatic provider request; the user pastes it into the external agent themselves.
+- The lane has no transcript, draft, or composer. Its only primary loop is choose scope → copy → open and paste.
+- An optional **Copy key** demonstrates return access. Production must copy a one-time pairing code—not a bearer secret—which the external agent’s secure Convos connector exchanges for a revocable, least-privilege credential. Return access can read visible Home object summaries and create link/widget update proposals; it cannot read group messages, Ghost content, private DMs, or publish changes without the existing approval flow.
+- The Firebase build copies clearly labeled demo context and a non-functional demo key. It does not export real group content or grant write access.
 
 ## 5. Links as agent-editable Home objects — WebView-owned follow-up
 
@@ -85,9 +87,11 @@ The three features form one system:
 ### External agent
 
 1. Open the agent switcher and tap **Add an external agent** before Ghost Mode.
-2. Inspect all five providers, open one connection explanation, and complete **Connect demo** without entering a secret.
-3. Return to the selected external-agent lane and open **Agent access**. Confirm private Home access is on and the group/DM permissions are off.
-4. Collapse the conversation sheet and confirm the Home WebView remains unobstructed and fully interactive.
+2. Choose GrokBot, review the context-handoff explanation, and tap **Add GrokBot**.
+3. In the selected GrokBot lane, change the context window and toggle **Include group desktop info**. Confirm the scope sentence updates.
+4. Tap **Copy context**, open GrokBot from the fixed bottom action, and paste the clearly labeled prototype block.
+5. Return to Convos, tap **Copy key**, and confirm the UI states that it is a non-functional demo key. Review the proposed Home-only return scopes.
+6. Collapse the conversation sheet and confirm the Home WebView remains unobstructed and fully interactive.
 
 ### Cross-convo shared agent
 
@@ -102,6 +106,6 @@ The three features form one system:
 - Model names, providers, credit multipliers, and plan mapping are illustrative until the runtime returns a canonical catalog.
 - Existing Plus is the only purchasable paid entitlement, so all non-default prototype models map to Plus.
 - Agent switching and Ghost Mode are interactive local prototypes in non-production builds. They demonstrate lane behavior and selective sharing but do not claim a deployed multi-agent or privacy-isolated server runtime.
-- External connections, permission changes, and cross-convo agent links are local non-production demonstrations. The UI says **demo** at each connection boundary and sends no provider credential, memory, ability invocation, or remote request. Home-edit controls are deferred to the WebView implementation.
+- External context handoffs, return keys, and cross-convo agent links are local non-production demonstrations. The external lane copies an explicitly labeled sample block and demo key; it does not export real messages, mint credentials, invoke an agent, or write Home data. Home-edit controls remain owned by the WebView implementation.
 - Ghost sharing completes inside local prototype lanes. If a requested row resolves to a real agent lane before the export contract exists, the UI explicitly says the preview was not sent rather than reporting a false success.
 - This branch includes a Debug-only, account-free Space Abilities profile host for design review. Set `CONVOS_AGENT_MODEL_PROTOTYPE=1`; optional `CONVOS_AGENT_MODEL_PROTOTYPE_STATE` values are `picker`, `upgrade`, and `paywall`. The production root view is unchanged when that flag is absent.

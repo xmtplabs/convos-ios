@@ -171,7 +171,7 @@ final class AgentChatPrototypeState {
     private(set) var linkedConvoAgents: [ConvoOwnedAgent] = []
     private(set) var memoryLinksByAgent: [ConvoOwnedAgent: ConvoAgentMemoryLink] = [:]
     private(set) var connectedExternalProviders: [ExternalAgentProvider] = []
-    private(set) var externalAccessByProvider: [ExternalAgentProvider: ExternalAgentAccess] = [:]
+    private(set) var externalHandoffsByProvider: [ExternalAgentProvider: ExternalAgentHandoffConfiguration] = [:]
 
     func link(_ agent: ConvoOwnedAgent, configuration: ConvoAgentMemoryLink) {
         if !linkedConvoAgents.contains(agent) {
@@ -193,20 +193,20 @@ final class AgentChatPrototypeState {
         if !connectedExternalProviders.contains(provider) {
             connectedExternalProviders.append(provider)
         }
-        if externalAccessByProvider[provider] == nil {
-            externalAccessByProvider[provider] = .privateDesktop
+        if externalHandoffsByProvider[provider] == nil {
+            externalHandoffsByProvider[provider] = .standard
         }
     }
 
-    func access(for provider: ExternalAgentProvider) -> ExternalAgentAccess {
-        externalAccessByProvider[provider, default: .privateDesktop]
+    func handoff(for provider: ExternalAgentProvider) -> ExternalAgentHandoffConfiguration {
+        externalHandoffsByProvider[provider, default: .standard]
     }
 
-    func accessBinding(for provider: ExternalAgentProvider) -> Binding<ExternalAgentAccess> {
-        Binding(
-            get: { [weak self] in self?.access(for: provider) ?? .privateDesktop },
-            set: { [weak self] access in self?.externalAccessByProvider[provider] = access }
-        )
+    func setHandoff(
+        _ configuration: ExternalAgentHandoffConfiguration,
+        for provider: ExternalAgentProvider
+    ) {
+        externalHandoffsByProvider[provider] = configuration
     }
 
     func select(_ lane: AgentChatLane) {
@@ -305,13 +305,8 @@ final class AgentChatPrototypeState {
                     text: agent.welcomeMessage
                 ),
             ]
-        case .external(let provider):
-            [
-                AgentChatPrototypeMessage(
-                    sender: .agent,
-                    text: provider.welcomeMessage
-                ),
-            ]
+        case .external:
+            []
         case .ghost:
             [
                 AgentChatPrototypeMessage(
@@ -335,7 +330,7 @@ final class AgentChatPrototypeState {
         case .linkedConvo(let agent):
             "I’ll save the useful part of “\(userText)” into \(agent.displayName)’s shared memory, so it can help in this convo and \(agent.originConvoName). Raw chat history stays separate."
         case .external(let provider):
-            "Demo connection active. \(provider.displayName) would work on “\(userText)” with only the access you approved for this convo."
+            "Open \(provider.displayName) from the context handoff screen to continue there."
         case .ghost:
             "Here’s a private first pass: keep the core idea, remove anything identifying, and share only the sentence you want another agent to act on."
         case .live:
@@ -625,7 +620,6 @@ struct AgentChatDemoTranscript: View {
     @State private var isShareDialogPresented: Bool = false
     @State private var isNativeSharePresented: Bool = false
     @State private var isMemoryLinkSettingsPresented: Bool = false
-    @State private var isExternalAccessPresented: Bool = false
 
     private var messages: [AgentChatPrototypeMessage] {
         prototypeState.messages(for: lane)
@@ -675,7 +669,7 @@ struct AgentChatDemoTranscript: View {
             isPresented: $isShareDialogPresented,
             titleVisibility: .visible
         ) {
-            ForEach(lanes.filter { !$0.isGhost }) { destination in
+            ForEach(lanes.filter { !$0.isGhost && $0.externalProvider == nil }) { destination in
                 Button(destination.name) {
                     guard let messageToShare else { return }
                     prototypeState.share(messageToShare, to: destination)
@@ -693,14 +687,6 @@ struct AgentChatDemoTranscript: View {
             isPresented: $isNativeSharePresented,
             items: messageToShare.map { [$0.text] } ?? []
         )
-        .sheet(isPresented: $isExternalAccessPresented) {
-            if let provider = lane.externalProvider {
-                ExternalAgentAccessSheet(
-                    provider: provider,
-                    access: prototypeState.accessBinding(for: provider)
-                )
-            }
-        }
         .sheet(isPresented: $isMemoryLinkSettingsPresented) {
             if let agent = lane.linkedConvoAgent {
                 ConvoAgentMemoryLinkSettingsSheet(
@@ -747,13 +733,9 @@ struct AgentChatDemoTranscript: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
                 Spacer()
-                if lane.externalProvider != nil || lane.linkedConvoAgent != nil {
+                if lane.linkedConvoAgent != nil {
                     Button {
-                        if lane.linkedConvoAgent != nil {
-                            isMemoryLinkSettingsPresented = true
-                        } else {
-                            isExternalAccessPresented = true
-                        }
+                        isMemoryLinkSettingsPresented = true
                     } label: {
                         Image(systemName: "slider.horizontal.3")
                             .font(.body.weight(.semibold))
@@ -761,12 +743,8 @@ struct AgentChatDemoTranscript: View {
                             .frame(width: 44, height: 44)
                             .background(.colorFillSubtle, in: .circle)
                     }
-                    .accessibilityLabel(lane.linkedConvoAgent == nil ? "Agent access" : "Shared memory settings")
-                    .accessibilityHint(
-                        lane.linkedConvoAgent == nil
-                            ? "Choose where this external agent can read and respond"
-                            : "Review the memory, abilities, connections, and skills shared across both convos"
-                    )
+                    .accessibilityLabel("Shared memory settings")
+                    .accessibilityHint("Review the memory, abilities, connections, and skills shared across both convos")
                 }
             }
             .padding(.bottom, DesignConstants.Spacing.step4x)
