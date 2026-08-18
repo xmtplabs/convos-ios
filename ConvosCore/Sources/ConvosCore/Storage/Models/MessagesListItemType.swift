@@ -46,7 +46,10 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case update(id: String, update: ConversationUpdate, origin: AnyMessage.Origin)
     case date(DateGroup)
     case messages(MessagesGroup)
-    case invite(Invite)
+    /// Stands in for an empty transcript: a conversation nobody has said anything
+    /// in yet still has something to show, and the sheet still has something to
+    /// size itself to.
+    case noComments
     case conversationInfo(Conversation)
     case agentOutOfCredits(ConversationMember, showsUpgradeCTA: Bool)
     case agentJoinStatus(AgentJoinStatus, requesterName: String?, date: Date)
@@ -68,15 +71,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "date-\(dateGroup.hashValue)"
         case .messages(let group):
             return "messages-group-\(group.id)"
-        case .invite:
-            // The transcript hosts at most one invite card (index 0), so its
-            // identity is the slot, not the invite payload. Keying on the
-            // payload made every invite change (hydration, the embedded
-            // new-convo flow's created->claimed swap) an animated
-            // delete+insert that cross-faded two full cards and restarted
-            // the Scan tab camera; a stable id turns those into in-place
-            // reconfigurations of the single card.
-            return "invite"
+        case .noComments:
+            return "no-comments"
         case .conversationInfo(let conversation):
             return "conversation-info-\(conversation.id)"
         case .agentOutOfCredits(let member, _):
@@ -133,7 +129,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .agentActivating, .agentDmInfo, .typingIndicator:
+        case .date, .noComments, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .agentActivating, .agentDmInfo, .typingIndicator:
             return nil
         case .connectionEvent(_, _, let origin):
             return origin
@@ -142,13 +138,28 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
         }
     }
 
+    /// Whether this is a group of real messages, as opposed to the cells the
+    /// transcript adds around them.
+    public var isMessages: Bool {
+        if case .messages = self { return true }
+        return false
+    }
+
+    /// Whether this cell already explains an empty transcript on its own. The
+    /// agent DM's disclosure header does, and always shows - so the "no comments"
+    /// stand-in beneath it would be a second answer to the same question.
+    public var explainsAnEmptyTranscript: Bool {
+        if case .agentDmInfo = self { return true }
+        return false
+    }
+
     public var shouldAnimate: Bool {
         origin == .inserted
     }
 
     public var alignment: MessagesListItemAlignment {
         switch self {
-        case .invite, .conversationInfo, .agentBuilderSummary, .agentActivating:
+        case .noComments, .conversationInfo, .agentBuilderSummary, .agentActivating:
             return .center
         case .agentOutOfCredits:
             return .fullWidth
@@ -165,8 +176,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "MessagesListItemTypeCell-update"
         case .messages:
             return "MessagesListItemTypeCell-messages"
-        case .invite:
-            return "MessagesListItemTypeCell-invite"
+        case .noComments:
+            return "MessagesListItemTypeCell-noComments"
         case .conversationInfo:
             return "MessagesListItemTypeCell-conversationInfo"
         case .agentOutOfCredits:
@@ -195,7 +206,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             "MessagesListItemTypeCell-date",
             "MessagesListItemTypeCell-update",
             "MessagesListItemTypeCell-messages",
-            "MessagesListItemTypeCell-invite",
+            "MessagesListItemTypeCell-noComments",
             "MessagesListItemTypeCell-conversationInfo",
             "MessagesListItemTypeCell-agentOutOfCredits",
             "MessagesListItemTypeCell-agentJoinStatus",

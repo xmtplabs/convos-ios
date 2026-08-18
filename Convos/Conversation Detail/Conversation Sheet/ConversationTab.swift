@@ -1,15 +1,15 @@
 import Foundation
 
-/// The conversation screen's primary surfaces, one per tab of the floating
-/// conversation sheet, in display order: the Home (the conversation's
-/// Space web surface), the group chat, and the user's private DM with the
-/// conversation's agent.
+/// The two transcripts the floating conversation sheet can host, in display
+/// order: the group chat, and the user's private DM with the conversation's
+/// agent.
 ///
-/// The selected tab drives both the backing view rendered behind the sheet
-/// and the bar the sheet hosts above its tab bar (the group composer, the
-/// agent-DM composer, or nothing for the Home).
+/// The selected tab drives both the transcript inside the sheet and the bar
+/// beneath it (the group composer or the agent-DM composer). The Home - the
+/// conversation's Space web surface - is not a tab: it is always behind the
+/// sheet, and how much of it you can see is the sheet's detent
+/// (`ConversationSheetDetent`).
 enum ConversationTab: String, CaseIterable, Identifiable, Hashable {
-    case home
     case group
     case agent
 
@@ -17,33 +17,30 @@ enum ConversationTab: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .home: "Home"
         case .group: "Group"
         case .agent: "Agent"
         }
     }
 
-    /// The tab a conversation opens on.
+    /// The transcript a conversation opens on. A tap that specifically asked
+    /// for the agent DM (a DM notification, or a list row whose most recent
+    /// unread is in the DM) gets it; everything else opens on the group.
     ///
-    /// A conversation with nothing waiting to be read opens on Home, where the
-    /// space itself is the point; anything unread opens on the transcript
-    /// holding it, so a backlog is never buried behind another tab. A tap that
-    /// specifically asked for the agent DM (a DM notification, or a list row
-    /// whose most recent unread is in the DM) wins outright.
-    ///
-    /// Home is offered on every conversation, including one whose space has
-    /// not been published yet - it opens there and shows the preparing state.
-    /// `available` still gates it so a caller that drops the tab is honored.
+    /// Whether that transcript is actually showing on arrival is the detent's
+    /// business - see `ConversationSheetDetent.initial`.
+    /// - Parameter agentDmHoldsTheUnread: the DM lane is the one with something
+    ///   waiting and the group is not. Opening onto the group would show a read
+    ///   transcript while the dot sat on the other tab, so the unread lane gets
+    ///   the open. When both lanes have something, the group wins - it is the
+    ///   conversation the row was for.
     static func initial(
         available: [ConversationTab],
-        hasUnread: Bool,
-        agentDmRequested: Bool
+        agentDmRequested: Bool,
+        agentDmHoldsTheUnread: Bool = false
     ) -> ConversationTab {
-        if agentDmRequested, available.contains(.agent) {
+        guard available.contains(.agent) else { return .group }
+        if agentDmRequested || agentDmHoldsTheUnread {
             return .agent
-        }
-        if !hasUnread, available.contains(.home) {
-            return .home
         }
         return .group
     }

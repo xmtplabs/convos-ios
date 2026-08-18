@@ -53,16 +53,11 @@ struct CellConfig {
     let onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
-    let onCopyInviteLink: () -> Void
-    let onConvoCode: () -> Void
     let onInviteAgent: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
     let isAgentJoinPending: Bool
     let headerMode: MessagesHeaderMode
-    /// Mirrors `Conversation.hidesInviteCard`. When true the `.invite`
-    /// cell renders the invite menu without the QR card above it.
-    let hidesInviteCard: Bool
     /// Shared SwiftUI namespace used to morph the Agent Builder's
     /// composer card into the summary cell on Make via
     /// `glassEffectID("agentBuilderCard", in:) +

@@ -12,6 +12,14 @@ import UIKit
 /// (keyboard inset changes, rotation), which report a nonzero inherited
 /// duration -- the SwiftUI transaction case measures zero there.
 final class MessagesCollectionView: UICollectionView {
+    /// Called after every layout pass.
+    ///
+    /// The hook exists for the content height, which changes with the messages
+    /// rather than with this view's frame - so the controller's own
+    /// `viewDidLayoutSubviews` never sees it, and nothing else fires when a
+    /// message makes the transcript taller.
+    var onDidLayoutSubviews: (() -> Void)?
+
     override func layoutSubviews() {
         let layoutIsBatching = (collectionViewLayout as? MessagesCollectionLayout)?.isInBatchUpdates ?? false
         if layoutIsBatching || UIView.inheritedAnimationDuration > 0 {
@@ -21,6 +29,7 @@ final class MessagesCollectionView: UICollectionView {
                 super.layoutSubviews()
             }
         }
+        onDidLayoutSubviews?()
     }
 }
 #endif

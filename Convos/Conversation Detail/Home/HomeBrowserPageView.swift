@@ -17,9 +17,10 @@ struct HomeBrowserEntry: Identifiable, Hashable {
 /// scrolls clear of both.
 struct HomeBrowserPageView: View {
     let entry: HomeBrowserEntry
-    /// The sheet's live occupied height, measured from the physical screen
-    /// bottom; applied as the page's bottom content/indicator inset.
-    var sheetHeight: CGFloat = ConversationSheetMetrics.compactRestingHeight
+    /// The sheet's live geometry, whose coverage becomes this page's bottom
+    /// content/indicator inset. Read here rather than handed in as a number - see
+    /// `ConversationSheetGeometry`.
+    var sheetGeometry: ConversationSheetGeometry = ConversationSheetGeometry()
     /// Fired when this page requests navigation away from its own URL; the
     /// host pushes another page for it.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
@@ -32,7 +33,7 @@ struct HomeBrowserPageView: View {
                 conversationId: "",
                 url: entry.url,
                 topContentInset: proxy.safeAreaInsets.top,
-                bottomContentInset: sheetHeight,
+                bottomContentInset: sheetGeometry.homeBottomClearance,
                 onNavigationRequest: onNavigationRequest
             )
             .ignoresSafeArea(edges: .vertical)

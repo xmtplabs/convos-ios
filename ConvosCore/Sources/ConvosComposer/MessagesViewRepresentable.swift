@@ -42,8 +42,6 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAgentJoin: () -> Void
-    let onCopyInviteLink: () -> Void
-    let onConvoCode: () -> Void
     let onInviteAgent: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
@@ -71,11 +69,18 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// `MessagesViewController.topContentInset`. Default 0 keeps the chat
     /// path on its existing layout.
     var topContentInset: CGFloat = 0.0
-    let scrollToBottomTrigger: (@escaping () -> Void) -> Void
+    /// How much of the list's top the host clips away. See
+    /// `MessagesViewController.clippedTopOverflow`. Default 0 is a host that
+    /// shows the whole frame it hands over.
+    var clippedTopOverflow: CGFloat = 0.0
+    /// Called with the transcript's content height when it changes, for a host
+    /// that will not offer a detent taller than there is transcript to fill it.
+    var onContentHeightChanged: ((CGFloat) -> Void)?
+    let scrollToBottomTrigger: (@escaping (Bool) -> Void) -> Void
     let messageInputFocusTrigger: (@escaping () -> Void) -> Void
 
     public class Coordinator {
-        var scrollToBottomFunction: (() -> Void)?
+        var scrollToBottomFunction: ((Bool) -> Void)?
         var messageInputFocusFunction: (() -> Void)?
     }
 
@@ -114,8 +119,6 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onRetryMessage: @escaping (AnyMessage) -> Void,
         onDeleteMessage: @escaping (AnyMessage) -> Void,
         onRetryAgentJoin: @escaping () -> Void,
-        onCopyInviteLink: @escaping () -> Void,
-        onConvoCode: @escaping () -> Void,
         onInviteAgent: @escaping () -> Void,
         onRetryTranscript: @escaping (VoiceMemoTranscriptListItem) -> Void,
         profileSheetForMember: @escaping (ConversationMember) -> AnyView,
@@ -133,7 +136,9 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         bottomBarHeight: CGFloat,
         hasBottomBar: Bool = true,
         topContentInset: CGFloat = 0.0,
-        scrollToBottomTrigger: @escaping (@escaping () -> Void) -> Void,
+        clippedTopOverflow: CGFloat = 0.0,
+        onContentHeightChanged: ((CGFloat) -> Void)? = nil,
+        scrollToBottomTrigger: @escaping (@escaping (Bool) -> Void) -> Void,
         messageInputFocusTrigger: @escaping (@escaping () -> Void) -> Void
     ) {
         self.conversation = conversation
@@ -163,8 +168,6 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.onRetryMessage = onRetryMessage
         self.onDeleteMessage = onDeleteMessage
         self.onRetryAgentJoin = onRetryAgentJoin
-        self.onCopyInviteLink = onCopyInviteLink
-        self.onConvoCode = onConvoCode
         self.onInviteAgent = onInviteAgent
         self.onRetryTranscript = onRetryTranscript
         self.profileSheetForMember = profileSheetForMember
@@ -185,6 +188,8 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.bottomBarHeight = bottomBarHeight
         self.hasBottomBar = hasBottomBar
         self.topContentInset = topContentInset
+        self.clippedTopOverflow = clippedTopOverflow
+        self.onContentHeightChanged = onContentHeightChanged
         self.scrollToBottomTrigger = scrollToBottomTrigger
         self.messageInputFocusTrigger = messageInputFocusTrigger
     }
@@ -192,13 +197,13 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     public func makeUIViewController(context: Context) -> MessagesViewController {
         let viewController = MessagesViewController()
         viewController.contextMenuState = contextMenuState
-        context.coordinator.scrollToBottomFunction = { [weak viewController] in
-            viewController?.scrollToBottomForSend()
+        context.coordinator.scrollToBottomFunction = { [weak viewController] animated in
+            viewController?.scrollToBottomForSend(animated: animated)
         }
         context.coordinator.messageInputFocusFunction = { [weak viewController] in
             viewController?.messageInputDidBecomeFocused()
         }
-        scrollToBottomTrigger { context.coordinator.scrollToBottomFunction?() }
+        scrollToBottomTrigger { animated in context.coordinator.scrollToBottomFunction?(animated) }
         messageInputFocusTrigger { context.coordinator.messageInputFocusFunction?() }
         return viewController
     }
@@ -208,6 +213,8 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onUserInteraction = onUserInteraction
         messagesViewController.hasBottomBar = hasBottomBar
         messagesViewController.topContentInset = topContentInset
+        messagesViewController.clippedTopOverflow = clippedTopOverflow
+        messagesViewController.onContentHeightChanged = onContentHeightChanged
         // Assign bottomBarHeight before state: its deferred inset update must be
         // enqueued ahead of the initial load's scroll-to-bottom completion.
         messagesViewController.bottomBarHeight = bottomBarHeight
@@ -249,8 +256,6 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
             self.onDeleteMessage(message)
         }
         messagesViewController.onRetryAgentJoin = onRetryAgentJoin
-        messagesViewController.onCopyInviteLink = onCopyInviteLink
-        messagesViewController.onConvoCode = onConvoCode
         messagesViewController.onInviteAgent = onInviteAgent
         messagesViewController.onRetryTranscript = onRetryTranscript
         messagesViewController.profileSheetForMember = profileSheetForMember

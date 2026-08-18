@@ -88,8 +88,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAgentJoin: () -> Void
-    let onCopyInviteLink: () -> Void
-    let onConvoCode: () -> Void
     let onInviteAgent: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
@@ -110,15 +108,26 @@ struct MessagesView<BottomBarContent: View>: View {
     /// `extraBottomInset`, which the sheet keeps fed with its measured
     /// height.
     var hostsBottomBar: Bool = true
+    /// True when the host renders the message long-press menu itself, so this
+    /// view renders none. Set by the conversation sheet, which layers the menu
+    /// at its own root: this view is clipped to the sheet's current detent, and
+    /// a menu inside that clip would be cropped.
+    var hostRendersContextMenu: Bool = false
     /// Surfaces the transcript's scroll-to-bottom trigger to an external
     /// composer host, which fires it on send (the internal bar wires this
     /// itself).
-    var onScrollToBottomAvailable: ((@escaping () -> Void) -> Void)?
+    /// Surfaces the transcript's content height to the host, which sizes the
+    /// conversation sheet's detents to it.
+    var onContentHeightChanged: ((CGFloat) -> Void)?
+    var onScrollToBottomAvailable: ((@escaping (Bool) -> Void) -> Void)?
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
+    /// Set by a host that shows less of this view than the frame it hands over -
+    /// the conversation sheet. Zero for every other host.
+    @Environment(\.transcriptClippedTopOverflow) private var clippedTopOverflow: CGFloat
     @State private var bottomBarHeight: CGFloat = 0.0
     @State private var isPhotoPickerPresented: Bool = false
-    @State private var scrollToBottom: (() -> Void)?
+    @State private var scrollToBottom: ((Bool) -> Void)?
     @State private var notifyMessageInputFocused: (() -> Void)?
     /// Drives the SwiftUI sheet presentation of `AttachmentPreviewSheet`
     /// for HTML attachments. Non-HTML previews still go through the
@@ -203,8 +212,6 @@ struct MessagesView<BottomBarContent: View>: View {
             onRetryMessage: onRetryMessage,
             onDeleteMessage: onDeleteMessage,
             onRetryAgentJoin: onRetryAgentJoin,
-            onCopyInviteLink: onCopyInviteLink,
-            onConvoCode: onConvoCode,
             onInviteAgent: onInviteAgent,
             onRetryTranscript: onRetryTranscript,
             profileSheetForMember: profileSheetForMember,
@@ -240,6 +247,8 @@ struct MessagesView<BottomBarContent: View>: View {
             // bottom-bar measurement before applying its initial state and
             // revealing the list.
             hasBottomBar: !isReadOnly && hostsBottomBar,
+            clippedTopOverflow: clippedTopOverflow,
+            onContentHeightChanged: onContentHeightChanged,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn
                 onScrollToBottomAvailable?(scrollFn)
@@ -248,7 +257,14 @@ struct MessagesView<BottomBarContent: View>: View {
                 notifyMessageInputFocused = fn
             }
         )
-        .ignoresSafeArea()
+        // `.container` only. The list draws under the chrome above it - the
+        // host's bar, or the conversation sheet's composer and tab bar - and
+        // under the home indicator, so it ignores the container's safe area.
+        // The keyboard is different: the chrome rises above it, and a list that
+        // ignored it would keep its frame behind the keyboard while the chrome
+        // moved, so the two would no longer share a bottom edge and the list's
+        // clearance would be short by the keyboard's height.
+        .ignoresSafeArea(.container)
         .onChange(of: focusState) { oldValue, newValue in
             if newValue == .message && oldValue != .message {
                 notifyMessageInputFocused?()
@@ -280,7 +296,7 @@ struct MessagesView<BottomBarContent: View>: View {
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
                     messagePlaceholder: messagePlaceholder,
                     onSendMessage: {
-                        scrollToBottom?()
+                        scrollToBottom?(true)
                         onSendMessage()
                     },
                     onClearInvite: onClearInvite,
@@ -331,23 +347,29 @@ struct MessagesView<BottomBarContent: View>: View {
             }
         }
         .overlay {
-            MessageContextMenuOverlay(
-                state: contextMenuState,
-                isReadOnly: isReadOnly,
-                onReaction: onReaction,
-                onReply: { message in
-                    onReply(message)
-                },
-                onCopy: { text in
-                    UIPasteboard.general.string = text
-                }
-            )
-            // The overlay renders in a separate tree from the message cells,
-            // so it doesn't inherit the cell's resolver injection. Provide it
-            // here so an agent-share card preview resolves real data, not the
-            // env-default mock.
-            .environment(\.agentShareResolver, agentShareResolver)
-            .environment(\.inviteMembershipResolver, inviteMembershipResolver)
+            // Suppressed when the host layers the menu itself. Inside the
+            // conversation sheet this view is clipped to the detent's height,
+            // which would crop a screen-level menu, so the sheet renders it at
+            // its own root instead.
+            if !hostRendersContextMenu {
+                MessageContextMenuOverlay(
+                    state: contextMenuState,
+                    isReadOnly: isReadOnly,
+                    onReaction: onReaction,
+                    onReply: { message in
+                        onReply(message)
+                    },
+                    onCopy: { text in
+                        UIPasteboard.general.string = text
+                    }
+                )
+                // The overlay renders in a separate tree from the message
+                // cells, so it doesn't inherit the cell's resolver injection.
+                // Provide it here so an agent-share card preview resolves real
+                // data, not the env-default mock.
+                .environment(\.agentShareResolver, agentShareResolver)
+                .environment(\.inviteMembershipResolver, inviteMembershipResolver)
+            }
         }
         .sheet(item: $htmlAttachmentPreview) { item in
             AttachmentPreviewSheet(

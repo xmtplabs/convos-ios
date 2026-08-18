@@ -23,6 +23,20 @@ public extension Notification.Name {
     /// selecting the group again is a no-op, so the page can't be seeded the way
     /// a fresh open is.
     static let selectAgentDmPageRequested: Notification.Name = Notification.Name("SelectAgentDmPageRequested")
+    /// One conversation arriving on, or leaving, the screen. Posted with
+    /// `userInfo["conversationId"]` and `userInfo["isOnScreen"]`, by each lane for
+    /// itself: a conversation shows its group and its agent DM together, so both
+    /// register, and both stay registered for as long as it is up - whichever tab
+    /// is selected and whatever the sheet is resting at.
+    ///
+    /// Distinct from the two `active...Changed` signals above, which say which
+    /// single lane is *being read* right now and go quiet the moment another tab
+    /// is selected or the sheet collapses over them. The distinction is the
+    /// point: a push for either lane of the conversation in front of the user
+    /// should never raise a banner - the tab's unread dot is the notification -
+    /// while a message arriving in a lane that is not being read still has to
+    /// mark that lane unread, or there would be no dot to show.
+    static let onScreenConversationChanged: Notification.Name = Notification.Name("OnScreenConversationChanged")
 }
 
 public typealias AnyMessagingService = any MessagingServiceProtocol
@@ -56,6 +70,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
     private var activeDmConversationObserver: NSObjectProtocol?
+    private var onScreenConversationsObserver: NSObjectProtocol?
     private var staleStrangerGCTask: Task<Void, Never>?
 
     /// Tracks the user's current screen context. Used by
@@ -66,12 +81,19 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let screenStateLock: OSAllocatedUnfairLock<ScreenState> = .init(initialState: ScreenState())
 
     private struct ScreenState {
+        /// The lane being read right now, when that is a group. Goes nil the
+        /// moment it stops being read - another tab selected, or the sheet
+        /// collapsed over it - because that is what the stream's unread gate
+        /// needs to know.
         var activeConversationId: String?
-        /// The agent-DM lane conversation currently on screen, when the user is
-        /// on the DM page of a conversation. Tracked separately from
-        /// `activeConversationId` (which holds the parent group id) so a push for
-        /// the DM the user is looking at is suppressed.
+        /// The same, for an agent-DM lane. Tracked separately because the DM is
+        /// its own conversation whose id never appears in
+        /// `activeConversationId` (which holds the parent group id).
         var activeDmConversationId: String?
+        /// Every conversation the current screen has open, whether or not it is
+        /// the one being read: a conversation puts both its group and its DM
+        /// lane here for as long as it is up. This is what silences banners.
+        var onScreenConversationIds: Set<String> = []
         var isOnConversationsList: Bool = false
     }
 
@@ -276,6 +298,16 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             self?.updateActiveDmConversation(conversationId)
         }
 
+        onScreenConversationsObserver = NotificationCenter.default.addObserver(
+            forName: .onScreenConversationChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let conversationId = notification.userInfo?["conversationId"] as? String
+            let isOnScreen = notification.userInfo?["isOnScreen"] as? Bool ?? false
+            self?.updateOnScreenConversation(conversationId, isOnScreen: isOnScreen)
+        }
+
         scheduleStaleStrangerGC()
     }
 
@@ -321,6 +353,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private func updateActiveDmConversation(_ conversationId: String?) {
         screenStateLock.withLock { state in
             state.activeDmConversationId = (conversationId?.isEmpty == false) ? conversationId : nil
+        }
+    }
+
+    private func updateOnScreenConversation(_ conversationId: String?, isOnScreen: Bool) {
+        guard let conversationId, !conversationId.isEmpty else { return }
+        screenStateLock.withLock { state in
+            if isOnScreen {
+                state.onScreenConversationIds.insert(conversationId)
+            } else {
+                state.onScreenConversationIds.remove(conversationId)
+            }
         }
     }
 
@@ -813,9 +856,18 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: Notifications
 
+    /// Whether a push that arrived in the foreground should raise a banner.
+    ///
+    /// Anything already on screen is silent, not just the lane being read: a
+    /// conversation shows its group and its agent DM together, so a banner for
+    /// either is announcing something the user is already looking at, and the
+    /// tab's unread dot says it better. That holds while the sheet is collapsed
+    /// too - the dot is still there to draw the eye, and a banner over a
+    /// conversation the user has deliberately tucked away is noise.
     public func shouldDisplayNotification(for conversationId: String) async -> Bool {
         let state = screenStateLock.withLock { $0 }
         if state.isOnConversationsList { return false }
+        if state.onScreenConversationIds.contains(conversationId) { return false }
         if state.activeConversationId == conversationId { return false }
         if state.activeDmConversationId == conversationId { return false }
         return true
@@ -824,6 +876,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     public func setIsOnConversationsList(_ isOn: Bool) {
         screenStateLock.withLock { state in
             state.isOnConversationsList = isOn
+            if isOn {
+                // Reaching the list means no conversation is on screen, whatever
+                // the per-lane registrations last said. Without this, one missed
+                // deregistration would silence a conversation's banners for the
+                // rest of the run.
+                state.onScreenConversationIds.removeAll()
+            }
         }
     }
 

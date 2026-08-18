@@ -1,8 +1,8 @@
 import ConvosComposer
 import SwiftUI
 
-/// The conversation sheet's tab bar: Home | Group | Agent slots that
-/// drive the selected conversation surface. Styled after the system tab
+/// The conversation sheet's tab bar: Group | Agent slots that drive which
+/// transcript the sheet hosts. Styled after the system tab
 /// bar's equal-width icon-over-label items, with native segmented-control
 /// mechanics: one selection thumb that slides between slots, live tracking
 /// while a finger is down (touch-down selects, dragging across slots moves
@@ -152,8 +152,6 @@ struct ConversationTabBar: View {
     @ViewBuilder
     private func glyph(for tab: ConversationTab, isSelected: Bool) -> some View {
         switch tab {
-        case .home:
-            symbolGlyph("house.fill", isSelected: isSelected)
         case .group:
             symbolGlyph("message.fill", isSelected: isSelected)
         case .agent:

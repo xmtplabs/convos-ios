@@ -39,8 +39,6 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryAgentJoin: (() -> Void)?
-    var onCopyInviteLink: (() -> Void)?
-    var onConvoCode: (() -> Void)?
     var onInviteAgent: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var memberContactOverride: ((String) -> Contact?)?
@@ -48,7 +46,6 @@ final class MessagesCollectionViewDataSource: NSObject {
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderTransitionNamespace: Namespace.ID?
     var htmlAttachmentTransitionNamespace: Namespace.ID?
-    var hidesInviteCard: Bool = false
     var agentBuilderSummaryProvider: ((AgentBuilderCardContent) -> AnyView)?
     var currentUserProfileImage: (() -> UIImage?)?
     var backwardsSecrecyInfoSheet: (() -> AnyView)?
@@ -158,12 +155,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onDeleteMessage: { [weak self] message in
                 self?.onDeleteMessage?(message)
             },
-            onCopyInviteLink: { [weak self] in
-                self?.onCopyInviteLink?()
-            },
-            onConvoCode: { [weak self] in
-                self?.onConvoCode?()
-            },
             onInviteAgent: { [weak self] in
                 self?.onInviteAgent?()
             },
@@ -173,7 +164,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             allVoiceMemoTranscripts: allVoiceMemoTranscripts,
             isAgentJoinPending: isAgentJoinPending,
             headerMode: headerMode,
-            hidesInviteCard: hidesInviteCard,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
             htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
             memberContactOverride: { [weak self] inboxId in

@@ -34,6 +34,9 @@ final class AgentDmSession {
     private(set) var isProvisioningDefaultAgent: Bool = false
     @ObservationIgnored
     private var requestTimeoutTask: Task<Void, Never>?
+    /// The in-flight read mark, held so it can be abandoned if the lane stops
+    /// being read first. See `cancelPendingReadMark`.
+    private var markReadTask: Task<Void, Never>?
 
     init(originViewModel: ConversationViewModel) {
         self.originViewModel = originViewModel
@@ -136,10 +139,11 @@ final class AgentDmSession {
     /// current DM binding so the new agent's DM can bind in its place.
     func setAgent(inboxId: String?) {
         guard inboxId != agentInboxId else { return }
-        // Clear any push-suppression lane registered for the outgoing DM;
-        // nobody re-posts it with the old id once the binding is gone.
+        // Clear any push-suppression registered for the outgoing DM; nobody
+        // re-posts it with the old id once the binding is gone.
         if dmViewModel != nil {
             updateActiveDmLane(isActive: false)
+            updateDmOnScreen(isOnScreen: false)
         }
         agentInboxId = inboxId
         if inboxId != nil {
@@ -174,6 +178,11 @@ final class AgentDmSession {
             messagingService: originViewModel.session.messagingServiceSync(),
             coreActions: originViewModel.coreActions
         )
+        // On screen from the moment it binds, whichever tab is selected: the lane
+        // is part of the conversation the user is looking at, so its pushes must
+        // not raise a banner. Separate from `updateActiveDmLane`, which is only
+        // true while the lane is the one being read.
+        updateDmOnScreen(isOnScreen: true)
     }
 
     /// The eager reconciler (or another device) can create the DM while the
@@ -201,7 +210,8 @@ final class AgentDmSession {
         guard let dmViewModel else { return }
         let conversationId: String = dmViewModel.conversation.id
         let messagingService = dmViewModel.messagingService
-        Task {
+        markReadTask?.cancel()
+        markReadTask = Task {
             do {
                 try await messagingService
                     .conversationLocalStateWriter()
@@ -210,6 +220,17 @@ final class AgentDmSession {
                 Log.warning("Failed marking agent DM as read: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Abandons an in-flight read mark, for when the lane stops being read before
+    /// the write lands.
+    ///
+    /// Without this the write outlives the reason for it: the sheet collapses, a
+    /// message arrives and marks the lane unread, and then the stale
+    /// `setUnread(false)` clears an unread the user never saw.
+    func cancelPendingReadMark() {
+        markReadTask?.cancel()
+        markReadTask = nil
     }
 
     /// Registers (or clears) this DM lane as the on-screen conversation with
@@ -224,6 +245,21 @@ final class AgentDmSession {
             name: .activeDmConversationChanged,
             object: nil,
             userInfo: conversationId.map { ["conversationId": $0] } ?? [:]
+        )
+    }
+
+    /// Registers (or clears) this DM lane as on screen, which is what silences
+    /// its banners - held for as long as the conversation is up rather than only
+    /// while the lane is being read. See `onScreenConversationChanged`.
+    func updateDmOnScreen(isOnScreen: Bool) {
+        guard let conversationId = dmViewModel?.conversation.id else { return }
+        NotificationCenter.default.post(
+            name: .onScreenConversationChanged,
+            object: nil,
+            userInfo: [
+                "conversationId": conversationId,
+                "isOnScreen": isOnScreen,
+            ]
         )
     }
 

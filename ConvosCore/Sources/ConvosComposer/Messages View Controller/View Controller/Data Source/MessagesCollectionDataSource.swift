@@ -35,8 +35,6 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onRetryMessage: ((AnyMessage) -> Void)? { get set }
     var onDeleteMessage: ((AnyMessage) -> Void)? { get set }
     var onRetryAgentJoin: (() -> Void)? { get set }
-    var onCopyInviteLink: (() -> Void)? { get set }
-    var onConvoCode: (() -> Void)? { get set }
     var onInviteAgent: (() -> Void)? { get set }
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)? { get set }
     var memberContactOverride: ((String) -> Contact?)? { get set }
@@ -44,6 +42,5 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var headerMode: MessagesHeaderMode { get set }
     var agentBuilderTransitionNamespace: Namespace.ID? { get set }
     var htmlAttachmentTransitionNamespace: Namespace.ID? { get set }
-    var hidesInviteCard: Bool { get set }
 }
 #endif

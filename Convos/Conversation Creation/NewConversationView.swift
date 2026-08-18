@@ -62,7 +62,7 @@ struct NewConversationView: View {
             focusCoordinator: focusCoordinator,
             insetsTopSafeArea: insetsTopSafeArea,
             sidebarColumnWidth: $sidebarWidth
-        ) { focusState, coordinator in
+        ) { _, coordinator in
             ConditionalNavigationStack(embedsStack: embedsNavigationStack) {
                 @Bindable var viewModel = viewModel
                 Group {
@@ -78,7 +78,6 @@ struct NewConversationView: View {
                         ConversationView(
                             viewModel: conversationViewModel,
                             profileSettingsViewModel: profileSettingsViewModel,
-                            focusState: focusState,
                             focusCoordinator: coordinator,
                             onScanInviteCode: viewModel.onScanInviteCode,
                             onDeleteConversation: viewModel.deleteConversation,

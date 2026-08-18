@@ -299,14 +299,20 @@ public final class MessagesViewController: UIViewController {
     /// jump; the deferral applies it clamp-free once the content has grown.
     private func applyDeferredBottomInset() {
         let targetInset: CGFloat
-        if let lastKeyboardFrameChange {
+        // The keyboard math below measures how far the keyboard overlaps this
+        // list, which presumes the list owns the screen. A host that renders no
+        // bar of its own - the conversation sheet - positions its chrome
+        // against the keyboard itself and rises with it, so the keyboard never
+        // overlaps the list and the clearance it was handed is already the
+        // whole answer.
+        if let lastKeyboardFrameChange, hasBottomBar {
             targetInset = calculateNewBottomInset(for: lastKeyboardFrameChange)
         } else {
             targetInset = bottomBarHeight
         }
         guard abs(collectionView.contentInset.bottom - targetInset) > 0.5 else { return }
         if targetInset < collectionView.contentInset.bottom, isPinnedToBottom, !isSettlingInitialLayout {
-            pendingComposerBottomInset = targetInset
+            deferBottomInset(to: targetInset)
             return
         }
         let offset = collectionView.contentOffset
@@ -327,6 +333,8 @@ public final class MessagesViewController: UIViewController {
             if !hasBottomBar {
                 currentInterfaceActions.options.remove(.determiningBottomBarHeight)
             }
+            guard isViewLoaded else { return }
+            applyContentInsetAdjustmentBehavior()
         }
     }
 
@@ -347,6 +355,35 @@ public final class MessagesViewController: UIViewController {
         }
     }
 
+    /// How much of this view's top the host clips away, for a host that hands
+    /// the list a taller frame than it shows: the conversation sheet holds the
+    /// transcript at one height and reveals more of it as the sheet grows, so a
+    /// detent change never resizes the list.
+    ///
+    /// Applied as a top content inset, which puts the content where it would sit
+    /// if the frame really were the visible height - a short conversation starts
+    /// at the visible top edge rather than up in the clipped region, scrolling up
+    /// stops there rather than dragging content into it, and the scroll indicator
+    /// stays inside the part the reader can see.
+    ///
+    /// Safe to track continuously through a drag: a top inset does not shift
+    /// `contentOffset`, so a list pinned to its newest message stays pinned while
+    /// this moves. It goes straight onto the collection view rather than through
+    /// `additionalSafeAreaInsets` like `topContentInset`, because the hosts that
+    /// set it run `contentInsetAdjustmentBehavior == .never` and would never see
+    /// a safe-area change.
+    var clippedTopOverflow: CGFloat = 0.0 {
+        didSet {
+            guard clippedTopOverflow != oldValue, isViewLoaded else { return }
+            applyClippedTopOverflow()
+        }
+    }
+
+    /// Fired with the transcript's content height whenever it changes. See
+    /// `reportContentHeightIfChanged`.
+    var onContentHeightChanged: ((CGFloat) -> Void)?
+    private var lastReportedContentHeight: CGFloat?
+
     private var lastKeyboardFrameChange: KeyboardInfo?
 
     var onUserInteraction: (() -> Void)?
@@ -361,8 +398,11 @@ public final class MessagesViewController: UIViewController {
     }
 
     /// Call this when user taps send to immediately scroll to bottom before message appears
-    func scrollToBottomForSend() {
-        scrollToBottom()
+    /// `animated: false` is for a host resetting the list while it is not being
+    /// looked at - the conversation sheet parking a transcript it has collapsed
+    /// over - where an animated scroll would be visible motion for no reason.
+    func scrollToBottomForSend(animated: Bool = true) {
+        scrollToBottom(animated: animated)
     }
 
     // MARK: - Initialization
@@ -463,8 +503,6 @@ public final class MessagesViewController: UIViewController {
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryAgentJoin: (() -> Void)?
-    var onCopyInviteLink: (() -> Void)?
-    var onConvoCode: (() -> Void)?
     var onInviteAgent: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var profileSheetForMember: ((ConversationMember) -> AnyView)?
@@ -567,6 +605,14 @@ public final class MessagesViewController: UIViewController {
         super.viewDidAppear(animated)
         isSettlingInitialLayout = false
         messagesLayout.compensatesAllSelfSizingGrowth = false
+    }
+
+    /// `clippedTopOverflow` can be handed over before this view has loaded, where
+    /// its own setter cannot apply it. Re-asserting each pass closes that gap and
+    /// costs nothing: it returns immediately once the inset already matches.
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        applyClippedTopOverflow()
     }
 
     /// The SwiftUI bottom bar mounts into the safe area a render pass or two
@@ -685,12 +731,15 @@ public final class MessagesViewController: UIViewController {
         collectionView.alwaysBounceVertical = true
         collectionView.dataSource = dataSource
         collectionView.delegate = self
+        (collectionView as? MessagesCollectionView)?.onDidLayoutSubviews = { [weak self] in
+            self?.reportContentHeightIfChanged()
+        }
         messagesLayout.delegate = dataSource
         collectionView.keyboardDismissMode = .interactive
 
         collectionView.contentInset = .init(top: 0.0, left: 0.0, bottom: 0.0, right: 0.0)
         collectionView.scrollIndicatorInsets = collectionView.contentInset
-        collectionView.contentInsetAdjustmentBehavior = .always
+        applyContentInsetAdjustmentBehavior()
         collectionView.automaticallyAdjustsScrollIndicatorInsets = true
         collectionView.selfSizingInvalidation = .enabled
         messagesLayout.supportSelfSizingInvalidation = true
@@ -761,12 +810,6 @@ public final class MessagesViewController: UIViewController {
         }
         dataSource.onRetryAgentJoin = { [weak self] in
             self?.onRetryAgentJoin?()
-        }
-        dataSource.onCopyInviteLink = { [weak self] in
-            self?.onCopyInviteLink?()
-        }
-        dataSource.onConvoCode = { [weak self] in
-            self?.onConvoCode?()
         }
         dataSource.onInviteAgent = { [weak self] in
             self?.onInviteAgent?()
@@ -844,19 +887,29 @@ public final class MessagesViewController: UIViewController {
         flushPendingBottomBarInsetUpdate()
         flushPendingComposerInset()
 
+        // Clamped to the lowest offset the scroll view will hold, not floored at
+        // zero. Zero is only the lowest when nothing is inset off the top, and a
+        // host that hands this list a frame taller than it shows - the conversation
+        // sheet, which clips it and insets by the clipped part - breaks that: for
+        // any transcript shorter than the frame the arithmetic lands well below
+        // zero. A `> 0` guard read that as "already at the bottom" and returned
+        // without scrolling, so sending a message never moved the list.
+        let lowestOffset: CGFloat = -collectionView.adjustedContentInset.top
         let contentOffsetAtBottom = CGPoint(
             x: collectionView.contentOffset.x,
-            y: (messagesLayout.collectionViewContentSize.height -
-                collectionView.frame.height +
-                bottomAnchorInset)
+            y: max(
+                messagesLayout.collectionViewContentSize.height
+                    - collectionView.frame.height
+                    + bottomAnchorInset,
+                lowestOffset
+            )
         )
 
         // Exit before cancelling in-flight animations: when the layout's
         // animated bottom-pinning compensation is already scrolling to the
         // bottom, the model offset is at the target and this call must not
         // stamp the presentation mid-flight (which would snap the scroll).
-        guard contentOffsetAtBottom.y > 0,
-              abs(contentOffsetAtBottom.y - collectionView.contentOffset.y) > 0.5 else {
+        guard abs(contentOffsetAtBottom.y - collectionView.contentOffset.y) > 0.5 else {
             completion?()
             return
         }
@@ -978,10 +1031,6 @@ extension MessagesViewController {
         var cells: [MessagesListItemType] = messages
         let hasVerifiedConvosAgent: Bool = conversation.members.contains(where: \.isVerifiedConvosAgent)
 
-        // Mirror the conversation's persisted "hide invite QR" flag onto the
-        // data source so the `.invite` cell renderer can drop the QR card
-        // while keeping the invite menu visible.
-        dataSource.hidesInviteCard = conversation.hidesInviteCard
         // Add invite or conversation info at the beginning if all messages are loaded.
         // A home-flow Agent Builder summary suppresses this whole block - the
         // summary card already announces the agent via its "You created an
@@ -990,15 +1039,32 @@ extension MessagesViewController {
         // different: it targets a real group, so its invite affordances stay
         // visible while the card shows.
         let summaryAllowsInvite: Bool = agentBuilderSummary == nil || agentBuilderSummary?.existingConversation == true
-        // The `.invite` cell is the top-of-convo invite surface: the inviter's
-        // QR plus the invite menu.
+        // No `.invite` cell any more: the inviter's QR and the "Invite members"
+        // pill it carried are both gone from the transcript, leaving the top bar's
+        // invite button as the one place to add someone. An inviter now opens on
+        // their messages rather than on a card about the room.
+        //
+        // The condition it used to guard is kept, negated, so nothing else moves:
+        // whoever was getting the info preview still gets it, and an inviter who
+        // was getting the QR now gets no leading cell rather than a different one.
         if hasLoadedAllMessages, summaryAllowsInvite, headerMode != .suppressed {
             let hostsInviteHeader = !conversation.isDraft && conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull
-            if hostsInviteHeader {
-                cells.insert(.invite(invite), at: 0)
-            } else if !conversation.isDraft, headerMode == .standard, !hasVerifiedConvosAgent {
+            if !hostsInviteHeader, !conversation.isDraft, headerMode == .standard, !hasVerifiedConvosAgent {
                 cells.insert(.conversationInfo(conversation), at: 0)
             }
+        }
+
+        // A conversation nobody has said anything in yet gets a stand-in, so the
+        // transcript is never entirely blank - and so the conversation sheet, which
+        // sizes itself to the transcript, has a height to size itself to.
+        //
+        // Unless the transcript already carries something that says the same thing:
+        // the agent DM's disclosure header always shows, so a "no comments" line
+        // under it is the empty state twice.
+        if hasLoadedAllMessages,
+           !cells.contains(where: \.isMessages),
+           !cells.contains(where: \.explainsAnEmptyTranscript) {
+            cells.append(.noComments)
         }
 
         // The per-agent "lost power" cell derives ONLY from the backend's
@@ -1233,7 +1299,14 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
 
         self.view.keyboardLayoutGuide.keyboardDismissPadding = bottomBarHeight
 
-        if let lastKeyboardFrameChange {
+        // `hasBottomBar` gates the keyboard math here for the same reason it does
+        // in `applyDeferredBottomInset`: a host that renders no bar of its own
+        // positions its chrome against the keyboard and rises with it, so the
+        // keyboard never overlaps this list and the clearance it was handed is
+        // already the whole answer. Without the gate, a retained keyboard frame
+        // turns a later bar-height update into an overlap inset that replaces that
+        // clearance and shifts the transcript.
+        if let lastKeyboardFrameChange, hasBottomBar {
             let newBottomInset = calculateNewBottomInset(for: lastKeyboardFrameChange)
             updateBottomInset(inset: newBottomInset, info: lastKeyboardFrameChange, isComposerDriven: true)
         } else {
@@ -1297,48 +1370,12 @@ extension MessagesViewController: KeyboardListenerDelegate {
             // flushes the pending inset first (no clamp once the content
             // has grown) and settles in one motion. The fallback only fires
             // when no message follows (e.g. the user deleted their draft).
-            pendingComposerBottomInset = inset
-            pendingComposerSettleFallback?.cancel()
-            let settle = DispatchWorkItem { [weak self] in
-                self?.settlePendingComposerInset()
-            }
-            pendingComposerSettleFallback = settle
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + Constant.composerSettleFallbackDelay,
-                execute: settle
-            )
+            deferBottomInset(to: inset)
             return
         }
         pendingComposerBottomInset = nil
         guard abs(collectionView.contentInset.bottom - inset) > 0.5 else { return }
         updateCollectionViewInsets(to: inset, with: info)
-    }
-
-    private func settlePendingComposerInset() {
-        guard !currentInterfaceActions.options.contains(.scrollingToBottom) else { return }
-        guard flushPendingComposerInset() else { return }
-        scrollToBottom()
-    }
-
-    /// Applies a deferred composer-collapse inset, silently when the content
-    /// reaches the new bottom (no clamp, nothing moves) and via the anchored
-    /// animated update otherwise. Returns whether an inset was applied.
-    @discardableResult
-    private func flushPendingComposerInset() -> Bool {
-        guard let target = pendingComposerBottomInset else { return false }
-        pendingComposerBottomInset = nil
-        let adjustedTarget = target + collectionView.safeAreaInsets.bottom
-        let reach = collectionView.contentSize.height
-            - (collectionView.contentOffset.y + collectionView.frame.height - adjustedTarget)
-        if reach >= -0.5 {
-            UIView.performWithoutAnimation {
-                collectionView.contentInset.bottom = target
-                collectionView.verticalScrollIndicatorInsets.bottom = target
-            }
-        } else {
-            updateCollectionViewInsets(to: target, with: nil)
-        }
-        return true
     }
 
     /// Applies a bar-height inset change with no animation and re-anchors the
@@ -1460,6 +1497,59 @@ extension MessagesViewController: KeyboardListenerDelegate {
     }
 }
 
+// MARK: - Deferred Bottom Inset
+
+extension MessagesViewController {
+    /// Holds a bottom-inset shrink until the content can absorb it, and arms the
+    /// fallback that applies it if nothing else does.
+    ///
+    /// The fallback is the whole point of routing both deferrals through here. A
+    /// composer collapse is normally followed by the outgoing message's reveal
+    /// scroll, which flushes the pending inset on its way. A host that shrinks
+    /// the clearance it hands us has no such follow-up - the conversation sheet
+    /// does exactly that, by the drag indicator's 10pt, as soon as it grows past
+    /// collapsed - and without the timer that shrink is never applied at all.
+    private func deferBottomInset(to inset: CGFloat) {
+        pendingComposerBottomInset = inset
+        pendingComposerSettleFallback?.cancel()
+        let settle = DispatchWorkItem { [weak self] in
+            self?.settlePendingComposerInset()
+        }
+        pendingComposerSettleFallback = settle
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Constant.composerSettleFallbackDelay,
+            execute: settle
+        )
+    }
+
+    private func settlePendingComposerInset() {
+        guard !currentInterfaceActions.options.contains(.scrollingToBottom) else { return }
+        guard flushPendingComposerInset() else { return }
+        scrollToBottom()
+    }
+
+    /// Applies a deferred composer-collapse inset, silently when the content
+    /// reaches the new bottom (no clamp, nothing moves) and via the anchored
+    /// animated update otherwise. Returns whether an inset was applied.
+    @discardableResult
+    private func flushPendingComposerInset() -> Bool {
+        guard let target = pendingComposerBottomInset else { return false }
+        pendingComposerBottomInset = nil
+        let adjustedTarget = target + collectionView.safeAreaInsets.bottom
+        let reach = collectionView.contentSize.height
+            - (collectionView.contentOffset.y + collectionView.frame.height - adjustedTarget)
+        if reach >= -0.5 {
+            UIView.performWithoutAnimation {
+                collectionView.contentInset.bottom = target
+                collectionView.verticalScrollIndicatorInsets.bottom = target
+            }
+        } else {
+            updateCollectionViewInsets(to: target, with: nil)
+        }
+        return true
+    }
+}
+
 // MARK: - File Attachment Preview
 
 extension MessagesViewController {
@@ -1511,6 +1601,96 @@ extension MessagesViewController: UIGestureRecognizerDelegate {
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
         gestureRecognizer is ImmediateTouchGestureRecognizer
+    }
+}
+
+extension MessagesViewController {
+    /// `.always` lets the safe area feed the list's clearance, which is what a
+    /// host owning the whole screen wants: its floating bar arrives as a safe
+    /// area and the list insets by it.
+    ///
+    /// A host that renders no bar of its own hands the clearance over as an
+    /// explicit number instead, and must not have the safe area added on top -
+    /// that inset changes with the keyboard, so the same number would resolve
+    /// differently with the keyboard up and down, and the list's clearance would
+    /// drift by the home indicator's height every time.
+    func applyContentInsetAdjustmentBehavior() {
+        collectionView.contentInsetAdjustmentBehavior = hasBottomBar ? .always : .never
+        // The indicator's insets have to follow the content's, and this is a
+        // separate flag: left on, UIKit keeps adding the safe area to the
+        // scroll indicator after the content has stopped receiving it, and the
+        // track ends up inset differently from the messages beside it.
+        collectionView.automaticallyAdjustsScrollIndicatorInsets = hasBottomBar
+    }
+
+    /// Reports the transcript's content height when it changes, for a host that
+    /// sizes itself to the messages - the conversation sheet, which will not offer
+    /// a detent taller than there is transcript to put in it.
+    ///
+    /// Rounded to a point and compared before reporting: this runs on every layout
+    /// pass, and the host turns the number into a set of presentation detents, so
+    /// a report that carries no news is a rebuild for nothing.
+    func reportContentHeightIfChanged() {
+        let height: CGFloat = collectionView.contentSize.height.rounded()
+        guard height > 0, height != lastReportedContentHeight else { return }
+        lastReportedContentHeight = height
+        // Out of the layout pass, always. This is called from the collection
+        // view's own `layoutSubviews`, and the host turns the number into
+        // presentation detents - so delivering it inline would re-enter the layout
+        // that is still running.
+        //
+        // The top inset is re-applied here too: it holds short content against the
+        // bottom, so it has to follow the content height, and this is the one hook
+        // that fires when that changes.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            applyClippedTopOverflow()
+            onContentHeightChanged?(height)
+        }
+    }
+
+    /// The list's top inset: what the host clips away, plus whatever it takes to
+    /// hold short content against the bottom. See `clippedTopOverflow` and
+    /// `shortContentTopSlack`.
+    func applyClippedTopOverflow() {
+        let target: CGFloat = clippedTopOverflow + shortContentTopSlack
+        guard abs(collectionView.contentInset.top - target) > 0.5 else { return }
+        collectionView.contentInset.top = target
+        collectionView.verticalScrollIndicatorInsets.top = target
+    }
+
+    /// Extra top inset that rests content too short to fill the visible area
+    /// against the bottom of it, instead of leaving it at the top.
+    ///
+    /// A scroll view puts content shorter than its frame at the top, which for a
+    /// chat is the wrong end: a conversation with one message should show it just
+    /// above the composer, where the next one will appear. The transcript used to
+    /// be padded out by the invite card and rarely reached this; without it, every
+    /// new conversation does.
+    ///
+    /// An inset rather than an offset applied to the item frames themselves, and
+    /// that is the whole point. Offsetting frames inside the layout - which is what
+    /// ChatLayout's own `keepContentAtBottomOfVisibleArea` does, and what this
+    /// briefly did - puts the alignment in the middle of self-sizing: a cell
+    /// reports its preferred size, the content height changes, the offset changes,
+    /// the attributes no longer match what the cell was handed, UIKit invalidates
+    /// and asks again. That loop crashed the app on device, seven
+    /// `_updateVisibleCellsNow:` frames deep. An inset cannot join that cycle
+    /// because it does not change where any item thinks it is.
+    ///
+    /// Only for hosts that hand their clearance over rather than rendering a bar of
+    /// their own - the conversation sheet's transcripts and the thinking detail. A
+    /// host that owns the whole screen keeps the layout it had.
+    ///
+    /// Zero until the content has measured: slack against a content size of nothing
+    /// would push the first messages to the bottom and haul them back as they
+    /// arrived.
+    private var shortContentTopSlack: CGFloat {
+        guard !hasBottomBar, collectionView.contentSize.height > 0 else { return 0 }
+        let visibleHeight: CGFloat = collectionView.frame.height
+            - clippedTopOverflow
+            - collectionView.contentInset.bottom
+        return max(0, visibleHeight - collectionView.contentSize.height)
     }
 }
 #endif
