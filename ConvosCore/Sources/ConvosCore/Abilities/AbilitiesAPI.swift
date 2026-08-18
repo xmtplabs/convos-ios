@@ -163,6 +163,28 @@ public enum AbilitiesAPI {
         }
     }
 
+    /// Optional per-manifest provider registration fields. When present,
+    /// the client builds its capability-provider registration from the
+    /// catalog instead of the hardcoded per-service tables, making a new
+    /// ability a backend-manifest-only addition. Raw strings by design:
+    /// an unknown subject or capability added backend-side must not break
+    /// catalog decode on older clients -- mapping to typed values (and
+    /// dropping unknowns) happens in `CloudProviderDescriptor`.
+    public struct AbilityProviderInfo: Codable, Sendable, Hashable {
+        /// Fully-qualified provider id, e.g. "composio.googledocs".
+        public let providerId: String
+        /// A `CapabilitySubject` raw value, e.g. "calendar".
+        public let subject: String
+        /// `ConnectionCapability` raw values, e.g. ["read", "write_create"].
+        public let capabilities: [String]
+
+        public init(providerId: String, subject: String, capabilities: [String]) {
+            self.providerId = providerId
+            self.subject = subject
+            self.capabilities = capabilities
+        }
+    }
+
     /// One user-facing permission bundle inside an ability ("Events").
     public struct AbilityBundle: Codable, Sendable, Hashable, Identifiable {
         public let id: String
@@ -268,6 +290,9 @@ public enum AbilitiesAPI {
         public let icon: AbilityIcon?
         public let auth: AbilityAuth
         public let bundles: [AbilityBundle]
+        /// Optional provider registration fields; absent on backends that
+        /// predate them (clients then fall back to hardcoded tables).
+        public let provider: AbilityProviderInfo?
         /// The decoded `entitlement` key, with null-vs-absent preserved.
         public let entitlementState: EntitlementState
 
@@ -287,6 +312,7 @@ public enum AbilitiesAPI {
             icon: AbilityIcon? = nil,
             auth: AbilityAuth,
             bundles: [AbilityBundle],
+            provider: AbilityProviderInfo? = nil,
             entitlementState: EntitlementState = .notEntitled
         ) throws {
             guard version >= 0 else {
@@ -299,6 +325,7 @@ public enum AbilitiesAPI {
             self.icon = icon
             self.auth = auth
             self.bundles = bundles
+            self.provider = provider
             self.entitlementState = entitlementState
         }
 
@@ -319,6 +346,7 @@ public enum AbilitiesAPI {
             self.icon = try container.decodeIfPresent(AbilityIcon.self, forKey: .icon)
             self.auth = try container.decode(AbilityAuth.self, forKey: .auth)
             self.bundles = try container.decode([AbilityBundle].self, forKey: .bundles)
+            self.provider = try container.decodeIfPresent(AbilityProviderInfo.self, forKey: .provider)
             if container.contains(.entitlement) {
                 if try container.decodeNil(forKey: .entitlement) {
                     self.entitlementState = .notEntitled
@@ -339,6 +367,7 @@ public enum AbilitiesAPI {
             try container.encodeIfPresent(icon, forKey: .icon)
             try container.encode(auth, forKey: .auth)
             try container.encode(bundles, forKey: .bundles)
+            try container.encodeIfPresent(provider, forKey: .provider)
             switch entitlementState {
             case .entitled(let entitlement):
                 try container.encode(entitlement, forKey: .entitlement)
@@ -360,6 +389,7 @@ public enum AbilitiesAPI {
             self.icon = other.icon
             self.auth = other.auth
             self.bundles = other.bundles
+            self.provider = other.provider
             self.entitlementState = entitlementState
         }
 
@@ -376,6 +406,7 @@ public enum AbilitiesAPI {
             case icon
             case auth
             case bundles
+            case provider
             case entitlement
         }
     }

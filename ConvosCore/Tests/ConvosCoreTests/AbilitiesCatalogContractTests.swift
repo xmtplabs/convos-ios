@@ -627,3 +627,80 @@ struct MockAbilitiesServiceTests {
         #expect(catalog.abilities.first { $0.id == "googlecalendar" }?.entitlement?.extensionCount == 1)
     }
 }
+
+@Suite("AbilityProviderInfo wire contract")
+struct AbilityProviderInfoContractTests {
+    private func decodeCatalog(_ json: String) throws -> AbilitiesAPI.CatalogResponse {
+        let data = try #require(json.data(using: .utf8))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(AbilitiesAPI.CatalogResponse.self, from: data)
+    }
+
+    private let providerJSON = """
+    {
+      "catalogVersion": 5,
+      "abilities": [
+        {
+          "id": "googledocs",
+          "version": 1,
+          "displayName": { "en": "Google Docs" },
+          "subtitle": { "en": "Create and share docs" },
+          "auth": { "type": "oauth" },
+          "bundles": [],
+          "provider": {
+            "providerId": "composio.googledocs",
+            "subject": "photos",
+            "capabilities": ["read", "write_create", "write_update"]
+          },
+          "entitlement": null
+        },
+        {
+          "id": "spotify",
+          "version": 1,
+          "displayName": { "en": "Spotify" },
+          "subtitle": { "en": "Control playback" },
+          "auth": { "type": "oauth" },
+          "bundles": [],
+          "entitlement": null
+        }
+      ]
+    }
+    """
+
+    @Test("provider fields decode when present and stay nil when absent")
+    func providerDecodes() throws {
+        let response = try decodeCatalog(providerJSON)
+        let docs = try #require(response.abilities.first { $0.id == "googledocs" })
+        #expect(docs.provider?.providerId == "composio.googledocs")
+        #expect(docs.provider?.subject == "photos")
+        #expect(docs.provider?.capabilities == ["read", "write_create", "write_update"])
+        let spotify = try #require(response.abilities.first { $0.id == "spotify" })
+        #expect(spotify.provider == nil)
+    }
+
+    @Test("unknown subject and capability strings survive decode — mapping drops them later")
+    func unknownVocabularyDecodes() throws {
+        let json = providerJSON.replacingOccurrences(of: "\"photos\"", with: "\"finance\"")
+        let response = try decodeCatalog(json)
+        let docs = try #require(response.abilities.first { $0.id == "googledocs" })
+        #expect(docs.provider?.subject == "finance")
+        // The typed mapping is where the unknown subject falls out.
+        let descriptor = docs.provider.flatMap { (info: AbilitiesAPI.AbilityProviderInfo) -> CloudProviderDescriptor? in
+            CloudProviderDescriptor(providerInfo: info, displayName: docs.displayName.resolved())
+        }
+        #expect(descriptor == nil)
+    }
+
+    @Test("provider fields round-trip through encode")
+    func providerRoundTrips() throws {
+        let response = try decodeCatalog(providerJSON)
+        let encoded = try JSONEncoder().encode(response)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(AbilitiesAPI.CatalogResponse.self, from: encoded)
+        let docs = try #require(decoded.abilities.first { $0.id == "googledocs" })
+        #expect(docs.provider?.providerId == "composio.googledocs")
+        #expect(docs.provider?.capabilities == ["read", "write_create", "write_update"])
+    }
+}

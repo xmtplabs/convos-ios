@@ -47,9 +47,16 @@ public enum CapabilityProviderBootstrap {
     ///
     /// Call this after every cloud-side state change: a fresh `connect`, a `disconnect`,
     /// a `refreshConnections` that observed a status flip.
+    /// `descriptors` carries catalog-derived registration data (see
+    /// `CloudProviderDescriptor`). A service with a descriptor is registered
+    /// from it -- the hardcoded tables are not consulted -- and every
+    /// descriptor service is implicitly seeded, so a backend-manifest-only
+    /// ability gets its placeholder without an iOS change. Services without a
+    /// descriptor fall back to the tables exactly as before.
     public static func syncCloudProviders(
         connections: [CloudConnection],
         seedServiceIds: Set<String> = [],
+        descriptors: [CloudProviderDescriptor] = [],
         registry: any CapabilityProviderRegistry
     ) async {
         // Compute the desired set of provider ids from the current connections list.
@@ -60,8 +67,12 @@ public enum CapabilityProviderBootstrap {
         var seenIds: Set<ProviderID> = []
         var seenServiceIds: Set<String> = []
         var desiredProviders: [(ProviderID, CloudCapabilityProvider)] = []
+        let descriptorsByServiceId: [String: CloudProviderDescriptor] = Dictionary(
+            descriptors.map { ($0.serviceId, $0) }
+        ) { _, last in last }
         for connection in connections {
-            guard let provider = CloudCapabilityProvider.from(connection) else {
+            let descriptor = descriptorsByServiceId[connection.serviceId]
+            guard let provider = CloudCapabilityProvider.from(connection, descriptor: descriptor) else {
                 // The user linked a service this build can't route to a subject. Without a
                 // provider the service is invisible to every agent ask, so say so rather
                 // than dropping it silently.
@@ -76,8 +87,10 @@ public enum CapabilityProviderBootstrap {
             seenServiceIds.insert(connection.serviceId)
         }
 
-        for serviceId in seedServiceIds where !seenServiceIds.contains(serviceId) {
-            guard let placeholder = CloudCapabilityProvider.placeholder(serviceId: serviceId) else { continue }
+        let allSeedIds = seedServiceIds.union(descriptorsByServiceId.keys)
+        for serviceId in allSeedIds.sorted() where !seenServiceIds.contains(serviceId) {
+            let descriptor = descriptorsByServiceId[serviceId]
+            guard let placeholder = CloudCapabilityProvider.placeholder(serviceId: serviceId, descriptor: descriptor) else { continue }
             guard seenIds.insert(placeholder.id).inserted else { continue }
             desiredProviders.append((placeholder.id, placeholder))
         }

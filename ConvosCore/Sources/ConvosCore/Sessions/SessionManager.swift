@@ -54,6 +54,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// empty keychain after teardown if left to fire.
     private var profileServicesTask: Task<Void, Never>?
     private var cloudConnectionsCancellable: AnyCancellable?
+    private var providerDescriptorsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
     private var activeDmConversationObserver: NSObjectProtocol?
     private var staleStrangerGCTask: Task<Void, Never>?
@@ -235,6 +236,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         serviceBootstrapTask?.cancel()
         profileServicesTask?.cancel()
         cloudConnectionsCancellable?.cancel()
+        providerDescriptorsCancellable?.cancel()
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
         }
@@ -1036,17 +1038,33 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
 
         cloudConnectionsCancellable?.cancel()
-        let publisher = cloudConnectionRepository().connectionsPublisher()
+        providerDescriptorsCancellable?.cancel()
+        let repository = cloudConnectionRepository()
+        let publisher = repository.connectionsPublisher()
         let seedServiceIds = SupportedConnections.supportedCloudServiceIds
+        let descriptorStore = CloudProviderDescriptorStore.shared
+        let sync: @Sendable ([CloudConnection]) async -> Void = { [registry] connections in
+            await CapabilityProviderBootstrap.syncCloudProviders(
+                connections: connections,
+                seedServiceIds: seedServiceIds,
+                descriptors: descriptorStore.current,
+                registry: registry
+            )
+        }
         // GRDB's `.immediate` scheduler requires subscription on the main thread.
         await MainActor.run {
             self.cloudConnectionsCancellable = publisher.sink { connections in
-                Task { [registry] in
-                    await CapabilityProviderBootstrap.syncCloudProviders(
-                        connections: connections,
-                        seedServiceIds: seedServiceIds,
-                        registry: registry
-                    )
+                Task {
+                    await sync(connections)
+                }
+            }
+            // A catalog update can add or reshape descriptors without any
+            // cloud-connection change, so re-sync from a fresh connections
+            // read whenever the store publishes.
+            self.providerDescriptorsCancellable = descriptorStore.updatesPublisher.sink { _ in
+                Task {
+                    let connections = (try? await repository.connections()) ?? []
+                    await sync(connections)
                 }
             }
         }

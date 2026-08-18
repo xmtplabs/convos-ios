@@ -87,18 +87,33 @@ public extension CloudCapabilityProvider {
         "gmail": "Gmail",
     ]
 
-    /// Build a provider from a `CloudConnection`, or `nil` if its `serviceId` isn't in
-    /// the subject map (in which case it's not surfaced to agents).
+    /// Build a provider from a `CloudConnection`. A catalog-derived `descriptor`
+    /// wins when present; otherwise the hardcoded tables apply, and `nil` comes
+    /// back if the `serviceId` isn't in the subject map (in which case it's not
+    /// surfaced to agents).
     ///
     /// Display name resolution: prefer the slug-keyed `serviceDisplayNames` lookup
     /// so brand capitalisation stays consistent regardless of what the server happens
     /// to return for `serviceName`. Falls through to title-casing via
     /// `CloudConnectionServiceNaming.displayName(for:)` when no entry exists.
-    static func from(_ connection: CloudConnection) -> CloudCapabilityProvider? {
-        guard let subject = serviceSubjectMap[connection.serviceId] else { return nil }
-        let capabilities = serviceCapabilitiesMap[connection.serviceId] ?? [.read]
-        let displayName = serviceDisplayNames[connection.serviceId]
-            ?? CloudConnectionServiceNaming.displayName(for: connection.serviceName, fallbackFrom: connection.serviceId)
+    static func from(
+        _ connection: CloudConnection,
+        descriptor: CloudProviderDescriptor? = nil
+    ) -> CloudCapabilityProvider? {
+        let subject: CapabilitySubject
+        let capabilities: Set<ConnectionCapability>
+        let displayName: String
+        if let descriptor {
+            subject = descriptor.subject
+            capabilities = descriptor.capabilities
+            displayName = descriptor.displayName
+        } else {
+            guard let mappedSubject = serviceSubjectMap[connection.serviceId] else { return nil }
+            subject = mappedSubject
+            capabilities = serviceCapabilitiesMap[connection.serviceId] ?? [.read]
+            displayName = serviceDisplayNames[connection.serviceId]
+                ?? CloudConnectionServiceNaming.displayName(for: connection.serviceName, fallbackFrom: connection.serviceId)
+        }
         return CloudCapabilityProvider(
             id: ProviderID(rawValue: "composio.\(connection.serviceId)"),
             serviceId: connection.serviceId,
@@ -117,10 +132,23 @@ public extension CloudCapabilityProvider {
     /// at session start so agents can target a cloud provider via `preferredProviders`
     /// even before the user has run OAuth — the picker then offers a connect-and-approve
     /// path that triggers OAuth on tap.
-    static func placeholder(serviceId: String) -> CloudCapabilityProvider? {
-        guard let subject = serviceSubjectMap[serviceId] else { return nil }
-        let capabilities = serviceCapabilitiesMap[serviceId] ?? [.read]
-        let displayName = serviceDisplayNames[serviceId] ?? serviceId
+    static func placeholder(
+        serviceId: String,
+        descriptor: CloudProviderDescriptor? = nil
+    ) -> CloudCapabilityProvider? {
+        let subject: CapabilitySubject
+        let capabilities: Set<ConnectionCapability>
+        let displayName: String
+        if let descriptor {
+            subject = descriptor.subject
+            capabilities = descriptor.capabilities
+            displayName = descriptor.displayName
+        } else {
+            guard let mappedSubject = serviceSubjectMap[serviceId] else { return nil }
+            subject = mappedSubject
+            capabilities = serviceCapabilitiesMap[serviceId] ?? [.read]
+            displayName = serviceDisplayNames[serviceId] ?? serviceId
+        }
         return CloudCapabilityProvider(
             id: ProviderID(rawValue: "composio.\(serviceId)"),
             serviceId: serviceId,
