@@ -70,6 +70,22 @@ final class ConversationsViewModel {
         selectedConversationId = conversation.id
     }
 
+    /// Opens a specific agent lane from a cross-conversation surface such as
+    /// the Your Space agents widget. The notification also covers re-selecting
+    /// a conversation that is already on screen.
+    func selectAgentDm(in conversation: Conversation, agentInboxId: String) {
+        selectedInitialAgentDmInboxId = agentInboxId
+        selectedConversationId = conversation.id
+        NotificationCenter.default.post(
+            name: .selectAgentDmPageRequested,
+            object: nil,
+            userInfo: [
+                "conversationId": conversation.id,
+                "agentInboxId": agentInboxId,
+            ]
+        )
+    }
+
     /// Returns the agent inbox id to open the DM page for, when the DM holds the
     /// most-recent unread message; nil to open the group page.
     private func agentDmInboxIdForMostRecentUnread(in conversation: Conversation) -> String? {

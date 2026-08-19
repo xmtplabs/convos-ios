@@ -79,6 +79,47 @@ struct ContextLibraryRepositoryTests {
         #expect(items.isEmpty)
     }
 
+    @Test("auto-indexes useful message details with their full provenance")
+    func indexesUsefulMessageDetails() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let sourceText = "Meet at 3728 Bear Hollow Rd, Joelton, TN 37080. Call +1 615-555-0123 or shane@example.com."
+        try await dbManager.dbWriter.write { db in
+            try Self.seedIdentityAndConversations(db)
+            try Self.message(
+                id: "useful",
+                conversationId: "included",
+                senderId: "other",
+                date: Date(timeIntervalSince1970: 100),
+                contentType: .text,
+                linkPreview: nil,
+                attachmentUrls: [],
+                text: sourceText
+            ).insert(db)
+            try Self.message(
+                id: "excluded-useful",
+                conversationId: "excluded",
+                senderId: "other",
+                date: Date(timeIntervalSince1970: 200),
+                contentType: .text,
+                linkPreview: nil,
+                attachmentUrls: [],
+                text: "Meet at 1 Infinite Loop, Cupertino, CA 95014"
+            ).insert(db)
+        }
+
+        let items = try await dbManager.dbReader.read { db in
+            try ContextLibraryRepository.loadItems(db: db, conversationIds: ["included"])
+        }
+
+        #expect(items.contains { $0.kind == .address && $0.title.contains("3728 Bear Hollow") })
+        #expect(items.contains { $0.kind == .phone && $0.title.contains("615-555-0123") })
+        #expect(items.contains { $0.kind == .email && $0.title == "shane@example.com" })
+        #expect(items.allSatisfy { $0.conversationId == "included" })
+        #expect(items.allSatisfy { $0.senderInboxId == "other" })
+        #expect(items.allSatisfy { $0.messageText == sourceText })
+        #expect(!items.contains { $0.id.contains("excluded-useful") })
+    }
+
     @Test("publisher starts safely from a non-main task")
     func startsPublisherOutsideMainThread() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
@@ -214,7 +255,8 @@ struct ContextLibraryRepositoryTests {
         date: Date,
         contentType: MessageContentType,
         linkPreview: LinkPreview?,
-        attachmentUrls: [String]
+        attachmentUrls: [String],
+        text: String? = nil
     ) -> DBMessage {
         DBMessage(
             id: id,
@@ -227,7 +269,7 @@ struct ContextLibraryRepositoryTests {
             status: .published,
             messageType: .original,
             contentType: contentType,
-            text: nil,
+            text: text,
             emoji: nil,
             invite: nil,
             linkPreview: linkPreview,

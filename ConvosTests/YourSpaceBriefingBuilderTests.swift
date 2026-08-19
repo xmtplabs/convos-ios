@@ -127,6 +127,7 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
             try await stager.stage(YourSpaceContextItem(local: file), in: draft)
         }
         try await stager.stage(conversationItem(kind: .link), in: draft)
+        try await stager.stage(conversationItem(kind: .address), in: draft)
         try await stager.stage(conversationItem(kind: .file, attachmentKey: "remote-key"), in: draft)
         try await stager.stage(
             YourSpaceContextItem(rememberedField: YourSpaceRememberedField(
@@ -139,12 +140,21 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
 
         XCTAssertEqual(
             draft.messageText,
-            "Remember this\nhttps://example.com/context\nHome: 123 King Street West, Toronto"
+            "Remember this\nhttps://example.com/context\n3728 Bear Hollow Rd, Joelton, TN 37080\nHome: 123 King Street West, Toronto"
         )
         XCTAssertEqual(draft.photoCount, 1)
         XCTAssertEqual(draft.videoNames, ["Clip.mov"])
         XCTAssertEqual(draft.fileNames, ["Thought.m4a", "Brief.pdf", "Shared.pdf"])
         XCTAssertEqual(draft.sendCount, 0)
+    }
+
+    func testAutomaticallyIndexedDetailKeepsTheSourceMessageSearchable() {
+        let item = conversationItem(kind: .address)
+
+        XCTAssertEqual(item.kind, .address)
+        XCTAssertEqual(item.title, "3728 Bear Hollow Rd, Joelton, TN 37080")
+        XCTAssertEqual(item.detail, "Joel said this is the cabin address.")
+        XCTAssertTrue(item.isAutomaticallyIndexedUsefulDetail)
     }
 
     private func contextItem(named name: String) -> YourSpaceContextItem {
@@ -169,7 +179,11 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
         YourSpaceContextItem(conversation: ContextLibraryItem(
             id: "context-\(kind.rawValue)",
             kind: kind,
-            title: kind == .link ? "Example" : "Shared.pdf",
+            title: kind == .link
+                ? "Example"
+                : kind == .address
+                    ? "3728 Bear Hollow Rd, Joelton, TN 37080"
+                    : "Shared.pdf",
             date: Date(),
             conversationId: "destination",
             senderInboxId: "sender",
@@ -179,7 +193,8 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
             mimeType: kind == .link ? nil : "application/pdf",
             thumbnailDataBase64: nil,
             destinationURLString: kind == .link ? "https://example.com/context" : nil,
-            imageURLString: nil
+            imageURLString: nil,
+            messageText: kind == .address ? "Joel said this is the cabin address." : nil
         ))
     }
 }

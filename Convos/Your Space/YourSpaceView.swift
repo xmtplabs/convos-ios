@@ -22,6 +22,8 @@ struct YourSpaceView: View {
     @State private var presentingSwitcher: Bool = false
     @State private var toolDestination: YourSpaceToolDestination?
     @State private var inputMode: YourSpaceInputMode?
+    @State private var presentingPersonalAgentOnboarding: Bool = false
+    @State private var personalAgentState: AgentChatPrototypeState = .init()
     @State private var presentingFileImporter: Bool = false
     @State private var fileImportNotice: YourSpaceFileImportNotice?
     @State private var localContextFiles: [YourSpaceStoredFile] = YourSpaceFileStore.storedFiles()
@@ -41,6 +43,9 @@ struct YourSpaceView: View {
     @AccessibilityFocusState private var switcherButtonAccessibilityFocused: Bool
     @AppStorage("your-space-people-widget") private var showsPeopleWidget: Bool = false
     @AppStorage("your-space-footprint-widget") private var showsFootprintWidget: Bool = false
+    @AppStorage("your-space-agents-widget") private var showsAgentsWidget: Bool = false
+    @AppStorage("your-space-personal-agent-provider") private var personalAgentProviderRawValue: String = ""
+    @AppStorage("your-space-agent-callout-dismissed") private var agentCalloutDismissed: Bool = false
 
     private var conversations: [Conversation] {
 #if DEBUG
@@ -99,6 +104,10 @@ struct YourSpaceView: View {
         .sorted { $0.date > $1.date }
     }
 
+    private var activePersonalAgent: ExternalAgentProvider? {
+        ExternalAgentProvider(rawValue: personalAgentProviderRawValue)
+    }
+
     private var selectedConversationBinding: Binding<ConversationViewModel?> {
         Binding(
             get: { viewModel.selectedConversationViewModel },
@@ -139,7 +148,8 @@ struct YourSpaceView: View {
                     memberNameOverride: contactNameOverride,
                     connectionsViewModel: viewModel.appSettingsViewModel.connectionsListViewModel,
                     showsPeopleWidget: $showsPeopleWidget,
-                    showsFootprintWidget: $showsFootprintWidget
+                    showsFootprintWidget: $showsFootprintWidget,
+                    showsAgentsWidget: $showsAgentsWidget
                 )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -147,10 +157,20 @@ struct YourSpaceView: View {
             .sheet(item: $inputMode) { mode in
                 YourSpaceInputSheet(
                     mode: mode,
-                    briefing: briefing
+                    briefing: briefing,
+                    contextItems: allContextItems,
+                    agentName: activePersonalAgent?.displayName,
+                    onSaveOutput: saveAgentOutput,
+                    onShareOutput: shareAgentOutput
                 )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+            }
+            .fullScreenCover(isPresented: $presentingPersonalAgentOnboarding) {
+                ExternalAgentOnboardingView(
+                    prototypeState: personalAgentState,
+                    onConnected: connectPersonalAgent
+                )
             }
             .sheet(item: $browsingContextKind) { kind in
                 YourSpaceContextBrowser(
@@ -223,6 +243,7 @@ struct YourSpaceView: View {
             ))
             .onAppear {
                 refreshLocalContext()
+                restorePersonalAgentIfNeeded()
 #if DEBUG
                 if ProcessInfo.processInfo.environment["YOUR_SPACE_SWITCHER_FIXTURE"] == "1" {
                     presentingSwitcher = true
@@ -279,6 +300,10 @@ private extension YourSpaceView {
                         accessibilityActions
                     }
 
+                    if activePersonalAgent == nil, !agentCalloutDismissed {
+                        bringYourOwnAgentCallout
+                    }
+
                     if conversations.isEmpty {
                         emptyActions
                     }
@@ -287,6 +312,10 @@ private extension YourSpaceView {
 
                     if showsPeopleWidget, !activePeople.isEmpty {
                         peopleWidget
+                    }
+
+                    if showsAgentsWidget, !agentsAcrossConvos.isEmpty {
+                        agentsWidget
                     }
 
                     if showsFootprintWidget, briefing.sourceCount > 0 {
@@ -576,6 +605,147 @@ private extension YourSpaceView {
         }
     }
 
+    private var agentsAcrossConvos: [YourSpaceAgentConvoEntry] {
+        var seen: Set<String> = []
+        let entries = conversations
+            .sorted { ($0.lastMessage?.createdAt ?? $0.createdAt) > ($1.lastMessage?.createdAt ?? $1.createdAt) }
+            .flatMap { conversation in
+                conversation.membersWithoutCurrent
+                    .filter(\.isVerifiedAgent)
+                    .map { YourSpaceAgentConvoEntry(conversation: conversation, agent: $0) }
+            }
+            .filter { seen.insert($0.id).inserted }
+            .prefix(12)
+        return Array(entries)
+    }
+
+    private var agentsWidget: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                Text("Agents across your convos")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.colorTextPrimary)
+                Text("Jump straight into a private DM with an agent.")
+                    .font(.subheadline)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(agentsAcrossConvos.enumerated()), id: \.element.id) { index, entry in
+                    Button {
+                        viewModel.selectAgentDm(
+                            in: entry.conversation,
+                            agentInboxId: entry.agent.profile.inboxId
+                        )
+                    } label: {
+                        HStack(spacing: DesignConstants.Spacing.step3x) {
+                            ProfileAvatarView(
+                                profile: entry.agent.profile,
+                                profileImage: nil,
+                                useSystemPlaceholder: false,
+                                agentVerification: entry.agent.agentVerification,
+                                size: 44
+                            )
+                            .frame(width: 44, height: 44)
+
+                            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                                Text(entry.agent.displayName(contactNameFallback: contactNameOverride))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.colorTextPrimary)
+                                    .lineLimit(1)
+                                Text("in \(entry.conversation.computedDisplayName(memberNameOverride: contactNameOverride))")
+                                    .font(.caption)
+                                    .foregroundStyle(.colorTextSecondary)
+                                    .lineLimit(1)
+                            }
+
+                            Spacer(minLength: DesignConstants.Spacing.step2x)
+
+                            Image(systemName: "message.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.colorTextPrimary)
+                                .frame(width: 32, height: 32)
+                                .background(.colorFillMinimal, in: .circle)
+                        }
+                        .padding(.horizontal, DesignConstants.Spacing.step3x)
+                        .frame(minHeight: 68)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Message \(entry.agent.displayName) in \(entry.conversation.computedDisplayName(memberNameOverride: contactNameOverride))")
+
+                    if index < agentsAcrossConvos.count - 1 {
+                        Divider().padding(.leading, 68)
+                    }
+                }
+            }
+            .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+            .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.medium))
+        }
+        .accessibilityIdentifier("your-space-agents-widget")
+    }
+
+    private var bringYourOwnAgentCallout: some View {
+        Button {
+            presentingPersonalAgentOnboarding = true
+        } label: {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
+                        .fill(Color.white.opacity(0.08))
+
+                    HStack(spacing: -8) {
+                        ForEach(ExternalAgentProvider.allCases) { provider in
+                            personalAgentBadge(provider, size: 46)
+                                .overlay(Circle().stroke(Color.colorBackgroundInverted, lineWidth: 3))
+                        }
+                    }
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                }
+                .frame(height: 88)
+
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                    Text("Bring your own agent")
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                    Text("Connect the agent you already use to make, edit, find, or understand anything across Your Space—then save and share what it creates.")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.colorTextPrimaryInverted.opacity(0.76))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                HStack {
+                    Text("Connect an agent")
+                        .font(.subheadline.weight(.semibold))
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(.colorTextPrimaryInverted)
+            }
+            .padding(DesignConstants.Spacing.step5x)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.colorBackgroundInverted, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .topTrailing) {
+            Button {
+                agentCalloutDismissed = true
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color.colorTextPrimaryInverted.opacity(0.82))
+                    .frame(width: 44, height: 44)
+                    .background(Color.white.opacity(0.08), in: .circle)
+            }
+            .buttonStyle(.plain)
+            .padding(DesignConstants.Spacing.step2x)
+            .accessibilityLabel("Hide bring your own agent")
+        }
+        .accessibilityIdentifier("your-space-bring-agent-callout")
+    }
+
     private var footprintWidget: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             Text("Your Space footprint")
@@ -702,6 +872,12 @@ private extension YourSpaceView {
 
     @ViewBuilder
     private var toolsMenuContent: some View {
+        Button("Bring your own agent", systemImage: "sparkles") {
+            presentingPersonalAgentOnboarding = true
+        }
+
+        Divider()
+
         Button("Connections", systemImage: "link") {
             toolDestination = .connections
         }
@@ -723,41 +899,87 @@ private extension YourSpaceView {
     }
 
     private var agentCommandButton: some View {
-        Button {
-            inputMode = .voice
-        } label: {
-            HStack(spacing: DesignConstants.Spacing.step3x) {
-                Image(systemName: "waveform")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.colorTextPrimaryInverted)
-                    .frame(width: 40, height: 40)
-                    .background(.colorLava, in: .circle)
+        HStack(spacing: DesignConstants.Spacing.stepX) {
+            Button {
+                inputMode = .voice
+            } label: {
+                HStack(spacing: DesignConstants.Spacing.step3x) {
+                    if let provider = activePersonalAgent {
+                        personalAgentBadge(provider, size: 40)
+                    } else {
+                        Image(systemName: "waveform")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.colorTextPrimaryInverted)
+                            .frame(width: 40, height: 40)
+                            .background(.colorLava, in: .circle)
+                    }
 
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                    Text("Ask your agent")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.colorTextPrimary)
-                        .lineLimit(1)
-                    Text("Make, edit, or find anything")
-                        .font(.caption)
-                        .foregroundStyle(.colorTextSecondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                        Text(activePersonalAgent.map { "Ask \($0.displayName)" } ?? "Ask your agent")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.colorTextPrimary)
+                            .lineLimit(1)
+                        Text(activePersonalAgent == nil
+                            ? "Make, edit, or find anything"
+                            : "Connected demo · Your Space context")
+                            .font(.caption)
+                            .foregroundStyle(.colorTextSecondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.82)
+                    }
+
+                    Spacer(minLength: 0)
                 }
-
-                Spacer(minLength: 0)
+                .contentShape(.rect)
             }
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .frame(maxWidth: .infinity, minHeight: 56)
-            .background(
-                .colorBackgroundRaisedSecondary,
-                in: .rect(cornerRadius: DesignConstants.CornerRadius.medium)
-            )
-            .shadow(color: Color.black.opacity(0.10), radius: 12, x: 0, y: 4)
+            .buttonStyle(.plain)
+
+            if activePersonalAgent != nil {
+                Menu {
+                    ForEach(personalAgentState.connectedExternalProviders) { provider in
+                        Button {
+                            personalAgentProviderRawValue = provider.rawValue
+                        } label: {
+                            Label(
+                                provider.displayName,
+                                systemImage: provider == activePersonalAgent ? "checkmark" : provider.symbolName
+                            )
+                        }
+                    }
+
+                    Divider()
+
+                    Button("Connect another agent", systemImage: "plus") {
+                        presentingPersonalAgentOnboarding = true
+                    }
+                } label: {
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.colorTextSecondary)
+                        .frame(width: 36, height: 44)
+                        .contentShape(.rect)
+                }
+                .accessibilityLabel("Change personal agent")
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Ask your agent to make, edit, or find anything")
-        .accessibilityIdentifier("your-space-voice-button")
+        .padding(.horizontal, DesignConstants.Spacing.step2x)
+        .frame(maxWidth: .infinity, minHeight: 56)
+        .background(
+            .colorBackgroundRaisedSecondary,
+            in: .rect(cornerRadius: DesignConstants.CornerRadius.medium)
+        )
+        .shadow(color: Color.black.opacity(0.10), radius: 12, x: 0, y: 4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("your-space-agent-command-bar")
+    }
+
+    private func personalAgentBadge(_ provider: ExternalAgentProvider, size: CGFloat) -> some View {
+        Image(systemName: provider.symbolName)
+            .font(.system(size: size * 0.36, weight: .semibold))
+            .foregroundStyle(Color.white)
+            .frame(width: size, height: size)
+            .background(provider.tint, in: .circle)
+            .accessibilityHidden(true)
     }
 
     private var chatButton: some View {
@@ -836,6 +1058,32 @@ private extension YourSpaceView {
 
     private func refreshLocalContext(selecting _: YourSpaceStoredFile? = nil) {
         localContextFiles = YourSpaceFileStore.storedFiles()
+    }
+
+    private func connectPersonalAgent(_ provider: ExternalAgentProvider) {
+        personalAgentState.connect(provider)
+        personalAgentProviderRawValue = provider.rawValue
+        presentingPersonalAgentOnboarding = false
+    }
+
+    private func restorePersonalAgentIfNeeded() {
+        guard let provider = activePersonalAgent else { return }
+        personalAgentState.connect(provider)
+    }
+
+    private func saveAgentOutput(_ output: String) throws -> YourSpaceContextItem {
+        let agentName = activePersonalAgent?.displayName ?? "Your Space agent"
+        let file = try YourSpaceFileStore.storeText(output, title: "\(agentName) output")
+        refreshLocalContext(selecting: file)
+        return YourSpaceContextItem(local: file)
+    }
+
+    private func shareAgentOutput(_ item: YourSpaceContextItem) {
+        inputMode = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            sharingItem = item
+        }
     }
 
     private func conversationTitle(_ id: String) -> String? {
@@ -957,6 +1205,13 @@ private struct YourSpaceUpdateRow: View {
     }
 }
 
+private struct YourSpaceAgentConvoEntry: Identifiable {
+    let conversation: Conversation
+    let agent: ConversationMember
+
+    var id: String { "\(conversation.id):\(agent.profile.inboxId)" }
+}
+
 #if DEBUG
 private extension YourSpaceView {
     static let visualFixtureConversations: [Conversation] = {
@@ -987,6 +1242,22 @@ private extension YourSpaceView {
     }()
 
     static let visualFixtureContextItems: [YourSpaceContextItem] = [
+        ContextLibraryItem(
+            id: "fixture-address",
+            kind: .address,
+            title: "3728 Bear Hollow Rd, Joelton, TN 37080",
+            date: Date().addingTimeInterval(-600),
+            conversationId: "your-space-nash",
+            senderInboxId: nil,
+            isMine: true,
+            attachmentKey: nil,
+            filename: nil,
+            mimeType: nil,
+            thumbnailDataBase64: nil,
+            destinationURLString: nil,
+            imageURLString: nil,
+            messageText: "This is the cabin address for the Nashville weekend. Use the gravel entrance after the bridge."
+        ),
         ContextLibraryItem(
             id: "fixture-link",
             kind: .link,

@@ -363,7 +363,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         guard !didSeedInitialTab else { return }
         didSeedInitialTab = true
         let agentDmRequested: Bool = initialAgentDmInboxId != nil
-            && initialAgentDmInboxId == primaryAgentInboxId
+            && agentChatLanes.contains { $0.liveInboxId == initialAgentDmInboxId }
         sheetDetent = ConversationSheetDetent.initial(
             hasUnread: hasUnreadToRead,
             agentDmRequested: agentDmRequested
@@ -406,6 +406,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
         guard let conversationId = note.userInfo?["conversationId"] as? String,
               conversationId == viewModel.conversation.id else {
             return
+        }
+        if let agentInboxId = note.userInfo?["agentInboxId"] as? String,
+           let requestedLane = agentChatLanes.first(where: { $0.liveInboxId == agentInboxId }) {
+            agentChatPrototypeState.select(requestedLane)
         }
         selectTab(.agent)
     }

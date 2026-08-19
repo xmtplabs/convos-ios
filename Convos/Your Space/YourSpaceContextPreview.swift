@@ -21,28 +21,32 @@ struct YourSpaceContextPreview: View {
     }
 
     var body: some View {
-        ZStack {
-            background
+        GeometryReader { proxy in
+            ZStack {
+                background
 
-            if let previewImage {
-                Image(uiImage: previewImage)
-                    .resizable()
-                    .scaledToFill()
-            } else if item.kind == .voice {
-                voicePreview
-            } else if let previewText, !previewText.isEmpty {
-                textPreview(previewText)
-            } else if item.kind == .link {
-                linkFallback
-            } else if isLoading {
-                ProgressView()
-                    .tint(.colorTextSecondary)
-            } else {
-                fileFallback
+                if let previewImage {
+                    Image(uiImage: previewImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+                } else if item.kind == .voice {
+                    voicePreview
+                } else if let previewText, !previewText.isEmpty {
+                    textPreview(previewText)
+                } else if item.kind == .link {
+                    linkFallback
+                } else if isLoading {
+                    ProgressView()
+                        .tint(.colorTextSecondary)
+                } else {
+                    fileFallback
+                }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipped()
         .task(id: item.id) {
             await hydratePreview()
         }
@@ -55,7 +59,7 @@ struct YourSpaceContextPreview: View {
         case .link, .address: .colorFillTertiary
         case .voice: Color.colorLava.opacity(0.16)
         case .phone, .email, .detail, .note: .colorFillMinimal
-        case .file, .all: .colorFillSubtle
+        case .file, .all, .useful: .colorFillSubtle
         }
     }
 
@@ -143,6 +147,10 @@ struct YourSpaceContextPreview: View {
             await hydrateFile(at: file.url, kind: item.kind, cacheKey: nil)
 
         case let .conversation(context):
+            if item.kind == .address {
+                previewImage = await YourSpacePreviewLoader.mapSnapshot(for: context.title)
+                return
+            }
             if item.kind == .link {
                 await hydrateLink(context)
                 return

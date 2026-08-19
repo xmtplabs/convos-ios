@@ -41,6 +41,7 @@ struct YourSpaceStoredFile: Identifiable, Hashable, Sendable {
 
 enum YourSpaceContextKind: String, CaseIterable, Codable, Identifiable, Sendable {
     case all
+    case useful
     case photo
     case video
     case link
@@ -57,6 +58,7 @@ enum YourSpaceContextKind: String, CaseIterable, Codable, Identifiable, Sendable
     var title: String {
         switch self {
         case .all: "All"
+        case .useful: "Useful details"
         case .photo: "Photos"
         case .video: "Videos"
         case .link: "Links"
@@ -73,6 +75,7 @@ enum YourSpaceContextKind: String, CaseIterable, Codable, Identifiable, Sendable
     var systemImage: String {
         switch self {
         case .all: "square.grid.2x2"
+        case .useful: "sparkles.rectangle.stack.fill"
         case .photo: "photo.fill"
         case .video: "play.rectangle.fill"
         case .link: "link"
@@ -206,12 +209,17 @@ struct YourSpaceContextItem: Identifiable, Hashable, Sendable {
         id = item.id
         kind = YourSpaceContextKind(rawValue: item.kind.rawValue) ?? .file
         title = item.title
-        detail = nil
+        detail = item.messageText
         date = item.date
         conversationId = item.conversationId
         senderInboxId = item.senderInboxId
         isMine = item.isMine
         source = .conversation(item)
+    }
+
+    var isAutomaticallyIndexedUsefulDetail: Bool {
+        guard case .conversation = source else { return false }
+        return [.address, .phone, .email].contains(kind)
     }
 
     init(rememberedField field: YourSpaceRememberedField) {

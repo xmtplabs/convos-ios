@@ -15,7 +15,9 @@ final class QAAutomationServerTest: XCTestCase {
         XCTAssertTrue(contextSearch.waitForExistence(timeout: 10))
         let initialY = contextSearch.frame.minY
 
-        app.swipeUp()
+        let homeScroll = app.scrollViews["your-space-home-scroll"]
+        XCTAssertTrue(homeScroll.waitForExistence(timeout: 2))
+        homeScroll.swipeUp()
 
         XCTAssertLessThan(contextSearch.frame.minY, initialY - 40)
     }

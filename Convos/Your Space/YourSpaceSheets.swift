@@ -232,6 +232,7 @@ struct YourSpaceToolDestinationSheet: View {
     @Bindable var connectionsViewModel: ConnectionsListViewModel
     @Binding var showsPeopleWidget: Bool
     @Binding var showsFootprintWidget: Bool
+    @Binding var showsAgentsWidget: Bool
 
     @Environment(\.dismiss) private var dismiss: DismissAction
 
@@ -246,7 +247,8 @@ struct YourSpaceToolDestinationSheet: View {
                 case .widgets:
                     YourSpaceWidgetGallery(
                         showsPeopleWidget: $showsPeopleWidget,
-                        showsFootprintWidget: $showsFootprintWidget
+                        showsFootprintWidget: $showsFootprintWidget,
+                        showsAgentsWidget: $showsAgentsWidget
                     )
                 case .connectedConvos:
                     YourSpaceSourcesView(
@@ -269,6 +271,7 @@ struct YourSpaceToolDestinationSheet: View {
 private struct YourSpaceWidgetGallery: View {
     @Binding var showsPeopleWidget: Bool
     @Binding var showsFootprintWidget: Bool
+    @Binding var showsAgentsWidget: Bool
 
     var body: some View {
         List {
@@ -278,6 +281,12 @@ private struct YourSpaceWidgetGallery: View {
                     description: "The people active across your recent convos.",
                     systemImage: "person.3.fill",
                     isOn: $showsPeopleWidget
+                )
+                widgetToggle(
+                    title: "Agents across convos",
+                    description: "See which agents are in each convo and open their DM.",
+                    systemImage: "sparkles",
+                    isOn: $showsAgentsWidget
                 )
                 widgetToggle(
                     title: "Space footprint",
@@ -447,11 +456,16 @@ private struct YourSpaceFilesView: View {
 struct YourSpaceInputSheet: View {
     let mode: YourSpaceInputMode
     let briefing: YourSpaceBriefing
+    let contextItems: [YourSpaceContextItem]
+    let agentName: String?
+    let onSaveOutput: (String) throws -> YourSpaceContextItem
+    let onShareOutput: (YourSpaceContextItem) -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var draft: String = ""
     @State private var submittedPrompt: String?
     @State private var response: String?
+    @State private var savedOutput: YourSpaceContextItem?
     @State private var recorder: VoiceMemoRecorder = VoiceMemoRecorder()
     @State private var isTranscribing: Bool = false
     @State private var inputError: InputError?
@@ -471,7 +485,7 @@ struct YourSpaceInputSheet: View {
                     }
 
                     if let response {
-                        assistantMessage(response)
+                        agentOutput(response)
                     }
 
                     if submittedPrompt == nil, mode == .chat {
@@ -493,7 +507,7 @@ struct YourSpaceInputSheet: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 inputBar
             }
-            .navigationTitle("Ask your agent")
+            .navigationTitle(agentName.map { "Ask \($0)" } ?? "Ask your agent")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -652,6 +666,35 @@ struct YourSpaceInputSheet: View {
             .accessibilityLabel("Your Space: \(text)")
     }
 
+    private func agentOutput(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+            assistantMessage(text)
+
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Button {
+                    saveResponse(text)
+                } label: {
+                    Label(savedOutput == nil ? "Save to Your Space" : "Saved", systemImage: savedOutput == nil ? "square.and.arrow.down" : "checkmark")
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                }
+                .buttonStyle(.bordered)
+                .disabled(savedOutput != nil)
+
+                Button {
+                    shareResponse(text)
+                } label: {
+                    Label("Share to a convo", systemImage: "arrowshape.turn.up.right")
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.colorTextPrimary)
+            }
+            .frame(maxWidth: 560)
+        }
+    }
+
     private func userMessage(_ text: String) -> some View {
         Text(text)
             .font(.body)
@@ -669,11 +712,35 @@ struct YourSpaceInputSheet: View {
         guard !question.isEmpty else { return }
         submittedPrompt = question
         response = groundedResponse(to: question)
+        savedOutput = nil
         draft = ""
     }
 
     private func groundedResponse(to question: String) -> String {
         let normalized = question.lowercased()
+
+        if normalized.contains("find")
+            || normalized.contains("address")
+            || normalized.contains("phone")
+            || normalized.contains("email")
+            || normalized.contains("link") {
+            let queryWords = normalized
+                .split { !$0.isLetter && !$0.isNumber }
+                .map(String.init)
+                .filter { $0.count > 2 && !["find", "show", "what", "where", "that", "with", "from"].contains($0) }
+            let matches = contextItems.filter { item in
+                let searchable = "\(item.title) \(item.detail ?? "")".lowercased()
+                return queryWords.isEmpty || queryWords.contains { searchable.contains($0) }
+            }
+            if !matches.isEmpty {
+                return matches.prefix(4).map { item in
+                    if let detail = item.detail, !detail.isEmpty {
+                        return "\(item.title)\n\(detail)"
+                    }
+                    return item.title
+                }.joined(separator: "\n\n")
+            }
+        }
 
         if normalized.contains("need") || normalized.contains("attention") || normalized.contains("reply") {
             guard !briefing.attentionUpdates.isEmpty else {
@@ -702,6 +769,24 @@ struct YourSpaceInputSheet: View {
         }
 
         return "Here's the clearest signal I have right now: \(briefing.headline)"
+    }
+
+    private func saveResponse(_ text: String) {
+        do {
+            savedOutput = try onSaveOutput(text)
+        } catch {
+            inputError = InputError(title: "Couldn't save that", message: error.localizedDescription)
+        }
+    }
+
+    private func shareResponse(_ text: String) {
+        do {
+            let item = try savedOutput ?? onSaveOutput(text)
+            savedOutput = item
+            onShareOutput(item)
+        } catch {
+            inputError = InputError(title: "Couldn't prepare that share", message: error.localizedDescription)
+        }
     }
 
     private func startRecording() async {

@@ -27,9 +27,12 @@ The home screen is not an inbox. It is a private, continuously growing layer of 
 - A top-right add control starts a new conversation or joins one by scanning a QR code.
 - The profile image at top left opens app settings.
 - A native overflow menu exposes connections, private file upload, stored files, home customization, and the conversations contributing to the private space.
-- The bottom dock keeps a visible “Ask your agent” command bar as the primary action, with More on the left and chat on the right.
+- The bottom dock keeps a visible personal-agent command bar as the primary action, with More on the left and chat on the right. When an external harness is connected in the prototype, the bar names it and exposes a native harness switcher.
 - Contacts are selected in the invite flow for a conversation rather than occupying a permanent bottom-level destination.
-- The “My context and connections” library organizes the user's contact card, locally added context, remembered addresses/numbers/details, and supported assets from loaded convos by type and provenance.
+- The “My context and connections” library organizes the user's editable contact card, locally added context, automatically detected useful message details, and supported assets from loaded convos by type and provenance.
+- Useful details are not contact-card fields: addresses, phone numbers, and emails are indexed from message text with the full source message, sender, convo, and time preserved for search and later sharing.
+- Optional widgets include an “Agents across your convos” list. Each row identifies the agent and source convo and opens that agent's private lane; widgets remain removable from the native widget picker.
+- A dismissible “Bring your own agent” callout and the More menu both open the existing honest external-agent connection prototype. Agent text outputs can be saved into Your Space and explicitly staged into a chosen convo, while adding that personal agent to a shared space remains future work.
 - Any context item may be shared only by explicitly choosing a destination; the app opens that convo with the item staged in its composer for review and never auto-sends it.
 
 ## Capabilities and Constraints
@@ -40,7 +43,7 @@ The home screen is not an inbox. It is a private, continuously growing layer of 
 - The home experience needs useful loading, empty, unread, and no-attention states.
 - The conversation switcher must support many conversations, unread state, search, and direct navigation.
 - The context library must support search, type filters, provenance, local notes/photos/voice/files, an editable personal card with bounded custom title-and-info fields, and an explicit add menu for context or connections.
-- The first production-grade context index is deliberately bounded to the 500 most recent supported attachments and link previews across at most 500 loaded conversations. Broader semantic extraction, paging, and arbitrary message text remain separate data-contract decisions.
+- The first production-grade context index is deliberately bounded to the 500 newest combined results across at most 500 loaded conversations. It indexes supported attachments/link previews plus addresses, phone numbers, and emails detected within the latest 5,000 eligible text messages, capped at 250 useful-detail results. Broader semantic extraction and paging remain separate data-contract decisions.
 - Visible context cards render the richest safe preview available: decrypted or local thumbnails, document thumbnails, text excerpts, map snapshots, and cached link artwork. A visible link card may hydrate metadata and artwork through the app's existing bounded rich-link service, then caches the result; background indexing never crawls preview hosts.
 - Recent convo previews remain neutral context until the user explicitly saves one. The app must not present them as inferred personal facts without a dedicated suggestion contract.
 - The initial prototype may use clearly isolated sample insight content in previews. Production summaries, provenance, ranking, and persistence remain an open data-contract decision.

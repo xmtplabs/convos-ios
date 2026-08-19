@@ -199,7 +199,7 @@ Identity is circular: profile and conversation avatars, people, unread dots, and
 - **Profile:** A circular `40pt` avatar inside a `44pt` target with a subtle semantic border; it opens settings and does not use glass.
 - **Switcher:** A flexible `44pt`-minimum capsule with a semibold body label and secondary chevron. It opens a right-aligned panel directly below the header, approximately 74% of the available content height. The panel keeps Your Space first, then search, then the complete recency-sorted convo list with unread state.
 - **Add:** A circular interactive-glass control exposing exactly start and QR-join actions.
-- **More:** A circular interactive-glass `Menu` whose native popup opens Connections, Upload files, Files, Add a widget, and Connected convos directly—without an intermediate tools sheet.
+- **More:** A circular interactive-glass `Menu` whose native popup opens Bring your own agent, Connections, Upload files, Files, Add a widget, and Connected convos directly—without an intermediate tools sheet.
 - **Voice:** A centered `56pt` Lava circle with a waveform symbol; it opens on-device recording and transcription into the private briefing assistant.
 - **Chat:** A trailing `44pt` interactive-glass circle with a filled message symbol; it opens the private text input surface.
 
@@ -213,7 +213,11 @@ One full-width inverted surface uses the medium corner, a `44pt` circular icon w
 
 ### My Context and Connections
 
-The main library begins with an editable personal contact card, followed by a single search entry, a balanced category grid, an organized Useful details list, recent assets, and one inverted “See all context” action. The contact card's Remember section accepts bounded custom title-and-info fields categorized as addresses, phone numbers, email, website, or other; every field is editable and has its own explicit Share action before Recent context. It combines on-device items the user adds with supported attachments and link previews from loaded convos. Every item retains source-convo and sender provenance when the data is available; private local items are labeled as such.
+The main library begins with an editable personal contact card, followed by a single search entry, a balanced category grid, an organized Useful details list, recent assets, and one inverted “See all context” action. The contact card's Remember section accepts bounded custom title-and-info fields categorized as addresses, phone numbers, email, website, or other; every field is editable and has its own explicit Share action before Recent context. Useful details are a separate automatic index of addresses, phone numbers, and emails detected in messages. Each useful-detail card keeps the extracted fact, full source message, sender, convo, relative time, and Share action together. It combines on-device items the user adds with supported attachments and link previews from loaded convos. Every item retains source-convo and sender provenance when the data is available; private local items are labeled as such.
+
+The optional Agents across your convos widget uses native rows with agent identity, source convo, and a direct private-lane affordance. It is off by default and removable from the same widget picker as People pulse and Space footprint.
+
+A dismissible inverted Bring your own agent callout uses a compact constellation of the provider marks already defined by the external-agent prototype. The same connection flow is reachable from More. After choosing a demo harness, the persistent command bar names the active provider and offers a native switcher; generated text may be saved as a private Your Space note and shared through the existing staged-composer boundary. The connection remains explicitly labeled a demo until its real credential, runtime, and artifact contracts exist, and “add this agent to a convo” is not presented as shipped behavior.
 
 Context-card preview wells show content rather than file-type glyphs: photos and videos use decrypted thumbnails, documents use Quick Look thumbnails, notes use excerpts, voice notes use a waveform and duration, addresses and map links use a map snapshot, and links use cached or safely hydrated rich-link artwork. Loading is scoped to visible cards and results are cached so the library remains responsive.
 
@@ -235,7 +239,7 @@ Context browsing, More menu destinations, sources, stored files, widget controls
 
 ### Private Input and Share Boundary
 
-Voice transcription, grounded chat answers, imported files, and personal-card notes remain on-device in Your Space. Any library item may expose an explicit Share action. Sharing first asks for a destination convo, then opens that convo with the item staged in its composer for review; it never sends automatically. The existing group-composer Share context flow remains available in PR and Dev prototype builds and is not yet enabled in Production.
+Voice transcription, grounded chat answers, imported files, personal-card notes, and saved personal-agent text outputs remain on-device in Your Space. Any library item may expose an explicit Share action. Sharing first asks for a destination convo, then opens that convo with the item staged in its composer for review; it never sends automatically. The existing group-composer Share context flow remains available in PR and Dev prototype builds and is not yet enabled in Production.
 
 **The Open Boundary Rule.** Private context may cross into a convo only after the user explicitly chooses both the item and destination, and the destination composer visibly stages it for review. Creating, editing, browsing, or searching home context remains private.
 

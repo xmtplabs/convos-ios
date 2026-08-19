@@ -79,6 +79,10 @@ struct YourSpaceShareStager {
             append(url, to: composer)
             return
         }
+        if [.address, .phone, .email].contains(kind) {
+            append(context.title, to: composer)
+            return
+        }
         guard let key = context.attachmentKey else {
             throw YourSpaceShareError.missingAttachment
         }
