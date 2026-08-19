@@ -1054,10 +1054,11 @@ private extension ConversationView {
     /// Takes a link into this conversation's own Space out of the browser and
     /// into the Home behind the sheet, and reports whether it did.
     ///
-    /// The sheet goes all the way down rather than to a reading size: the page
-    /// is what the tap asked for, and the Home owns the whole screen once the
-    /// sheet is collapsed. Both moves start in the same turn, so the push
-    /// animates while the sheet drops instead of after it.
+    /// The sheet settles at `compact` rather than dropping out of the way
+    /// entirely: the page is what the tap asked for, but the conversation it
+    /// came from is the reason the page matters, and `compact` is the size that
+    /// shows both. Both moves start in the same turn, so the push animates
+    /// while the sheet resizes instead of after it.
     ///
     /// A pushed page rather than a reload of the Home's own web view, which is
     /// what an in-page link tap already does (see `HomeWebNavigation`): the
@@ -1069,7 +1070,7 @@ private extension ConversationView {
               SpaceLink.matches(url, space: spaceURL) else {
             return false
         }
-        collapseSheet()
+        settleSheetForSpaceLink()
         if SpaceLink.isRoot(url, space: spaceURL) {
             // The root *is* the Home. Walk any open chain back to it rather
             // than stacking a second copy on top of itself.
@@ -1078,6 +1079,25 @@ private extension ConversationView {
             pushHomeBrowserPage(for: url)
         }
         return true
+    }
+
+    /// Clears the sheet off the page a Space link just opened, without taking
+    /// the transcript away.
+    ///
+    /// Only ever downward, and only as far as `compact`. A sheet already at
+    /// `compact` is where it should be and does not move at all - a resize
+    /// nobody asked for reads as the screen twitching. A collapsed sheet stays
+    /// collapsed for the same reason: the tap asked to see a page, not to be
+    /// shown a transcript that was deliberately put away.
+    ///
+    /// Focus goes first regardless. A focused composer holds the sheet up no
+    /// matter which detent is selected, so a keyboard left standing would keep
+    /// the page covered even after the detent changed.
+    private func settleSheetForSpaceLink() {
+        focusCoordinator.dismissMessageComposerIfNeeded()
+        agentFocusCoordinator.dismissMessageComposerIfNeeded()
+        guard sheetDetent > .compact else { return }
+        moveSheet(to: .compact)
     }
 
     /// Whether the page on top of the browsing chain is already this one, in
