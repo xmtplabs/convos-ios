@@ -27,7 +27,13 @@ public struct AgentDmInfoCellView: View {
 
     public var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            if !ConfigManager.shared.currentEnvironment.isProduction, let variant {
+            // The empty-label guard is not defensive noise: the worker forwards
+            // `metadata.variant` verbatim for the cosmetic banner, so a stamp
+            // that parseVariantDescriptor would reject still decodes here. Its
+            // ribbon would be a bare emoji on a yellow pill - a placeholder that
+            // says less than showing nothing.
+            if !ConfigManager.shared.currentEnvironment.isProduction,
+               let variant, !variant.label.isEmpty {
                 // Sized to its content and centered, rather than the full-bleed
                 // bar the contact-card overlay uses: this header is a centered
                 // column, and a full-width left-aligned bar would read as a
