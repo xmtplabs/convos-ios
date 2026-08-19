@@ -41,15 +41,19 @@ extension LiveAbilitiesServiceError: LocalizedError {
 ///   With no resolvable scope (device-only caller, or no provider) the
 ///   disk cache is bypassed entirely -- an accountless catalog is never
 ///   persisted over an account-scoped one.
-/// - the per-ability OAuth attempt from `beginEntitlement` (connection
-///   request id + consent URL). While an attempt is retained, begin
-///   short-circuits to it instead of minting a new backend connection
-///   request, so "Continue connecting" resumes the same attempt;
-///   `completeEntitlement` echoes the retained id, keeps it on
-///   `auth_incomplete` (same-id retry), and drops it on any other
-///   completion failure so the next connect re-begins. It is
-///   process-local by design: not a bearer credential, and a restart
-///   mid-auth recovers by re-running begin.
+/// - the per-ability OAuth attempt from `beginEntitlement`: the connection
+///   request id `completeEntitlement` must echo. Kept on `auth_incomplete`
+///   so the bounded completion retry re-submits the same id, dropped on any
+///   other completion failure. It is process-local by design: not a bearer
+///   credential, and a restart mid-auth recovers by re-running begin.
+///
+/// The consent URL a begin returns is deliberately **not** retained. It
+/// belongs to one provider link session, which expires on its own clock;
+/// re-serving a stored one on a later connect tap is how a member reaches
+/// a provider page reading "link session has expired" with no way forward.
+/// Every begin therefore mints a fresh session against the idempotent
+/// initiate endpoint, which answers `active` outright when the round it is
+/// restarting already completed upstream.
 ///
 /// Begins and completes are deduplicated per ability with in-flight task
 /// maps: actor reentrancy would otherwise let overlapping begins overwrite
@@ -77,11 +81,11 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     private let isShimEnabled: @Sendable () -> Bool
 
     /// One OAuth round in flight for an ability: the Composio connection
-    /// request id `completeEntitlement` must echo, plus the consent URL a
-    /// resumed begin re-serves.
+    /// request id `completeEntitlement` must echo. The round's consent URL
+    /// is not a field here on purpose -- a URL that is never stored is a
+    /// URL that cannot be replayed after its link session expired.
     private struct PendingAttempt {
         let connectionRequestId: String
-        let redirectUrl: String?
     }
 
     private var lastKnownCatalog: AbilitiesCatalog?
@@ -176,25 +180,37 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         }
     }
 
+    /// Opens an OAuth round for an ability, always against a freshly minted
+    /// provider link session.
+    ///
+    /// Every entry point that can reach a `pendingAuth` ability funnels
+    /// here -- the browser's Connect button, the conversation toggle's
+    /// repair route, the inline connect sheet -- and each of them is a tap
+    /// that may land minutes or hours after the round it is retrying. A
+    /// consent URL does not survive that wait, so none is carried over:
+    /// initiate is idempotent per (account, ability), so restarting costs
+    /// one request and answers `active` outright when the previous round
+    /// completed upstream in the meantime.
+    ///
+    /// Concurrent begins for the same ability still share one request --
+    /// that is tap-storm deduplication within a single round, not a
+    /// resumption across rounds.
     public func beginEntitlement(abilityId: String) async throws -> AbilityEntitlementInitiation {
         let wipeMark = wipeCount
         // Resolve the scope first so an account switch is detected here
         // too, not only on catalog fetches: the switch clears the previous
-        // account's attempts before the resume check below can serve one.
+        // account's attempts before a new one can be minted under them.
         let scope = await myInboxIdProvider?()
         prepareLastKnownCatalog(for: scope)
-        // Resume before re-begin: a retained attempt means an OAuth round
-        // is already open for this ability, and re-serving its consent URL
-        // keeps "Continue connecting" on the same backend connection
-        // request instead of minting a new one.
-        if let attempt = pendingAttempts[abilityId] {
-            return AbilityEntitlementInitiation(status: .pendingAuth, redirectUrl: attempt.redirectUrl)
-        }
         let epoch = scopeEpoch
         let inFlightKey = attemptKey(abilityId: abilityId, epoch: epoch)
         if let inFlight = inFlightBegins[inFlightKey] {
             return try await inFlight.value
         }
+        // The round being restarted is over as far as this client is
+        // concerned: drop its id now, so a begin that fails on the network
+        // cannot leave a completion able to echo a superseded request.
+        pendingAttempts[abilityId] = nil
         let task = Task { () throws -> AbilityEntitlementInitiation in
             do {
                 let response = try await apiClient.createAbilityEntitlement(abilityId: abilityId, redirectUri: redirectUri)
@@ -204,10 +220,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
                 // resolution above), the attempt belongs to the previous
                 // identity and must not be retained.
                 if let connectionRequestId = response.connectionRequestId, scopeEpoch == epoch, wipeCount == wipeMark {
-                    pendingAttempts[abilityId] = PendingAttempt(
-                        connectionRequestId: connectionRequestId,
-                        redirectUrl: response.redirectUrl
-                    )
+                    pendingAttempts[abilityId] = PendingAttempt(connectionRequestId: connectionRequestId)
                 }
                 return AbilityEntitlementInitiation(status: response.status, redirectUrl: response.redirectUrl)
             } catch {
@@ -240,8 +253,9 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
             } catch let error as AbilitiesAPI.EndpointError where error.isAuthIncomplete {
                 // Retained on purpose: auth_incomplete is retryable against
                 // the same connection request (ownership is verified by id
-                // server-side), so both an immediate retry and a later
-                // "Continue connecting" resume this attempt.
+                // server-side), which is what the bounded completion retry
+                // re-submits. A later connect tap is a different matter --
+                // it mints its own round and its own id.
                 throw error
             } catch {
                 // Any other completion failure invalidates the attempt

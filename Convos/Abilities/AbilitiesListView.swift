@@ -71,7 +71,13 @@ struct AbilitiesListScreen: View {
     /// revision it commits (so the lifecycle behind a toggle always comes
     /// from the snapshot that sectioned the row) and every entitlement it
     /// activates (so a connect from Discover enables the ability here).
-    /// Both directions capture weakly; `@State` owns the strong halves.
+    ///
+    /// The two edges capture with deliberately different strengths. The
+    /// forward edge (`wireActivation`) holds the per-chat view model
+    /// **strongly**, so a connect already in flight still writes its grant
+    /// after the modal is dismissed. The reverse edge wired here - the
+    /// recovery route back into the list view model - captures **weakly**,
+    /// which is what stops the pair from retaining each other.
     private static func makeConversationViewModel(
         _ listViewModel: AbilitiesListViewModel,
         selection: AbilitiesSelection,
@@ -152,8 +158,9 @@ struct AbilitiesListScreen: View {
 ///   stays app-wide, in App Settings).
 ///
 /// Section membership is identical in both modes and comes from the
-/// catalog alone; the mode drives the second header string and the
-/// Connected row's accessory.
+/// catalog alone (`AbilitiesListViewModel.section(for:)`, which is where
+/// the status-to-section mapping is spelled out); the mode drives the
+/// second header string and the Connected row's accessory.
 ///
 /// A conversation toggle that needs an entitlement no longer deep-links
 /// here: it presents the scoped `AbilityConnectSheet` instead, which reuses
@@ -513,11 +520,12 @@ struct AbilitiesListView: View {
         let disconnectAction = { viewModel.disconnect(ability) }
         return Menu {
             switch status {
-            case .pendingAuth:
-                Button("Continue connecting", action: continueAction)
             case .expired, .needsReauth, .revoked:
                 Button("Reconnect", action: continueAction)
-            case .active:
+            case .active, .pendingAuth:
+                // `pendingAuth` never reaches this menu: an unfinished
+                // authorization is a Discover row with a Connect button,
+                // not a Connected row with a repair entry.
                 EmptyView()
             }
             Button("Disconnect", role: .destructive, action: disconnectAction)
