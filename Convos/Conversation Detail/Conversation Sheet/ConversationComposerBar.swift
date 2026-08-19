@@ -24,9 +24,16 @@ struct ConversationComposerBar<ExtraBarContent: View>: View {
     /// Scrolls the paired transcript to the bottom; invoked on send.
     var scrollToBottom: (() -> Void)?
     var onDebugAttachmentTap: (() -> Void)?
-    /// Agent-style composer: inline media buttons and a voice-memo entry in
-    /// the empty composer's send slot (see MessagesBottomBar).
-    var usesInlineMediaButtons: Bool = false
+    /// Agent-style composer: the group `+` menu plus the trailing curated
+    /// quick-action row, and a voice-memo entry in the empty composer's send
+    /// slot (see MessagesBottomBar).
+    var usesAgentComposerLayout: Bool = false
+    /// Host-passed capability gating the `.connections` option; the bar
+    /// never reads feature flags itself (see MessagesBottomBar).
+    var connectionsEnabled: Bool = false
+    /// Presents the host's Connections browser from the composer's
+    /// powerplug entries.
+    var onConnectionsTap: (() -> Void)?
     /// Extra rows above the composer, e.g. the onboarding view and the
     /// capability-approved toast on the Group tab.
     @ViewBuilder let extraBarContent: () -> ExtraBarContent
@@ -77,7 +84,9 @@ struct ConversationComposerBar<ExtraBarContent: View>: View {
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: onDebugAttachmentTap,
-            usesInlineMediaButtons: usesInlineMediaButtons,
+            usesAgentComposerLayout: usesAgentComposerLayout,
+            connectionsEnabled: connectionsEnabled,
+            onConnectionsTap: onConnectionsTap,
             onBaseHeightChanged: { _ in
                 // The sheet measures its own full card height; the bar's base
                 // height is not needed separately.

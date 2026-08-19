@@ -12,6 +12,13 @@ struct AgentComposerBar: View {
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
     let isReadOnly: Bool
+    /// Host-passed capability gating the composer's `.connections` entries
+    /// (quick icon and `+` menu row alike); read from the feature flag at
+    /// the `ConversationView` seam only.
+    let connectionsEnabled: Bool
+    /// Presents the Connections browser modal; the host owns the
+    /// presentation, the composer only emits the tap.
+    let onConnectionsTap: () -> Void
     /// Scrolls the DM transcript to the bottom; invoked on send.
     var scrollToBottom: (() -> Void)?
 
@@ -25,7 +32,9 @@ struct AgentComposerBar: View {
                 messagePlaceholder: "Chat with \(session.agentName)",
                 isGroupComposer: false,
                 scrollToBottom: scrollToBottom,
-                usesInlineMediaButtons: true,
+                usesAgentComposerLayout: true,
+                connectionsEnabled: connectionsEnabled,
+                onConnectionsTap: onConnectionsTap,
                 extraBarContent: { EmptyView() }
             )
         } else {
@@ -35,9 +44,10 @@ struct AgentComposerBar: View {
 
     /// Disabled composer for the not-yet-created DM. The field and send
     /// button stay disabled until the session binds the real conversation
-    /// (normally within a second or two of the agent joining). The media
-    /// buttons stay visible (inert, dimmed) so the composer keeps the
-    /// agent bar's shape rather than dropping the affordances.
+    /// (normally within a second or two of the agent joining). The `+` and
+    /// the quick-action row stay visible (inert, dimmed) so the composer
+    /// keeps the agent bar's default-state shape rather than dropping the
+    /// affordances.
     private var draftComposer: some View {
         MessagesInputView(
             displayName: .constant(""),
@@ -53,7 +63,8 @@ struct AgentComposerBar: View {
             onClearInvite: {},
             fileAttachmentPreview: { _ in EmptyView() },
             agentShareChip: { EmptyView() },
-            attachmentsButton: { draftMediaButtons }
+            quickActionsAccessory: { draftQuickRow },
+            attachmentsButton: { draftPlusGlyph }
         )
         .fixedSize(horizontal: false, vertical: true)
         .clipShape(.rect(cornerRadius: Constant.draftCornerRadius))
@@ -64,14 +75,25 @@ struct AgentComposerBar: View {
         .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
 
-    /// The media buttons in the pre-creation composer: kept visible so the
-    /// bar holds the agent style's shape, but inert and dimmed (no
-    /// conversation to attach to yet) to read as disabled alongside the
-    /// field. Mirrors `MessagesBottomBar.inlineMediaButtons`.
-    private var draftMediaButtons: some View {
-        HStack(spacing: 0) {
-            ForEach(["camera.fill", "photo.fill", "document.fill"], id: \.self) { symbol in
-                Image(systemName: symbol)
+    /// The `+` in the pre-creation composer: kept visible so the bar holds
+    /// the agent layout's shape, but inert and dimmed (no conversation to
+    /// attach to yet). Mirrors `MessagesBottomBar.attachmentsGlyph`.
+    private var draftPlusGlyph: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 18.0, weight: .medium))
+            .foregroundStyle(Color.colorTextPrimary)
+            .frame(width: 32, height: 32)
+            .opacity(0.4)
+    }
+
+    /// The quick-action row in the pre-creation composer, same curation as
+    /// the live bar's default state (`ComposerAttachmentAction.agentQuickRow`),
+    /// inert and dimmed to read as disabled alongside the field.
+    private var draftQuickRow: some View {
+        let actions: [ComposerAttachmentAction] = ComposerAttachmentAction.agentQuickRow(connectionsEnabled: connectionsEnabled)
+        return HStack(spacing: 0) {
+            ForEach(actions) { action in
+                Image(systemName: action.filledIconSystemName)
                     .font(.system(size: 18.0, weight: .medium))
                     .foregroundStyle(Color.colorTextPrimary)
                     .frame(width: 32, height: 32)

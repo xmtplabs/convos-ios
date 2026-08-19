@@ -261,7 +261,7 @@ struct AppSettingsView: View {
     @ViewBuilder
     private var connectionsDestination: some View {
         if FeatureFlags.shared.isAbilitiesV2Enabled {
-            AbilitiesListScreen(selection: AbilitiesServices.selection)
+            AbilitiesListScreen(selection: AbilitiesServices.selection, mode: .appSettings)
         } else {
             ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
         }

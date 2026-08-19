@@ -123,6 +123,10 @@ let package = Package(
             dependencies: [
                 "ConvosCore",
                 "ConvosAppData",
+                // The composer's curation registry (ComposerAttachmentAction)
+                // is platform-neutral so its invariants run in the macOS test
+                // sweep; the rest of the target compiles empty off-iOS.
+                "ConvosComposer",
                 .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
                 .product(name: "XMTPiOS", package: "libxmtp"),
                 .product(name: "CSecp256k1", package: "CSecp256k1.swift"),

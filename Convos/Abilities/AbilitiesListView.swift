@@ -16,17 +16,42 @@ struct AbilitiesListScreen: View {
     /// Kept so entitled rows can hand the whole latched pair down to the
     /// ability detail push (see `AbilitiesSelection`).
     private let selection: AbilitiesSelection
+    /// Which entry point raised the screen; drives only the wrapper chrome
+    /// (see `ConnectionsBrowserMode`). Both modes render the same list from
+    /// the same view model.
+    private let mode: ConnectionsBrowserMode
+    @Environment(\.dismiss) private var dismiss: DismissAction
 
     /// Takes the whole selection so the service and its authorizer are
     /// latched together for the screen's lifetime -- the halves must never
     /// be resolved at different times (see `AbilitiesSelection`).
-    init(selection: AbilitiesSelection) {
+    init(selection: AbilitiesSelection, mode: ConnectionsBrowserMode) {
         self.selection = selection
+        self.mode = mode
         _viewModel = State(initialValue: AbilitiesListViewModel(service: selection.service, authorizer: selection.authorizer))
     }
 
     var body: some View {
+        if mode.showsDismissChrome {
+            NavigationStack {
+                listView
+                    .toolbar { doneToolbarItem }
+            }
+        } else {
+            listView
+        }
+    }
+
+    private var listView: some View {
         AbilitiesListView(viewModel: viewModel, selection: selection)
+    }
+
+    private var doneToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .confirmationAction) {
+            let action = { dismiss() }
+            Button("Done", action: action)
+                .accessibilityIdentifier("connections-browser-done-button")
+        }
     }
 }
 
@@ -57,6 +82,7 @@ struct AbilitiesListView: View {
             .searchable(text: $viewModel.searchText, prompt: "Search connections")
             .overlay { listOverlay }
             .task { await viewModel.refresh() }
+            .refreshable { await viewModel.refresh() }
             .selfSizingSheet(item: $viewModel.pendingAuthorization, onDismiss: handleAuthorizationDismissed) { context in
                 authorizationSheet(context)
             }
@@ -71,6 +97,7 @@ struct AbilitiesListView: View {
             if let errorMessage = viewModel.errorMessage {
                 errorBanner(errorMessage)
             }
+            nothingConnectedHeroSection
             entitledSection
             availableSection
             unknownStateSection
@@ -106,14 +133,18 @@ struct AbilitiesListView: View {
     /// Shown when the backend served the catalog without entitlement
     /// state. Rows carry last-known state; rows with no last-known state
     /// render in the state-unknown section, never as "not connected".
+    /// Carries an explicit retry alongside the list's pull-to-refresh.
     private var unavailableBanner: some View {
         Section {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.colorLava)
-                Text("Can't check connection status right now. Showing the last-known state.")
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.colorLava)
+                    Text("Can't check connection status right now. Showing the last-known state.")
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                retryButton
             }
             .accessibilityIdentifier("abilities-unavailable-banner")
         }
@@ -121,9 +152,68 @@ struct AbilitiesListView: View {
 
     private func errorBanner(_ message: String) -> some View {
         Section {
-            Text(message)
-                .font(.footnote)
-                .foregroundStyle(.colorCaution)
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.colorCaution)
+                retryButton
+            }
+        }
+    }
+
+    private var retryButton: some View {
+        let action: () -> Void = {
+            Task { await viewModel.refresh() }
+        }
+        return Button(action: action) {
+            Text("Retry")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.colorTextPrimary)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+                .padding(.vertical, DesignConstants.Spacing.stepX)
+                .background(Capsule().fill(Color.colorFillMinimal))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("abilities-retry-button")
+    }
+
+    /// The selling-point state for a member with nothing connected yet: a
+    /// mosaic of catalog icons over one line of copy, with the available
+    /// list right below. Only when the catalog actually loaded - an outage
+    /// shows its own banner instead.
+    @ViewBuilder
+    private var nothingConnectedHeroSection: some View {
+        if showsNothingConnectedHero {
+            Section {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+                    heroIconMosaic
+                    // Placeholder copy pending design input.
+                    Text("Nothing connected yet. Connect the apps you use and your agent can put them to work.")
+                        .font(.subheadline)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+                .listRowBackground(Color.clear)
+                .accessibilityIdentifier("abilities-nothing-connected-hero")
+            }
+            .listRowSeparator(.hidden)
+            .listSectionSeparator(.hidden)
+        }
+    }
+
+    private var showsNothingConnectedHero: Bool {
+        viewModel.hasLoadedOnce
+            && !viewModel.isSearching
+            && viewModel.entitledAbilities.isEmpty
+            && !viewModel.availableAbilities.isEmpty
+    }
+
+    private var heroIconMosaic: some View {
+        let mosaicAbilities: [AbilitiesAPI.Ability] = Array(viewModel.availableAbilities.prefix(5))
+        return HStack(spacing: DesignConstants.Spacing.step2x) {
+            ForEach(mosaicAbilities) { ability in
+                AbilityIconView(ability: ability)
+            }
         }
     }
 
@@ -320,24 +410,31 @@ struct AbilitiesListView: View {
 
 #Preview("Standard") {
     NavigationStack {
-        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService()))
+        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService()), mode: .appSettings)
     }
+}
+
+#Preview("Composer modal") {
+    AbilitiesListScreen(
+        selection: AbilitiesSelection(service: MockAbilitiesService()),
+        mode: .composerModal(conversationId: "dm-1", agentInboxId: "agent-1")
+    )
 }
 
 #Preview("Entitlements unavailable") {
     NavigationStack {
-        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailable)))
+        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailable)), mode: .appSettings)
     }
 }
 
 #Preview("Cold-start outage") {
     NavigationStack {
-        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart)))
+        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart)), mode: .appSettings)
     }
 }
 
 #Preview("Device only") {
     NavigationStack {
-        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .deviceOnly)))
+        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .deviceOnly)), mode: .appSettings)
     }
 }

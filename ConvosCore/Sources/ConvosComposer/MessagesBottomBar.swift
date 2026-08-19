@@ -105,10 +105,18 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     /// App-provided chip for a staged agent-share link, forwarded to
     /// `MessagesInputView`.
     @ViewBuilder let agentShareChip: () -> AgentChip
-    /// Agent-style composer: the media buttons (camera, photos, files) sit
-    /// inline at the field's leading edge instead of behind the `+` menu,
-    /// and an empty composer's send slot becomes the voice-memo entry.
-    var usesInlineMediaButtons: Bool = false
+    /// Agent-style composer: the same `+` menu as the group composer plus a
+    /// trailing curated quick-action row (default state only), and an empty
+    /// composer's send slot becomes the voice-memo entry.
+    var usesAgentComposerLayout: Bool = false
+    /// Host gate for the `.connections` option, quick icon and menu row
+    /// alike. The composer package cannot read the app's feature flags, so
+    /// the host passes the capability - both offered lists feed from it
+    /// through one predicate (see `ComposerAttachmentAction`).
+    var connectionsEnabled: Bool = false
+    /// Presents the host's Connections browser. The browser lives outside
+    /// this package, so the composer only emits the tap.
+    var onConnectionsTap: (() -> Void)?
 
     @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
@@ -162,7 +170,9 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         voiceMemoRecorder: VoiceMemoRecorder,
         onSendVoiceMemo: @escaping () -> Void,
         onDebugAttachmentTap: (() -> Void)? = nil,
-        usesInlineMediaButtons: Bool = false,
+        usesAgentComposerLayout: Bool = false,
+        connectionsEnabled: Bool = false,
+        onConnectionsTap: (() -> Void)? = nil,
         onBaseHeightChanged: @escaping (CGFloat) -> Void,
         @ViewBuilder bottomBarContent: @escaping () -> BottomBarContent,
         @ViewBuilder quickEditView: @escaping (String, Binding<Bool>) -> QuickEdit,
@@ -204,7 +214,9 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         self.voiceMemoRecorder = voiceMemoRecorder
         self.onSendVoiceMemo = onSendVoiceMemo
         self.onDebugAttachmentTap = onDebugAttachmentTap
-        self.usesInlineMediaButtons = usesInlineMediaButtons
+        self.usesAgentComposerLayout = usesAgentComposerLayout
+        self.connectionsEnabled = connectionsEnabled
+        self.onConnectionsTap = onConnectionsTap
         self.onBaseHeightChanged = onBaseHeightChanged
         self.bottomBarContent = bottomBarContent
         self.quickEditView = quickEditView
@@ -517,12 +529,17 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         }
     }
 
-    /// The rows the menu draws. The debug injector joins them only where the
+    /// The rows the menu draws: the group composer's standard set, or the
+    /// agent composer's set (camera folded in, `.connections` behind the
+    /// host-passed gate). The debug injector joins them only where the
     /// host handed one over, which it does behind `isDebugInjectorEnabled` -
     /// hard-locked off in production, so no member ever sees the row.
     private var offeredAttachmentActions: [ComposerAttachmentAction] {
-        guard onDebugAttachmentTap != nil else { return ComposerAttachmentAction.standard }
-        return ComposerAttachmentAction.standard + [.debugInjector]
+        let base: [ComposerAttachmentAction] = usesAgentComposerLayout
+            ? ComposerAttachmentAction.agentMenu(connectionsEnabled: connectionsEnabled)
+            : ComposerAttachmentAction.standard
+        guard onDebugAttachmentTap != nil else { return base }
+        return base + [.debugInjector]
     }
 
     /// What the composer can't offer right now. The menu greys these rows rather
@@ -573,41 +590,66 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         .equatable()
     }
 
-    /// Runs the picked row. The menu has already dismissed by the time the
-    /// action fires, so a picker can present right away.
+    /// Runs the picked row, from the `+` menu or the quick row alike. The
+    /// menu has already dismissed by the time the action fires, so a picker
+    /// can present right away.
     private func handleAttachmentSelected(_ action: ComposerAttachmentAction) {
-        switch action {
-        case .photos: isPhotoPickerPresented = true
-        case .camera: isCameraPresented = true
-        case .files: isFilePickerPresented = true
-        case .voiceNote: startVoiceMemoRecording()
+        switch action.dispatch {
+        case .photoPicker: isPhotoPickerPresented = true
+        case .cameraPicker: isCameraPresented = true
+        case .filePicker: isFilePickerPresented = true
+        case .voiceMemo: startVoiceMemoRecording()
+        case .hostConnections: onConnectionsTap?()
         case .debugInjector: onDebugAttachmentTap?()
         }
     }
 
-    /// The agent-style leading accessory: the media actions as always-visible
-    /// buttons instead of rows behind the `+` menu. Shares the menu variant's
-    /// availability rules (`disabledAttachmentActions`).
-    private var inlineMediaButtons: some View {
-        HStack(spacing: 0) {
-            inlineMediaButton(
-                symbol: "camera.fill",
-                action: .camera,
-                label: "Camera",
-                identifier: "camera-button"
-            )
-            inlineMediaButton(
-                symbol: "photo.fill",
-                action: .photos,
-                label: "Photo library",
-                identifier: "photo-picker-button"
-            )
-            inlineMediaButton(
-                symbol: "document.fill",
-                action: .files,
-                label: "Attach file",
-                identifier: "file-picker-button"
-            )
+    /// The agent composer's trailing quick-action row: the curated subset of
+    /// the `+` menu as always-visible filled buttons between the text and the
+    /// voice button. Shares the menu's availability rules
+    /// (`disabledAttachmentActions`) and dispatch (`handleAttachmentSelected`).
+    private var agentQuickRow: some View {
+        let actions: [ComposerAttachmentAction] = ComposerAttachmentAction.agentQuickRow(connectionsEnabled: connectionsEnabled)
+        return HStack(spacing: 0) {
+            ForEach(actions) { action in
+                inlineMediaButton(
+                    symbol: action.filledIconSystemName,
+                    action: action,
+                    label: action.title,
+                    identifier: quickRowIdentifier(for: action)
+                )
+            }
+        }
+    }
+
+    /// Stable accessibility ids: the media pair keeps the ids the old leading
+    /// strip carried (QA flows reference them); new options derive from the
+    /// action's own id.
+    private func quickRowIdentifier(for action: ComposerAttachmentAction) -> String {
+        switch action {
+        case .photos: "photo-picker-button"
+        case .files: "file-picker-button"
+        default: "quick-\(action.rawValue)-button"
+        }
+    }
+
+    /// The quick row shows in the default state only: it collapses while the
+    /// member writes, leaving `+` and the voice button.
+    private var isAgentQuickRowVisible: Bool {
+        usesAgentComposerLayout && AgentComposerQuickRow.isVisible(
+            isMessageFieldFocused: focusState == .message,
+            messageText: messageText
+        )
+    }
+
+    /// The input field's trailing accessory slot: the quick row while the
+    /// agent composer rests in its default state, nothing otherwise (the
+    /// group composer never fills the slot).
+    @ViewBuilder
+    private var quickActionsAccessory: some View {
+        if isAgentQuickRowVisible {
+            agentQuickRow
+                .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .trailing)))
         }
     }
 
@@ -661,18 +703,13 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
-                onVoiceMemoTapWhenEmpty: usesInlineMediaButtons ? { startVoiceMemoRecording() } : nil,
+                onVoiceMemoTapWhenEmpty: usesAgentComposerLayout ? { startVoiceMemoRecording() } : nil,
                 onClearLinkPreview: onClearLinkPreview,
                 onClearMediaAttachment: onClearMediaAttachment,
                 fileAttachmentPreview: fileAttachmentPreview,
                 agentShareChip: agentShareChip,
-                attachmentsButton: {
-                    if usesInlineMediaButtons {
-                        inlineMediaButtons
-                    } else {
-                        attachmentsGlyph
-                    }
-                }
+                quickActionsAccessory: { quickActionsAccessory },
+                attachmentsButton: { attachmentsGlyph }
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
@@ -680,13 +717,12 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
             .glassEffectID("input", in: namespace)
             .glassEffectTransition(.matchedGeometry)
+            .animation(.easeOut(duration: 0.2), value: isAgentQuickRowVisible)
             .overlay(alignment: .bottomLeading) {
-                // The invisible `+` menu control only overlays the glyph
-                // variant; the inline buttons are real buttons.
-                if !usesInlineMediaButtons {
-                    attachmentsControl
-                        .padding(DesignConstants.Spacing.step2x)
-                }
+                // The `+` menu's invisible hit target, floated over the inert
+                // glyph inside the capsule (see `attachmentsControl`).
+                attachmentsControl
+                    .padding(DesignConstants.Spacing.step2x)
             }
         }
         .disabled(!messagesTextFieldEnabled)
