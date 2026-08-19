@@ -534,6 +534,27 @@ struct CapabilityConnectTranscriptTests {
         #expect(try harness.fetchPrompt(requestId: "req-2")?.status == .pending)
         #expect(try harness.latestPendingRequestId() == "req-2")
     }
+
+    // MARK: - Agent DM fixture
+
+    @Test("a pending request in an agent DM derives per-viewer exactly like a group")
+    func dmFixtureDerivesPerViewer() throws {
+        let harness = try HydrationHarness(asker: asker, approver: approver)
+        try harness.dbManager.dbWriter.write { db in
+            try db.execute(
+                sql: "UPDATE conversation SET isAgentDm = 1 WHERE id = ?",
+                arguments: [harness.conversationId]
+            )
+        }
+        try harness.insertRequestRow(makeRequest(), sortId: 1)
+        let pending = try #require(try harness.fetchPrompt())
+        #expect(pending.status == .pending)
+        // The viewer's own approval resolves it; per-viewer rules are
+        // unchanged by the DM classification.
+        try harness.insertResultRow(requestId: "req-1", senderId: harness.currentInboxId, status: .approved, sortId: 2)
+        let connected = try #require(try harness.fetchPrompt())
+        #expect(connected.status == .connected)
+    }
 }
 
 // MARK: - GRDB harness

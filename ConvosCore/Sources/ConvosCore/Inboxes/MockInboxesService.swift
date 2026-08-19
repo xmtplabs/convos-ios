@@ -288,5 +288,13 @@ private struct MockDeviceConnectionAuthorizer: DeviceConnectionAuthorizer {
 }
 
 private final class MockCapabilityRequestRepository: CapabilityRequestRepositoryProtocol, @unchecked Sendable {
+    func resolveGrantScope(
+        isAgentDm: Bool,
+        askerInboxId: String,
+        liveMarkerOrigin: @escaping @Sendable () async -> String?
+    ) async -> CapabilityGrantScopeResolution {
+        CapabilityGrantScopeResolution(scope: .conversation("mock"), scopeDisplayName: "Mock Group")
+    }
+
     let pendingRequestPublisher: AnyPublisher<CapabilityRequest?, Never> = Just(nil).eraseToAnyPublisher()
 }

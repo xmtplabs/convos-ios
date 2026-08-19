@@ -355,6 +355,7 @@ struct AgentDmPageView: View {
             onAgentOutOfCredits: { dmVm.presentingPaywall = true },
             agentPowerDepletedByInboxId: dmVm.agentPowerDepletedByInboxId,
             onTapUpdateMember: { dmVm.presentingProfileForMember = $0 },
+            onTapCapabilityConnect: { prompt in handleDmCapabilityConnectTap(prompt, dmVm: dmVm) },
             onRetryMessage: dmVm.retryMessage(_:),
             onDeleteMessage: dmVm.deleteMessage(_:),
             onRetryAgentJoin: {},
@@ -409,6 +410,43 @@ struct AgentDmPageView: View {
             .sheet(isPresented: $dmVm.presentingPaywall) {
                 paywall(for: dmVm)
             }
+            .selfSizingSheet(isPresented: $dmVm.presentingCapabilityApproval) {
+                capabilityApprovalSheet(for: dmVm)
+            }
+    }
+
+    /// A pending pill in the DM transcript opens the same approval sheet the
+    /// group path uses. Read-only viewers can't answer the request (a result
+    /// message couldn't be sent on their behalf anyway).
+    private func handleDmCapabilityConnectTap(_ prompt: CapabilityConnectPrompt, dmVm: ConversationViewModel) {
+        guard !isReadOnly else { return }
+        dmVm.onTapCapabilityConnectPrompt(prompt)
+    }
+
+    /// Mirrors `ConversationView.capabilityApprovalSheet` -- including the
+    /// in-flight and error wiring and the named grant-scope disclosure. The
+    /// DM approval scopes its grant to the origin group, and the sheet names
+    /// that group before the approve control renders.
+    @ViewBuilder
+    private func capabilityApprovalSheet(for dmVm: ConversationViewModel) -> some View {
+        if let layout = dmVm.pendingCapabilityPickerLayout {
+            CapabilityApprovalSheetView(
+                layout: layout,
+                agentName: dmVm.askerDisplayName(for: layout.request),
+                isApproving: dmVm.capabilityApprovalInFlight,
+                approvalErrorMessage: dmVm.capabilityApprovalErrorMessage,
+                scopeDisplayName: dmVm.capabilityApprovalScopeName,
+                blockedMessage: dmVm.capabilityApprovalBlockedMessage,
+                onApprove: { providerIds, bundleSelection in
+                    dmVm.onCapabilityApprove(
+                        providerIds: providerIds,
+                        bundleSelection: bundleSelection
+                    )
+                }
+            )
+        } else {
+            EmptyView()
+        }
     }
 
     /// The low-balance paywall reached from the transcript's out-of-credits

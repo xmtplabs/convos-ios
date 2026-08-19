@@ -18,6 +18,17 @@ import GRDB
 /// non-decision statuses never resolve it.
 public protocol CapabilityRequestRepositoryProtocol: Sendable {
     var pendingRequestPublisher: AnyPublisher<CapabilityRequest?, Never> { get }
+
+    /// Resolves which conversation an approval's grant writes must scope to
+    /// (see `CapabilityGrantScope`). `isAgentDm` is the conversation's
+    /// persisted classification; `liveMarkerOrigin` reads the DM's own XMTP
+    /// appData marker and is consulted only when the local mirror row is
+    /// absent.
+    func resolveGrantScope(
+        isAgentDm: Bool,
+        askerInboxId: String,
+        liveMarkerOrigin: @escaping @Sendable () async -> String?
+    ) async -> CapabilityGrantScopeResolution
 }
 
 public final class CapabilityRequestRepository: CapabilityRequestRepositoryProtocol, @unchecked Sendable {
@@ -29,6 +40,21 @@ public final class CapabilityRequestRepository: CapabilityRequestRepositoryProto
         self.dbReader = dbReader
         self.conversationId = conversationId
         self.viewerInboxId = viewerInboxId
+    }
+
+    public func resolveGrantScope(
+        isAgentDm: Bool,
+        askerInboxId: String,
+        liveMarkerOrigin: @escaping @Sendable () async -> String?
+    ) async -> CapabilityGrantScopeResolution {
+        await CapabilityGrantScopeResolution.resolve(
+            conversationId: conversationId,
+            isAgentDm: isAgentDm,
+            askerInboxId: askerInboxId,
+            viewerInboxId: viewerInboxId,
+            dbReader: dbReader,
+            liveMarkerOrigin: liveMarkerOrigin
+        )
     }
 
     public lazy var pendingRequestPublisher: AnyPublisher<CapabilityRequest?, Never> = {
