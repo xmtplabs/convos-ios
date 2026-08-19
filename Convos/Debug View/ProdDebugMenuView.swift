@@ -50,7 +50,7 @@ struct ProdDebugMenuView: View {
     @State private var identity: DeviceIdentitySnapshot?
     @State private var installations: InstallationsSnapshot?
     @State private var debugModeEnabled: Bool = DebugMenuFlagStore.isEnabled()
-    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var creditBalance: CreditBalance?
     @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
 
     var body: some View {

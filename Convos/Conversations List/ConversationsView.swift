@@ -39,7 +39,7 @@ struct ConversationsView: View {
     @Environment(\.scenePhase) private var scenePhase: ScenePhase
     @State private var conversationPendingExplosion: Conversation?
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
-    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var creditBalance: CreditBalance?
     @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var staleDeviceSheetDismissed: Bool = false
 
