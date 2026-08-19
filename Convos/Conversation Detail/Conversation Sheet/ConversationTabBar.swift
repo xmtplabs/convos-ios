@@ -39,6 +39,14 @@ struct ConversationTabBar: View {
     /// the gesture mid-flight, and a start captured after the selection has
     /// already moved makes every tab switch look like a re-tap.
     @State private var selectionAtGestureStart: ConversationTab?
+    /// Whether the selection moved at any point during the current gesture.
+    ///
+    /// Start and end tab alone cannot tell a tap from a drag that crossed to the
+    /// other lane and came back, and the two mean opposite things: the round trip
+    /// is a lane switch, and collapsing the sheet under it is the last thing the
+    /// finger asked for. Cleared alongside `selectionAtGestureStart`, so a
+    /// cancelled gesture cannot leave it set for the next one to inherit.
+    @State private var didMoveSelectionDuringGesture: Bool = false
 
     private var selectedIndex: Int {
         tabs.firstIndex(of: selectedTab) ?? 0
@@ -64,6 +72,7 @@ struct ConversationTabBar: View {
         .onChange(of: isTracking) { _, tracking in
             guard !tracking else { return }
             selectionAtGestureStart = nil
+            didMoveSelectionDuringGesture = false
         }
         .padding(Constant.capsulePadding)
         // The liquid-glass capsule the native floating tab bar rides in.
@@ -104,15 +113,19 @@ struct ConversationTabBar: View {
                 select(atX: value.location.x)
             }
             .onEnded { value in
+                // Resolved before the release can move the selection: a state
+                // written and read inside one callback is not guaranteed to read
+                // back what was just written, and this answer must not depend on
+                // that. Everything it reads is settled by earlier events.
+                let endTab: ConversationTab? = tab(atX: value.location.x)
+                let isReselect: Bool = !didMoveSelectionDuringGesture
+                    && selectionAtGestureStart != nil
+                    && endTab == selectionAtGestureStart
                 select(atX: value.location.x)
-                // A re-tap is a gesture that began on the tab it ended on, with
-                // that tab already selected. Asking it this way needs nothing
-                // cleaned up afterwards.
-                if let start = selectionAtGestureStart,
-                   let tab = tab(atX: value.location.x),
-                   tab == start,
-                   tab == selectedTab {
-                    onReselect(tab)
+                // A re-tap is a gesture that began on the tab it ended on and
+                // never moved the selection in between.
+                if isReselect, let endTab {
+                    onReselect(endTab)
                 }
             }
     }
@@ -131,6 +144,7 @@ struct ConversationTabBar: View {
     /// tracking: called on touch-down and every drag sample.
     private func select(atX x: CGFloat) {
         guard let tab = tab(atX: x), tab != selectedTab else { return }
+        didMoveSelectionDuringGesture = true
         withAnimation(.easeInOut(duration: 0.25)) {
             selectedTab = tab
         }
