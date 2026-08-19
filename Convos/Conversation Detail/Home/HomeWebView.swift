@@ -176,11 +176,11 @@ struct HomeWebView: UIViewRepresentable {
             handleLoadFailure(navigation, error: error)
         }
 
-        /// A failed load must not strand the surface: clearing `hasLoaded`
-        /// lets the next update pass retry the same URL, and firing
-        /// `onLoaded` drops the cover so the surface isn't an opaque,
-        /// untouchable ghost while it waits. Cancellations (a newer
-        /// load superseding this one) are not failures.
+        /// A failed load must not strand the surface: clearing `hasLoaded` lets
+        /// the next update pass retry the same URL. It also fires `onLoaded`,
+        /// which drops the cover - so a failure currently reveals an empty web
+        /// view rather than holding the preparing state until the retry lands.
+        /// Cancellations (a newer load superseding this one) are not failures.
         private func handleLoadFailure(_ navigation: WKNavigation?, error: Error) {
             guard isCurrent(navigation) else { return }
             let nsError = error as NSError

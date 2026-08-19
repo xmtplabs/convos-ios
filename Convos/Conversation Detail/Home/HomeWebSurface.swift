@@ -49,12 +49,12 @@ struct HomeWebSurface: View {
                 .opacity(isLoaded ? 0 : 1)
                 .allowsHitTesting(!isLoaded)
         }
-        // A conversation that loses its space goes back to waiting for one, so
-        // the cover comes back rather than leaving the last page on screen.
-        .onChange(of: url) { _, newURL in
-            if newURL == nil {
-                isLoaded = false
-            }
+        // Any change of url is a new page to wait for, so the cover comes back
+        // rather than leaving the previous one on screen - live and touchable -
+        // until the new one commits. That includes a space being republished at
+        // a different address, not only one going away.
+        .onChange(of: url) { _, _ in
+            isLoaded = false
         }
     }
 
