@@ -374,8 +374,11 @@ public final class MessagesViewController: UIViewController {
     /// a safe-area change.
     var clippedTopOverflow: CGFloat = 0.0 {
         didSet {
+            // Re-measured, not just re-asserted: the slack is what is left of the
+            // visible area once this has been taken out of it, so it moves with
+            // this. The host sets this from a SwiftUI update, not a layout pass.
             guard clippedTopOverflow != oldValue, isViewLoaded else { return }
-            applyClippedTopOverflow()
+            relatchShortContentTopSlack()
         }
     }
 
@@ -383,6 +386,31 @@ public final class MessagesViewController: UIViewController {
     /// `reportContentHeightIfChanged`.
     var onContentHeightChanged: ((CGFloat) -> Void)?
     private var lastReportedContentHeight: CGFloat?
+
+    /// The slack, last measured somewhere the content height was settled.
+    ///
+    /// `shortContentTopSlack` reads `collectionView.contentSize`, and the layout
+    /// reads the resulting inset straight back out: `offsetCompensation` in
+    /// `invalidationContext(forPreferredLayoutAttributes:withOriginalAttributes:)`
+    /// sums `adjustedContentInset.top` into the offset it compensates a self-sizing
+    /// cell by. Measuring the slack fresh from inside a layout pass therefore closes
+    /// a cycle - a new inset moves the compensated offset, that shows a different
+    /// visible rect, those cells self-size, the content height changes, and the
+    /// slack is different again - which UIKit caps and traps on, seven
+    /// `_updateVisibleCellsNow:` frames deep, as "stuck in a recursive layout loop".
+    /// The conversation sheet hits it on presentation, where a short transcript and
+    /// a synchronous `layoutBelowIfNeeded` from the sheet's transition put every
+    /// turn of that cycle inside one pass.
+    ///
+    /// Latching is what breaks it: the value only changes where the content height
+    /// has settled - `reportContentHeightIfChanged`'s deferred hop, and the
+    /// deferred hop for a resize - so a layout pass only ever re-asserts a constant.
+    private var latchedShortContentTopSlack: CGFloat = 0.0
+
+    /// The height this list was last laid out at, and whether a re-measure is
+    /// already queued for it.
+    private var lastTopSlackLayoutHeight: CGFloat?
+    private var isShortContentTopSlackRelatchScheduled: Bool = false
 
     private var lastKeyboardFrameChange: KeyboardInfo?
 
@@ -613,6 +641,7 @@ public final class MessagesViewController: UIViewController {
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         applyClippedTopOverflow()
+        scheduleShortContentTopSlackRelatchIfHeightChanged()
     }
 
     /// The SwiftUI bottom bar mounts into the safe area a render pass or two
@@ -1644,7 +1673,7 @@ extension MessagesViewController {
         // that fires when that changes.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            applyClippedTopOverflow()
+            relatchShortContentTopSlack()
             onContentHeightChanged?(height)
         }
     }
@@ -1652,11 +1681,42 @@ extension MessagesViewController {
     /// The list's top inset: what the host clips away, plus whatever it takes to
     /// hold short content against the bottom. See `clippedTopOverflow` and
     /// `shortContentTopSlack`.
+    ///
+    /// Safe to call from inside a layout pass. `clippedTopOverflow` is a constant
+    /// handed over by the host, and the slack is the latched value rather than a
+    /// fresh reading - so the inset this writes does not move while the pass runs,
+    /// and the pass settles after one write. See `latchedShortContentTopSlack`.
     func applyClippedTopOverflow() {
-        let target: CGFloat = clippedTopOverflow + shortContentTopSlack
+        let target: CGFloat = clippedTopOverflow + latchedShortContentTopSlack
         guard abs(collectionView.contentInset.top - target) > 0.5 else { return }
         collectionView.contentInset.top = target
         collectionView.verticalScrollIndicatorInsets.top = target
+    }
+
+    /// Re-measures the slack and applies it. Never call this from inside a layout
+    /// pass; that is the cycle `latchedShortContentTopSlack` documents.
+    func relatchShortContentTopSlack() {
+        latchedShortContentTopSlack = shortContentTopSlack
+        applyClippedTopOverflow()
+    }
+
+    /// The slack follows the list's own height as well as its content: the
+    /// conversation sheet changing detent resizes the transcript without changing a
+    /// single message, and no content height is reported for that. Re-measuring
+    /// inline would put the live geometry back inside the layout pass, so this
+    /// defers a turn and coalesces - a detent change is a run of layout passes, and
+    /// only the last one's height matters.
+    private func scheduleShortContentTopSlackRelatchIfHeightChanged() {
+        let height: CGFloat = collectionView.frame.height
+        guard lastTopSlackLayoutHeight != height else { return }
+        lastTopSlackLayoutHeight = height
+        guard !isShortContentTopSlackRelatchScheduled else { return }
+        isShortContentTopSlackRelatchScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            isShortContentTopSlackRelatchScheduled = false
+            relatchShortContentTopSlack()
+        }
     }
 
     /// Extra top inset that rests content too short to fill the visible area
