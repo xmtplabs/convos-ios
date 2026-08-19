@@ -62,6 +62,8 @@ public struct ContextLibraryItem: Identifiable, Hashable, Sendable {
 }
 
 public final class ContextLibraryRepository: Sendable {
+    private static let maximumConversationCount: Int = 500
+    private static let maximumItemCount: Int = 500
     private let dbReader: any DatabaseReader
 
     public init(dbReader: any DatabaseReader) {
@@ -69,7 +71,10 @@ public final class ContextLibraryRepository: Sendable {
     }
 
     public func itemsPublisher(conversationIds: [String]) -> AnyPublisher<[ContextLibraryItem], Never> {
-        let uniqueIds = Array(Set(conversationIds))
+        var seenIds: Set<String> = []
+        let uniqueIds = Array(conversationIds
+            .filter { seenIds.insert($0).inserted }
+            .prefix(Self.maximumConversationCount))
         guard !uniqueIds.isEmpty else {
             return Just([]).eraseToAnyPublisher()
         }
@@ -80,10 +85,11 @@ public final class ContextLibraryRepository: Sendable {
             }
             .publisher(in: dbReader, scheduling: .immediate)
             .replaceError(with: [])
+            .removeDuplicates()
             .eraseToAnyPublisher()
     }
 
-    private static func loadItems(db: Database, conversationIds: [String]) throws -> [ContextLibraryItem] {
+    static func loadItems(db: Database, conversationIds: [String]) throws -> [ContextLibraryItem] {
         let placeholders = conversationIds.map { _ in "?" }.joined(separator: ",")
         let rows = try Row.fetchAll(
             db,
@@ -93,27 +99,31 @@ public final class ContextLibraryRepository: Sendable {
                 WHERE conversationId IN (\(placeholders))
                     AND contentType IN ('attachments', 'linkPreview')
                 ORDER BY date DESC
+                LIMIT \(maximumItemCount)
                 """,
             arguments: StatementArguments(conversationIds)
         )
         let currentInboxId = try DBInbox.currentInboxId(db)
 
-        return rows.flatMap { row -> [ContextLibraryItem] in
+        var items: [ContextLibraryItem] = []
+        items.reserveCapacity(min(rows.count, maximumItemCount))
+
+        for row in rows where items.count < maximumItemCount {
             guard let messageId: String = row["id"],
                   let conversationId: String = row["conversationId"],
                   let senderInboxId: String = row["senderId"],
                   let date: Date = row["date"],
                   let contentType: String = row["contentType"] else {
-                return []
+                continue
             }
 
             if contentType == MessageContentType.linkPreview.rawValue {
                 guard let linkPreviewJSON: String = row["linkPreview"],
                       let data = linkPreviewJSON.data(using: .utf8),
                       let preview = try? JSONDecoder().decode(LinkPreview.self, from: data) else {
-                    return []
+                    continue
                 }
-                return [ContextLibraryItem(
+                items.append(ContextLibraryItem(
                     id: "link-\(messageId)",
                     kind: .link,
                     title: preview.title ?? URL(string: preview.url)?.host ?? preview.url,
@@ -127,18 +137,20 @@ public final class ContextLibraryRepository: Sendable {
                     thumbnailDataBase64: nil,
                     destinationURLString: preview.url,
                     imageURLString: preview.imageURL
-                )]
+                ))
+                continue
             }
 
             guard let attachmentURLsJSON: String = row["attachmentUrls"],
                   let data = attachmentURLsJSON.data(using: .utf8),
                   let attachmentKeys = try? JSONDecoder().decode([String].self, from: data) else {
-                return []
+                continue
             }
 
-            return attachmentKeys.enumerated().map { index, key in
+            let remainingCount = maximumItemCount - items.count
+            for (index, key) in attachmentKeys.prefix(remainingCount).enumerated() {
                 let descriptor = attachmentDescriptor(for: key)
-                return ContextLibraryItem(
+                items.append(ContextLibraryItem(
                     id: "attachment-\(messageId)-\(index)",
                     kind: kind(filename: descriptor.filename, mimeType: descriptor.mimeType),
                     title: descriptor.filename ?? fallbackTitle(mimeType: descriptor.mimeType),
@@ -152,9 +164,11 @@ public final class ContextLibraryRepository: Sendable {
                     thumbnailDataBase64: descriptor.thumbnailDataBase64,
                     destinationURLString: nil,
                     imageURLString: nil
-                )
+                ))
             }
         }
+
+        return items
     }
 
     private struct AttachmentDescriptor {

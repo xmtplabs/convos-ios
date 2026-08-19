@@ -47,11 +47,17 @@ struct ContextLibraryRepositoryTests {
             )
         }
 
+        let directItems = try await dbManager.dbReader.read { db in
+            try ContextLibraryRepository.loadItems(db: db, conversationIds: ["included"])
+        }
+        #expect(directItems.count == 3)
+
         let repository = ContextLibraryRepository(dbReader: dbManager.dbReader)
         let items = await firstValue(from: repository.itemsPublisher(conversationIds: ["included"]))
 
         #expect(items.map(\.id) == ["attachment-photo-0", "link-link", "attachment-voice-0"])
         #expect(items.map(\.kind) == [.photo, .link, .voice])
+        guard items.count == 3 else { return }
         #expect(items[0].title == "Dinner.jpg")
         #expect(items[0].isMine)
         #expect(items[0].conversationId == "included")
@@ -71,6 +77,30 @@ struct ContextLibraryRepositoryTests {
         let items = await firstValue(from: repository.itemsPublisher(conversationIds: []))
 
         #expect(items.isEmpty)
+    }
+
+    @Test("bounds oversized attachment context during launch")
+    func boundsOversizedAttachmentContext() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try await dbManager.dbWriter.write { db in
+            try Self.seedIdentityAndConversations(db)
+            try Self.message(
+                id: "oversized",
+                conversationId: "included",
+                senderId: Self.currentInboxId,
+                date: Date(),
+                contentType: .attachments,
+                linkPreview: nil,
+                attachmentUrls: (0..<510).map { "file:///tmp/cache_Photo-\($0).jpg" }
+            ).insert(db)
+        }
+
+        let repository = ContextLibraryRepository(dbReader: dbManager.dbReader)
+        let items = await firstValue(from: repository.itemsPublisher(conversationIds: ["included", "included"]))
+
+        #expect(items.count == 500)
+        #expect(items.first?.id == "attachment-oversized-0")
+        #expect(items.last?.id == "attachment-oversized-499")
     }
 
     private func firstValue(

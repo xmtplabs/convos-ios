@@ -110,15 +110,14 @@ struct YourSpaceView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            content
-                .accessibilityHidden(presentingSwitcher)
-
-            if presentingSwitcher {
-                switcherOverlay
-                    .zIndex(10)
+        content
+            .accessibilityHidden(presentingSwitcher)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .topTrailing) {
+                if presentingSwitcher {
+                    switcherOverlay
+                }
             }
-        }
             .background(Color.colorBackgroundSurfaceless)
             .safeAreaInset(edge: .top, spacing: 0) {
                 topBar.accessibilityHidden(presentingSwitcher)
@@ -296,6 +295,7 @@ private extension YourSpaceView {
                 .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.hidden)
+            .accessibilityIdentifier("your-space-home-scroll")
         }
     }
 

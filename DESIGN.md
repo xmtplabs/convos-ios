@@ -168,6 +168,8 @@ The palette is an adaptive black-to-white neutral system whose meaning survives 
 
 The shell is pinned to `YS-SHELL-2026-08-18`. Its top safe-area bar places circular profile identity, a flexible centered switcher, and a circular add menu on one line. The main briefing scrolls independently beneath it, and a fixed three-position More–voice–chat dock occupies the bottom safe area when reading size permits. Equal side regions keep the `56pt` voice action physically centered between `44pt` side controls.
 
+The home scroll view owns the visible viewport. Temporary chrome such as the anchored convo switcher is an overlay on that viewport and must never wrap, expand, or replace the scroll container's layout bounds.
+
 Content follows the existing `DesignConstants.Spacing` four-point rhythm. The main column uses a `24pt` horizontal inset, `32pt` top inset, `40pt` section rhythm, and `64pt` bottom breathing room, with a maximum readable width of `720pt`. Full-width empty-state and accessibility actions stop at `520pt`.
 
 At accessibility Dynamic Type sizes, the bottom controls leave the safe-area overlay and reappear as full-width, `52pt`-minimum actions inside the scrolling content. The compact top chrome caps at the largest standard Dynamic Type size so profile, switcher, and add remain one usable row while the briefing continues to scale through the accessibility sizes. Text wraps vertically, update details retain conversation provenance, and controls preserve at least a `44pt` target without squeezing the briefing.
@@ -175,6 +177,8 @@ At accessibility Dynamic Type sizes, the bottom controls leave the safe-area ove
 **The Pinned Shell Rule.** Preserve the profile–switcher–add top line and More–voice–chat bottom line; conversations belong in a searchable panel anchored directly beneath the header, not in a large home-screen list or bottom sheet.
 
 **The Accessibility Reflow Rule.** When text reaches an accessibility size, move persistent bottom actions into the content flow rather than forcing them to compete with enlarged text.
+
+**The Scroll Ownership Rule.** Overlay navigation on the bounded home viewport; never place the home scroll view inside a container that can adopt the scroll content's full height.
 
 ## Elevation & Depth
 

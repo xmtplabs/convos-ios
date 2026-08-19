@@ -40,7 +40,7 @@ The home screen is not an inbox. It is a private, continuously growing layer of 
 - The home experience needs useful loading, empty, unread, and no-attention states.
 - The conversation switcher must support many conversations, unread state, search, and direct navigation.
 - The context library must support search, type filters, provenance, local notes/photos/voice/files, an editable personal card, and an explicit add menu for context or connections.
-- The first production-grade context index is deliberately bounded to supported attachments and link previews in loaded conversations. Broader semantic extraction from arbitrary message text remains a separate data-contract decision.
+- The first production-grade context index is deliberately bounded to the 500 most recent supported attachments and link previews across at most 500 loaded conversations. Broader semantic extraction, paging, and arbitrary message text remain separate data-contract decisions.
 - Browsing the private library must not contact remote preview hosts; only local or already-cached media may render automatically.
 - Recent convo previews remain neutral context until the user explicitly saves one. The app must not present them as inferred personal facts without a dedicated suggestion contract.
 - The initial prototype may use clearly isolated sample insight content in previews. Production summaries, provenance, ranking, and persistence remain an open data-contract decision.
