@@ -1,0 +1,27 @@
+{
+  "name": "convos-town-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "wrangler deploy --config wrangler.jsonc --dry-run --outdir .wrangler-dry-run && tsc --noEmit",
+    "deploy": "wrangler deploy --config wrangler.jsonc",
+    "dev": "wrangler dev --config wrangler.jsonc",
+    "test": "vitest run",
+    "types": "wrangler types --config wrangler.jsonc"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.21.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.9",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7",
+    "wrangler": "4.124.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

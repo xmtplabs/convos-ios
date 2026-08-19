@@ -461,6 +461,7 @@ struct YourSpaceInputSheet: View {
     let agentName: String?
     let codexConfiguration: CodexConnectionConfiguration?
     let codexSnapshot: CodexYourSpaceSnapshot?
+    let onAskAgent: ((String) async throws -> String)?
     let onSaveOutput: (String) throws -> YourSpaceContextItem
     let onSaveLink: (URL) throws -> YourSpaceContextItem
     let onShareOutput: (YourSpaceContextItem) -> Void
@@ -666,6 +667,7 @@ struct YourSpaceInputSheet: View {
         .font(.subheadline.weight(.medium))
         .buttonStyle(.bordered)
         .buttonBorderShape(.capsule)
+        .disabled(isAgentWorking)
     }
 
     private func assistantMessage(_ text: String) -> some View {
@@ -683,7 +685,7 @@ struct YourSpaceInputSheet: View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
             ProgressView()
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                Text(isCodexSelected ? "Codex is working on your Mac…" : "Your agent is working…")
+                Text(isCodexSelected ? "Codex is working on your Mac…" : "\(agentName ?? "Your agent") is working…")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
                 if isCodexSelected, let workspace = codexConfiguration?.workspacePath {
@@ -792,25 +794,91 @@ struct YourSpaceInputSheet: View {
         savedLinks = [:]
         draft = ""
 
-        guard isCodexSelected else {
-            response = groundedResponse(to: question)
-            return
-        }
-        guard let codexConfiguration else {
-            inputError = InputError(
-                title: "Connect Codex first",
-                message: CodexConnectionError.notConfigured.localizedDescription
-            )
+        if isCodexSelected {
+            guard let codexConfiguration else {
+                inputError = InputError(
+                    title: "Connect Codex first",
+                    message: CodexConnectionError.notConfigured.localizedDescription
+                )
+                return
+            }
+            sendToCodex(question, configuration: codexConfiguration)
             return
         }
 
+        if let onAskAgent {
+            sendToExternalAgent(question, request: onAskAgent)
+            return
+        }
+
+        response = groundedResponse(to: question)
+    }
+
+    private var isCodexSelected: Bool {
+        agentName == ExternalAgentProvider.codex.displayName
+    }
+
+    private var isTownSelected: Bool {
+        agentName == ExternalAgentProvider.town.displayName
+    }
+
+    private var initialAssistantMessage: String {
+        if isCodexSelected, codexConfiguration != nil {
+            let contextCount = codexSnapshot?.items.count ?? 0
+            if codexConfiguration?.sharesYourSpaceContext == true {
+                return "Codex is connected to your Mac with \(contextCount) approved items from Your Space. Tell me what you want to make, and I’ll bring the result back here."
+            }
+            return "Codex is connected to your Mac. Tell me what you want to make, and I’ll bring the result back here."
+        }
+        if isTownSelected, onAskAgent != nil {
+            return "Town is connected to Convos. Ask your Town agent to use its memory and tools, and I’ll bring the finished result back here to save or share."
+        }
+        return briefing.headline
+    }
+
+    private var promptSuggestionTitles: [String] {
+        if isCodexSelected {
+            return [
+                "Make a tiny site from my latest idea",
+                "Turn my recent links into a useful prototype",
+                "Build something surprising from this context",
+            ]
+        }
+        if isTownSelected {
+            return [
+                "Use my Town memory to move this forward",
+                "Find the most useful next step",
+                "Make something I can share with this context",
+            ]
+        }
+        return ["What needs me?", "What's new?", "Who is active?"]
+    }
+
+    private var contextBoundaryCopy: String {
+        if isCodexSelected {
+            guard codexConfiguration?.sharesYourSpaceContext == true else {
+                return "This question goes to Codex on your Mac without Your Space context."
+            }
+            let count = codexSnapshot?.items.count ?? 0
+            return "This question and an approved snapshot of \(count) Your Space items go to Codex on your Mac."
+        }
+        if isTownSelected, TownConnectionStore.configuration()?.sharesYourSpaceContext == true {
+            return "This question and a bounded snapshot of the Your Space context you approved go to your Town routine."
+        }
+        if isTownSelected {
+            return "This question goes to your Town routine without Your Space context."
+        }
+        return "Answers use private context already on this device."
+    }
+
+    private func sendToCodex(_ question: String, configuration: CodexConnectionConfiguration) {
         isAgentWorking = true
         requestTask = Task { @MainActor in
             defer { isAgentWorking = false }
             do {
                 let result = try await CodexAppServerClient().send(
                     userRequest: question,
-                    configuration: codexConfiguration,
+                    configuration: configuration,
                     snapshot: codexSnapshot,
                     existingThreadId: CodexConnectionStore.threadId()
                 )
@@ -829,39 +897,25 @@ struct YourSpaceInputSheet: View {
         }
     }
 
-    private var isCodexSelected: Bool {
-        agentName == ExternalAgentProvider.codex.displayName
-    }
-
-    private var initialAssistantMessage: String {
-        guard isCodexSelected, codexConfiguration != nil else { return briefing.headline }
-        let contextCount = codexSnapshot?.items.count ?? 0
-        if codexConfiguration?.sharesYourSpaceContext == true {
-            return "Codex is connected to your Mac with \(contextCount) approved items from Your Space. Tell me what you want to make, and I’ll bring the result back here."
+    private func sendToExternalAgent(
+        _ question: String,
+        request: @escaping (String) async throws -> String
+    ) {
+        isAgentWorking = true
+        requestTask = Task { @MainActor in
+            defer { isAgentWorking = false }
+            do {
+                response = try await request(question)
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                inputError = InputError(
+                    title: "\(agentName ?? "Your agent") couldn’t finish that",
+                    message: error.localizedDescription
+                )
+            }
         }
-        return "Codex is connected to your Mac. Tell me what you want to make, and I’ll bring the result back here."
-    }
-
-    private var promptSuggestionTitles: [String] {
-        guard isCodexSelected else {
-            return ["What needs me?", "What's new?", "Who is active?"]
-        }
-        return [
-            "Make a tiny site from my latest idea",
-            "Turn my recent links into a useful prototype",
-            "Build something surprising from this context",
-        ]
-    }
-
-    private var contextBoundaryCopy: String {
-        guard isCodexSelected else {
-            return "Answers use private context already on this device."
-        }
-        guard codexConfiguration?.sharesYourSpaceContext == true else {
-            return "This question goes to Codex on your Mac without Your Space context."
-        }
-        let count = codexSnapshot?.items.count ?? 0
-        return "This question and an approved snapshot of \(count) Your Space items go to Codex on your Mac."
     }
 
     private func groundedResponse(to question: String) -> String {

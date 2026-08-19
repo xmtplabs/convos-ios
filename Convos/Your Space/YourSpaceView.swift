@@ -123,6 +123,13 @@ struct YourSpaceView: View {
         )
     }
 
+    private var activeAgentRequest: ((String) async throws -> String)? {
+        guard activePersonalAgent == .town else { return nil }
+        return { prompt in
+            try await askTownAgent(prompt)
+        }
+    }
+
     private var selectedConversationBinding: Binding<ConversationViewModel?> {
         Binding(
             get: { viewModel.selectedConversationViewModel },
@@ -144,7 +151,7 @@ struct YourSpaceView: View {
                     switcherOverlay
                 }
             }
-            .background(Color.colorBackgroundSurfaceless)
+            .background(.colorBackgroundSurfaceless)
             .safeAreaInset(edge: .top, spacing: 0) {
                 topBar.accessibilityHidden(presentingSwitcher)
             }
@@ -177,6 +184,7 @@ struct YourSpaceView: View {
                     agentName: activePersonalAgent?.displayName,
                     codexConfiguration: codexConnectionConfiguration,
                     codexSnapshot: codexYourSpaceSnapshot,
+                    onAskAgent: activeAgentRequest,
                     onSaveOutput: saveAgentOutput,
                     onSaveLink: saveAgentLink,
                     onShareOutput: shareAgentOutput
@@ -1115,6 +1123,23 @@ private extension YourSpaceView {
         let file = try YourSpaceFileStore.storeLink(url)
         refreshLocalContext(selecting: file)
         return YourSpaceContextItem(local: file)
+    }
+
+    private func askTownAgent(_ prompt: String) async throws -> String {
+        guard let configuration = TownConnectionStore.configuration() else {
+            throw TownConnectionError.notConnected
+        }
+        let snapshot = TownYourSpaceSnapshot(
+            briefing: briefing,
+            contextItems: allContextItems,
+            conversationTitle: conversationTitle,
+            senderName: senderName
+        )
+        return try await TownBridgeClient().send(
+            prompt,
+            configuration: configuration,
+            yourSpaceSnapshot: snapshot
+        ).shareText
     }
 
     private func shareAgentOutput(_ item: YourSpaceContextItem) {

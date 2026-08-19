@@ -218,6 +218,7 @@ final class AgentChatPrototypeState {
 
     func send(in lane: AgentChatLane) {
         prepare(lane)
+        guard !workingLaneIds.contains(lane.id) else { return }
         let text: String = (draftsByLane[lane.id] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -232,6 +233,10 @@ final class AgentChatPrototypeState {
             sendToCodex(text, in: lane)
             return
         }
+        if case .external(.town) = lane.kind {
+            sendToTown(text, in: lane)
+            return
+        }
 
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(850))
@@ -239,6 +244,35 @@ final class AgentChatPrototypeState {
             messagesByLane[lane.id, default: []].append(
                 AgentChatPrototypeMessage(sender: .agent, text: reply(for: lane, userText: text))
             )
+            workingLaneIds.remove(lane.id)
+        }
+    }
+
+    private func sendToTown(_ text: String, in lane: AgentChatLane) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                guard let configuration = TownConnectionStore.configuration() else {
+                    throw TownConnectionError.notConnected
+                }
+                let result = try await TownBridgeClient().send(
+                    text,
+                    configuration: configuration,
+                    yourSpaceSnapshot: nil
+                )
+                messagesByLane[lane.id, default: []].append(
+                    AgentChatPrototypeMessage(sender: .agent, text: result.shareText)
+                )
+            } catch is CancellationError {
+                // The lane may be dismissed while Town is still working.
+            } catch {
+                messagesByLane[lane.id, default: []].append(
+                    AgentChatPrototypeMessage(
+                        sender: .agent,
+                        text: "I couldn't finish that Town request. \(error.localizedDescription)"
+                    )
+                )
+            }
             workingLaneIds.remove(lane.id)
         }
     }
@@ -509,7 +543,7 @@ struct AgentSwitcherSheet: View {
                                 Text("Add an external agent")
                                     .font(.body.weight(.semibold))
                                     .foregroundStyle(.colorTextPrimary)
-                                Text("Bring Codex, Claude Code, Hermes, OpenClaw, or Grok")
+                                Text("Bring Codex, Town, Claude Code, Hermes, OpenClaw, or Grok")
                                     .font(.footnote)
                                     .foregroundStyle(.colorTextSecondary)
                                     .lineLimit(2)

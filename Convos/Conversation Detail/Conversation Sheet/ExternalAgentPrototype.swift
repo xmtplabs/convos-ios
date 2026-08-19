@@ -3,6 +3,7 @@ import SwiftUI
 
 enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
     case codex
+    case town
     case claudeCode
     case hermes
     case openClaw
@@ -13,6 +14,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
     var displayName: String {
         switch self {
         case .codex: "Codex"
+        case .town: "Town"
         case .claudeCode: "Claude Code"
         case .hermes: "Hermes"
         case .openClaw: "OpenClaw"
@@ -23,6 +25,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
     var shortDescription: String {
         switch self {
         case .codex: "OpenAI coding agent"
+        case .town: "Your Town agent and routines"
         case .claudeCode: "Anthropic coding agent"
         case .hermes: "Your self-hosted Hermes agent"
         case .openClaw: "Your OpenClaw gateway"
@@ -33,6 +36,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
     var chatSubtitle: String {
         switch self {
         case .codex: "Connected to your Mac · Private desktop collaborator"
+        case .town: "Live · Your Town routine"
         case .claudeCode: "Connected demo · Private desktop collaborator"
         case .hermes: "Paired gateway demo · Scoped to this convo"
         case .openClaw: "Paired gateway demo · Scoped to this convo"
@@ -43,6 +47,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
     var symbolName: String {
         switch self {
         case .codex: "chevron.left.forwardslash.chevron.right"
+        case .town: "building.2.crop.circle.fill"
         case .claudeCode: "terminal.fill"
         case .hermes: "h.circle.fill"
         case .openClaw: "antenna.radiowaves.left.and.right"
@@ -53,6 +58,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
     var tint: Color {
         switch self {
         case .codex: Color(red: 0.08, green: 0.08, blue: 0.09)
+        case .town: Color(red: 0.10, green: 0.37, blue: 0.28)
         case .claudeCode: Color(red: 0.72, green: 0.36, blue: 0.20)
         case .hermes: Color(red: 0.23, green: 0.38, blue: 0.74)
         case .openClaw: Color(red: 0.77, green: 0.17, blue: 0.13)
@@ -63,6 +69,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
     var connectionTitle: String {
         switch self {
         case .codex: "Pair Codex from your desktop"
+        case .town: "Connect your Town agent"
         case .claudeCode: "Pair Claude Code from your desktop"
         case .hermes: "Connect your Hermes gateway"
         case .openClaw: "Connect your OpenClaw gateway"
@@ -74,6 +81,8 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .codex:
             "Convos connects to Codex app-server on your Mac. Your existing ChatGPT sign-in, Codex history, tools, and workspace stay on the computer."
+        case .town:
+            "Convos calls your Town routine through its authenticated webhook. Town returns the finished message and links through a one-request MCP capability."
         case .claudeCode:
             "Convos would pair with Claude Code on your computer after you authenticate with Anthropic, Claude Pro or Max, Bedrock, or Vertex AI."
         case .hermes:
@@ -92,6 +101,12 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
                 .init(symbol: "desktopcomputer", title: "Codex app-server", detail: "Runs on the Mac where Codex already has your sign-in and tools."),
                 .init(symbol: "key.fill", title: "Capability token", detail: "A revocable token protects this connection and stays in the iPhone Keychain."),
                 .init(symbol: "folder.badge.gearshape", title: "Approved workspace", detail: "Choose the Mac project where Codex may read and make things."),
+            ]
+        case .town:
+            [
+                .init(symbol: "bolt.horizontal.circle.fill", title: "Routine webhook", detail: "The HTTPS URL and bearer secret from the Town routine you want in Convos."),
+                .init(symbol: "point.3.connected.trianglepath.dotted", title: "Convos return MCP", detail: "A narrow tool Town uses to return one finished result to its waiting request."),
+                .init(symbol: "lock.fill", title: "Private context choice", detail: "Send Your Space context only when you enable it; saving and sharing remain your choice."),
             ]
         case .claudeCode:
             [
@@ -123,6 +138,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
     var welcomeMessage: String {
         switch self {
         case .codex: "I’m connected to Codex on your Mac. Point me at Your Space context or describe what you want to build, and I’ll keep the work inside the workspace you chose."
+        case .town: "Your Town routine is live in Convos. Ask me to work with your Town memory and tools; my result comes back here for you to save or share."
         case .claudeCode: "Claude Code is paired for this demo. I can help shape or implement a Home update from the workspace you approve."
         case .hermes: "Your Hermes gateway is paired for this demo. Its memory and tools remain yours; Convos only sends this lane’s approved context."
         case .openClaw: "Your OpenClaw gateway is paired for this demo. I’ll use only the device and operator scopes shown in Agent access."
@@ -262,7 +278,7 @@ struct ExternalAgentOnboardingView: View {
 
     private var privacyNote: some View {
         Label {
-            Text("Codex uses a revocable capability token stored in this device’s Keychain. The other providers remain connection demos and never ask for a secret.")
+            Text("Codex and Town use revocable credentials stored in the iPhone Keychain. The other providers remain connection demos and never ask for a secret.")
         } icon: {
             Image(systemName: "lock.fill")
         }
@@ -276,6 +292,10 @@ struct ExternalAgentOnboardingView: View {
         if provider == .codex {
             CodexConnectionSetupView {
                 onConnected(.codex)
+            }
+        } else if provider == .town {
+            TownConnectionSetupView {
+                onConnected(.town)
             }
         } else {
             demoConnectionView(provider)
@@ -364,11 +384,12 @@ struct ExternalAgentOnboardingView: View {
 
     private func constellationOffset(at index: Int) -> CGSize {
         let offsets: [CGSize] = [
-            .init(width: -104, height: -28),
-            .init(width: -58, height: 58),
-            .init(width: 62, height: 56),
-            .init(width: 108, height: -26),
-            .init(width: 4, height: -64),
+            .init(width: -104, height: -30),
+            .init(width: -66, height: 56),
+            .init(width: 6, height: -66),
+            .init(width: 68, height: 54),
+            .init(width: 108, height: -28),
+            .init(width: 0, height: 72),
         ]
         return offsets[index]
     }
