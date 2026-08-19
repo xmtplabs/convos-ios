@@ -522,17 +522,20 @@ Never send the full Home, full transcript, private agent DMs, or Ghost content w
 
 1. Create a viewer-private personal-context index. It may retrieve only content the signed-in user is currently authorized to see plus memories they deliberately saved for themselves. It must not create a group grant, group message, Home mutation, or agent memory write as a side effect.
 2. When source access is lost, remove raw source content from personal retrieval. A separately saved personal memory may remain, but it must preserve provenance and the policy that allowed the save.
-3. Add a suggestion endpoint scoped to the current user, conversation, and surface (`home`, `conversation`, or both). Return a small ranked bundle of typed references; never disclose the private catalog to another member or the group agent.
-4. Approval must name the exact item/version or live connection scope, destination conversation, destination agent, audience, surfaces, persistence, and expiry. Bind it to a single-use approval challenge so replay or payload substitution fails closed.
-5. Publish approved snapshots into a conversation-scoped grant namespace. New personal items and materially changed snapshots require a new approval. Live connections may refresh only within the approved field/query scope (for example calendar free/busy without event titles).
-6. Group-agent context assembly may retrieve only active grants for that user + conversation + agent + surface. It must not query the private personal-context index directly.
-7. Surface grants to the owner and group agent profile with human-readable provenance. Revocation must immediately block retrieval and live connection calls, invalidate caches, and publish an idempotent access-state event without deleting the private source.
-8. Audit suggestion, approval, retrieval, and revocation with identifiers and policy versions, but keep personal content and provider secrets out of general logs, analytics, push payloads, and crash reports.
+3. Add a viewer-private catalog endpoint plus a suggestion endpoint scoped to the current user and conversation. The catalog returns the user’s browsable memories, preferences, files, and connection scopes; the suggestion response ranks item references for the current Home state and recent authorized conversation context. Neither response is visible to another member or the group agent.
+4. Return the conversation’s current writable destinations: Group chat plus stable Home object IDs and types such as widget, note, and members list. The client must not invent an object ID or submit a display label as authority.
+5. Approval must name the exact item/version or live connection scope, one destination type + stable ID, requested operation, destination conversation, destination agent, audience, persistence, and expiry. Bind it to a single-use approval challenge so replay, destination switching, or payload substitution fails closed.
+6. Publish approved snapshots into a conversation-scoped grant namespace. A Group chat destination emits a typed context-share message bound to the grant; a Home destination submits an object-scoped mutation through the existing preview/revision contract. New personal items and materially changed snapshots require a new approval. Live connections may refresh only within the approved field/query scope (for example calendar free/busy without event titles).
+7. Group-agent context assembly may retrieve only active grants for that user + conversation + agent + destination. It must not query the private personal-context index directly.
+8. Surface grants to the owner and group agent profile with human-readable provenance. Revocation must immediately block retrieval and live connection calls, invalidate caches, and publish an idempotent access-state event without deleting the private source. Revocation does not rewrite an already-visible group message or Home snapshot; those retain provenance and show that live access ended.
+9. Audit catalog, suggestion, approval, destination mutation, retrieval, and revocation with identifiers and policy versions, but keep personal content and provider secrets out of general logs, analytics, push payloads, and crash reports.
 
 Suggested shapes:
 
 ```text
+GET    /v1/personal-context/items?conversation_id={conversation_id}&cursor={cursor}
 POST   /v1/conversations/{conversation_id}/personal-context/suggestions
+GET    /v1/conversations/{conversation_id}/personal-context/destinations
 POST   /v1/personal-context/approval-challenges
 POST   /v1/personal-context/grants
 GET    /v1/conversations/{conversation_id}/personal-context/grants?owner_inbox_id=me
@@ -543,7 +546,13 @@ personal_context_grant = {
   owner_inbox_id: string,
   conversation_id: string,
   destination_agent_id: string,
-  surfaces: ["home", "conversation"],
+  destination: {
+    surface: "conversation" | "home",
+    type: "group_chat" | "widget" | "note" | "members",
+    object_id: string,
+    expected_revision: string?
+  },
+  operation: "share_context_card" | "append_context" | "update_member_context",
   audience: "conversation_members",
   items: [{ source_id, source_version, type, approved_fields_or_query_scope }],
   persistence: "until_revoked",
@@ -605,8 +614,11 @@ personal_context_grant = {
 ### Personal context
 
 - A suggestion request never makes its candidate items visible to the group agent, other members, Home, or conversation retrieval.
+- Catalog pagination and suggestion ranking return only items visible to the signed-in owner; changing `owner_inbox_id` or conversation ID cannot enumerate another member’s context.
+- Destination discovery returns only current writable Home objects and stable IDs. A stale revision or deleted widget fails before a grant or message is published.
 - A user cannot approve another user's private item, and a group admin cannot bypass owner approval.
-- Changing the bundle after the approval challenge is issued fails; replaying the challenge fails.
+- Changing the bundle, operation, or destination after the approval challenge is issued fails; replaying the challenge fails.
+- A Group chat approval publishes one typed context card tied to the exact grant. A Home approval mutates only the approved widget, note, or member entry and cannot touch sibling objects.
 - Group retrieval returns exactly the approved item versions and live fields/query scopes, never adjacent personal memories or connection fields.
 - New personal items and materially changed snapshot values remain unavailable until separately approved.
 - Revocation blocks the next retrieval and live connection call immediately, evicts cached copies, and leaves the private source intact.

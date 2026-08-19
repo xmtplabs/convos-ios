@@ -7,6 +7,9 @@ public enum ComposerAttachmentAction: String, CaseIterable, Identifiable, Sendab
     case photos
     case camera
     case files
+    /// Opens the host app's private-context picker. It is never part of
+    /// `standard`; only hosts with a real approval flow opt into the row.
+    case shareContext
     case voiceNote
     /// Injects a canned attachment for testing. Only ever offered behind
     /// `FeatureFlags.isDebugInjectorEnabled`, which is hard-locked off in
@@ -25,6 +28,7 @@ public enum ComposerAttachmentAction: String, CaseIterable, Identifiable, Sendab
         case .photos: "Photos"
         case .camera: "Camera"
         case .files: "Files"
+        case .shareContext: "Share context"
         case .voiceNote: "Voice note"
         case .debugInjector: "Test attachment"
         }
@@ -38,6 +42,7 @@ public enum ComposerAttachmentAction: String, CaseIterable, Identifiable, Sendab
         case .photos: "photo"
         case .camera: "camera"
         case .files: "document"
+        case .shareContext: "person.crop.circle.badge.plus"
         case .voiceNote: "waveform"
         case .debugInjector: "testtube.2"
         }
