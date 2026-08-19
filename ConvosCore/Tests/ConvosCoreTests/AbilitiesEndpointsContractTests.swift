@@ -68,16 +68,11 @@ struct AbilitiesEndpointsContractTests {
         }
     }
 
-    @Test("Initiation rejects incoherent status/auth-field combinations")
+    @Test("Initiation rejects a pending_auth with nothing to authorize")
     func initiationRejectsIncoherentShapes() {
         #expect(throws: (any Error).self) {
             _ = try decode(AbilitiesAPI.EntitlementInitiationResponse.self, """
             { "status": "pending_auth", "redirectUrl": null, "connectionRequestId": null }
-            """)
-        }
-        #expect(throws: (any Error).self) {
-            _ = try decode(AbilitiesAPI.EntitlementInitiationResponse.self, """
-            { "status": "active", "redirectUrl": "https://x.example", "connectionRequestId": "creq_1" }
             """)
         }
         #expect(throws: AbilitiesAPI.WireValidationError.incoherentEntitlementState) {
@@ -86,6 +81,26 @@ struct AbilitiesEndpointsContractTests {
         #expect(throws: AbilitiesAPI.WireValidationError.incoherentEntitlementState) {
             _ = try AbilitiesAPI.EntitlementInitiationResponse(status: .pendingAuth)
         }
+    }
+
+    /// `active` has two legal shapes, both from the same endpoint: the
+    /// auth-less short-circuit carries null auth fields, and an OAuth
+    /// ability whose row is already active carries the fields of the request
+    /// the endpoint minted before it consulted the row. Rejecting the second
+    /// makes the client throw on a connection that works.
+    @Test("Initiation accepts an active carrying the auth fields of an unused request")
+    func initiationAcceptsActiveWithAuthFields() throws {
+        let decoded = try decode(AbilitiesAPI.EntitlementInitiationResponse.self, """
+        { "status": "active", "redirectUrl": "https://x.example", "connectionRequestId": "creq_1" }
+        """)
+        #expect(decoded.status == .active)
+        #expect(decoded.redirectUrl == "https://x.example")
+        #expect(decoded.connectionRequestId == "creq_1")
+
+        let authLess = try decode(AbilitiesAPI.EntitlementInitiationResponse.self, """
+        { "status": "active", "redirectUrl": null, "connectionRequestId": null }
+        """)
+        #expect(authLess.redirectUrl == nil)
     }
 
     @Test("Complete response rejects every non-active status (const)")

@@ -78,13 +78,20 @@ extension AbilitiesAPI {
 
     /// `POST /v2/abilities/{abilityId}/entitlement` response. OAuth
     /// abilities answer `pending_auth` with the provider consent URL and the
-    /// connection-request id to echo back to complete; auth-less abilities
-    /// answer `active` with both auth fields null.
+    /// connection-request id to echo back to complete.
     ///
-    /// Strict per the schema: `status` accepts only the two values the
-    /// contract allows, and both auth fields are required-nullable -- the
-    /// key must be present, its value may be null. Encoding reproduces the
-    /// explicit nulls.
+    /// `active` comes back in two shapes, and both are legal. An auth-less
+    /// ability short-circuits with both auth fields null. An OAuth ability
+    /// whose entitlement row is already active answers `active` while still
+    /// carrying the auth fields of the request the endpoint minted on the
+    /// way through -- it links unconditionally before consulting the row.
+    /// Those fields describe a round the caller has no reason to run, so
+    /// they are decoded and ignored rather than rejected: refusing them
+    /// makes the client throw on a connection that genuinely works.
+    ///
+    /// `status` still accepts only the two values the contract allows, and
+    /// both auth fields stay required-nullable -- the key must be present,
+    /// its value may be null. Encoding reproduces the explicit nulls.
     public struct EntitlementInitiationResponse: Codable, Sendable, Hashable {
         public let status: EntitlementStatus
         public let redirectUrl: String?
@@ -115,10 +122,11 @@ extension AbilitiesAPI {
             self.connectionRequestId = connectionRequestId
         }
 
-        /// Shared by decoding and programmatic construction so the type is
-        /// strict in both directions: `pending_auth` carries both auth
-        /// fields, `active` carries neither, and no other status exists in
-        /// the initiation contract.
+        /// Shared by decoding and programmatic construction, and strict only
+        /// where the contract is: `pending_auth` is unusable without both
+        /// auth fields, so it still requires them, and no status outside the
+        /// initiation contract is accepted. `active` is deliberately not
+        /// constrained -- see the type's note on its two legal shapes.
         private static func validate(status: EntitlementStatus, redirectUrl: String?, connectionRequestId: String?) throws {
             switch status {
             case .pendingAuth:
@@ -126,9 +134,7 @@ extension AbilitiesAPI {
                     throw WireValidationError.incoherentEntitlementState
                 }
             case .active:
-                guard redirectUrl == nil, connectionRequestId == nil else {
-                    throw WireValidationError.incoherentEntitlementState
-                }
+                break
             default:
                 throw WireValidationError.incoherentEntitlementState
             }

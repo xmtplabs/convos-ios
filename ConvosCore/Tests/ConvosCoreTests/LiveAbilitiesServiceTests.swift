@@ -64,6 +64,29 @@ private final class AbilitiesStubAPIClient: TestStubAPIClient, @unchecked Sendab
 
 /// Mutable identity for tests that switch accounts mid-run. Reads and
 /// writes are sequenced by the test body itself.
+/// A one-shot gate a stubbed endpoint can park on, so a test can hold one
+/// request open while it drives another.
+private actor TestGate {
+    private var isOpen: Bool = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            waiters.append(continuation)
+        }
+    }
+
+    func open() {
+        isOpen = true
+        let resumed = waiters
+        waiters = []
+        for continuation in resumed {
+            continuation.resume()
+        }
+    }
+}
+
 private final class ScopeBox: @unchecked Sendable {
     var inboxId: String?
 
@@ -246,12 +269,14 @@ struct LiveAbilitiesServiceTests {
     }
 
     /// The reported dead end: an OAuth the member walked away from leaves a
-    /// `pendingAuth` entitlement whose consent URL expires on the
-    /// provider's clock. Re-serving that URL on the next connect tap lands
-    /// them on "link session has expired" with nothing to do about it, so
-    /// begin mints a new link session every time and completion echoes the
-    /// new round's id.
-    @Test("A later connect tap mints a fresh link session, never the stale one")
+    /// `pendingAuth` entitlement whose consent URL expires on the provider's
+    /// clock. Re-serving that URL on the next connect tap lands them on
+    /// "link session has expired" with nothing to do about it, so a restart
+    /// always mints a new link session.
+    ///
+    /// Here the retained round is genuinely dead (completion is rejected
+    /// outright), which is the branch that has to fall through to a mint.
+    @Test("A later connect tap on a dead round mints a fresh link session")
     func laterConnectMintsAFreshSession() async throws {
         let client = AbilitiesStubAPIClient()
         client.onCreateEntitlement = { _, _ in
@@ -261,13 +286,14 @@ struct LiveAbilitiesServiceTests {
                 connectionRequestId: "creq-stale"
             )
         }
+        client.onCompleteEntitlement = { _, _ in throw AbilitiesAPI.EndpointError.abilityMismatch }
         let service = makeService(client: client)
 
         let first = try await service.beginEntitlement(abilityId: "spotify")
         #expect(first.redirectUrl == "https://consent.example/stale")
 
         // The member abandoned that round; by the time they tap again the
-        // link session behind it is dead.
+        // link session behind it is dead, and so is the request.
         client.onCreateEntitlement = { _, _ in
             try AbilitiesAPI.EntitlementInitiationResponse(
                 status: .pendingAuth,
@@ -283,13 +309,50 @@ struct LiveAbilitiesServiceTests {
 
         client.onCompleteEntitlement = { _, _ in AbilitiesAPI.EntitlementCompleteResponse() }
         try await service.completeEntitlement(abilityId: "spotify")
-        #expect(client.completeCalls.map(\.connectionRequestId) == ["creq-fresh"], "completion echoes the round it belongs to")
+        #expect(client.completeCalls.map(\.connectionRequestId).last == "creq-fresh", "completion echoes the round it belongs to")
     }
 
-    /// `auth_incomplete` keeps the id for the bounded completion retry
-    /// inside one round -- but a connect tap after that retry gave up is a
-    /// new round, and gets a new session and a new id.
-    @Test("authIncomplete retries the same id, while a later connect starts over")
+    /// The other branch, and the one the bug report never got to see: the
+    /// member did finish consent, the completion retries ran out while
+    /// Composio was still INITIALIZING, and the connection went ACTIVE
+    /// afterwards. No webhook exists, so the entitlement row is still
+    /// `pending_auth` and only a complete this client sends can move it.
+    /// The next tap must therefore re-submit the retained id before minting
+    /// anything -- otherwise the member signs in a second time for a
+    /// connection that already works.
+    @Test("A later connect tap finishes the outstanding round instead of re-authorizing")
+    func laterConnectFinishesTheOutstandingRound() async throws {
+        let client = AbilitiesStubAPIClient()
+        client.onCreateEntitlement = { _, _ in
+            try AbilitiesAPI.EntitlementInitiationResponse(
+                status: .pendingAuth,
+                redirectUrl: "https://consent.example/x",
+                connectionRequestId: "creq-slow"
+            )
+        }
+        client.onCompleteEntitlement = { _, _ in
+            throw AbilitiesAPI.EndpointError.authIncomplete(connectionStatus: "INITIALIZING")
+        }
+        let service = makeService(client: client)
+        _ = try await service.beginEntitlement(abilityId: "spotify")
+        await #expect(throws: AbilitiesAPI.EndpointError.authIncomplete(connectionStatus: "INITIALIZING")) {
+            try await service.completeEntitlement(abilityId: "spotify")
+        }
+
+        // Composio finishes; nothing tells the backend.
+        client.onCompleteEntitlement = { _, _ in AbilitiesAPI.EntitlementCompleteResponse() }
+        let resumed = try await service.beginEntitlement(abilityId: "spotify")
+
+        #expect(resumed.status == .active, "the round completed, so there is nothing to authorize")
+        #expect(resumed.redirectUrl == nil)
+        #expect(client.createCalls.count == 1, "no new link session is minted for a round that just finished")
+        #expect(client.completeCalls.map(\.connectionRequestId) == ["creq-slow", "creq-slow"])
+    }
+
+    /// `auth_incomplete` keeps the id: the bounded completion retry
+    /// re-submits it inside the round, and a later connect tap re-submits it
+    /// once more before falling through to a fresh session.
+    @Test("authIncomplete retries the same id, then the next tap re-tries it before minting")
     func authIncompleteRetriesTheSameIdThenStartsOver() async throws {
         let client = AbilitiesStubAPIClient()
         client.onCreateEntitlement = { _, _ in
@@ -323,81 +386,78 @@ struct LiveAbilitiesServiceTests {
         let restarted = try await service.beginEntitlement(abilityId: "spotify")
         #expect(restarted.redirectUrl == "https://consent.example/y")
         #expect(client.createCalls.count == 2)
+        #expect(client.completeCalls.count == 3, "the tap tried the outstanding round once more first")
     }
 
-    /// Restarting is cheap because initiate is idempotent per (account,
-    /// ability): if the abandoned round turned out to have completed
-    /// upstream, the restart answers `active` outright and no second
-    /// sign-in is asked for.
-    @Test("A restart whose round completed upstream answers active with no consent step")
-    func restartAnswersActiveWhenTheRoundAlreadyCompleted() async throws {
+    /// The backend links unconditionally before consulting the entitlement
+    /// row, so an OAuth ability whose row is already active answers `active`
+    /// while still carrying the auth fields of the request it just minted.
+    /// Rejecting that shape makes the client throw on a connection that
+    /// genuinely works; both shapes have to decode, and neither leaves the
+    /// caller anything to authorize.
+    @Test("Both shapes of an active initiation decode and carry no authorization step")
+    func activeInitiationDecodesInBothShapes() async throws {
+        let authLess = #"{"status":"active","redirectUrl":null,"connectionRequestId":null}"#
+        let oauth = #"{"status":"active","redirectUrl":"https://consent.example/unused","connectionRequestId":"creq-unused"}"#
+
+        for wire in [authLess, oauth] {
+            let decoded = try JSONDecoder().decode(AbilitiesAPI.EntitlementInitiationResponse.self, from: Data(wire.utf8))
+            #expect(decoded.status == .active)
+
+            let client = AbilitiesStubAPIClient()
+            client.onCreateEntitlement = { _, _ in decoded }
+            let service = makeService(client: client)
+
+            let initiation = try await service.beginEntitlement(abilityId: "spotify")
+            #expect(initiation.status == .active)
+            #expect(initiation.redirectUrl == nil, "an active entitlement has nothing to authorize")
+
+            // The minted-but-unused request is not a round to complete later.
+            await #expect(throws: LiveAbilitiesServiceError.missingConnectionRequest(abilityId: "spotify")) {
+                try await service.completeEntitlement(abilityId: "spotify")
+            }
+        }
+    }
+
+    /// A completion can outlive the surface that started it -- the composer
+    /// modal's connect deliberately survives dismissal -- so a connect tap
+    /// elsewhere can land while one is still in flight. It must not open a
+    /// competing round against the same ability: it joins the completion
+    /// already running, and only mints if that one did not finish the job.
+    /// This is what keeps a concluding round from ever concluding *over* a
+    /// newer one's retained id.
+    @Test("A connect tap during an in-flight completion joins it instead of racing it")
+    func connectDuringCompletionJoinsIt() async throws {
         let client = AbilitiesStubAPIClient()
         client.onCreateEntitlement = { _, _ in
             try AbilitiesAPI.EntitlementInitiationResponse(
                 status: .pendingAuth,
-                redirectUrl: "https://consent.example/x",
-                connectionRequestId: "creq-1"
+                redirectUrl: "https://consent.example/first",
+                connectionRequestId: "creq-first"
             )
         }
-        let service = makeService(client: client)
-        _ = try await service.beginEntitlement(abilityId: "spotify")
-
-        client.onCreateEntitlement = { _, _ in
-            try AbilitiesAPI.EntitlementInitiationResponse(status: .active)
-        }
-        let restarted = try await service.beginEntitlement(abilityId: "spotify")
-
-        #expect(restarted.status == .active)
-        #expect(restarted.redirectUrl == nil)
-    }
-
-    /// A begin that fails on the network must not leave the superseded
-    /// round's id behind: completion would then echo an id the client has
-    /// already walked away from.
-    @Test("A failed restart drops the superseded connection-request id")
-    func failedRestartDropsTheSupersededId() async throws {
-        let client = AbilitiesStubAPIClient()
-        client.onCreateEntitlement = { _, _ in
-            try AbilitiesAPI.EntitlementInitiationResponse(
-                status: .pendingAuth,
-                redirectUrl: "https://consent.example/x",
-                connectionRequestId: "creq-old"
-            )
-        }
-        let service = makeService(client: client)
-        _ = try await service.beginEntitlement(abilityId: "spotify")
-
-        client.onCreateEntitlement = { _, _ in throw URLError(.timedOut) }
-        _ = try? await service.beginEntitlement(abilityId: "spotify")
-
-        await #expect(throws: LiveAbilitiesServiceError.missingConnectionRequest(abilityId: "spotify")) {
-            try await service.completeEntitlement(abilityId: "spotify")
-        }
-        #expect(client.completeCalls.isEmpty)
-    }
-
-    @Test("A non-authIncomplete completion failure drops the attempt so the next connect re-begins")
-    func otherCompleteFailureDropsAttempt() async throws {
-        let client = AbilitiesStubAPIClient()
-        client.onCreateEntitlement = { _, _ in
-            try AbilitiesAPI.EntitlementInitiationResponse(
-                status: .pendingAuth,
-                redirectUrl: "https://consent.example/x",
-                connectionRequestId: "creq-1"
-            )
-        }
+        let completionGate = TestGate()
         client.onCompleteEntitlement = { _, _ in
-            throw AbilitiesAPI.EndpointError.abilityMismatch
+            await completionGate.wait()
+            return AbilitiesAPI.EntitlementCompleteResponse()
         }
         let service = makeService(client: client)
         _ = try await service.beginEntitlement(abilityId: "spotify")
 
-        await #expect(throws: AbilitiesAPI.EndpointError.abilityMismatch) {
-            try await service.completeEntitlement(abilityId: "spotify")
-        }
+        let completion = Task { try await service.completeEntitlement(abilityId: "spotify") }
+        try await Task.sleep(for: .milliseconds(50))
 
-        _ = try await service.beginEntitlement(abilityId: "spotify")
-        #expect(client.createCalls.count == 2)
+        let tap = Task { try await service.beginEntitlement(abilityId: "spotify") }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(client.createCalls.count == 1, "the tap must not mint while the round is still resolving")
+
+        await completionGate.open()
+        try await completion.value
+        let resumed = try await tap.value
+
+        #expect(resumed.status == .active, "the round it joined finished it")
+        #expect(client.createCalls.count == 1)
+        #expect(client.completeCalls.map(\.connectionRequestId) == ["creq-first"], "one round, submitted once")
     }
 
     @Test("Overlapping begins share one backend connection request")

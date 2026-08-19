@@ -221,10 +221,14 @@ final class AbilitiesListViewModel {
     /// Starts the entitlement, or restarts it for every state that can
     /// reach this method with one already on file (`pendingAuth` from a
     /// Discover row, `expired` / `needsReauth` / `revoked` from a Connected
-    /// row's Reconnect). Restarting is not a resume: the service mints a
-    /// fresh provider link session each time, because the one a previous
-    /// attempt handed out has its own expiry and re-serving it is what
-    /// walks the member into "this link has expired".
+    /// row's Reconnect).
+    ///
+    /// A restart never re-serves the previous consent URL -- that link
+    /// session has its own expiry, and re-opening it is what walks the
+    /// member into "this link has expired". The service does try to finish
+    /// the outstanding round first, silently, which is why a connect tap on
+    /// a row whose authorization already went through upstream comes straight
+    /// back as active with no sign-in at all.
     ///
     /// A `pendingAuth` initiation with a redirect URL opens the
     /// authorization step: the injected browser authorizer when one is
@@ -314,10 +318,10 @@ final class AbilitiesListViewModel {
     /// the stub sheet, then the same complete/cancel lifecycle runs. On any
     /// failure the entitlement stays `pendingAuth` server-side, so a
     /// refresh returns the row to Discover offering Connect; only non-cancel
-    /// failures surface a message. That Connect opens a new round against a
-    /// new link session -- the abandoned one is not resumable, and initiate
-    /// answers `active` outright if the round it restarts turned out to
-    /// have completed upstream.
+    /// failures surface a message. That Connect first re-submits the round
+    /// already outstanding -- which resolves it outright if the provider
+    /// finished in the meantime -- and only otherwise opens a new one
+    /// against a new link session.
     private func runBrowserAuthorization(
         for ability: AbilitiesAPI.Ability,
         redirectUrl: String,
@@ -353,8 +357,10 @@ final class AbilitiesListViewModel {
     /// connection-request id, which the service keeps across
     /// `auth_incomplete` failures. If it still isn't active after the
     /// budget, the final error surfaces its retry copy and the row returns
-    /// to Discover -- where Connect re-runs initiate, which reports the
-    /// connection active by then and needs no second sign-in.
+    /// to Discover -- where Connect re-submits this same id before minting
+    /// anything, so a connection that finished INITIALIZING in the meantime
+    /// lands with no second sign-in. Nothing else would ever complete it:
+    /// the provider sends no webhook.
     private func completeRetryingAuthIncomplete(abilityId: String) async throws {
         let retryDelays: [Duration] = [.seconds(1), .seconds(2)]
         for delay in retryDelays {

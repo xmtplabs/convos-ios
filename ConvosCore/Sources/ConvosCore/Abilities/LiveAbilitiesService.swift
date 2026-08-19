@@ -42,18 +42,20 @@ extension LiveAbilitiesServiceError: LocalizedError {
 ///   disk cache is bypassed entirely -- an accountless catalog is never
 ///   persisted over an account-scoped one.
 /// - the per-ability OAuth attempt from `beginEntitlement`: the connection
-///   request id `completeEntitlement` must echo. Kept on `auth_incomplete`
-///   so the bounded completion retry re-submits the same id, dropped on any
-///   other completion failure. It is process-local by design: not a bearer
-///   credential, and a restart mid-auth recovers by re-running begin.
+///   request id `completeEntitlement` must echo. Kept across
+///   `auth_incomplete` and dropped on any other completion failure, so the
+///   next connect tap can re-submit it before minting anything -- the only
+///   way a round that went ACTIVE after the retry budget expired ever
+///   reaches the entitlement row, since no provider webhook exists. It is
+///   process-local by design: not a bearer credential, and a restart
+///   mid-auth recovers by re-running begin.
 ///
-/// The consent URL a begin returns is deliberately **not** retained. It
-/// belongs to one provider link session, which expires on its own clock;
-/// re-serving a stored one on a later connect tap is how a member reaches
-/// a provider page reading "link session has expired" with no way forward.
-/// Every begin therefore mints a fresh session against the idempotent
-/// initiate endpoint, which answers `active` outright when the round it is
-/// restarting already completed upstream.
+/// The consent URL that comes back with it is deliberately **not** retained.
+/// It belongs to one provider link session, which expires on its own clock;
+/// re-serving a stored one on a later connect tap is how a member reaches a
+/// provider page reading "link session has expired" with no way forward. The
+/// id and the URL age differently, so they get separate policies: re-submit
+/// the id, re-mint the URL.
 ///
 /// Begins and completes are deduplicated per ability with in-flight task
 /// maps: actor reentrancy would otherwise let overlapping begins overwrite
@@ -180,17 +182,26 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         }
     }
 
-    /// Opens an OAuth round for an ability, always against a freshly minted
-    /// provider link session.
+    /// Finishes the outstanding round for an ability if there is one, and
+    /// otherwise opens a new one against a freshly minted link session.
     ///
     /// Every entry point that can reach a `pendingAuth` ability funnels
     /// here -- the browser's Connect button, the conversation toggle's
-    /// repair route, the inline connect sheet -- and each of them is a tap
-    /// that may land minutes or hours after the round it is retrying. A
-    /// consent URL does not survive that wait, so none is carried over:
-    /// initiate is idempotent per (account, ability), so restarting costs
-    /// one request and answers `active` outright when the previous round
-    /// completed upstream in the meantime.
+    /// repair route, the inline connect sheet -- and each is a tap that may
+    /// land minutes or hours after the round it is retrying. The two pieces
+    /// of that round age very differently, which is why they get opposite
+    /// policies:
+    ///
+    /// - The **consent URL** is dead. It belongs to one provider link
+    ///   session with its own expiry, so it is never stored and never
+    ///   re-served; a restart always mints a new one.
+    /// - The **connection-request id** may well have gone ACTIVE upstream
+    ///   in the meantime. Nothing else in the system would notice: there is
+    ///   no provider webhook, and the entitlement row flips only on a
+    ///   complete this client submits. So the id is retained and re-submitted
+    ///   first. When it lands, the round finishes with no sign-in at all.
+    ///
+    /// Only when that fails (or there is no id) does a fresh round start.
     ///
     /// Concurrent begins for the same ability still share one request --
     /// that is tap-storm deduplication within a single round, not a
@@ -202,15 +213,20 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         // account's attempts before a new one can be minted under them.
         let scope = await myInboxIdProvider?()
         prepareLastKnownCatalog(for: scope)
+        // Finish before restarting. A round whose completion ran out of
+        // retry budget is very often ACTIVE upstream by now, and nothing
+        // else will ever notice: there is no provider webhook, and the
+        // entitlement row only flips on a complete this client submits.
+        // Re-submitting the retained id is cheap, silent, and the only path
+        // that finishes such a round without a second sign-in.
+        if pendingAttempts[abilityId] != nil, let resumed = await completeRetainedAttempt(abilityId: abilityId) {
+            return resumed
+        }
         let epoch = scopeEpoch
         let inFlightKey = attemptKey(abilityId: abilityId, epoch: epoch)
         if let inFlight = inFlightBegins[inFlightKey] {
             return try await inFlight.value
         }
-        // The round being restarted is over as far as this client is
-        // concerned: drop its id now, so a begin that fails on the network
-        // cannot leave a completion able to echo a superseded request.
-        pendingAttempts[abilityId] = nil
         let task = Task { () throws -> AbilityEntitlementInitiation in
             do {
                 let response = try await apiClient.createAbilityEntitlement(abilityId: abilityId, redirectUri: redirectUri)
@@ -219,8 +235,19 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
                 // anywhere after entry (including during the identity
                 // resolution above), the attempt belongs to the previous
                 // identity and must not be retained.
-                if let connectionRequestId = response.connectionRequestId, scopeEpoch == epoch, wipeCount == wipeMark {
+                // Only `pending_auth` leaves a round outstanding. An OAuth
+                // ability whose row is already active answers `active` while
+                // still carrying the request this call minted on the way
+                // through; retaining that id would schedule a completion for
+                // a round nobody is going to authorize.
+                if response.status == .pendingAuth, let connectionRequestId = response.connectionRequestId,
+                   scopeEpoch == epoch, wipeCount == wipeMark {
                     pendingAttempts[abilityId] = PendingAttempt(connectionRequestId: connectionRequestId)
+                }
+                guard response.status == .pendingAuth else {
+                    // Same reason the id is dropped: there is nothing here
+                    // for the caller to authorize, so no URL is handed up.
+                    return AbilityEntitlementInitiation(status: response.status)
                 }
                 return AbilityEntitlementInitiation(status: response.status, redirectUrl: response.redirectUrl)
             } catch {
@@ -230,6 +257,25 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         inFlightBegins[inFlightKey] = task
         defer { inFlightBegins[inFlightKey] = nil }
         return try await task.value
+    }
+
+    /// Tries to finish the retained round before a restart mints a new one.
+    /// Returns the activation when the round completed, nil when the caller
+    /// should go on and mint.
+    ///
+    /// It routes through `completeEntitlement` rather than the client
+    /// directly so the retained id keeps exactly one lifecycle: duplicate
+    /// completes join the in-flight one, `auth_incomplete` keeps the id for
+    /// the next attempt, and any other failure drops it. That is also why
+    /// nothing is cleared here on the way out -- an id that survives a
+    /// failure is the recovery path, not debris.
+    private func completeRetainedAttempt(abilityId: String) async -> AbilityEntitlementInitiation? {
+        do {
+            try await completeEntitlement(abilityId: abilityId)
+            return AbilityEntitlementInitiation(status: .active)
+        } catch {
+            return nil
+        }
     }
 
     public func completeEntitlement(abilityId: String) async throws {
@@ -249,7 +295,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
                     abilityId: abilityId,
                     connectionRequestId: attempt.connectionRequestId
                 )
-                removeAttempt(abilityId: abilityId, epoch: epoch)
+                removeAttempt(abilityId: abilityId, epoch: epoch, connectionRequestId: attempt.connectionRequestId)
             } catch let error as AbilitiesAPI.EndpointError where error.isAuthIncomplete {
                 // Retained on purpose: auth_incomplete is retryable against
                 // the same connection request (ownership is verified by id
@@ -263,7 +309,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
                 // fault after which the request state is unknown): retrying
                 // the same id cannot be trusted to converge, so the next
                 // connect re-begins. Begin is idempotent server-side.
-                removeAttempt(abilityId: abilityId, epoch: epoch)
+                removeAttempt(abilityId: abilityId, epoch: epoch, connectionRequestId: attempt.connectionRequestId)
                 throw mapServiceError(error, abilityId: abilityId)
             }
         }
@@ -279,7 +325,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         } catch {
             throw mapServiceError(error, abilityId: abilityId)
         }
-        removeAttempt(abilityId: abilityId, epoch: epoch)
+        discardAttempt(abilityId: abilityId, epoch: epoch)
     }
 
     public func conversationAbilities(conversationId: String) async throws -> [ConversationAbility] {
@@ -401,11 +447,27 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         "\(epoch):\(abilityId)"
     }
 
-    /// Drops a retained attempt only if it still belongs to the epoch that
-    /// created it; after a scope change the same ability id may already
-    /// carry the new account's attempt.
-    private func removeAttempt(abilityId: String, epoch: UInt64) {
+    /// Drops whatever round is retained for the ability, whichever one it
+    /// is. Only for revoke, which invalidates every outstanding round for
+    /// the entitlement rather than concluding a particular one.
+    private func discardAttempt(abilityId: String, epoch: UInt64) {
         guard scopeEpoch == epoch else { return }
+        pendingAttempts.removeValue(forKey: abilityId)
+    }
+
+    /// Drops a retained attempt only if it is still the one the caller was
+    /// working on: same epoch, same connection-request id.
+    ///
+    /// `pendingAttempts` is keyed by ability id alone, so a completion that
+    /// outlives the surface that started it (the composer modal's connect
+    /// deliberately survives dismissal) would otherwise delete an attempt a
+    /// later begin had already stored in its place. The next completion then
+    /// throws `missingConnectionRequest` -- "sign-in session expired" right
+    /// after a successful sign-in. The epoch alone cannot catch it: both
+    /// rounds belong to the same account.
+    private func removeAttempt(abilityId: String, epoch: UInt64, connectionRequestId: String) {
+        guard scopeEpoch == epoch else { return }
+        guard pendingAttempts[abilityId]?.connectionRequestId == connectionRequestId else { return }
         pendingAttempts.removeValue(forKey: abilityId)
     }
 
