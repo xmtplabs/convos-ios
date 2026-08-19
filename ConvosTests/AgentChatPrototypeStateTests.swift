@@ -1,3 +1,4 @@
+import ConvosComposer
 import XCTest
 @testable import Convos
 
@@ -151,5 +152,28 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         XCTAssertEqual(state.approvedPersonalContextItemIds, itemIds)
         XCTAssertNil(state.selectedLaneId)
         XCTAssertTrue(state.messagesByLane.isEmpty)
+    }
+
+    func testContextLibrarySuggestsAUsefulSubsetWithoutHidingTheCatalog() {
+        let suggestedIds = Set(PersonalContextBundle.suggestedForCurrentConvo.items.map(\.id))
+        let catalogIds = Set(PersonalContextBundle.catalog.map(\.id))
+
+        XCTAssertEqual(suggestedIds.count, 4)
+        XCTAssertEqual(catalogIds.count, 8)
+        XCTAssertTrue(suggestedIds.isSubset(of: catalogIds))
+        XCTAssertEqual(Set(PersonalContextBundle.catalog.map(\.kind)), Set(PersonalContextItem.Kind.allCases))
+    }
+
+    func testContextShareReceiptBindsExactItemsToOneDestination() {
+        let items = Array(PersonalContextBundle.catalog.prefix(2))
+        let receipt = PersonalContextShareReceipt(destination: .members, items: items)
+
+        XCTAssertEqual(receipt.destination, .members)
+        XCTAssertEqual(receipt.items, items)
+        XCTAssertTrue(receipt.id.hasPrefix("members:"))
+    }
+
+    func testShareContextIsHostOptInRatherThanAStandardAttachment() {
+        XCTAssertFalse(ComposerAttachmentAction.standard.contains(.shareContext))
     }
 }

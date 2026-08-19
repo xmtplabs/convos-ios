@@ -1614,6 +1614,8 @@ private extension ConversationView {
             if !effectiveReadOnly {
                 ConversationComposerBar(
                     viewModel: viewModel,
+                    conversationId: viewModel.conversation.id,
+                    showsPersonalContextShare: showsAgentChatPrototype,
                     focusState: groupFocus,
                     focusCoordinator: focusCoordinator,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,

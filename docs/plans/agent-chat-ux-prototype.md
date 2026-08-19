@@ -57,11 +57,12 @@ The three features form one system:
 ## 6. My context — private by default, explicit on the way out
 
 - Do not expose a separate “personal agent.” **My context** is a private user capability that is always available from the current Home or conversation.
-- The agent drawer places **My context** immediately above **Add an external agent**. The composer also has a small **Use my context** icon, so the user can ask for help without leaving the current task.
-- Opening it produces one small, relevant bundle suggested for the current Home + conversation. The first demo bundle includes a home airport, seat preference, free/busy calendar scope, and a travel-profile file.
-- The suggestion is private. A second screen names the exact items, destination, audience, and lasting access before presenting **Approve and share**. Nothing enters the group context before that action.
+- The primary entry point is **Share context** in the Group composer’s attachment menu. The agent drawer keeps **My context** immediately above **Add an external agent** for inspecting and revoking existing access; it is not the main sharing path.
+- Opening **Share context** shows the complete personal-context catalog. Four details useful to this Home and recent trip-planning chat start selected: home airport, seat preference, free/busy calendar scope, and a travel-profile file. Every suggestion can be deselected and every other item can be selected.
+- Before reviewing values, the user chooses one destination: a Group chat context card, the Trip planner Home widget, a Shared note on Home, or the Members list. Production replaces these demo rows with the conversation’s actual writable Home objects.
+- The suggestion is viewer-private. A second screen names the exact values and one destination before presenting a destination-specific approval action. Nothing enters the group chat, Home object, agent context, or members surface before that action.
 - Approved items remain reusable by the group agent until the user removes access. New items always require a new approval. A dynamic connection can return only the approved scope (for example free/busy, never private calendar details).
-- The drawer changes to show the approved-item count. Space Abilities’ profile shows **Access to Shane’s context** and inventories only approved items; it never exposes the private catalog.
+- After approval, the Group composer shows a local confirmation naming the destination and item count. The drawer changes to show the approved-item count. Space Abilities’ profile shows **Access to Shane’s context** and inventories only approved items; it never exposes the private catalog.
 - This flow does not create another agent lane or merge transcripts. Removing access immediately removes every personal-context item from group retrieval while preserving the user’s private context.
 
 ## Acceptance paths
@@ -92,12 +93,12 @@ The three features form one system:
 
 ### My context
 
-1. Tap the personal-context icon in the agent composer, or open the selector and choose **My context** above the external-agent action.
-2. See one bundle suggested specifically for this Home + conversation; confirm that it is still private.
-3. Tap **Review suggested context** and inspect every item, the group-agent destination, the Home + conversation surface, and who can use it.
-4. Complete **Approve and share 4 items** and confirm no extra agent lane is created.
-5. Reopen **My context** and see only the approved items plus **Remove access**.
-6. Open Space Abilities’ profile and confirm **Access to Shane’s context** lists only those items.
+1. Open the Group composer’s attachment menu and tap **Share context**.
+2. Choose Group chat, Trip planner, Shared note, or Members and confirm that the four group-relevant suggestions begin selected inside the complete eight-item catalog.
+3. Change at least one selection, tap **Review**, and inspect the exact values, destination, audience effect, and approval boundary.
+4. Complete the destination-specific approval and return to a visible confirmation above the Group composer. Confirm no extra agent lane is created.
+5. Open the agent selector and choose **My context** to see the approved items plus **Remove access**.
+6. Open Space Abilities’ profile and confirm **Access to Shane’s context** lists only those approved items.
 
 ## Explicit prototype assumptions
 

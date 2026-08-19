@@ -294,6 +294,9 @@ struct ConvosApp: App {
         if ProcessInfo.processInfo.environment["CONVOS_AGENT_MODEL_PROTOTYPE"] == "1" {
             AgentModelPrototypeView(coreActions: coreActions)
                 .withSafeAreaEnvironment()
+        } else if ProcessInfo.processInfo.environment["CONVOS_PERSONAL_CONTEXT_PROTOTYPE"] == "1" {
+            PersonalContextShareView(conversationId: "design-review", onShared: { _ in })
+                .withSafeAreaEnvironment()
         } else {
             mainTabView
         }

@@ -93,6 +93,9 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     /// `nil` unless `FeatureFlags.isDebugInjectorEnabled` is on (hard-locked off
     /// in production); the testtube button stays hidden in any other case.
     var onDebugAttachmentTap: (() -> Void)?
+    /// Host-owned personal-context approval flow. Kept optional so the shared
+    /// composer package never needs access to private-context models.
+    var onShareContextTap: (() -> Void)?
     let onBaseHeightChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
     /// App-provided quick-edit profile editor shown when the bar expands for
@@ -162,6 +165,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         voiceMemoRecorder: VoiceMemoRecorder,
         onSendVoiceMemo: @escaping () -> Void,
         onDebugAttachmentTap: (() -> Void)? = nil,
+        onShareContextTap: (() -> Void)? = nil,
         usesInlineMediaButtons: Bool = false,
         onBaseHeightChanged: @escaping (CGFloat) -> Void,
         @ViewBuilder bottomBarContent: @escaping () -> BottomBarContent,
@@ -204,6 +208,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         self.voiceMemoRecorder = voiceMemoRecorder
         self.onSendVoiceMemo = onSendVoiceMemo
         self.onDebugAttachmentTap = onDebugAttachmentTap
+        self.onShareContextTap = onShareContextTap
         self.usesInlineMediaButtons = usesInlineMediaButtons
         self.onBaseHeightChanged = onBaseHeightChanged
         self.bottomBarContent = bottomBarContent
@@ -521,8 +526,14 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     /// host handed one over, which it does behind `isDebugInjectorEnabled` -
     /// hard-locked off in production, so no member ever sees the row.
     private var offeredAttachmentActions: [ComposerAttachmentAction] {
-        guard onDebugAttachmentTap != nil else { return ComposerAttachmentAction.standard }
-        return ComposerAttachmentAction.standard + [.debugInjector]
+        var actions: [ComposerAttachmentAction] = ComposerAttachmentAction.standard
+        if onShareContextTap != nil {
+            actions.insert(.shareContext, at: 3)
+        }
+        if onDebugAttachmentTap != nil {
+            actions.append(.debugInjector)
+        }
+        return actions
     }
 
     /// What the composer can't offer right now. The menu greys these rows rather
@@ -538,6 +549,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         }
         if hasMedia || hasSideConvo {
             disabled.insert(.voiceNote)
+            disabled.insert(.shareContext)
         }
         return disabled
     }
@@ -580,6 +592,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         case .photos: isPhotoPickerPresented = true
         case .camera: isCameraPresented = true
         case .files: isFilePickerPresented = true
+        case .shareContext: onShareContextTap?()
         case .voiceNote: startVoiceMemoRecording()
         case .debugInjector: onDebugAttachmentTap?()
         }
