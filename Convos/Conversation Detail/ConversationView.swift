@@ -1477,9 +1477,32 @@ private extension ConversationView {
                 webURL: viewModel.conversation.spaceURL,
                 onNavigationRequest: { url in
                     pushHomeBrowserPage(for: url)
-                }
+                },
+                bridgeNavigation: homeBridgeNavigation
             )
         }
+    }
+
+    /// Native destinations for the home page's `window.convos` invite/chat
+    /// calls, mirroring Android's `DesktopBridgeNavigation` wiring in
+    /// `ConversationScreen`. Each closure reads live state when invoked: the
+    /// bridge holds one instance per web view, refreshed on every update pass.
+    private var homeBridgeNavigation: HomeBridgeNavigation {
+        HomeBridgeNavigation(
+            showShareSheet: {
+                // Same routing as the composer's "Invite friends": a full
+                // conversation can't mint invites and explains itself instead.
+                if viewModel.isFull {
+                    showingFullInfo = true
+                } else {
+                    presentingInviteShareSheet = true
+                }
+            },
+            showScan: { onScanInviteCode() },
+            showInviteCode: { viewModel.showInviteCode() },
+            showInvitePicker: { presentingAddFromContactsPicker = true },
+            showMembersList: { viewModel.presentingConversationSettings = true }
+        )
     }
 
     /// The single host seam for the composer's connections capability: the

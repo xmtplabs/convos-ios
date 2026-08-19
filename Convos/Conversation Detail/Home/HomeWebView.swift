@@ -1,3 +1,4 @@
+import ConvosBridge
 import SwiftUI
 import UIKit
 import WebKit
@@ -39,6 +40,12 @@ struct HomeWebView: UIViewRepresentable {
     /// navigation is cancelled in place; the host presents it in the home
     /// browser popup instead.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
+    /// Native destinations for the page's `window.convos` calls; the default
+    /// no-op set is what the browser popups use.
+    var bridgeNavigation: HomeBridgeNavigation = HomeBridgeNavigation()
+    /// Fired on the main actor when the page calls `window.convos.markReady()`,
+    /// i.e. it has painted and any loading cover may be dismissed.
+    var onMarkReady: @MainActor () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -49,6 +56,9 @@ struct HomeWebView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.bridge?.detach(from: webView)
+        coordinator.bridge = nil
+        coordinator.bridgeHost = nil
         // Back to the pool with what it is showing, so a page that is still
         // drawn can be handed straight back on re-entry.
         // The URL asked for, not the one that committed: a page that redirects
@@ -94,6 +104,19 @@ struct HomeWebView: UIViewRepresentable {
         // stack onto the manual indicator insets.
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.scrollView.automaticallyAdjustsScrollIndicatorInsets = false
+        // Expose window.convos before any load: updateUIView performs the
+        // first load only after makeUIView returns, so the document-start
+        // script injection precedes both the placeholder and the space URL.
+        // The bridge registers through a weak proxy, so the coordinator
+        // retains it for the web view's lifetime.
+        let host = HomeBridgeHost()
+        host.navigation = bridgeNavigation
+        host.onMarkReady = onMarkReady
+        let bridge = ConvosWebBridge(plugins: HomeBridgePlugins.dispatchers(host: host))
+        bridge.onReady = { Log.debug("HomeWebView: convos.js reported ready") }
+        bridge.attach(to: webView)
+        context.coordinator.bridge = bridge
+        context.coordinator.bridgeHost = host
         return webView
     }
 
@@ -101,6 +124,10 @@ struct HomeWebView: UIViewRepresentable {
         context.coordinator.onLoaded = onLoaded
         context.coordinator.onFirstPaint = onFirstPaint
         context.coordinator.onNavigationRequest = onNavigationRequest
+        // Refresh the bridge's closures so they capture live host state, the
+        // same way the delegate closures above are reassigned every pass.
+        context.coordinator.bridgeHost?.navigation = bridgeNavigation
+        context.coordinator.bridgeHost?.onMarkReady = onMarkReady
         webView.scrollView.isScrollEnabled = isScrollEnabled
         let scrollView = webView.scrollView
         if scrollView.contentInset.top != topContentInset || scrollView.contentInset.bottom != bottomContentInset {
@@ -169,6 +196,13 @@ struct HomeWebView: UIViewRepresentable {
         /// stale (e.g. the placeholder finishing after the real Space URL
         /// superseded it) and must not flip the interception state.
         var activeNavigation: WKNavigation?
+        /// The window.convos bridge for this web view. Registered through a
+        /// weak proxy, so the coordinator holds the strong reference; detached
+        /// in dismantleUIView.
+        var bridge: ConvosWebBridge?
+        /// Mutable state behind the bridge's plugin implementations; its
+        /// closures are refreshed on every updateUIView pass.
+        var bridgeHost: HomeBridgeHost?
 
         init(
             onLoaded: @escaping @MainActor () -> Void,

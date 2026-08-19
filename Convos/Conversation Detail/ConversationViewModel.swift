@@ -4240,6 +4240,16 @@ extension ConversationViewModel {
         UIPasteboard.general.string = urlString
     }
 
+    /// Presents the invite-code sheet (`InviteCodeSheet`) via
+    /// `ConversationPresenter`. Used by the home page's
+    /// `window.convos.showInviteCode()` bridge call.
+    func showInviteCode() {
+        // A full conversation can't mint new invite links, so even if the
+        // sheet is reached, the invite code can't be shown.
+        guard !isFull else { return }
+        presentingInviteCode = true
+    }
+
     /// Adds the given inboxIds as members of this conversation via the
     /// existing `addMembers` flow. Used by the "Add from Contacts" entry on
     /// the chat plus-menu.

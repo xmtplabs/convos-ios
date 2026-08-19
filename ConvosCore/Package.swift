@@ -39,7 +39,8 @@ let package = Package(
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.1"),
-        .package(url: "https://github.com/xmtplabs/convos-shared.git", branch: "main"),
+        // TODO: revert to branch: "main" once the web-plugins bridge PR merges in convos-shared
+        .package(url: "https://github.com/xmtplabs/convos-shared.git", branch: "mpr/web-plugins"),
         .package(path: "../ConvosLogging"),
         .package(path: "../ConvosInvites"),
         .package(path: "../ConvosAppData"),
@@ -62,6 +63,7 @@ let package = Package(
                 .product(name: "ConvosAppData", package: "ConvosAppData"),
                 .product(name: "ConvosConnections", package: "ConvosConnections"),
                 .product(name: "ConvosMetrics", package: "convos-shared"),
+                .product(name: "ConvosBridge", package: "convos-shared"),
                 .target(name: "ConvosConnectionsXMTP"),
             ],
             swiftSettings: [
