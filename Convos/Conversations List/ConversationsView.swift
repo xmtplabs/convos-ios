@@ -115,31 +115,6 @@ struct ConversationsView: View {
         return viewModel.conversations.first(where: { $0.spaceURL != nil })?.spaceURL
     }
 
-    /// Opens the first conversation that has a home, when launched with
-    /// `-autoOpenSpaceConversation`.
-    ///
-    /// Debug builds only, and only when the argument is passed. There is no
-    /// deep link to an existing conversation, so without this a home-load
-    /// measurement needs a person to tap - which makes before/after numbers
-    /// slow to collect and inconsistent to compare.
-    private func openFirstSpaceConversationIfRequested() {
-        #if DEBUG
-        guard ProcessInfo.processInfo.arguments.contains("-autoOpenSpaceConversation") else { return }
-        Task { @MainActor in
-            // A person spends seconds on the list before tapping; opening the
-            // instant it appears would measure a head start nobody gets.
-            try? await Task.sleep(for: .seconds(Constant.autoOpenDelay))
-            for _ in 0..<Constant.autoOpenAttempts where viewModel.selectedConversationId == nil {
-                if let conversation = viewModel.conversations.first(where: { $0.spaceURL != nil }) {
-                    viewModel.select(conversation)
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(Constant.autoOpenPollInterval))
-            }
-        }
-        #endif
-    }
-
     @ViewBuilder
     private func pushedConversationDestination(viewModel convoVM: ConversationViewModel) -> some View {
         let isReadOnly: Bool = viewModel.staleDeviceObserver.isDeviceRemoved
@@ -278,11 +253,17 @@ struct ConversationsView: View {
             // the reader decides what to open. See `HomeWebViewPool.prepare(url:)`.
             .onChange(of: likeliestHomeURL, initial: true) { _, spaceURL in
                 guard let spaceURL else { return }
-                HomeWebViewPool.shared.prepare(url: spaceURL)
+                // Off this update, deliberately. Selecting a conversation is
+                // what starts the push, and the chrome's blur transition runs
+                // in that same transaction - building a web view and starting a
+                // load inside it ended the transaction early and the top bar's
+                // buttons swapped with no animation at all.
+                Task { @MainActor in
+                    HomeWebViewPool.shared.prepare(url: spaceURL)
+                }
             }
             .onAppear {
                 viewModel.onAppear()
-                openFirstSpaceConversationIfRequested()
             }
             .task {
                 // Refresh credits + subscription on every conversations-list
@@ -330,14 +311,6 @@ struct ConversationsView: View {
         .onOpenURL { url in
             viewModel.handleURL(url)
         }
-    }
-
-    private enum Constant {
-        /// The list is populated from the database after launch, so the
-        /// auto-open waits for it rather than firing into an empty list.
-        static let autoOpenDelay: Int = 5
-        static let autoOpenAttempts: Int = 40
-        static let autoOpenPollInterval: Int = 250
     }
 }
 
