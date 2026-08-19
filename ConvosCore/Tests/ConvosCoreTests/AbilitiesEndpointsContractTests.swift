@@ -262,7 +262,7 @@ struct AbilitiesURLConstructionTests {
     @Test("Opaque ids stay one path segment, never double-encoded")
     func urlBuildingSingleEncoding() throws {
         let baseURL = try #require(URL(string: "https://api.example.com"))
-        let url = try ConvosAPIClient.abilitiesURL(
+        let url = try ConvosAPIClient.endpointURL(
             baseURL: baseURL,
             pathSegments: ["v2", "conversations", "ab/c%d e?f#g", "abilities", "toolkit"],
             queryParameters: nil
@@ -273,7 +273,7 @@ struct AbilitiesURLConstructionTests {
     @Test("A base URL carrying a path keeps it, and query items attach")
     func urlBuildingWithBasePathAndQuery() throws {
         let baseURL = try #require(URL(string: "https://api.example.com/api/"))
-        let url = try ConvosAPIClient.abilitiesURL(
+        let url = try ConvosAPIClient.endpointURL(
             baseURL: baseURL,
             pathSegments: ["v2", "abilities", "spotify", "entitlement"],
             queryParameters: ["agentInboxId": "agent-1"]

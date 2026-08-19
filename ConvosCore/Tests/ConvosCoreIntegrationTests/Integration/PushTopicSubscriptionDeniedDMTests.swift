@@ -204,4 +204,15 @@ private final class ThrowawayPushAPIClient: ConvosAPIClientProtocol, @unchecked 
     func listCloudConnections() async throws -> [CloudConnectionsAPI.ConnectionResponse] { [] }
 
     func revokeCloudConnection(connectionId: String) async throws {}
+
+    func shareSpace(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.SpaceShareLink {
+        ConvosAPI.SpaceShareLink(
+            conversationId: conversationId,
+            message: "",
+            expiresAt: ""
+        )
+    }
 }

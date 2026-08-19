@@ -184,6 +184,7 @@ struct ProdDebugMenuView: View {
             Toggle("Listen (agent participation)", isOn: Bindable(FeatureFlags.shared).isListenParticipationEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
             Toggle("Abilities v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
+            Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
         }
     }
 

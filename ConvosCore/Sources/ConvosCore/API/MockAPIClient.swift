@@ -132,6 +132,17 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         .init(success: true, conversationId: conversationId, mode: "speak")
     }
 
+    func shareSpace(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.SpaceShareLink {
+        .init(
+            conversationId: conversationId,
+            message: "Import this space using the space-import skill:\nhttps://mock.invalid/space.git",
+            expiresAt: "2026-01-01T00:00:00.000Z"
+        )
+    }
+
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate {
         .init(
             id: UUID().uuidString,

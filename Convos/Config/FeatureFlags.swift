@@ -147,6 +147,22 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default -- gates the internal action that copies a Space share
+    /// message to the clipboard so another conversation's agent can import
+    /// the Space. Deliberately reachable in every environment; production
+    /// users opt in from the curated prod debug menu.
+    var isSpaceShareEnabled: Bool {
+        get {
+            access(keyPath: \.isSpaceShareEnabled)
+            return UserDefaults.standard.bool(forKey: Constant.spaceShareEnabledKey)
+        }
+        set {
+            withMutation(keyPath: \.isSpaceShareEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.spaceShareEnabledKey)
+            }
+        }
+    }
+
     /// Mock credits/subscription state used by the in-app paywall preview surface
     /// in the Debug menu. Non-production only; defaults to `.plusAmple`.
     var mockCreditsPreset: CreditsStatePreset {
@@ -217,5 +233,6 @@ final class FeatureFlags {
         static let listenParticipationEnabledKey: String = "featureFlags.listenParticipationEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
         static let abilitiesV2EnabledKey: String = "featureFlags.abilitiesV2Enabled"
+        static let spaceShareEnabledKey: String = "featureFlags.spaceShareEnabled"
     }
 }
