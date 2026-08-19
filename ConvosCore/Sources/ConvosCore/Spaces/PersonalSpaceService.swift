@@ -75,10 +75,7 @@ public actor PersonalSpaceService {
             return existing
         }
 
-        let (_, claimedId) = await session.prepareNewConversation()
-        guard let conversationId = claimedId else {
-            throw PersonalSpaceError.noPooledConversation
-        }
+        let conversationId = try await claimPooledConversation()
 
         // Commit before marking. The markers are written against the XMTP
         // group, and a row still flagged unused is one the user cannot see if
@@ -104,6 +101,28 @@ public actor PersonalSpaceService {
         return space
     }
 
+    /// Claims a conversation from the warm cache, waiting for the pool to fill
+    /// if it has to.
+    ///
+    /// On a first launch it always has to: the Space Home is the first screen
+    /// the app shows, and nothing has pre-created a group yet. Giving up on the
+    /// first empty read left the front door saying the Space wasn't ready while
+    /// the pool filled seconds later. Retrying is also what makes the pool
+    /// fill - `prepareNewConversation` schedules the next prewarm on its way
+    /// out, so the first miss is what starts the work the second one collects.
+    private func claimPooledConversation() async throws -> String {
+        for attempt in 0..<Self.claimAttempts {
+            if attempt > 0 {
+                try await Task.sleep(for: .milliseconds(Self.claimRetryMilliseconds))
+            }
+            let (_, claimed) = await session.prepareNewConversation()
+            if let claimed {
+                return claimed
+            }
+        }
+        throw PersonalSpaceError.noPooledConversation
+    }
+
     /// Waits for the agent to show up in the local member list.
     ///
     /// `ensureDefaultAgentConversationReady` returns when the join has landed
@@ -126,6 +145,8 @@ public actor PersonalSpaceService {
     }
 
     private static let consentScope: [Consent] = [.allowed, .unknown]
+    private static let claimAttempts: Int = 15
+    private static let claimRetryMilliseconds: Int = 1000
     private static let agentPollAttempts: Int = 20
     private static let agentPollIntervalMilliseconds: Int = 500
 }

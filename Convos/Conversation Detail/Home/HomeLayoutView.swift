@@ -5,6 +5,8 @@ import SwiftUI
 /// preparing state covering the load. The page owns its own vertical scrolling.
 struct HomeLayoutView: View {
     var webURL: URL?
+    /// Whose home this is - see `HomePreparingView.Subject`.
+    var subject: HomePreparingView.Subject = .group
     /// The sheet's live geometry, read here rather than handed in as a number:
     /// the read is what makes a view update when the sheet moves, and this is
     /// the view that should update. See `ConversationSheetGeometry`.
@@ -27,6 +29,7 @@ struct HomeLayoutView: View {
         GeometryReader { proxy in
             HomeWebSurface(
                 url: webURL,
+                subject: subject,
                 topContentInset: webURL != nil ? proxy.safeAreaInsets.top : 0,
                 bottomContentInset: webURL != nil ? sheetGeometry.homeBottomClearance : 0,
                 onNavigationRequest: onNavigationRequest

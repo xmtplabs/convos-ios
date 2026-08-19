@@ -29,6 +29,8 @@ struct SpaceSheet: View {
 
     @Binding var conversationPendingExplosion: Conversation?
 
+    @Environment(\.safeAreaInsets) private var safeAreaInsets: EdgeInsets
+
     var body: some View {
         VStack(spacing: 0) {
             spaceRow
@@ -36,6 +38,13 @@ struct SpaceSheet: View {
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             list
         }
+        // The sheet's fill runs to the physical top edge - it is a panel pulled
+        // down over the screen, and stopping at the safe area would leave a
+        // strip of the Space showing above it. Its *content* still starts
+        // below the status bar: the inset is applied here rather than by the
+        // host, so the background and the first row can disagree about where
+        // the top is, which is the whole trick.
+        .padding(.top, safeAreaInsets.top)
         .background(Color.colorBackgroundSurfaceless)
         .accessibilityIdentifier("space-sheet")
     }

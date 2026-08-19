@@ -129,17 +129,19 @@ struct SpaceHomeView: View {
         }
     }
 
-    /// Before the Space exists. The chrome stays put, so the screen settles
-    /// into itself rather than replacing one layout with another.
+    /// Before the Space exists. The same preparing state the Home surface
+    /// shows once the conversation is there and its page is still coming, so
+    /// the wait reads as one continuous thing rather than two screens - the
+    /// bar the user is watching does not restart when the Space arrives.
     private var unresolvedSpace: some View {
-        VStack(spacing: DesignConstants.Spacing.step3x) {
-            if let failure = spaceHome.failure {
-                Text(failure)
-                    .font(.callout)
-                    .foregroundStyle(.colorTextSecondary)
-                    .multilineTextAlignment(.center)
-            } else {
-                ProgressView()
+        VStack(spacing: DesignConstants.Spacing.step4x) {
+            HomePreparingView(stage: .awaitingSpace, subject: .space)
+            if spaceHome.failure != nil {
+                Button("Try again") {
+                    Task { await spaceHome.load() }
+                }
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

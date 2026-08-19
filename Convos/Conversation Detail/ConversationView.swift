@@ -1577,6 +1577,7 @@ private extension ConversationView {
     var backingViews: some View {
         HomeLayoutView(
             webURL: viewModel.conversation.spaceURL,
+            subject: isPersonalSpace ? .space : .group,
             sheetGeometry: sheetGeometry,
             onNavigationRequest: { url in
                 pushHomeBrowserPage(for: url)
