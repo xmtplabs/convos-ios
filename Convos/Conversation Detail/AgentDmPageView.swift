@@ -54,6 +54,17 @@ struct AgentDmPageView: View {
     /// opens on the Agent tab.
     var onContentHeightChanged: ((CGFloat) -> Void)?
 
+    /// How much of this page's top the sheet is clipping away.
+    ///
+    /// The sheet hands its transcripts one constant, full-height frame at
+    /// every detent, bottom-aligned, and clips whatever overflows its top
+    /// edge (see `ConversationSheetContent.transcript`). The transcript wants
+    /// that overflow - it scrolls content up through it - but the empty
+    /// states below want it padded back out: centering in the full frame puts
+    /// them in the band above the sheet, so at anything short of `full` they
+    /// are clipped away entirely and the tab reads as blank.
+    @Environment(\.transcriptClippedTopOverflow) private var clippedTopOverflow: CGFloat
+
     /// Fill of the preparing bar. Creeps while the agent is on its way; it
     /// tracks elapsed time, not real progress, since nothing reports any.
     @State private var preparingProgress: Double = Constant.progressStart
@@ -169,8 +180,8 @@ struct AgentDmPageView: View {
     }
 
     /// Offered when the conversation has no agent at all (Figma 7488:14502).
-    /// Centered in the space above the sheet rather than the full view, so it
-    /// reads as centered on screen.
+    /// Centered in the sheet's visible band rather than in the full-height
+    /// frame the sheet hands its transcripts - see `clippedTopOverflow`.
     private var addAgentState: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
             Button(action: session.requestAgentJoin) {
@@ -188,6 +199,12 @@ struct AgentDmPageView: View {
                 .foregroundStyle(.colorLava)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Inset to the band the sheet is showing - the clipped overflow off
+        // the top, the chrome's clearance off the bottom - so this centers in
+        // what the reader can see and follows the sheet's edge as it resizes.
+        // The background sits outside both, so the dark surface still fills
+        // the clipped region.
+        .padding(.top, clippedTopOverflow)
         .padding(.bottom, extraBottomInset)
         .background(.colorBackgroundSurfaceless)
     }
@@ -204,6 +221,12 @@ struct AgentDmPageView: View {
             progressBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Inset to the band the sheet is showing - the clipped overflow off
+        // the top, the chrome's clearance off the bottom - so this centers in
+        // what the reader can see and follows the sheet's edge as it resizes.
+        // The background sits outside both, so the dark surface still fills
+        // the clipped region.
+        .padding(.top, clippedTopOverflow)
         .padding(.bottom, extraBottomInset)
         .background(.colorBackgroundSurfaceless)
         .task(id: isPreparing) {
