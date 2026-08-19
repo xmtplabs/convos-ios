@@ -1011,6 +1011,46 @@ extension MessagesViewController {
     /// `.messages` items themselves are unchanged, so — exactly like the
     /// long-body expansion set — the change carries no DifferenceKit
     /// changeset of its own and visible cells must be reconfigured by hand.
+    /// Sets how this transcript treats links into the conversation's own
+    /// Space: the host's first refusal on a tap, and the Space the link cards
+    /// compare against.
+    ///
+    /// A method rather than the stored properties the rest of the host
+    /// configuration uses. Nothing here reads either value back - both are
+    /// handed straight to the data source - and the class body is at its
+    /// length limit, which stored properties would push it past.
+    ///
+    /// A Space can arrive while its conversation is already on screen, and the
+    /// link cards already drawn are the ones that should change. Like the power
+    /// map, the value crosses every message without altering any of them, so it
+    /// carries no changeset and the visible cells are reconfigured by hand.
+    func applySpaceLinkHandling(
+        router: @escaping MessageLinkRouter,
+        spaceURL: URL?
+    ) {
+        dataSource.messageLinkRouter = router
+        guard dataSource.conversationSpaceURL != spaceURL else { return }
+        dataSource.conversationSpaceURL = spaceURL
+        reconfigureAllMessageCells()
+    }
+
+    /// Reconfigures every visible message cell. For a change that any message
+    /// could be showing - the conversation's Space arriving, which re-reads
+    /// every link card - there is no narrower set to compute.
+    func reconfigureAllMessageCells() {
+        var indexPaths: [IndexPath] = []
+        for (sectionIndex, section) in dataSource.sections.enumerated() {
+            for (itemIndex, cell) in section.cells.enumerated() {
+                guard case .messages = cell else { continue }
+                indexPaths.append(IndexPath(item: itemIndex, section: sectionIndex))
+            }
+        }
+        guard !indexPaths.isEmpty else { return }
+        collectionView.reconfigureItems(at: indexPaths)
+        // Paired with the layout call for the same reason as the sets above.
+        messagesLayout.reconfigureItems(at: indexPaths)
+    }
+
     private func reconfigureCells(forSenderInboxIds inboxIds: Set<String>) {
         guard !inboxIds.isEmpty else { return }
         var indexPaths: [IndexPath] = []

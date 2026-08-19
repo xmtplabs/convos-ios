@@ -11,6 +11,8 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var inviteMembershipResolver: any InviteMembershipResolving { get set }
     var agentShareResolver: any AgentShareResolving { get set }
     var onTapAgentShare: ((MessageAgentShare) -> Void)? { get set }
+    var messageLinkRouter: MessageLinkRouter { get set }
+    var conversationSpaceURL: URL? { get set }
     var onTapAvatar: ((ConversationMember) -> Void)? { get set }
     var onTapReactions: ((AnyMessage) -> Void)? { get set }
     var onTapReadReceipts: ((MessagesGroup) -> Void)? { get set }

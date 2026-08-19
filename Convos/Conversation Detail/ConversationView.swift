@@ -263,6 +263,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
             onTapAgentShare: viewModel.onTapAgentShare(_:),
+            messageLinkRouter: routeSpaceLink(_:),
+            conversationSpaceURL: viewModel.conversation.spaceURL,
             agentShareResolver: viewModel.agentShareResolver,
             inviteMembershipResolver: viewModel.inviteMembershipResolver,
             onReaction: viewModel.onReaction(emoji:messageId:),
@@ -1049,6 +1051,69 @@ private extension ConversationView {
         )
     }
 
+    /// Takes a link into this conversation's own Space out of the browser and
+    /// into the Home behind the sheet, and reports whether it did.
+    ///
+    /// The sheet settles at `compact` rather than dropping out of the way
+    /// entirely: the page is what the tap asked for, but the conversation it
+    /// came from is the reason the page matters, and `compact` is the size that
+    /// shows both. Both moves start in the same turn, so the push animates
+    /// while the sheet resizes instead of after it.
+    ///
+    /// A pushed page rather than a reload of the Home's own web view, which is
+    /// what an in-page link tap already does (see `HomeWebNavigation`): the
+    /// same URL should land the same way whether it was tapped in the
+    /// transcript or inside the Space, and the page brings the back chevron
+    /// and the edge swipe with it.
+    private func routeSpaceLink(_ url: URL) -> Bool {
+        guard let spaceURL = viewModel.conversation.spaceURL,
+              SpaceLink.matches(url, space: spaceURL) else {
+            return false
+        }
+        settleSheetForSpaceLink()
+        if SpaceLink.isRoot(url, space: spaceURL) {
+            // The root *is* the Home. Walk any open chain back to it rather
+            // than stacking a second copy on top of itself.
+            homeBrowserEntries.removeAll()
+        } else if !isShowingHomeBrowserPage(for: url) {
+            pushHomeBrowserPage(for: url)
+        }
+        return true
+    }
+
+    /// Clears the sheet off the page a Space link just opened, without taking
+    /// the transcript away.
+    ///
+    /// Only ever downward, and only as far as `compact`. A sheet already at
+    /// `compact` is where it should be and does not move at all - a resize
+    /// nobody asked for reads as the screen twitching. A collapsed sheet stays
+    /// collapsed for the same reason: the tap asked to see a page, not to be
+    /// shown a transcript that was deliberately put away.
+    ///
+    /// Focus goes first regardless. A focused composer holds the sheet up no
+    /// matter which detent is selected, so a keyboard left standing would keep
+    /// the page covered even after the detent changed.
+    private func settleSheetForSpaceLink() {
+        focusCoordinator.dismissMessageComposerIfNeeded()
+        agentFocusCoordinator.dismissMessageComposerIfNeeded()
+        guard sheetDetent > .compact else { return }
+        moveSheet(to: .compact)
+    }
+
+    /// Whether the page on top of the browsing chain is already showing this
+    /// exact location, in which case the tap has nowhere to go and only the
+    /// sheet moves. Pushing would stack the page on itself and leave a back
+    /// chevron that returns to an identical screen.
+    ///
+    /// The anchor counts. `/goals` and `/goals#today` are one page but two
+    /// places in it, and nothing here can scroll a page that is already open -
+    /// so a link to the anchor is pushed, and lands on it, rather than being
+    /// swallowed as somewhere the reader already is.
+    private func isShowingHomeBrowserPage(for url: URL) -> Bool {
+        guard let current = homeBrowserEntries.last else { return false }
+        return SpaceLink.isSameLocation(current.url, as: url)
+    }
+
     private func pushHomeBrowserPage(for url: URL) {
         homeBrowserEntries.append(HomeBrowserEntry(url: url))
     }
@@ -1537,6 +1602,8 @@ private extension ConversationView {
                     contextMenuState: agentContextMenuState,
                     focusState: agentFocus,
                     focusCoordinator: agentFocusCoordinator,
+                    messageLinkRouter: routeSpaceLink(_:),
+                    conversationSpaceURL: viewModel.conversation.spaceURL,
                     onScrollToBottomAvailable: { scrollFn in
                         // Same deferral as the group transcript's bridge.
                         DispatchQueue.main.async {
@@ -1687,6 +1754,11 @@ private extension ConversationView {
         )
         .environment(\.agentShareResolver, lane.agentShareResolver)
         .environment(\.inviteMembershipResolver, lane.inviteMembershipResolver)
+        // The menu renders in its own tree at the sheet's root, so it inherits
+        // nothing from the cells: a link tapped in a bubble's menu preview
+        // routes where the bubble's own tap routes only because of this.
+        .environment(\.messageLinkRouter, routeSpaceLink(_:))
+        .environment(\.conversationSpaceURL, viewModel.conversation.spaceURL)
     }
 
     /// Extra rows above the group composer: the injected bottom-bar slot plus

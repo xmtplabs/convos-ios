@@ -17,6 +17,13 @@ struct CellConfig {
     /// Fired when an agent-share message card is tapped -- opens the shared
     /// agent's template flow.
     let onTapAgentShare: @MainActor @Sendable (MessageAgentShare) -> Void
+    /// The host's first refusal on a link tapped in a bubble -- see
+    /// `MessageLinkRouter`. Declines by default, which sends the link to the
+    /// in-app browser.
+    let messageLinkRouter: MessageLinkRouter
+    /// The conversation's own Space, for the bubbles that render a link home
+    /// differently. Nil until it exists.
+    let conversationSpaceURL: URL?
     let onTapAvatar: (AnyMessage) -> Void
     /// Fired when an avatar / sender label is tapped on a group that has no
     /// concrete `AnyMessage` to attach (e.g. the synthesized agent

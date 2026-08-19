@@ -59,6 +59,11 @@ struct MessagesView<BottomBarContent: View>: View {
     let onTapAvatar: (ConversationMember) -> Void
     let onTapInvite: (MessageInvite) -> Void
     var onTapAgentShare: (MessageAgentShare) -> Void = { _ in }
+    /// Offered every link tapped in the transcript before the in-app browser
+    /// gets it; see `MessageLinkRouter`.
+    var messageLinkRouter: MessageLinkRouter = { _ in false }
+    /// The conversation's own Space; see `SpaceLink`.
+    var conversationSpaceURL: URL?
     var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
     var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
     let onReaction: (String, String) -> Void
@@ -192,6 +197,8 @@ struct MessagesView<BottomBarContent: View>: View {
             onLoadPreviousMessages: onLoadPreviousMessages,
             onTapInvite: onTapInvite,
             onTapAgentShare: onTapAgentShare,
+            messageLinkRouter: messageLinkRouter,
+            conversationSpaceURL: conversationSpaceURL,
             agentShareResolver: agentShareResolver,
             inviteMembershipResolver: inviteMembershipResolver,
             onReaction: onReaction,
@@ -369,6 +376,10 @@ struct MessagesView<BottomBarContent: View>: View {
                 // data, not the env-default mock.
                 .environment(\.agentShareResolver, agentShareResolver)
                 .environment(\.inviteMembershipResolver, inviteMembershipResolver)
+                // Same reason: a link tapped in a bubble's menu preview should
+                // route where the bubble's own tap routes.
+                .environment(\.messageLinkRouter, messageLinkRouter)
+                .environment(\.conversationSpaceURL, conversationSpaceURL)
             }
         }
         .sheet(item: $htmlAttachmentPreview) { item in

@@ -20,6 +20,8 @@ final class MessagesCollectionViewDataSource: NSObject {
     var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
     var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
     var onTapAgentShare: ((MessageAgentShare) -> Void)?
+    var messageLinkRouter: MessageLinkRouter = { _ in false }
+    var conversationSpaceURL: URL?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onTapReadReceipts: ((MessagesGroup) -> Void)?
     var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
@@ -98,6 +100,10 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onTapAgentShare: { [weak self] agentShare in
                 self?.onTapAgentShare?(agentShare)
             },
+            messageLinkRouter: { [weak self] url in
+                self?.messageLinkRouter(url) ?? false
+            },
+            conversationSpaceURL: conversationSpaceURL,
             onTapAvatar: { [weak self] message in
                 self?.onTapAvatar?(message.sender)
             },
