@@ -12,9 +12,8 @@ struct AgentComposerBar: View {
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
     let isReadOnly: Bool
-    /// Host-passed capability gating the composer's `.connections` entries
-    /// (quick icon and `+` menu row alike); read from the feature flag at
-    /// the `ConversationView` seam only.
+    /// Host-passed capability gating the composer's `+` menu `.connections`
+    /// row; read from the feature flag at the `ConversationView` seam only.
     let connectionsEnabled: Bool
     /// Presents the Connections browser modal; the host owns the
     /// presentation, the composer only emits the tap.
@@ -44,10 +43,9 @@ struct AgentComposerBar: View {
 
     /// Disabled composer for the not-yet-created DM. The field and send
     /// button stay disabled until the session binds the real conversation
-    /// (normally within a second or two of the agent joining). The `+` and
-    /// the quick-action row stay visible (inert, dimmed) so the composer
-    /// keeps the agent bar's default-state shape rather than dropping the
-    /// affordances.
+    /// (normally within a second or two of the agent joining). The `+` stays
+    /// visible (inert, dimmed) so the composer keeps the agent bar's shape
+    /// rather than dropping the affordance.
     private var draftComposer: some View {
         MessagesInputView(
             displayName: .constant(""),
@@ -63,7 +61,6 @@ struct AgentComposerBar: View {
             onClearInvite: {},
             fileAttachmentPreview: { _ in EmptyView() },
             agentShareChip: { EmptyView() },
-            quickActionsAccessory: { draftQuickRow },
             attachmentsButton: { draftPlusGlyph }
         )
         .fixedSize(horizontal: false, vertical: true)
@@ -84,22 +81,6 @@ struct AgentComposerBar: View {
             .foregroundStyle(Color.colorTextPrimary)
             .frame(width: 32, height: 32)
             .opacity(0.4)
-    }
-
-    /// The quick-action row in the pre-creation composer, same curation as
-    /// the live bar's default state (`ComposerAttachmentAction.agentQuickRow`),
-    /// inert and dimmed to read as disabled alongside the field.
-    private var draftQuickRow: some View {
-        let actions: [ComposerAttachmentAction] = ComposerAttachmentAction.agentQuickRow(connectionsEnabled: connectionsEnabled)
-        return HStack(spacing: 0) {
-            ForEach(actions) { action in
-                Image(systemName: action.filledIconSystemName)
-                    .font(.system(size: 18.0, weight: .medium))
-                    .foregroundStyle(Color.colorTextPrimary)
-                    .frame(width: 32, height: 32)
-            }
-        }
-        .opacity(0.4)
     }
 
     private enum Constant {

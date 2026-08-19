@@ -115,8 +115,13 @@ enum AbilitiesServices {
     /// invalidates the service's in-flight fetches and re-clears, so a
     /// catalog refresh that was already on the network can neither commit
     /// nor recreate the wiped files when it resumes.
+    ///
+    /// Advancing `AbilitiesAccountEpoch` is the view-model half of the same
+    /// fence: clearing the actor and the disk says nothing to a screen that
+    /// is already holding a snapshot (see `AbilitiesAccountEpoch`).
     static func handleAccountDataWiped() {
         catalogCache?.clearAll()
+        Task { @MainActor in AbilitiesAccountEpoch.shared.advance() }
         guard let liveService else { return }
         Task { await liveService.handleAccountDataWiped() }
     }

@@ -1641,15 +1641,16 @@ private extension ConversationView {
     }
 
     /// The single host seam for the composer's connections capability: the
-    /// quick icon, the `+` menu row, and the browser modal all feed from
-    /// this one read. No composer surface consults the flag directly.
+    /// `+` menu row and the browser modal both feed from this one read. No
+    /// composer surface consults the flag directly.
     var composerConnectionsEnabled: Bool {
         FeatureFlags.shared.isAbilitiesV2Enabled
     }
 
-    /// Powerplug tap, from the quick row or the `+` menu row alike: presents
-    /// the Connections browser full-screen, carrying the launching DM's
-    /// context. Guarded by the same capability that offered the entries.
+    /// Powerplug tap from the `+` menu row: presents the Connections
+    /// browser full-screen, carrying the launching DM's conversation,
+    /// agent inbox id and agent name so its Connected section can scope
+    /// its toggles. Guarded by the same capability that offered the row.
     func handleComposerConnectionsTap() {
         guard composerConnectionsEnabled,
               let agentDmSession,
@@ -1659,7 +1660,8 @@ private extension ConversationView {
         }
         connectionsBrowserContext = .composerModal(
             conversationId: dmConversationId,
-            agentInboxId: agentInboxId
+            agentInboxId: agentInboxId,
+            agentDisplayName: agentDmSession.agentName
         )
     }
 

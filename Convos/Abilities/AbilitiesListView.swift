@@ -13,12 +13,18 @@ import SwiftUI
 /// replacement).
 struct AbilitiesListScreen: View {
     @State private var viewModel: AbilitiesListViewModel
+    /// The per-chat half of `.composerModal`: opt-in state and the toggle
+    /// writer for the launching DM. Nil in `.appSettings`, which has no
+    /// conversation to scope to and must fire no conversation-abilities
+    /// request at all.
+    @State private var conversationViewModel: ConversationAbilitiesViewModel?
     /// Kept so entitled rows can hand the whole latched pair down to the
     /// ability detail push (see `AbilitiesSelection`).
     private let selection: AbilitiesSelection
-    /// Which entry point raised the screen; drives only the wrapper chrome
-    /// (see `ConnectionsBrowserMode`). Both modes render the same list from
-    /// the same view model.
+    /// Which entry point raised the screen; drives the wrapper chrome, the
+    /// section headers and the Connected row's accessory (see
+    /// `ConnectionsBrowserMode`). Membership predicates are the same in
+    /// both modes.
     private let mode: ConnectionsBrowserMode
     @Environment(\.dismiss) private var dismiss: DismissAction
 
@@ -28,7 +34,49 @@ struct AbilitiesListScreen: View {
     init(selection: AbilitiesSelection, mode: ConnectionsBrowserMode) {
         self.selection = selection
         self.mode = mode
-        _viewModel = State(initialValue: AbilitiesListViewModel(service: selection.service, authorizer: selection.authorizer))
+        let listViewModel = AbilitiesListViewModel(service: selection.service, authorizer: selection.authorizer)
+        let conversationViewModel = Self.makeConversationViewModel(listViewModel, selection: selection, mode: mode)
+        if let conversationViewModel {
+            listViewModel.onCatalogCommitted = { [weak conversationViewModel] catalog in
+                conversationViewModel?.adoptCatalog(catalog)
+            }
+            listViewModel.onEntitlementActivated = { [weak conversationViewModel] abilityId in
+                conversationViewModel?.enableAfterConnect(abilityId: abilityId)
+            }
+        }
+        _viewModel = State(initialValue: listViewModel)
+        _conversationViewModel = State(initialValue: conversationViewModel)
+    }
+
+    /// Builds the per-chat view model for `.composerModal` and cross-wires
+    /// it with the list view model: the list publishes every catalog
+    /// revision it commits (so the lifecycle behind a toggle always comes
+    /// from the snapshot that sectioned the row) and every entitlement it
+    /// activates (so a connect from Discover enables the ability here).
+    /// Both directions capture weakly; `@State` owns the strong halves.
+    private static func makeConversationViewModel(
+        _ listViewModel: AbilitiesListViewModel,
+        selection: AbilitiesSelection,
+        mode: ConnectionsBrowserMode
+    ) -> ConversationAbilitiesViewModel? {
+        guard let conversationId = mode.conversationId,
+              let agentInboxId = mode.agentInboxId else {
+            return nil
+        }
+        let agent = ConversationAgentDescriptor(
+            inboxId: agentInboxId,
+            displayName: mode.agentDisplayName ?? ""
+        )
+        let conversationViewModel = ConversationAbilitiesViewModel(
+            conversationId: conversationId,
+            agents: [agent],
+            selection: selection,
+            catalogSource: .hosted
+        )
+        conversationViewModel.entitlementRecoveryRoute = .host { [weak listViewModel] ability in
+            listViewModel?.connect(ability)
+        }
+        return conversationViewModel
     }
 
     var body: some View {
@@ -42,8 +90,17 @@ struct AbilitiesListScreen: View {
         }
     }
 
+    /// The sheets modifier rides the list, never the section: attached
+    /// lower down it resolves the wrong presentation context and the
+    /// bundle picker dismisses this modal instead of presenting.
     private var listView: some View {
-        AbilitiesListView(viewModel: viewModel, selection: selection)
+        AbilitiesListView(
+            viewModel: viewModel,
+            selection: selection,
+            mode: mode,
+            conversationViewModel: conversationViewModel
+        )
+        .modifier(ConversationAbilitiesSheetsModifier(viewModel: conversationViewModel))
     }
 
     private var doneToolbarItem: some ToolbarContent {
@@ -55,34 +112,48 @@ struct AbilitiesListScreen: View {
     }
 }
 
-/// The V2 abilities catalog list (account level): searchable, split into
-/// entitled and available sections, with status badges and
-/// connect/disconnect actions stubbed through `AbilitiesServiceProtocol`.
+/// The V2 abilities catalog list: searchable, split into three sections by
+/// entitlement state, with status badges and connect actions through
+/// `AbilitiesServiceProtocol`.
 ///
 /// Entry points (all flag-gated behind Abilities V2, all via
-/// `AbilitiesListScreen`, which owns the view model and takes the
+/// `AbilitiesListScreen`, which owns the view models and takes the
 /// `ConnectionsBrowserMode` naming the caller):
 /// - App Settings connections row (`AppSettingsView.connectionsDestination`)
 ///   pushes it in place of the V1 `ConnectionsListView`, in mode
-///   `.appSettings`; the row is titled "Abilities" under the flag.
-/// - The agent composer's powerplug (quick icon or `+` menu row) presents it
-///   full-screen from `ConversationView.connectionsBrowserPresentation`, in
-///   mode `.composerModal`; the screen then supplies its own
-///   `NavigationStack` and a Done control.
+///   `.appSettings`; the row is titled "Abilities" under the flag. Account
+///   level throughout: "Connected" / "All connections" / "Status unknown",
+///   the `ellipsis` menu with Disconnect, and the detail push.
+/// - The agent composer's `+` menu presents it full-screen from
+///   `ConversationView.connectionsBrowserPresentation`, in mode
+///   `.composerModal`; the screen then supplies its own `NavigationStack`
+///   and a Done control. Here the list is where connections are turned on
+///   *for the launching chat*: "Connected" / "Discover" / "Status
+///   unknown", each Connected row carrying the same per-chat toggle the
+///   conversation info section shows, and no Disconnect anywhere (that
+///   stays app-wide, in App Settings).
+///
+/// Section membership is identical in both modes and comes from the
+/// catalog alone; the mode drives the second header string and the
+/// Connected row's accessory.
 ///
 /// A conversation toggle that needs an entitlement no longer deep-links
 /// here: it presents the scoped `AbilityConnectSheet` instead, which reuses
 /// this screen's view model for the connect machinery.
 ///
-/// Entitled rows push `AbilityDetailScreen` (delegations list) inside
-/// whichever stack the mode put the screen in - the App Settings stack when
-/// pushed, the screen's own stack when presented as the modal. Available and
-/// state-unknown rows stay non-navigable: delegations only exist against an
-/// entitlement.
+/// Entitled rows push `AbilityDetailScreen` (delegations list) in
+/// `.appSettings` only. Available, state-unknown, and `.composerModal`
+/// Connected rows stay non-navigable - the last because a `Toggle` inside
+/// a `NavigationLink` fights the row's tap target.
 struct AbilitiesListView: View {
     @Bindable var viewModel: AbilitiesListViewModel
     /// Latched pair handed down to ability detail pushes.
     let selection: AbilitiesSelection
+    /// Drives the second section's header and the Connected accessory.
+    var mode: ConnectionsBrowserMode = .appSettings
+    /// The per-chat toggle state for `.composerModal`; nil renders the
+    /// account-level accessory instead.
+    var conversationViewModel: ConversationAbilitiesViewModel?
 
     var body: some View {
         catalogList
@@ -251,8 +322,17 @@ struct AbilitiesListView: View {
                     availableRow(ability)
                 }
             } header: {
-                sectionHeader("All connections")
+                sectionHeader(availableSectionTitle)
             }
+        }
+    }
+
+    /// The account-level list enumerates what exists; the chat-scoped one
+    /// frames the same rows as things to add to this convo.
+    private var availableSectionTitle: String {
+        switch mode {
+        case .appSettings: "All connections"
+        case .composerModal: "Discover"
         }
     }
 
@@ -279,13 +359,36 @@ struct AbilitiesListView: View {
 
     // MARK: - Rows
 
+    @ViewBuilder
     private func entitledRow(_ ability: AbilitiesAPI.Ability) -> some View {
+        if let conversationViewModel {
+            scopedEntitledRow(ability, conversationViewModel: conversationViewModel)
+        } else {
+            navigableEntitledRow(ability)
+        }
+    }
+
+    private func navigableEntitledRow(_ ability: AbilitiesAPI.Ability) -> some View {
         NavigationLink {
             AbilityDetailScreen(ability: ability, selection: selection)
         } label: {
             abilityRowContent(ability, subtitle: entitledSubtitle(for: ability)) {
                 entitledAccessory(ability)
             }
+        }
+    }
+
+    /// Chat-scoped Connected row: status badge plus the shared per-chat
+    /// toggle, and nothing else. No `ellipsis` menu (Disconnect is
+    /// app-wide, and this surface only extends and withdraws grants) and
+    /// no detail push - the toggle needs the row's tap target, and the
+    /// push is where a disconnect would sneak back in.
+    private func scopedEntitledRow(
+        _ ability: AbilitiesAPI.Ability,
+        conversationViewModel: ConversationAbilitiesViewModel
+    ) -> some View {
+        abilityRowContent(ability, subtitle: entitledSubtitle(for: ability)) {
+            scopedEntitledAccessory(ability, conversationViewModel: conversationViewModel)
         }
     }
 
@@ -345,6 +448,45 @@ struct AbilitiesListView: View {
                 AbilityStatusBadge(status: entitlement.status)
                 entitledMenu(ability, status: entitlement.status)
             }
+        }
+    }
+
+    /// The badge still reports the app-wide entitlement status; the toggle
+    /// beside it reports this chat. Two different facts, so both render.
+    @ViewBuilder
+    private func scopedEntitledAccessory(
+        _ ability: AbilitiesAPI.Ability,
+        conversationViewModel: ConversationAbilitiesViewModel
+    ) -> some View {
+        if viewModel.isBusy(ability) {
+            ProgressView()
+        } else {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                if let entitlement = ability.entitlement {
+                    AbilityStatusBadge(status: entitlement.status)
+                }
+                scopedToggle(ability, conversationViewModel: conversationViewModel)
+            }
+        }
+    }
+
+    /// A Connected row the conversation view model has no row for yet is
+    /// the catalog arriving ahead of the opt-in read: loading, never a
+    /// settled OFF.
+    @ViewBuilder
+    private func scopedToggle(
+        _ ability: AbilitiesAPI.Ability,
+        conversationViewModel: ConversationAbilitiesViewModel
+    ) -> some View {
+        if let row = conversationViewModel.row(forAbilityId: ability.id) {
+            let repairAction = { viewModel.connect(ability) }
+            ConversationAbilityToggleControl(
+                row: row,
+                viewModel: conversationViewModel,
+                onNeedsAttention: repairAction
+            )
+        } else {
+            ConversationAbilityToggleLoadingControl()
         }
     }
 
@@ -419,7 +561,7 @@ struct AbilitiesListView: View {
 #Preview("Composer modal") {
     AbilitiesListScreen(
         selection: AbilitiesSelection(service: MockAbilitiesService()),
-        mode: .composerModal(conversationId: "dm-1", agentInboxId: "agent-1")
+        mode: .composerModal(conversationId: "mock-conversation-1", agentInboxId: "mock-agent-inbox-1", agentDisplayName: "Caley")
     )
 }
 
