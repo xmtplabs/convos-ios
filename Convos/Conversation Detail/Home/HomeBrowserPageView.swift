@@ -17,9 +17,9 @@ struct HomeBrowserEntry: Identifiable, Hashable {
 /// scrolls clear of both.
 struct HomeBrowserPageView: View {
     let entry: HomeBrowserEntry
-    /// The sheet's live geometry, whose coverage becomes this page's bottom
-    /// content/indicator inset. Read here rather than handed in as a number - see
-    /// `ConversationSheetGeometry`.
+    /// The sheet's live geometry, whose resting height becomes this page's
+    /// bottom viewport padding. Read here rather than handed in as a number -
+    /// see `ConversationSheetGeometry`.
     var sheetGeometry: ConversationSheetGeometry = ConversationSheetGeometry()
     /// Fired when this page requests navigation away from its own URL; the
     /// host pushes another page for it.
@@ -33,9 +33,17 @@ struct HomeBrowserPageView: View {
                 conversationId: "",
                 url: entry.url,
                 topContentInset: proxy.safeAreaInsets.top,
-                bottomContentInset: sheetGeometry.homeBottomClearance,
                 onNavigationRequest: onNavigationRequest
             )
+            // Pad the viewport itself rather than relying on the scroll
+            // view's contentInset: artifact pages are app-style (fixed
+            // height, inner CSS scroller), so a native content inset never
+            // reaches their content and the sheet covers the page bottom.
+            // The raised background shows through the strip like a footer.
+            // Resting height, not live coverage: resizing a WKWebView reflows
+            // the page, so tracking every drag frame would jank — the padding
+            // clears the collapsed sheet and an expanded sheet simply covers.
+            .padding(.bottom, sheetGeometry.restingHeight)
             .ignoresSafeArea(edges: .vertical)
         }
         .background {
