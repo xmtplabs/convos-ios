@@ -74,7 +74,7 @@ struct HomeWebView: UIViewRepresentable {
         // A page prepared while the screen was being pushed is already this
         // view's page: loading it again would throw away the head start and
         // show the cover for a second load of what is already drawn.
-        coordinator.adoptPreparedLoad(adoption, url: url, onAdoptedPainted: onAdoptedPainted)
+        coordinator.adoptPreparedLoad(adoption, url: url, webView: webView, onAdoptedPainted: onAdoptedPainted)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         // Transparent web chrome: the SwiftUI host paints the home canvas
@@ -227,14 +227,36 @@ struct HomeWebView: UIViewRepresentable {
         func adoptPreparedLoad(
             _ adoption: HomeWebViewPool.Adoption,
             url: URL?,
+            webView: WKWebView,
             onAdoptedPainted: @escaping @MainActor () -> Void
         ) {
             guard adoption != .unprepared, let url else { return }
             markLoadStarted()
             requestedURL = url
-            loadedURL = url
+            // Where the prepared load actually landed, which is not always what
+            // was asked for: a page that redirects, or merely gains a trailing
+            // slash as every bare host does, commits something else.
+            // Interception measures against this, so seeding it from the
+            // request read a reload of the displayed page as outbound
+            // navigation and opened it in a popup.
+            loadedURL = webView.url ?? url
             hasLoaded = true
-            guard adoption == .painted else { return }
+            // The pool holds no navigation delegate, so a load that finished
+            // before the surface adopted it reported nothing here and no
+            // `didFinish` is coming. Take the view's own word for it: left
+            // false, every later main-frame navigation counts as part of the
+            // initial chain and is allowed in place instead of going to the
+            // popup.
+            hasFinishedInitialLoad = !webView.isLoading
+            guard adoption == .painted else {
+                // Nothing else will announce a load that is already over, and
+                // the cover is waiting on that announcement.
+                if hasFinishedInitialLoad {
+                    let onLoaded = onLoaded
+                    Task { @MainActor in onLoaded() }
+                }
+                return
+            }
             hasReportedPaint = true
             hasFinishedInitialLoad = true
             Log.info("[PERF] HomeWebView.adoptedPainted: page was ready before the surface")
