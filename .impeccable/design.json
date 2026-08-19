@@ -44,6 +44,10 @@
         "role": "tertiary",
         "displayName": "Unread Lava"
       },
+      "voice-action": {
+        "role": "tertiary",
+        "displayName": "Voice Lava"
+      },
       "included-signal": {
         "role": "tertiary",
         "displayName": "Included Green"
@@ -114,23 +118,23 @@
       "css": ".ds-selection-row { color-scheme: light dark; width: 100%; display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border: 0; border-bottom: 1px solid light-dark(#ebebeb, #333333); background: light-dark(#ffffff, #000000); color: light-dark(#000000, #ffffff); font-family: -apple-system, BlinkMacSystemFont, sans-serif; text-align: left; } .ds-selection-row:hover { cursor: pointer; } .ds-selection-row:focus-visible { outline: auto; } .ds-selection-copy { display: grid; flex: 1; gap: 4px; } .ds-selection-copy small { color: light-dark(#666666, #999999); } .ds-selection-check { width: 24px; height: 24px; } .ds-selection-check svg { width: 100%; height: 100%; }"
     },
     {
-      "name": "Sheet Primary Action",
+      "name": "Your Space Dock",
       "kind": "button",
-      "refersTo": "sheet-primary-action",
-      "description": "The explicit copy-and-open confirmation at the bottom of the share sheet.",
-      "html": "<button class='ds-sheet-action'><svg aria-hidden='true' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='8' y='8' width='11' height='11' rx='2'/><path d='M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3'/></svg><span>Copy and open Studio</span></button>",
-      "css": ".ds-sheet-action { color-scheme: light dark; width: 100%; min-height: 52px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; border: 0; border-radius: 50vh; background: light-dark(#000000, #ffffff); color: light-dark(#ffffff, #000000); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 600; } .ds-sheet-action:hover { cursor: pointer; } .ds-sheet-action:focus-visible { outline: auto; } .ds-sheet-action:disabled { opacity: 0.4; cursor: default; } .ds-sheet-action svg { width: 1em; height: 1em; }"
+      "refersTo": "your-space-dock",
+      "description": "The fixed three-position More, voice, and chat dock with a physically centered primary voice action.",
+      "html": "<nav class='ds-space-dock' aria-label='Your Space controls'><button aria-label='More in Your Space'>•••</button><button class='ds-space-voice' aria-label='Talk to Your Space'>⌁</button><button aria-label='Chat with Your Space'>●</button></nav>",
+      "css": ".ds-space-dock { color-scheme: light dark; width: 100%; display: grid; grid-template-columns: 1fr 56px 1fr; align-items: center; padding: 8px 24px; color: light-dark(#000000, #ffffff); } .ds-space-dock button { width: 44px; height: 44px; border: 0; border-radius: 50%; background: light-dark(#f5f5f5, #1c1c1c); color: inherit; } .ds-space-dock button:last-child { justify-self: end; } .ds-space-dock .ds-space-voice { width: 56px; height: 56px; background: #fc4f37; color: #ffffff; font-size: 1.25rem; }"
     }
   ],
   "narrative": {
     "northStar": "The Private Signal Desk",
-    "overview": "Convos is a quiet personal briefing room, not an inbox dashboard. Its visual world is restrained and editorial: open space, adaptive neutral surfaces, circular identity, and a single decisive inverted surface that tells the user where attention is useful.\n\nThe briefing voice is expressive, while every control around it remains unmistakably native iOS. System components, semantic colors, Dynamic Type, and familiar sheet and list behavior keep the interface calm and trustworthy; privacy is communicated through visible provenance and deliberate boundaries rather than decorative security theater.\n\nThe authenticated shell follows the pinned topology `YS-SHELL-2026-08-18`: profile at top left, the centered space switcher, add at top right, private content between them, and tools plus the primary context action at the bottom. The topology is durable; the content within the private space can grow as the product's evidence improves.",
+    "overview": "Convos is a quiet personal briefing room, not an inbox dashboard. Its visual world is restrained and editorial: open space, adaptive neutral surfaces, circular identity, and a single decisive inverted surface that tells the user where attention is useful.\n\nThe briefing voice is expressive, while every control around it remains unmistakably native iOS. System components, semantic colors, Dynamic Type, and familiar sheet and list behavior keep the interface calm and trustworthy; privacy is communicated through visible provenance and deliberate boundaries rather than decorative security theater.\n\nThe authenticated shell follows the pinned topology `YS-SHELL-2026-08-18`: profile at top left, the centered space switcher, add at top right, private content between them, and a More–voice–chat dock at the bottom. The topology is durable; the content within the private space can grow as the product's evidence improves.",
     "keyCharacteristics": [
-      "Restrained, adaptive Convos neutrals with color reserved for state.",
+      "Restrained, adaptive Convos neutrals with Lava reserved for unread state and the live voice entry point.",
       "One editorial serif briefing voice inside an otherwise system-sans interface.",
       "Circular identity, native capsules, and one softly rounded attention surface.",
       "System glass only on persistent shell controls; native sheets and lists everywhere else.",
-      "Private-by-default content with an explicit copy-and-open boundary."
+      "Private-by-default content with explicit, user-initiated sharing from a conversation composer."
     ],
     "rules": [
       {
@@ -144,8 +148,8 @@
         "section": "colors"
       },
       {
-        "name": "The Signal, Not Paint Rule",
-        "body": "Lava and green are compact state signals, never decorative fills or competing accents.",
+        "name": "The Signal and Voice Rule",
+        "body": "Lava is limited to compact unread signals and the centered voice action; green remains a compact confirmation signal. Neither becomes decorative surface paint.",
         "section": "colors"
       },
       {
@@ -155,7 +159,7 @@
       },
       {
         "name": "The Pinned Shell Rule",
-        "body": "Preserve the profile–switcher–add top line and tools–context-action bottom line; conversations belong behind the switcher, not in a large home-screen list.",
+        "body": "Preserve the profile–switcher–add top line and More–voice–chat bottom line; conversations belong behind the switcher, not in a large home-screen list.",
         "section": "layout"
       },
       {
@@ -175,7 +179,7 @@
       },
       {
         "name": "The Open Boundary Rule",
-        "body": "Private context may cross into a convo only after the user chooses both the item and destination; the interface must say that it copies and opens, not that it shares or sends automatically.",
+        "body": "In PR and Dev prototype builds, private context may cross into a convo only through an explicit composer action in that destination; home voice, chat, and file actions remain private, and the composer action is not yet enabled in Production.",
         "section": "components"
       }
     ],
@@ -185,14 +189,14 @@
       "Do keep identity circular and every interactive target at least `44pt`.",
       "Do use native navigation, sheets, lists, search, toggles, menus, and SF Symbols.",
       "Do name the source convo and express unread or urgency with words as well as color.",
-      "Do preserve the pinned `YS-SHELL-2026-08-18` topology and its private-by-default copy-and-open boundary."
+      "Do preserve the pinned `YS-SHELL-2026-08-18` topology and its private-by-default composer boundary."
     ],
     "donts": [
       "Don't use the serif voice for controls, row content, settings, or sheet titles.",
       "Don't scatter inverted cards, bright accents, glass content cards, gradients, or custom shadows through the briefing.",
       "Don't hand-build glass, modal chrome, list rows, search fields, or platform transitions.",
       "Don't turn the home into a large conversation list or add a permanent contacts destination to this shell.",
-      "Don't infer a person's identity from message text, imply server-side synthesis, or suggest that copied context was sent automatically.",
+      "Don't infer a person's identity from message text, imply server-side synthesis, or suggest that home context was uploaded or sent automatically.",
       "Don't keep bottom overlay actions in place when accessibility Dynamic Type makes them compete with content."
     ]
   }

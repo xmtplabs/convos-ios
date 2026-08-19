@@ -1,5 +1,6 @@
 import ConvosComposer
 import ConvosCore
+import ConvosCoreiOS
 import SwiftUI
 
 struct YourSpaceConversationSwitcher: View {
@@ -149,7 +150,33 @@ struct YourSpaceConversationSwitcher: View {
     }
 }
 
-struct YourSpaceToolsSheet: View {
+enum YourSpaceToolDestination: String, Identifiable {
+    case connections
+    case files
+    case widgets
+    case connectedConvos
+
+    var id: String { rawValue }
+
+    var navigationTitle: String {
+        switch self {
+        case .connections: "Connections"
+        case .files: "Files"
+        case .widgets: "Widgets"
+        case .connectedConvos: "Connected convos"
+        }
+    }
+}
+
+enum YourSpaceInputMode: String, Identifiable {
+    case voice
+    case chat
+
+    var id: String { rawValue }
+}
+
+struct YourSpaceToolDestinationSheet: View {
+    let destination: YourSpaceToolDestination
     let conversations: [Conversation]
     let memberNameOverride: (String) -> String?
     @Bindable var connectionsViewModel: ConnectionsListViewModel
@@ -160,65 +187,31 @@ struct YourSpaceToolsSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Make Your Space yours") {
-                    NavigationLink {
-                        YourSpaceWidgetGallery(
-                            showsPeopleWidget: $showsPeopleWidget,
-                            showsFootprintWidget: $showsFootprintWidget
-                        )
-                    } label: {
-                        toolsLabel("Add a widget", systemImage: "rectangle.stack.badge.plus")
-                    }
-
-                    NavigationLink {
-                        ConnectionsListView(viewModel: connectionsViewModel)
-                    } label: {
-                        toolsLabel("Connections", systemImage: "batteryblock.fill")
-                    }
-                }
-
-                Section {
-                    NavigationLink {
-                        YourSpaceSourcesView(
-                            conversations: conversations,
-                            memberNameOverride: memberNameOverride
-                        )
-                    } label: {
-                        HStack {
-                            toolsLabel("Connected convos", systemImage: "bubble.left.and.bubble.right.fill")
-                            Spacer()
-                            Text("\(conversations.count)")
-                                .foregroundStyle(.colorTextSecondary)
-                            .monospacedDigit()
-                        }
-                    }
-                } header: {
-                    Text("Context")
-                } footer: {
-                    Text("Your Space stays private. Context leaves only when you choose what to share and where it should go.")
+            Group {
+                switch destination {
+                case .connections:
+                    ConnectionsListView(viewModel: connectionsViewModel)
+                case .files:
+                    YourSpaceFilesView()
+                case .widgets:
+                    YourSpaceWidgetGallery(
+                        showsPeopleWidget: $showsPeopleWidget,
+                        showsFootprintWidget: $showsFootprintWidget
+                    )
+                case .connectedConvos:
+                    YourSpaceSourcesView(
+                        conversations: conversations,
+                        memberNameOverride: memberNameOverride
+                    )
                 }
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(.colorBackgroundRaisedSecondary)
-            .navigationTitle("Your Space")
+            .navigationTitle(destination.navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
-        }
-    }
-
-    private func toolsLabel(_ title: String, systemImage: String) -> some View {
-        Label {
-            Text(title).foregroundStyle(.colorTextPrimary)
-        } icon: {
-            Image(systemName: systemImage)
-                .foregroundStyle(.colorTextPrimary)
-                .frame(width: DesignConstants.Spacing.step8x)
         }
     }
 }
@@ -325,128 +318,381 @@ private struct YourSpaceSourcesView: View {
     }
 }
 
-struct YourSpaceShareSheet: View {
-    let updates: [YourSpaceUpdate]
-    let conversations: [Conversation]
-    let memberNameOverride: (String) -> String?
-    let onContinue: (YourSpaceUpdate, Conversation) -> Void
+private struct YourSpaceFilesView: View {
+    @State private var files: [YourSpaceStoredFile] = []
+    @State private var fileNotice: YourSpaceFileImportNotice?
+
+    var body: some View {
+        List {
+            if !files.isEmpty {
+                Section {
+                    ForEach(files) { file in
+                        HStack(spacing: DesignConstants.Spacing.step3x) {
+                            Image(systemName: "doc.fill")
+                                .font(.title3)
+                                .foregroundStyle(.colorTextPrimary)
+                                .frame(width: 36, height: 36)
+                                .background(.colorFillMinimal, in: .rect(cornerRadius: DesignConstants.CornerRadius.small))
+
+                            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                                Text(file.name)
+                                    .font(.body)
+                                    .foregroundStyle(.colorTextPrimary)
+                                    .lineLimit(1)
+                                Text(fileMetadata(file))
+                                    .font(.caption)
+                                    .foregroundStyle(.colorTextSecondary)
+                            }
+                        }
+                    }
+                    .onDelete(perform: deleteFiles)
+                } footer: {
+                    Text("Files stay in this app on this device, are excluded from backup, and can be deleted here.")
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(.colorBackgroundRaisedSecondary)
+        .overlay {
+            if files.isEmpty {
+                ContentUnavailableView(
+                    "No files yet",
+                    systemImage: "folder",
+                    description: Text("Choose Upload files from the More menu to add private context.")
+                )
+            }
+        }
+        .task {
+            files = YourSpaceFileStore.storedFiles()
+        }
+        .alert(item: $fileNotice) { notice in
+            Alert(
+                title: Text(notice.title),
+                message: Text(notice.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+    }
+
+    private func fileMetadata(_ file: YourSpaceStoredFile) -> String {
+        let size = ByteCountFormatter.string(fromByteCount: Int64(file.byteCount), countStyle: .file)
+        guard file.addedAt != .distantPast else { return size }
+        return "\(size) · \(file.addedAt.formatted(date: .abbreviated, time: .omitted))"
+    }
+
+    private func deleteFiles(at offsets: IndexSet) {
+        do {
+            for index in offsets {
+                try YourSpaceFileStore.deleteFile(at: files[index].url)
+            }
+            files.remove(atOffsets: offsets)
+        } catch {
+            files = YourSpaceFileStore.storedFiles()
+            fileNotice = YourSpaceFileImportNotice(deletionError: error)
+        }
+    }
+}
+
+struct YourSpaceInputSheet: View {
+    let mode: YourSpaceInputMode
+    let briefing: YourSpaceBriefing
 
     @Environment(\.dismiss) private var dismiss: DismissAction
-    @State private var selectedUpdateID: YourSpaceUpdate.ID?
-    @State private var destinationID: Conversation.ID?
+    @State private var draft: String = ""
+    @State private var submittedPrompt: String?
+    @State private var response: String?
+    @State private var recorder: VoiceMemoRecorder = VoiceMemoRecorder()
+    @State private var isTranscribing: Bool = false
+    @State private var inputError: InputError?
+    @FocusState private var isChatFocused: Bool
 
-    private var selectedUpdate: YourSpaceUpdate? {
-        updates.first { $0.id == selectedUpdateID }
-    }
-
-    private var destination: Conversation? {
-        conversations.first { $0.id == destinationID }
-    }
+    private let transcriber: VoiceMemoTranscriber = VoiceMemoTranscriber()
+    private let transcriptionID: String = UUID().uuidString
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Choose the context") {
-                    ForEach(updates) { update in
-                        Button {
-                            selectedUpdateID = update.id
-                        } label: {
-                            HStack(alignment: .top, spacing: DesignConstants.Spacing.step3x) {
-                                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                                    Text(update.shareText)
-                                        .font(.body)
-                                        .foregroundStyle(.colorTextPrimary)
-                                        .multilineTextAlignment(.leading)
-                                        .lineLimit(3)
-                                    Text(update.date, style: .relative)
-                                        .font(.caption)
-                                        .foregroundStyle(.colorTextSecondary)
-                                }
-                                Spacer(minLength: 0)
-                                selectionIndicator(isSelected: selectedUpdateID == update.id)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
+                    assistantMessage(briefing.headline)
 
-                Section {
-                    ForEach(conversations) { conversation in
-                        Button {
-                            destinationID = conversation.id
-                        } label: {
-                            HStack(spacing: DesignConstants.Spacing.step3x) {
-                                ConversationAvatarView(
-                                    conversation: conversation,
-                                    conversationImage: nil,
-                                    size: 36
-                                )
-                                .frame(width: 36, height: 36)
-                                Text(title(for: conversation))
-                                    .foregroundStyle(.colorTextPrimary)
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                                selectionIndicator(isSelected: destinationID == conversation.id)
-                            }
-                        }
-                        .buttonStyle(.plain)
+                    if let submittedPrompt {
+                        userMessage(submittedPrompt)
                     }
-                } header: {
-                    Text("Open a convo")
-                } footer: {
-                    Text("Convos copies the selected context and opens the destination. Nothing is sent automatically—you decide what to paste and send.")
+
+                    if let response {
+                        assistantMessage(response)
+                    }
+
+                    if submittedPrompt == nil, mode == .chat {
+                        promptSuggestions
+                    }
+
+                    Label("Answers use private context already on this device.", systemImage: "lock.fill")
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                        .padding(.top, DesignConstants.Spacing.step3x)
                 }
+                .padding(.horizontal, DesignConstants.Spacing.step5x)
+                .padding(.vertical, DesignConstants.Spacing.step8x)
+                .frame(maxWidth: 720, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(.colorBackgroundRaisedSecondary)
-            .navigationTitle("Share context")
+            .scrollDismissesKeyboard(.interactively)
+            .background(.colorBackgroundSurfaceless)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                inputBar
+            }
+            .navigationTitle(mode == .voice ? "Talk to Your Space" : "Chat with Your Space")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
                 }
             }
-            .safeAreaInset(edge: .bottom) {
-                Button(action: continueAction) {
-                    Label(continueTitle, systemImage: "doc.on.doc.fill")
+        }
+        .task {
+            if mode == .voice {
+                await startRecording()
+            } else {
+                try? await Task.sleep(for: .milliseconds(300))
+                isChatFocused = true
+            }
+        }
+        .onDisappear {
+            recorder.cancelRecording()
+            Task {
+                await transcriber.cancel(messageId: transcriptionID)
+            }
+        }
+        .alert(item: $inputError) { error in
+            Alert(
+                title: Text(error.title),
+                message: Text(error.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var inputBar: some View {
+        if mode == .chat {
+            chatComposer
+        } else {
+            voiceComposer
+        }
+    }
+
+    private var chatComposer: some View {
+        HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
+            TextField("Ask Your Space", text: $draft, axis: .vertical)
+                .focused($isChatFocused)
+                .font(.body)
+                .lineLimit(1 ... 5)
+                .submitLabel(.send)
+                .onSubmit { submitQuestion() }
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .padding(.vertical, DesignConstants.Spacing.step3x)
+                .background(.colorFillMinimal, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+                .accessibilityIdentifier("your-space-chat-input")
+
+            Button {
+                submitQuestion()
+            } label: {
+                Image(systemName: "arrow.up")
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .frame(width: 44, height: 44)
+                    .background(.colorFillPrimary, in: .circle)
+            }
+            .buttonStyle(.plain)
+            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
+            .accessibilityLabel("Ask Your Space")
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .background(.bar)
+    }
+
+    @ViewBuilder
+    private var voiceComposer: some View {
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            switch recorder.state {
+            case .idle:
+                Button {
+                    Task { await startRecording() }
+                } label: {
+                    Label("Start listening", systemImage: "waveform")
                         .font(.headline)
                         .foregroundStyle(.colorTextPrimaryInverted)
                         .frame(maxWidth: .infinity, minHeight: 52)
-                        .background(.colorBackgroundInverted, in: .capsule)
+                        .background(.colorLava, in: .capsule)
                 }
                 .buttonStyle(.plain)
-                .disabled(selectedUpdate == nil || destination == nil)
-                .opacity(selectedUpdate == nil || destination == nil ? 0.4 : 1)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-                .padding(.vertical, DesignConstants.Spacing.step2x)
-                .background(.bar)
+                .accessibilityIdentifier("your-space-start-listening-button")
+
+            case .recording:
+                VoiceMemoRecordingView(recorder: recorder)
+                    .background(.colorFillMinimal, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+
+            case let .recorded(url, duration):
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                    Text("Review your question")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.colorTextSecondary)
+
+                    VoiceMemoReviewView(
+                        audioURL: url,
+                        duration: duration,
+                        levels: recorder.audioLevels,
+                        onSend: { transcribe(url: url) }
+                    )
+
+                    Button("Discard", role: .destructive) {
+                        recorder.cancelRecording()
+                    }
+                    .font(.subheadline)
+                }
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
             }
-            .onAppear {
-                selectedUpdateID = selectedUpdateID ?? updates.first?.id
-                destinationID = destinationID ?? conversations.first?.id
+
+            if isTranscribing {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    ProgressView()
+                    Text("Understanding your question…")
+                        .font(.subheadline)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .background(.bar)
+    }
+
+    private var promptSuggestions: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                suggestionButton("What needs me?")
+                suggestionButton("What's new?")
+                suggestionButton("Who is active?")
+            }
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private func suggestionButton(_ title: String) -> some View {
+        Button(title) {
+            submitQuestion(title)
+        }
+        .font(.subheadline.weight(.medium))
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+    }
+
+    private func assistantMessage(_ text: String) -> some View {
+        Text(text)
+            .font(.body)
+            .foregroundStyle(.colorTextPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(DesignConstants.Spacing.step4x)
+            .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+            .frame(maxWidth: 560, alignment: .leading)
+            .accessibilityLabel("Your Space: \(text)")
+    }
+
+    private func userMessage(_ text: String) -> some View {
+        Text(text)
+            .font(.body)
+            .foregroundStyle(.colorTextPrimaryInverted)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(DesignConstants.Spacing.step4x)
+            .background(.colorBackgroundInverted, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+            .frame(maxWidth: 560, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .accessibilityLabel("You: \(text)")
+    }
+
+    private func submitQuestion(_ suppliedQuestion: String? = nil) {
+        let question = (suppliedQuestion ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else { return }
+        submittedPrompt = question
+        response = groundedResponse(to: question)
+        draft = ""
+    }
+
+    private func groundedResponse(to question: String) -> String {
+        let normalized = question.lowercased()
+
+        if normalized.contains("need") || normalized.contains("attention") || normalized.contains("reply") {
+            guard !briefing.attentionUpdates.isEmpty else {
+                return "Nothing in your current briefing needs your attention right now."
+            }
+            let titles = briefing.attentionUpdates.prefix(3).map(\.conversationTitle)
+            let remainder = briefing.attentionCount - titles.count
+            let suffix = remainder > 0 ? " and \(remainder) more" : ""
+            return "Start with \(titles.joined(separator: ", "))\(suffix). They have unread or pending context."
+        }
+
+        if normalized.contains("new") || normalized.contains("update") || normalized.contains("changed") {
+            guard !briefing.recentUpdates.isEmpty else {
+                return "There aren't any recent updates yet. Your Space will fill in as your convos grow."
+            }
+            return briefing.recentUpdates
+                .prefix(3)
+                .map { "\($0.conversationTitle): \($0.detail)" }
+                .joined(separator: "\n\n")
+        }
+
+        if normalized.contains("who") || normalized.contains("people") || normalized.contains("active") {
+            let peopleWord = briefing.peopleCount == 1 ? "person" : "people"
+            let convoWord = briefing.sourceCount == 1 ? "convo" : "convos"
+            return "Your Space currently connects \(briefing.peopleCount) \(peopleWord) across \(briefing.sourceCount) \(convoWord)."
+        }
+
+        return "Here's the clearest signal I have right now: \(briefing.headline)"
+    }
+
+    private func startRecording() async {
+        guard case .idle = recorder.state else { return }
+        guard await VoiceMemoRecorder.ensureRecordPermission() else {
+            inputError = InputError(
+                title: "Microphone access needed",
+                message: "Allow microphone access in Settings to talk to Your Space. You can still use chat."
+            )
+            return
+        }
+
+        do {
+            try recorder.startRecording()
+        } catch {
+            inputError = InputError(title: "Couldn't start listening", message: error.localizedDescription)
+        }
+    }
+
+    private func transcribe(url: URL) {
+        guard !isTranscribing else { return }
+        isTranscribing = true
+        Task {
+            do {
+                let transcript = try await transcriber.transcribe(messageId: transcriptionID, fileURL: url)
+                recorder.cancelRecording()
+                isTranscribing = false
+                submitQuestion(transcript)
+            } catch {
+                isTranscribing = false
+                inputError = InputError(
+                    title: "Couldn't understand that",
+                    message: "Try recording again or use chat instead. \(error.localizedDescription)"
+                )
             }
         }
     }
 
-    private var continueTitle: String {
-        guard let destination else { return "Choose a convo" }
-        return "Copy and open \(title(for: destination))"
-    }
-
-    private func continueAction() {
-        guard let selectedUpdate, let destination else { return }
-        onContinue(selectedUpdate, destination)
-    }
-
-    private func title(for conversation: Conversation) -> String {
-        conversation.computedDisplayName(memberNameOverride: memberNameOverride)
-    }
-
-    private func selectionIndicator(isSelected: Bool) -> some View {
-        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-            .font(.title3)
-            .foregroundStyle(isSelected ? Color.colorTextPrimary : Color.colorTextTertiary)
-            .accessibilityHidden(true)
+    private struct InputError: Identifiable {
+        let id: UUID = UUID()
+        let title: String
+        let message: String
     }
 }

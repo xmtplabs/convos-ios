@@ -10,7 +10,7 @@
 import ConvosComposer
 import ConvosCore
 import SwiftUI
-import UIKit
+import UniformTypeIdentifiers
 
 struct YourSpaceView: View {
     @Bindable var viewModel: ConversationsViewModel
@@ -20,8 +20,10 @@ struct YourSpaceView: View {
     let onOpenSettings: () -> Void
 
     @State private var presentingSwitcher: Bool = false
-    @State private var presentingTools: Bool = false
-    @State private var presentingShare: Bool = false
+    @State private var toolDestination: YourSpaceToolDestination?
+    @State private var inputMode: YourSpaceInputMode?
+    @State private var presentingFileImporter: Bool = false
+    @State private var fileImportNotice: YourSpaceFileImportNotice?
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var conversationPendingExplosion: Conversation?
     @State private var staleDeviceSheetDismissed: Bool = false
@@ -103,8 +105,9 @@ struct YourSpaceView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
-            .sheet(isPresented: $presentingTools) {
-                YourSpaceToolsSheet(
+            .sheet(item: $toolDestination) { destination in
+                YourSpaceToolDestinationSheet(
+                    destination: destination,
                     conversations: conversations,
                     memberNameOverride: contactNameOverride,
                     connectionsViewModel: viewModel.appSettingsViewModel.connectionsListViewModel,
@@ -114,15 +117,26 @@ struct YourSpaceView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
-            .sheet(isPresented: $presentingShare) {
-                YourSpaceShareSheet(
-                    updates: briefing.recentUpdates,
-                    conversations: conversations,
-                    memberNameOverride: contactNameOverride,
-                    onContinue: copyAndOpen
+            .sheet(item: $inputMode) { mode in
+                YourSpaceInputSheet(
+                    mode: mode,
+                    briefing: briefing
                 )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+            }
+            .fileImporter(
+                isPresented: $presentingFileImporter,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: true,
+                onCompletion: handleFileImport
+            )
+            .alert(item: $fileImportNotice) { notice in
+                Alert(
+                    title: Text(notice.title),
+                    message: Text(notice.message),
+                    dismissButton: .default(Text("OK"))
+                )
             }
             .modifier(ConversationsSheetModifier(
                 viewModel: viewModel,
@@ -165,6 +179,10 @@ struct YourSpaceView: View {
                         attentionAction
                     }
 
+                    if dynamicTypeSize.isAccessibilitySize {
+                        accessibilityActions
+                    }
+
                     if briefing.recentUpdates.isEmpty {
                         emptyActions
                     } else {
@@ -177,10 +195,6 @@ struct YourSpaceView: View {
 
                     if showsFootprintWidget, briefing.sourceCount > 0 {
                         footprintWidget
-                    }
-
-                    if dynamicTypeSize.isAccessibilitySize {
-                        accessibilityActions
                     }
 
                     contextPromise
@@ -205,6 +219,7 @@ struct YourSpaceView: View {
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .frame(maxWidth: .infinity)
         .background(.bar.opacity(0.94))
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private var profileButton: some View {
@@ -236,6 +251,7 @@ struct YourSpaceView: View {
                 Text("Your Space")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
+                    .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.colorTextSecondary)
@@ -458,7 +474,7 @@ struct YourSpaceView: View {
             Label("Nothing leaves without you", systemImage: "hand.raised.fill")
                 .font(.headline)
                 .foregroundStyle(.colorTextPrimary)
-            Text("Your Space connects context privately. When something is useful elsewhere, you choose what to copy and which convo to open.")
+            Text("Your Space connects context privately. Voice, chat, files, and connections stay under your control.")
                 .font(.body)
                 .foregroundStyle(.colorTextSecondary)
         }
@@ -466,34 +482,14 @@ struct YourSpaceView: View {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
-            Button {
-                presentingTools = true
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.headline)
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .circle)
-            .accessibilityLabel("Your Space tools")
-            .accessibilityIdentifier("your-space-tools-button")
+        HStack(spacing: 0) {
+            toolsMenu
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            if !briefing.recentUpdates.isEmpty {
-                Button {
-                    presentingShare = true
-                } label: {
-                    Label("Share context", systemImage: "square.and.arrow.up")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .capsule)
-                .accessibilityIdentifier("your-space-share-context-button")
-            } else {
-                Spacer(minLength: 0)
-            }
+            voiceButton
+
+            chatButton
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .foregroundStyle(.colorTextPrimary)
         .padding(.horizontal, DesignConstants.Spacing.step6x)
@@ -502,29 +498,105 @@ struct YourSpaceView: View {
 
     private var accessibilityActions: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            Button {
-                presentingTools = true
+            Menu {
+                toolsMenuContent
             } label: {
-                Label("Your Space tools", systemImage: "ellipsis.circle")
+                Label("More in Your Space", systemImage: "ellipsis.circle")
                     .font(.headline)
                     .frame(maxWidth: .infinity, minHeight: 52)
             }
             .buttonStyle(.bordered)
-            .accessibilityIdentifier("your-space-tools-button")
+            .accessibilityIdentifier("your-space-tools-menu")
 
-            if !briefing.recentUpdates.isEmpty {
-                Button {
-                    presentingShare = true
-                } label: {
-                    Label("Share context", systemImage: "square.and.arrow.up")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 52)
-                }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("your-space-share-context-button")
+            Button {
+                inputMode = .voice
+            } label: {
+                Label("Talk to Your Space", systemImage: "waveform")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 52)
             }
+            .buttonStyle(.borderedProminent)
+            .tint(.colorLava)
+            .accessibilityIdentifier("your-space-voice-button")
+
+            Button {
+                inputMode = .chat
+            } label: {
+                Label("Chat with Your Space", systemImage: "message.fill")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("your-space-chat-button")
         }
         .frame(maxWidth: 520)
+    }
+
+    private var toolsMenu: some View {
+        Menu {
+            toolsMenuContent
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.headline)
+                .frame(width: 44, height: 44)
+                .contentShape(.circle)
+        }
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel("More in Your Space")
+        .accessibilityIdentifier("your-space-tools-menu")
+    }
+
+    @ViewBuilder
+    private var toolsMenuContent: some View {
+        Button("Connections", systemImage: "link") {
+            toolDestination = .connections
+        }
+        Button("Upload files", systemImage: "doc.badge.plus") {
+            presentingFileImporter = true
+        }
+        Button("Files", systemImage: "folder") {
+            toolDestination = .files
+        }
+
+        Divider()
+
+        Button("Add a widget", systemImage: "rectangle.stack.badge.plus") {
+            toolDestination = .widgets
+        }
+        Button("Connected convos", systemImage: "bubble.left.and.bubble.right.fill") {
+            toolDestination = .connectedConvos
+        }
+    }
+
+    private var voiceButton: some View {
+        Button {
+            inputMode = .voice
+        } label: {
+            Image(systemName: "waveform")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .frame(width: 56, height: 56)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .background(Color.colorLava, in: .circle)
+        .accessibilityLabel("Talk to Your Space")
+        .accessibilityIdentifier("your-space-voice-button")
+    }
+
+    private var chatButton: some View {
+        Button {
+            inputMode = .chat
+        } label: {
+            Image(systemName: "message.fill")
+                .font(.body.weight(.semibold))
+                .frame(width: 44, height: 44)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel("Chat with Your Space")
+        .accessibilityIdentifier("your-space-chat-button")
     }
 
     @ViewBuilder
@@ -562,12 +634,18 @@ struct YourSpaceView: View {
         }
     }
 
-    private func copyAndOpen(_ update: YourSpaceUpdate, in conversation: Conversation) {
-        UIPasteboard.general.string = update.shareText
-        presentingShare = false
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(250))
-            selectConversation(conversation)
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case let .success(urls):
+            guard !urls.isEmpty else { return }
+            Task {
+                let outcome = await Task.detached(priority: .userInitiated) {
+                    YourSpaceFileStore.importFiles(urls)
+                }.value
+                fileImportNotice = YourSpaceFileImportNotice(outcome: outcome)
+            }
+        case let .failure(error):
+            fileImportNotice = YourSpaceFileImportNotice(error: error)
         }
     }
 }

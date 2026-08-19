@@ -26,7 +26,8 @@ The home screen is not an inbox. It is a private, continuously growing layer of 
 - The title control at the top opens every conversation as a switcher rather than reserving the home screen for a large chat list.
 - A top-right add control starts a new conversation or joins one by scanning a QR code.
 - The profile image at top left opens app settings.
-- An overflow control exposes home customization, connections, and the conversations contributing to the private space.
+- A native overflow menu exposes connections, private file upload, stored files, home customization, and the conversations contributing to the private space.
+- The bottom dock keeps voice as the centered primary action and chat as the secondary action on the right.
 - Contacts are selected in the invite flow for a conversation rather than occupying a permanent bottom-level destination.
 - Personal context may be shared into a conversation only through an explicit user action.
 
@@ -34,6 +35,7 @@ The home screen is not an inbox. It is a private, continuously growing layer of 
 
 - Preserve Convos' invitation-only, identity-per-conversation, local-first privacy model.
 - Use the existing conversation store and navigation paths; the prototype must not fabricate real messages or imply that private context has been uploaded.
+- Voice transcription, chat answers, and imported files stay on-device in this prototype; chat answers are grounded only in the currently visible briefing data.
 - The home experience needs useful loading, empty, unread, and no-attention states.
 - The conversation switcher must support many conversations, unread state, search, and direct navigation.
 - The initial prototype may use clearly isolated sample insight content in previews. Production summaries, provenance, ranking, and persistence remain an open data-contract decision.
