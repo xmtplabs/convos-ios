@@ -191,11 +191,19 @@ struct LinkPreviewCardView: View {
 private struct LastUpdatedLabel: View {
     let date: Date
 
-    @State private var phrase: String = ""
+    @State private var phrase: String
+
+    init(date: Date) {
+        self.date = date
+        // Seeded here rather than filled in on appear. An empty first frame
+        // measures a line shorter than the settled one, so the cell's height
+        // changes after the collection view has already measured it - which is
+        // the inconsistent self-sizing its feedback-loop debugger traps on.
+        _phrase = State(initialValue: Self.text(for: date))
+    }
 
     var body: some View {
         Text(phrase)
-            .onAppear { phrase = Self.text(for: date) }
             .task(id: date) {
                 phrase = Self.text(for: date)
                 while !Task.isCancelled {
