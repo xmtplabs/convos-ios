@@ -302,7 +302,14 @@ enum HomeWebNavigation {
     static func route(_ url: URL, toHost onNavigationRequest: @escaping @MainActor (URL) -> Void) {
         let scheme = url.scheme?.lowercased() ?? ""
         if scheme == "http" || scheme == "https" {
-            Task { @MainActor in onNavigationRequest(url) }
+            // Google Docs links leave the app entirely: `open` honors the
+            // universal link, landing in the Docs app when installed and
+            // Safari otherwise, which beats the popup's mobile web view.
+            if url.host?.lowercased() == "docs.google.com" {
+                Task { @MainActor in UIApplication.shared.open(url) }
+            } else {
+                Task { @MainActor in onNavigationRequest(url) }
+            }
         } else if UIApplication.shared.canOpenURL(url) {
             UIApplication.shared.open(url)
         }

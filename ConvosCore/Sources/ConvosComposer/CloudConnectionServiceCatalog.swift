@@ -26,6 +26,13 @@ public enum CloudConnectionServiceCatalog {
             iconBackgroundColor: .green,
             subtitle: "Share files with conversations"
         ),
+        CloudConnectionServiceInfo(
+            id: "googledocs",
+            displayName: "Google Docs",
+            iconSystemName: "doc.text",
+            iconBackgroundColor: .blue,
+            subtitle: "Create and share docs with conversations"
+        ),
     ]
 
     public static func info(for serviceId: String) -> CloudConnectionServiceInfo? {
