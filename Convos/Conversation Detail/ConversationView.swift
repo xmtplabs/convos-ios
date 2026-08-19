@@ -471,7 +471,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
 
         result.append(contentsOf: remainingLive)
-        result.append(contentsOf: agentChatPrototypeState.linkedConvoAgents.map(AgentChatLane.linkedConvo))
         result.append(contentsOf: agentChatPrototypeState.connectedExternalProviders.map(AgentChatLane.external))
         result.append(.ghost)
         return result
@@ -1693,6 +1692,7 @@ private extension ConversationView {
             if let agentDmSession, !effectiveReadOnly {
                 AgentComposerBar(
                     session: agentDmSession,
+                    conversationId: viewModel.conversation.id,
                     focusState: agentFocus,
                     focusCoordinator: agentFocusCoordinator,
                     isReadOnly: effectiveReadOnly,

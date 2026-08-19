@@ -11,7 +11,7 @@ The three features form one system:
 3. Each agent profile exposes the model powering that agent, its credit cost, and any plan requirement before activation.
 4. External agents can enter the same lane model through a deliberate pairing and permission flow.
 5. Links shared in chat become editable Home objects with an agent entry point attached to each object.
-6. An agent the user owns can span two convos as one shared operating layer: memory, abilities, connections, and skills.
+6. **My context** is always available to help privately, while a group receives only a user-approved bundle of specific memories, preferences, files, or connection scopes.
 
 ## 1. Agent switcher at the composer
 
@@ -54,14 +54,15 @@ The three features form one system:
 - A future card keeps the source URL, title, site, preview image when available, sender, and source message ID. Its edit action should name the object and require a preview before publishing.
 - Production edits must target stable Home object IDs and use optimistic concurrency. The source chat message remains immutable; the Home projection can be rearranged, annotated, hidden, or replaced without rewriting message history.
 
-## 6. Share an agent across convos
+## 6. My context — private by default, explicit on the way out
 
-- **Connect an agent from another convo** appears immediately above **Add an external agent**. It lists only agents the current user owns in other convos.
-- Connecting does not clone the agent or merge transcripts. It makes the same agent operating layer available in both convos: existing and future durable memory, every ability, every approved connection, and every installed skill.
-- The warning states that people in either convo can influence future saved memory, and the agent's complete operating layer becomes usable in both places.
-- Raw messages/full transcripts, Ghost Mode, private agent chats, member DMs, membership lists, and unsaved files remain in their original convo. They do not enter the shared memory namespace.
-- Only the agent owner can create or disconnect the link, and the user must be an active member of both convos. Both convos visibly identify the shared agent and the other linked convo.
-- The linked lane exposes **Shared memory** settings that inventory everything shared and let the owner disconnect this convo without deleting the agent or its original memory.
+- Do not expose a separate “personal agent.” **My context** is a private user capability that is always available from the current Home or conversation.
+- The agent drawer places **My context** immediately above **Add an external agent**. The composer also has a small **Use my context** icon, so the user can ask for help without leaving the current task.
+- Opening it produces one small, relevant bundle suggested for the current Home + conversation. The first demo bundle includes a home airport, seat preference, free/busy calendar scope, and a travel-profile file.
+- The suggestion is private. A second screen names the exact items, destination, audience, and lasting access before presenting **Approve and share**. Nothing enters the group context before that action.
+- Approved items remain reusable by the group agent until the user removes access. New items always require a new approval. A dynamic connection can return only the approved scope (for example free/busy, never private calendar details).
+- The drawer changes to show the approved-item count. Space Abilities’ profile shows **Access to Shane’s context** and inventories only approved items; it never exposes the private catalog.
+- This flow does not create another agent lane or merge transcripts. Removing access immediately removes every personal-context item from group retrieval while preserving the user’s private context.
 
 ## Acceptance paths
 
@@ -89,19 +90,20 @@ The three features form one system:
 3. Return to the selected external-agent lane and open **Agent access**. Confirm private Home access is on and the group/DM permissions are off.
 4. Collapse the conversation sheet and confirm the Home WebView remains unobstructed and fully interactive.
 
-### Cross-convo shared agent
+### My context
 
-1. Open the selector and choose **Connect an agent from another convo** directly above the external-agent action.
-2. Choose one owned agent and review its origin convo, saved-memory summary, abilities, connections, and installed skills.
-3. Read the warning and complete **Share memory across convos**.
-4. Confirm the shared agent appears as the selected lane and names the other convo.
-5. Open **Shared memory** settings, confirm the full operating layer is inventoried, and verify the disconnect control explains that the original agent is preserved.
+1. Tap the personal-context icon in the agent composer, or open the selector and choose **My context** above the external-agent action.
+2. See one bundle suggested specifically for this Home + conversation; confirm that it is still private.
+3. Tap **Review suggested context** and inspect every item, the group-agent destination, the Home + conversation surface, and who can use it.
+4. Complete **Approve and share 4 items** and confirm no extra agent lane is created.
+5. Reopen **My context** and see only the approved items plus **Remove access**.
+6. Open Space Abilities’ profile and confirm **Access to Shane’s context** lists only those items.
 
 ## Explicit prototype assumptions
 
 - Model names, providers, credit multipliers, and plan mapping are illustrative until the runtime returns a canonical catalog.
 - Existing Plus is the only purchasable paid entitlement, so all non-default prototype models map to Plus.
 - Agent switching and Ghost Mode are interactive local prototypes in non-production builds. They demonstrate lane behavior and selective sharing but do not claim a deployed multi-agent or privacy-isolated server runtime.
-- External connections, permission changes, and cross-convo agent links are local non-production demonstrations. The UI says **demo** at each connection boundary and sends no provider credential, memory, ability invocation, or remote request. Home-edit controls are deferred to the WebView implementation.
+- External connections, permission changes, and personal-context grants are local non-production demonstrations. The UI says **prototype** at each sharing boundary and sends no provider credential, memory, ability invocation, or remote request. Home-edit controls are deferred to the WebView implementation.
 - Ghost sharing completes inside local prototype lanes. If a requested row resolves to a real agent lane before the export contract exists, the UI explicitly says the preview was not sent rather than reporting a false success.
 - This branch includes a Debug-only, account-free Space Abilities profile host for design review. Set `CONVOS_AGENT_MODEL_PROTOTYPE=1`; optional `CONVOS_AGENT_MODEL_PROTOTYPE_STATE` values are `picker`, `upgrade`, and `paywall`. The production root view is unchanged when that flag is absent.

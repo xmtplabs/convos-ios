@@ -518,32 +518,38 @@ edit_preview = {
 
 Never send the full Home, full transcript, private agent DMs, or Ghost content when one object is sufficient. Context assembly must be capability-scoped and recorded in a content-free authorization audit.
 
-### Phase F — cross-convo shared agents
+### Phase F — personal context suggestions and explicit group grants
 
-1. Add an owner-scoped query for agents the user owns in other active convos. Return the origin convo label plus summaries of durable memory, abilities, connections, and installed skills without returning memory content to the picker.
-2. Model a link as one agent identity and one durable memory namespace authorized for two or more convo IDs. Do not clone the agent, copy memory records, or merge message histories.
-3. Require the actor to own the agent and be an active member of every linked convo at creation. Re-check ownership and membership on every memory read/write and ability, connection, or skill invocation.
-4. The agent's full versioned capability manifest travels with the link: abilities, vault-backed connections, installed skills, runtime/model configuration, and policy version. Secrets never leave the existing credential vault.
-5. Tag every durable memory item with source convo, author/agent, content class, creation time, and policy version. Only reviewed durable-memory classes may enter the shared namespace.
-6. Exclude raw messages/transcripts, Ghost content, private agent DMs, member DMs, membership lists, and unsaved attachments from shared-memory retrieval and indexing.
-7. Publish visible link-state events to every linked convo. Disconnecting a convo must immediately stop its retrieval, writes, and capability invocations without deleting the surviving agent or its memory.
+1. Create a viewer-private personal-context index. It may retrieve only content the signed-in user is currently authorized to see plus memories they deliberately saved for themselves. It must not create a group grant, group message, Home mutation, or agent memory write as a side effect.
+2. When source access is lost, remove raw source content from personal retrieval. A separately saved personal memory may remain, but it must preserve provenance and the policy that allowed the save.
+3. Add a suggestion endpoint scoped to the current user, conversation, and surface (`home`, `conversation`, or both). Return a small ranked bundle of typed references; never disclose the private catalog to another member or the group agent.
+4. Approval must name the exact item/version or live connection scope, destination conversation, destination agent, audience, surfaces, persistence, and expiry. Bind it to a single-use approval challenge so replay or payload substitution fails closed.
+5. Publish approved snapshots into a conversation-scoped grant namespace. New personal items and materially changed snapshots require a new approval. Live connections may refresh only within the approved field/query scope (for example calendar free/busy without event titles).
+6. Group-agent context assembly may retrieve only active grants for that user + conversation + agent + surface. It must not query the private personal-context index directly.
+7. Surface grants to the owner and group agent profile with human-readable provenance. Revocation must immediately block retrieval and live connection calls, invalidate caches, and publish an idempotent access-state event without deleting the private source.
+8. Audit suggestion, approval, retrieval, and revocation with identifiers and policy versions, but keep personal content and provider secrets out of general logs, analytics, push payloads, and crash reports.
 
 Suggested shapes:
 
 ```text
-GET    /v1/owned-agents?exclude_conversation_id={conversation_id}
-POST   /v1/agents/{agent_id}/convo-links
-GET    /v1/agents/{agent_id}/convo-links/{link_id}
-DELETE /v1/agents/{agent_id}/convo-links/{link_id}/conversations/{conversation_id}
+POST   /v1/conversations/{conversation_id}/personal-context/suggestions
+POST   /v1/personal-context/approval-challenges
+POST   /v1/personal-context/grants
+GET    /v1/conversations/{conversation_id}/personal-context/grants?owner_inbox_id=me
+DELETE /v1/personal-context/grants/{grant_id}
 
-convo_link = {
+personal_context_grant = {
   id: string,
-  agent_id: string,
-  memory_namespace_id: string,
-  conversation_ids: string[],
-  capability_manifest_version: string,
+  owner_inbox_id: string,
+  conversation_id: string,
+  destination_agent_id: string,
+  surfaces: ["home", "conversation"],
+  audience: "conversation_members",
+  items: [{ source_id, source_version, type, approved_fields_or_query_scope }],
+  persistence: "until_revoked",
   policy_version: string,
-  created_by_inbox_id: string
+  approved_at: timestamp,
+  revoked_at: timestamp?
 }
 ```
 
@@ -596,16 +602,17 @@ convo_link = {
 - Publishing one card diff cannot mutate unrelated Home objects.
 - Ghost content never becomes a Home object without an explicit message-level export.
 
-### Cross-convo shared agents
+### Personal context
 
-- A non-owner cannot create, expand, or disconnect an agent link.
-- A user who is not an active member of every target convo cannot create the link.
-- Linking never copies raw transcript rows or changes their convo IDs.
-- Retrieval returns only allowed durable-memory content classes and records the requesting convo.
-- Ghost, private DM, membership, and unsaved-attachment fixtures never appear in shared-memory indexes or provider prompts.
-- The same versioned abilities, connections, and skills are resolvable from both convos, while provider secrets remain absent from responses, prompts, analytics, and logs.
-- Disconnecting one convo immediately blocks its reads, writes, and capability invocations while preserving the agent and memory for remaining authorized convos.
-- Every linked convo receives a visible, idempotent link-state update and can resolve the other linked convo's display label.
+- A suggestion request never makes its candidate items visible to the group agent, other members, Home, or conversation retrieval.
+- A user cannot approve another user's private item, and a group admin cannot bypass owner approval.
+- Changing the bundle after the approval challenge is issued fails; replaying the challenge fails.
+- Group retrieval returns exactly the approved item versions and live fields/query scopes, never adjacent personal memories or connection fields.
+- New personal items and materially changed snapshot values remain unavailable until separately approved.
+- Revocation blocks the next retrieval and live connection call immediately, evicts cached copies, and leaves the private source intact.
+- Losing access to a source conversation removes its raw content from private recall while preserving independently saved personal memories according to policy.
+- Ghost content is never a personal-context suggestion source unless the user first performs Ghost Mode’s explicit message-level export.
+- Audit, analytics, push, and crash fixtures contain IDs and policy outcomes only, not personal content or provider secrets.
 
 ## Launch gates
 
@@ -618,6 +625,9 @@ convo_link = {
 - [ ] Ghost deletion and export authorization pass security review.
 - [ ] External connector credentials are vault-backed, revocable, and absent from mobile/logging surfaces.
 - [ ] Per-convo external-agent grants are enforced at context assembly and delivery.
+- [ ] Personal-context suggestion candidates are viewer-private and never enter group-agent prompts before approval.
+- [ ] Approval challenges bind item versions, destination, audience, surfaces, and live connection scope; replay and substitution fail closed.
+- [ ] Revocation and source-access loss remove context from retrieval and caches within the documented SLA.
 - [ ] Home object revisions, preview diffs, and approval tokens pass concurrency and authorization tests.
 - [ ] Cross-convo links enforce agent ownership, membership in every convo, content-class exclusions, portable capability versioning, visible link state, and immediate disconnect.
 - [ ] Rollback returns all model preferences to the safe default without losing desired state.

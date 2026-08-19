@@ -118,44 +118,38 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         XCTAssertTrue(provider.welcomeMessage.contains("No live data leaves Convos"))
     }
 
-    func testCrossConvoLinkIsDeduplicatedAndSharesFullAgentLayer() {
+    func testPersonalContextApprovalSharesOnlyTheSuggestedItems() {
         let state = AgentChatPrototypeState()
-        let link = ConvoAgentMemoryLink.allCapabilities(for: .flightTracker)
+        let bundle = PersonalContextBundle.suggestedForCurrentConvo
 
-        state.link(.flightTracker, configuration: link)
-        state.link(.flightTracker, configuration: link)
+        state.approvePersonalContext(bundle)
+        state.approvePersonalContext(bundle)
 
-        XCTAssertEqual(state.linkedConvoAgents, [.flightTracker])
-        XCTAssertEqual(state.memoryLink(for: .flightTracker), link)
         XCTAssertEqual(
-            link.sharedCapabilityIds,
-            Set(ConvoOwnedAgent.flightTracker.portableCapabilities.map(\.id))
+            state.approvedPersonalContextItemIds,
+            Set(bundle.items.map(\.id))
         )
+        XCTAssertTrue(state.hasApprovedPersonalContext)
     }
 
-    func testDisconnectRemovesOnlyTheSelectedCrossConvoAgent() {
+    func testRemovingPersonalContextRevokesTheWholeGroupGrant() {
         let state = AgentChatPrototypeState()
-        state.link(.flightTracker, configuration: .allCapabilities(for: .flightTracker))
-        state.link(.hotelScout, configuration: .allCapabilities(for: .hotelScout))
+        state.approvePersonalContext(.suggestedForCurrentConvo)
 
-        state.unlink(.flightTracker)
+        state.removePersonalContextAccess()
 
-        XCTAssertEqual(state.linkedConvoAgents, [.hotelScout])
-        XCTAssertEqual(
-            state.memoryLink(for: .hotelScout),
-            .allCapabilities(for: .hotelScout)
-        )
+        XCTAssertTrue(state.approvedPersonalContextItemIds.isEmpty)
+        XCTAssertFalse(state.hasApprovedPersonalContext)
     }
 
-    func testCrossConvoAgentUsesItsOwnLaneState() {
+    func testPersonalContextRestoreDoesNotCreateAnotherAgentLane() {
         let state = AgentChatPrototypeState()
-        let sharedFlightAgent = AgentChatLane.linkedConvo(.flightTracker)
-        let localFlightAgent = AgentChatLane.prototype(.flightTracker)
+        let itemIds = Set(PersonalContextBundle.suggestedForCurrentConvo.items.prefix(2).map(\.id))
 
-        state.draftBinding(for: sharedFlightAgent).wrappedValue = "Track the shared flight"
+        state.restorePersonalContext(itemIds: itemIds)
 
-        XCTAssertEqual(state.draftBinding(for: sharedFlightAgent).wrappedValue, "Track the shared flight")
-        XCTAssertTrue(state.draftBinding(for: localFlightAgent).wrappedValue.isEmpty)
-        XCTAssertTrue(state.messages(for: sharedFlightAgent).first?.text.contains("now shared") == true)
+        XCTAssertEqual(state.approvedPersonalContextItemIds, itemIds)
+        XCTAssertNil(state.selectedLaneId)
+        XCTAssertTrue(state.messagesByLane.isEmpty)
     }
 }
