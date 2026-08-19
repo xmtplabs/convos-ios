@@ -273,6 +273,35 @@ All dependencies managed through SPM. See `ConvosCore/Package.swift` for current
 - Environments: Production, Development, Local
 - Firebase configuration per environment
 
+### Adding a secret / env key
+
+Secrets are a **generated, git-ignored `Secrets.swift`** (`Convos/Config/Secrets.swift`,
+mirrored in `ConvosAppClip/` and `ShareExtension/`), regenerated on every build from
+root `.env` by the Xcode build phase `Scripts/build-phases/copy-env-config-main-app.sh`.
+Non-secret per-environment runtime config lives in the bundled `config.{local,dev,pr,prod}.json`
+(read by `ConfigManager`); the `.xcconfig` files select which one and set bundle ids.
+There is **no Infisical here** (that's the convos-assistants stack) — this repo uses
+`.env` + 1Password + GitHub Actions secrets.
+
+To add a new key `NEW_KEY`:
+1. Add `NEW_KEY=` to root **`.env`** and document it in **`.env.example`**. Local/Dev
+   builds auto-append any extra `.env` key to `Secrets.swift`, so it's readable as
+   `Secrets.NEW_KEY` immediately.
+2. **For CI / TestFlight / Prod builds you must ALSO wire it explicitly** — a value in
+   your local `.env` does nothing in CI. Add it to `Scripts/generate-secrets-secure.sh`
+   and add the corresponding GitHub Actions repo secret/var (see the workflow headers in
+   `.github/workflows/testflight-dev.yml` / `testflight-prod.yml`). Missing this is the
+   classic "works locally, empty in the build" trap.
+3. Read it in Swift via `Secrets.NEW_KEY`. A URL/host override that should flow through
+   `ConfigManager` goes via `ConvosSecretOverrides`; other values are read directly.
+
+- **Footgun:** a fresh clone/worktree has **no `.env`** (git-ignored), so the app builds
+  with empty secrets and silently ships without an App Check token or backend override.
+  Copy `.env` from an existing checkout (or `.env.example` + `make secrets`) first.
+- App Check debug tokens are **per bundle id** and sourced from 1Password; sync/rotate via
+  the `/firebase-token` command. Code signing is fastlane `match` (repo
+  `convos-certificates`, `MATCH_PASSWORD`).
+
 ## Deep Linking
 
 ### URL Handling Architecture
