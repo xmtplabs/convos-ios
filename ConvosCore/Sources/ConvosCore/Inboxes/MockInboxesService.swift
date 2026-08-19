@@ -176,6 +176,10 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         AgentFilesLinksRepository(dbReader: Self.mockDatabase, conversationId: conversationId)
     }
 
+    public func contextLibraryRepository() -> ContextLibraryRepository {
+        ContextLibraryRepository(dbReader: Self.mockDatabase)
+    }
+
     public func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol {
         AgentBuilderSummaryWriter(databaseWriter: Self.mockDatabase)
     }

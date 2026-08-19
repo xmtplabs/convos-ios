@@ -1,5 +1,6 @@
 @testable import Convos
 import ConvosCore
+import UIKit
 import XCTest
 
 final class YourSpaceBriefingBuilderTests: XCTestCase {
@@ -61,5 +62,105 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
         XCTAssertEqual(update.conversationTitle, "Nash")
         XCTAssertEqual(update.detail, "Nick: Dropped his favorite restaurants")
         XCTAssertEqual(update.shareText, "Nash: Nick: Dropped his favorite restaurants")
+    }
+
+    func testLocalContextClassifiesCommonMediaTypes() {
+        XCTAssertEqual(contextItem(named: "Dinner.jpg").kind, .photo)
+        XCTAssertEqual(contextItem(named: "Walkthrough.mov").kind, .video)
+        XCTAssertEqual(contextItem(named: "Thought.m4a").kind, .voice)
+        XCTAssertEqual(contextItem(named: "Preferences.txt").kind, .note)
+        XCTAssertEqual(contextItem(named: "Brief.pdf").kind, .file)
+    }
+
+    @MainActor
+    func testShareStagerPreparesEveryPayloadWithoutSending() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("your-space-stager-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let note = try storedFile(in: directory, name: "Note.txt", data: Data("Remember this".utf8))
+        let photoData = try XCTUnwrap(
+            UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2)).image { context in
+                UIColor.red.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+            }.pngData()
+        )
+        let photo = try storedFile(in: directory, name: "Photo.png", data: photoData)
+        let video = try storedFile(in: directory, name: "Clip.mov", data: Data([0, 1]))
+        let voice = try storedFile(in: directory, name: "Thought.m4a", data: Data([2, 3]))
+        let document = try storedFile(in: directory, name: "Brief.pdf", data: Data([4, 5]))
+        let remoteURL = document.url
+        let stager = YourSpaceShareStager { _, _ in remoteURL }
+        let draft = TestYourSpaceDraft()
+
+        for file in [note, photo, video, voice, document] {
+            try await stager.stage(YourSpaceContextItem(local: file), in: draft)
+        }
+        try await stager.stage(conversationItem(kind: .link), in: draft)
+        try await stager.stage(conversationItem(kind: .file, attachmentKey: "remote-key"), in: draft)
+
+        XCTAssertEqual(draft.messageText, "Remember this\nhttps://example.com/context")
+        XCTAssertEqual(draft.photoCount, 1)
+        XCTAssertEqual(draft.videoNames, ["Clip.mov"])
+        XCTAssertEqual(draft.fileNames, ["Thought.m4a", "Brief.pdf", "Shared.pdf"])
+        XCTAssertEqual(draft.sendCount, 0)
+    }
+
+    private func contextItem(named name: String) -> YourSpaceContextItem {
+        YourSpaceContextItem(local: YourSpaceStoredFile(
+            url: URL(fileURLWithPath: "/tmp/your-space-tests/\(name)"),
+            name: name,
+            byteCount: 1,
+            addedAt: Date(timeIntervalSince1970: 0)
+        ))
+    }
+
+    private func storedFile(in directory: URL, name: String, data: Data) throws -> YourSpaceStoredFile {
+        let url = directory.appendingPathComponent(name)
+        try data.write(to: url)
+        return YourSpaceStoredFile(url: url, name: name, byteCount: data.count, addedAt: Date())
+    }
+
+    private func conversationItem(
+        kind: ContextLibraryItemKind,
+        attachmentKey: String? = nil
+    ) -> YourSpaceContextItem {
+        YourSpaceContextItem(conversation: ContextLibraryItem(
+            id: "context-\(kind.rawValue)",
+            kind: kind,
+            title: kind == .link ? "Example" : "Shared.pdf",
+            date: Date(),
+            conversationId: "destination",
+            senderInboxId: "sender",
+            isMine: false,
+            attachmentKey: attachmentKey,
+            filename: kind == .link ? nil : "Shared.pdf",
+            mimeType: kind == .link ? nil : "application/pdf",
+            thumbnailDataBase64: nil,
+            destinationURLString: kind == .link ? "https://example.com/context" : nil,
+            imageURLString: nil
+        ))
+    }
+}
+
+@MainActor
+private final class TestYourSpaceDraft: YourSpaceDraftStaging {
+    var messageText: String = ""
+    var photoCount: Int = 0
+    var videoNames: [String] = []
+    var fileNames: [String] = []
+    var sendCount: Int = 0
+
+    func addPhotoAttachment(_: UIImage) {
+        photoCount += 1
+    }
+
+    func addVideoAttachment(url: URL) {
+        videoNames.append(url.lastPathComponent)
+    }
+
+    func addFileAttachment(url _: URL, filename: String, mimeType _: String, fileSize _: Int) {
+        fileNames.append(filename)
     }
 }

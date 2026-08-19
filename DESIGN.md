@@ -55,6 +55,16 @@ components:
     typography: "{typography.body}"
     padding: "0 20pt"
     height: "{spacing.step-11x}"
+  convo-switcher-panel:
+    backgroundColor: "{colors.raised-neutral}"
+    textColor: "{colors.text-primary}"
+    maxHeight: "74% of the content viewport, capped at 680pt"
+    horizontalInset: "12pt"
+  context-library-card:
+    backgroundColor: "{colors.raised-neutral}"
+    textColor: "{colors.text-primary}"
+    rounded: "{rounded.medium}"
+    padding: "{spacing.step-4x}"
   shell-icon-control:
     textColor: "{colors.text-primary}"
     size: "{spacing.step-11x}"
@@ -99,7 +109,7 @@ Convos is a quiet personal briefing room, not an inbox dashboard. Its visual wor
 
 The briefing voice is expressive, while every control around it remains unmistakably native iOS. System components, semantic colors, Dynamic Type, and familiar sheet and list behavior keep the interface calm and trustworthy; privacy is communicated through visible provenance and deliberate boundaries rather than decorative security theater.
 
-The authenticated shell follows the pinned topology `YS-SHELL-2026-08-18`: profile at top left, the centered space switcher, add at top right, private content between them, and a More–voice–chat dock at the bottom. The topology is durable; the content within the private space can grow as the product's evidence improves.
+The authenticated shell follows the pinned topology `YS-SHELL-2026-08-18`: profile at top left, the centered space switcher, add at top right, private content between them, and a More–voice–chat dock at the bottom. The switcher expands downward from the header rather than rising from the bottom. The topology is durable; the content within the private space can grow as the product's evidence improves.
 
 **Key Characteristics:**
 
@@ -162,13 +172,13 @@ Content follows the existing `DesignConstants.Spacing` four-point rhythm. The ma
 
 At accessibility Dynamic Type sizes, the bottom controls leave the safe-area overlay and reappear as full-width, `52pt`-minimum actions inside the scrolling content. The compact top chrome caps at the largest standard Dynamic Type size so profile, switcher, and add remain one usable row while the briefing continues to scale through the accessibility sizes. Text wraps vertically, update details retain conversation provenance, and controls preserve at least a `44pt` target without squeezing the briefing.
 
-**The Pinned Shell Rule.** Preserve the profile–switcher–add top line and More–voice–chat bottom line; conversations belong behind the switcher, not in a large home-screen list.
+**The Pinned Shell Rule.** Preserve the profile–switcher–add top line and More–voice–chat bottom line; conversations belong in a searchable panel anchored directly beneath the header, not in a large home-screen list or bottom sheet.
 
 **The Accessibility Reflow Rule.** When text reaches an accessibility size, move persistent bottom actions into the content flow rather than forcing them to compete with enlarged text.
 
 ## Elevation & Depth
 
-The system has no custom shadow vocabulary. Depth comes from semantic tonal layers, native bars, native sheets, and iOS system glass. Glass is reserved for neutral persistent shell controls—the centered switcher, add, More, and chat controls—using the platform's interactive regular treatment rather than hand-built blur or translucent cards. Voice is the one solid Lava control.
+The system has no general custom shadow vocabulary. Depth comes from semantic tonal layers, native bars, native sheets, and iOS system glass. Glass is reserved for neutral persistent shell controls—the centered switcher, add, More, and chat controls—using the platform's interactive regular treatment rather than hand-built blur or translucent cards. Voice is the one solid Lava control. The anchored convo panel uses an opaque adaptive raised surface and one restrained shadow so underlying private content does not compete with navigation.
 
 **The Native Depth Rule.** Use system materials for persistent chrome and system sheet presentation for modal depth; content surfaces stay flat unless a semantic tonal or inverted layer carries meaning.
 
@@ -183,7 +193,7 @@ Identity is circular: profile and conversation avatars, people, unread dots, and
 ### Persistent Shell Controls
 
 - **Profile:** A circular `40pt` avatar inside a `44pt` target with a subtle semantic border; it opens settings and does not use glass.
-- **Switcher:** A flexible `44pt`-minimum capsule with a semibold body label and secondary chevron; it opens the searchable conversation switcher.
+- **Switcher:** A flexible `44pt`-minimum capsule with a semibold body label and secondary chevron. It opens a right-aligned panel directly below the header, approximately 74% of the available content height. The panel keeps Your Space first, then search, then the complete recency-sorted convo list with unread state.
 - **Add:** A circular interactive-glass control exposing exactly start and QR-join actions.
 - **More:** A circular interactive-glass `Menu` whose native popup opens Connections, Upload files, Files, Add a widget, and Connected convos directly—without an intermediate tools sheet.
 - **Voice:** A centered `56pt` Lava circle with a waveform symbol; it opens on-device recording and transcription into the private briefing assistant.
@@ -197,6 +207,14 @@ The large system-serif sentence is the signature component. It describes what ne
 
 One full-width inverted surface uses the medium corner, a `44pt` circular icon well, a headline, and a one-line destination. The complete surface is one button and opens the first conversation requiring attention.
 
+### My Context and Connections
+
+The main library begins with an editable personal contact card, followed by a single search entry, a balanced category grid, recent assets, and one inverted “See all context” action. It combines on-device items the user adds with supported attachments and link previews from loaded convos. Every item retains source-convo and sender provenance when the data is available; private local items are labeled as such. Cards may render local or already-cached thumbnails, but opening the private library must never fetch remote preview media from a third party.
+
+The `+` menu offers Add context and Add connections. Add context supports text notes, photos, voice notes, and native file import. Search or “See all context” opens a large, native-file-picker-like browser with type filters and an adaptive asset grid.
+
+Recent message previews may be offered as neutral context for the user to review, but they are never labeled as inferred facts or suggestions about that person. Saving one to the personal card is always an explicit choice.
+
 ### Update Rows
 
 Rows remain flat on the canvas and use a circular `44pt` conversation avatar, headline, body preview, provenance, relative time, and an optional `8pt` Lava dot. Native dividers begin after the avatar column. VoiceOver combines the row and expresses attention in words rather than relying on the dot.
@@ -207,13 +225,13 @@ People are presented as horizontally scrolling `52pt` circular identities with c
 
 ### Native Sheets and Lists
 
-The switcher, More menu destinations, sources, stored files, widget controls, and private input surfaces use `NavigationStack`, inset-grouped `List`, native `Menu`, native file importer, search, toggles, toolbar actions, presentation detents, and drag indicators.
+Context browsing, More menu destinations, sources, stored files, widget controls, and private input surfaces use `NavigationStack`, inset-grouped `List`, native `Menu`, native file importer, search, toggles, toolbar actions, presentation detents, and drag indicators. The convo switcher is the intentional exception: it is an anchored top panel because its spatial relationship to the title control is part of the shell.
 
 ### Private Input and Share Boundary
 
-Voice transcription, grounded chat answers, and imported files remain on-device in Your Space. The home screen has no Share context action. In PR and Dev prototype builds, personal context can enter a group only through the separate, explicit Share context choice in that group's composer; that composer action is not yet enabled in Production, and nothing on the home surface sends automatically.
+Voice transcription, grounded chat answers, imported files, and personal-card notes remain on-device in Your Space. Any library item may expose an explicit Share action. Sharing first asks for a destination convo, then opens that convo with the item staged in its composer for review; it never sends automatically. The existing group-composer Share context flow remains available in PR and Dev prototype builds and is not yet enabled in Production.
 
-**The Open Boundary Rule.** Private context may cross into a convo only through an explicit composer action in that destination; home voice, chat, and file actions remain private.
+**The Open Boundary Rule.** Private context may cross into a convo only after the user explicitly chooses both the item and destination, and the destination composer visibly stages it for review. Creating, editing, browsing, or searching home context remains private.
 
 ## Do's and Don'ts
 
@@ -224,13 +242,13 @@ Voice transcription, grounded chat answers, and imported files remain on-device 
 - **Do** keep identity circular and every interactive target at least `44pt`.
 - **Do** use native navigation, sheets, lists, search, toggles, menus, and SF Symbols.
 - **Do** name the source convo and express unread or urgency with words as well as color.
-- **Do** preserve the pinned `YS-SHELL-2026-08-18` topology and its private-by-default composer boundary.
+- **Do** preserve the pinned `YS-SHELL-2026-08-18` topology, anchored convo panel, provenance, and private-by-default composer boundary.
 
 ### Don't:
 
 - **Don't** use the serif voice for controls, row content, settings, or sheet titles.
 - **Don't** scatter inverted cards, bright accents, glass content cards, gradients, or custom shadows through the briefing.
 - **Don't** hand-build glass, modal chrome, list rows, search fields, or platform transitions.
-- **Don't** turn the home into a large conversation list or add a permanent contacts destination to this shell.
+- **Don't** turn the home into a large conversation list, present the switcher from the bottom, or add a permanent contacts destination to this shell.
 - **Don't** infer a person's identity from message text, imply server-side synthesis, or suggest that home context was uploaded or sent automatically.
 - **Don't** keep bottom overlay actions in place when accessibility Dynamic Type makes them compete with content.

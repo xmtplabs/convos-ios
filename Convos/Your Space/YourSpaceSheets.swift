@@ -6,10 +6,12 @@ import SwiftUI
 struct YourSpaceConversationSwitcher: View {
     let conversations: [Conversation]
     let memberNameOverride: (String) -> String?
+    let onDismiss: () -> Void
     let onSelectConversation: (Conversation) -> Void
 
-    @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var query: String = ""
+    @FocusState private var searchFocused: Bool
+    @AccessibilityFocusState private var homeAccessibilityFocused: Bool
 
     private var filteredConversations: [Conversation] {
         let sorted = conversations.sorted {
@@ -23,75 +25,123 @@ struct YourSpaceConversationSwitcher: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
+        VStack(spacing: 0) {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                ZStack {
+                    Circle().fill(Color.colorBackgroundInverted)
+                    Image(systemName: "lock.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                }
+                .frame(width: 44, height: 44)
+                .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                    Text("Your Space")
+                        .font(.headline)
+                        .foregroundStyle(.colorTextPrimary)
+                    Text("Private context across every convo")
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Your Space")
+                .accessibilityValue("Private context across every convo")
+                .accessibilityFocused($homeAccessibilityFocused)
+
+                Spacer()
+
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.colorTextPrimary)
+                    .accessibilityHidden(true)
+
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.colorTextPrimary)
+                        .frame(width: 44, height: 44)
+                        .background(.colorFillMinimal, in: .circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close convo switcher")
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.top, DesignConstants.Spacing.step4x)
+            .padding(.bottom, DesignConstants.Spacing.step3x)
+            .accessibilityIdentifier("your-space-switcher-home")
+
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Image(systemName: "magnifyingglass")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextSecondary)
+                TextField("Search convos", text: $query)
+                    .focused($searchFocused)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                if !query.isEmpty {
                     Button {
-                        dismiss()
+                        query = ""
                     } label: {
-                        HStack(spacing: DesignConstants.Spacing.step3x) {
-                            ZStack {
-                                Circle().fill(Color.colorBackgroundInverted)
-                                Image(systemName: "lock.fill")
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(.colorTextPrimaryInverted)
-                            }
-                            .frame(width: 44, height: 44)
-
-                            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                                Text("Your Space")
-                                    .font(.body.weight(.semibold))
-                                    .foregroundStyle(.colorTextPrimary)
-                                Text("Private context across your convos")
-                                    .font(.caption)
-                                    .foregroundStyle(.colorTextSecondary)
-                            }
-
-                            Spacer()
-                            Image(systemName: "checkmark")
-                                .font(.body.weight(.semibold))
-                                .foregroundStyle(.colorTextPrimary)
-                        }
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.colorTextTertiary)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityIdentifier("your-space-switcher-home")
+                    .accessibilityLabel("Clear search")
                 }
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .frame(minHeight: 44)
+            .background(.colorFillMinimal, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.bottom, DesignConstants.Spacing.step4x)
 
-                Section("Convos") {
+            HStack {
+                Text("Convos")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.colorTextSecondary)
+                    .textCase(.uppercase)
+                Spacer()
+                Text("\(filteredConversations.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.colorTextTertiary)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.bottom, DesignConstants.Spacing.step2x)
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
                     if conversations.isEmpty {
                         ContentUnavailableView(
                             "No convos yet",
                             systemImage: "bubble.left.and.bubble.right",
                             description: Text("Start or join a convo, then switch to it from here.")
                         )
-                        .listRowBackground(Color.clear)
+                        .padding(.top, DesignConstants.Spacing.step8x)
                     } else if filteredConversations.isEmpty {
                         ContentUnavailableView.search(text: query)
-                            .listRowBackground(Color.clear)
+                            .padding(.top, DesignConstants.Spacing.step8x)
                     } else {
-                        ForEach(filteredConversations) { conversation in
+                        ForEach(Array(filteredConversations.enumerated()), id: \.element.id) { index, conversation in
                             conversationButton(conversation)
+                                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                            if index < filteredConversations.count - 1 {
+                                Divider().padding(.leading, 76)
+                            }
                         }
                     }
                 }
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(.colorBackgroundRaisedSecondary)
-            .navigationTitle("Switch")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, prompt: "Find a convo")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
+            .scrollIndicators(.hidden)
+        }
+        .background(.colorBackgroundRaisedSecondary)
+        .onAppear {
+            homeAccessibilityFocused = true
         }
     }
 
     private func conversationButton(_ conversation: Conversation) -> some View {
         Button {
-            dismiss()
             onSelectConversation(conversation)
         } label: {
             HStack(spacing: DesignConstants.Spacing.step3x) {

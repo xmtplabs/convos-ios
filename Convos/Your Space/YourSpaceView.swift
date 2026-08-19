@@ -1,16 +1,16 @@
 /*
- THESIS: Your Space is a private briefing, not a chat inbox; context leads and conversation rows stay behind the title switcher.
+ THESIS: Your Space is a private context home, not a chat inbox; the personal library leads and conversation rows live in an anchored title switcher.
  OWN-WORLD: Native Convos neutrals, one inverted attention surface, circular identity, glass reserved for persistent controls, and open editorial spacing.
- STORY: On launch the user learns what changed, sees which convo supplied it and who when verified, acts on attention, and shares only by choice.
- FIRST VIEWPORT: Profile, Your Space switcher, and add menu sit above a large live briefing sentence and one compact attention action.
+ STORY: On launch the user learns what changed, sees what they own across every convo, makes new context, and stages any item into a chosen convo only by choice.
+ FIRST VIEWPORT: Profile, anchored Your Space switcher, and add menu sit above the live briefing, attention action, and the start of the personal context library.
  FORM: A living cross-conversation digest using the pinned shell recorded as YS-SHELL-2026-08-18; no generated concept seed was used.
  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
  */
 
+import Combine
 import ConvosComposer
 import ConvosCore
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct YourSpaceView: View {
     @Bindable var viewModel: ConversationsViewModel
@@ -24,13 +24,21 @@ struct YourSpaceView: View {
     @State private var inputMode: YourSpaceInputMode?
     @State private var presentingFileImporter: Bool = false
     @State private var fileImportNotice: YourSpaceFileImportNotice?
+    @State private var localContextFiles: [YourSpaceStoredFile] = YourSpaceFileStore.storedFiles()
+    @State private var conversationContextItems: [ContextLibraryItem] = []
+    @State private var browsingContextKind: YourSpaceContextKind?
+    @State private var presentingAddContext: Bool = false
+    @State private var presentingPersonalCard: Bool = false
+    @State private var sharingItem: YourSpaceContextItem?
+    @State private var shareNotice: YourSpaceShareNotice?
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var conversationPendingExplosion: Conversation?
     @State private var staleDeviceSheetDismissed: Bool = false
     @Environment(\.scenePhase) private var scenePhase: ScenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion: Bool
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
-    @AppStorage("your-space-people-widget") private var showsPeopleWidget: Bool = true
+    @AccessibilityFocusState private var switcherButtonAccessibilityFocused: Bool
+    @AppStorage("your-space-people-widget") private var showsPeopleWidget: Bool = false
     @AppStorage("your-space-footprint-widget") private var showsFootprintWidget: Bool = false
 
     private var conversations: [Conversation] {
@@ -72,6 +80,23 @@ struct YourSpaceView: View {
         )
     }
 
+    private var contextObservationID: String {
+        conversations.map(\.id).sorted().joined(separator: "|")
+    }
+
+    private var allContextItems: [YourSpaceContextItem] {
+#if DEBUG
+        if usesVisualFixture, localContextFiles.isEmpty, conversationContextItems.isEmpty {
+            return Self.visualFixtureContextItems
+        }
+#endif
+        return (
+            localContextFiles.map(YourSpaceContextItem.init(local:))
+                + conversationContextItems.map(YourSpaceContextItem.init(conversation:))
+        )
+        .sorted { $0.date > $1.date }
+    }
+
     private var selectedConversationBinding: Binding<ConversationViewModel?> {
         Binding(
             get: { viewModel.selectedConversationViewModel },
@@ -85,25 +110,26 @@ struct YourSpaceView: View {
     }
 
     var body: some View {
-        content
+        ZStack(alignment: .topTrailing) {
+            content
+                .accessibilityHidden(presentingSwitcher)
+
+            if presentingSwitcher {
+                switcherOverlay
+                    .zIndex(10)
+            }
+        }
             .background(Color.colorBackgroundSurfaceless)
-            .safeAreaInset(edge: .top, spacing: 0) { topBar }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                topBar.accessibilityHidden(presentingSwitcher)
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !dynamicTypeSize.isAccessibilitySize {
-                    bottomBar
+                    bottomBar.accessibilityHidden(presentingSwitcher)
                 }
             }
             .navigationDestination(item: selectedConversationBinding) { convoViewModel in
                 pushedConversationDestination(viewModel: convoViewModel)
-            }
-            .sheet(isPresented: $presentingSwitcher) {
-                YourSpaceConversationSwitcher(
-                    conversations: conversations,
-                    memberNameOverride: contactNameOverride,
-                    onSelectConversation: selectConversation
-                )
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
             }
             .sheet(item: $toolDestination) { destination in
                 YourSpaceToolDestinationSheet(
@@ -125,6 +151,46 @@ struct YourSpaceView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
             }
+            .sheet(item: $browsingContextKind) { kind in
+                YourSpaceContextBrowser(
+                    items: allContextItems,
+                    initialFilter: kind,
+                    conversationTitle: conversationTitle,
+                    senderName: senderName,
+                    onShare: shareFromContextBrowser,
+                    onAddContext: addFromContextBrowser
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $presentingAddContext) {
+                YourSpaceAddContextSheet { file in
+                    refreshLocalContext(selecting: file)
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $presentingPersonalCard) {
+                YourSpacePersonalCardEditor(
+                    profile: profileSettingsViewModel.profile,
+                    profileImage: profileSettingsViewModel.profileImage,
+                    recentContext: briefing.recentUpdates
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(item: $sharingItem) { item in
+                YourSpaceShareDestinationSheet(
+                    item: item,
+                    conversations: conversations,
+                    memberNameOverride: contactNameOverride,
+                    onSelect: { conversation in
+                        stage(item, in: conversation)
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
             .fileImporter(
                 isPresented: $presentingFileImporter,
                 allowedContentTypes: [.item],
@@ -132,6 +198,13 @@ struct YourSpaceView: View {
                 onCompletion: handleFileImport
             )
             .alert(item: $fileImportNotice) { notice in
+                Alert(
+                    title: Text(notice.title),
+                    message: Text(notice.message),
+                    dismissButton: .default(Text("OK"))
+                )
+            }
+            .alert(item: $shareNotice) { notice in
                 Alert(
                     title: Text(notice.title),
                     message: Text(notice.message),
@@ -146,9 +219,24 @@ struct YourSpaceView: View {
                 namespace: transitionNamespace
             ))
             .onAppear {
+                refreshLocalContext()
+#if DEBUG
+                if ProcessInfo.processInfo.environment["YOUR_SPACE_SWITCHER_FIXTURE"] == "1" {
+                    presentingSwitcher = true
+                }
+#endif
                 guard !usesVisualFixture else { return }
                 viewModel.activeFilter = .all
                 viewModel.onAppear()
+            }
+            .task(id: contextObservationID) {
+                guard !usesVisualFixture else { return }
+                let ids = conversations.map(\.id)
+                let publisher = viewModel.session.contextLibraryRepository().itemsPublisher(conversationIds: ids)
+                for await items in publisher.values {
+                    guard !Task.isCancelled else { return }
+                    conversationContextItems = items
+                }
             }
             .onDisappear {
                 if !usesVisualFixture { viewModel.onDisappear() }
@@ -165,7 +253,9 @@ struct YourSpaceView: View {
             .onOpenURL { viewModel.handleURL($0) }
             .memberContactOverride(contactOverride)
     }
+}
 
+private extension YourSpaceView {
     @ViewBuilder
     private var content: some View {
         if !hasLoadedConversations {
@@ -183,11 +273,11 @@ struct YourSpaceView: View {
                         accessibilityActions
                     }
 
-                    if briefing.recentUpdates.isEmpty {
+                    if conversations.isEmpty {
                         emptyActions
-                    } else {
-                        updatesSection
                     }
+
+                    contextSection
 
                     if showsPeopleWidget, !activePeople.isEmpty {
                         peopleWidget
@@ -222,6 +312,44 @@ struct YourSpaceView: View {
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
+    private var switcherOverlay: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topTrailing) {
+                Button {
+                    dismissSwitcher()
+                } label: {
+                    Color.black.opacity(0.12)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHidden(true)
+
+                YourSpaceConversationSwitcher(
+                    conversations: conversations,
+                    memberNameOverride: contactNameOverride,
+                    onDismiss: dismissSwitcher,
+                    onSelectConversation: selectConversation
+                )
+                .frame(
+                    width: min(max(proxy.size.width - 24, 0), 560),
+                    height: min(max(proxy.size.height * 0.74, 0), 680)
+                )
+                .background(.colorBackgroundRaisedSecondary)
+                .clipShape(.rect(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: DesignConstants.CornerRadius.large,
+                    bottomTrailingRadius: DesignConstants.CornerRadius.large,
+                    topTrailingRadius: 0
+                ))
+                .shadow(color: Color.black.opacity(0.16), radius: 24, y: 12)
+                .padding(.trailing, DesignConstants.Spacing.step3x)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("your-space-switcher-panel")
+            }
+        }
+    }
+
     private var profileButton: some View {
         Button(action: onOpenSettings) {
             ProfileAvatarView(
@@ -245,7 +373,11 @@ struct YourSpaceView: View {
 
     private var spaceSwitcherButton: some View {
         Button {
-            presentingSwitcher = true
+            let willPresent = !presentingSwitcher
+            withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) {
+                presentingSwitcher = willPresent
+            }
+            switcherButtonAccessibilityFocused = !willPresent
         } label: {
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 Text("Your Space")
@@ -255,6 +387,7 @@ struct YourSpaceView: View {
                 Image(systemName: "chevron.down")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.colorTextSecondary)
+                    .rotationEffect(.degrees(presentingSwitcher ? 180 : 0))
             }
             .padding(.horizontal, DesignConstants.Spacing.step5x)
             .frame(maxWidth: .infinity, minHeight: 44)
@@ -262,6 +395,7 @@ struct YourSpaceView: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .capsule)
+        .accessibilityFocused($switcherButtonAccessibilityFocused)
         .accessibilityLabel("Your Space. Show all convos")
         .accessibilityIdentifier("your-space-switcher-button")
     }
@@ -354,23 +488,21 @@ struct YourSpaceView: View {
         return count == 1 ? "One convo needs a look" : "\(count) convos need a look"
     }
 
-    private var updatesSection: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-            Text("Since you were here")
-                .font(.title2.weight(.bold))
-                .foregroundStyle(.colorTextPrimary)
-
-            VStack(spacing: 0) {
-                ForEach(Array(briefing.recentUpdates.enumerated()), id: \.element.id) { index, update in
-                    YourSpaceUpdateRow(update: update) {
-                        selectConversation(update.conversation)
-                    }
-                    if index < briefing.recentUpdates.count - 1 {
-                        Divider().padding(.leading, 60)
-                    }
-                }
-            }
-        }
+    private var contextSection: some View {
+        YourSpaceContextSection(
+            profile: profileSettingsViewModel.profile,
+            profileImage: profileSettingsViewModel.profileImage,
+            items: allContextItems,
+            connectionCount: viewModel.appSettingsViewModel.connectionsListViewModel.rows.filter(\.isOn).count,
+            recentContext: briefing.recentUpdates,
+            conversationTitle: conversationTitle,
+            senderName: senderName,
+            onEditCard: { presentingPersonalCard = true },
+            onBrowse: { browsingContextKind = $0 },
+            onShare: { sharingItem = $0 },
+            onAddContext: { presentingAddContext = true },
+            onAddConnections: { toolDestination = .connections }
+        )
     }
 
     private var emptyActions: some View {
@@ -474,7 +606,7 @@ struct YourSpaceView: View {
             Label("Nothing leaves without you", systemImage: "hand.raised.fill")
                 .font(.headline)
                 .foregroundStyle(.colorTextPrimary)
-            Text("Your Space connects context privately. Voice, chat, files, and connections stay under your control.")
+            Text("Your Space connects context privately. Sharing opens the chosen convo with a draft for you to review; it never sends automatically.")
                 .font(.body)
                 .foregroundStyle(.colorTextSecondary)
         }
@@ -629,6 +761,7 @@ struct YourSpaceView: View {
     }
 
     private func selectConversation(_ conversation: Conversation) {
+        presentingSwitcher = false
         withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) {
             viewModel.select(conversation)
         }
@@ -643,10 +776,78 @@ struct YourSpaceView: View {
                     YourSpaceFileStore.importFiles(urls)
                 }.value
                 fileImportNotice = YourSpaceFileImportNotice(outcome: outcome)
+                refreshLocalContext()
             }
         case let .failure(error):
             fileImportNotice = YourSpaceFileImportNotice(error: error)
         }
+    }
+
+    private func dismissSwitcher() {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) {
+            presentingSwitcher = false
+        }
+        switcherButtonAccessibilityFocused = true
+    }
+
+    private func refreshLocalContext(selecting _: YourSpaceStoredFile? = nil) {
+        localContextFiles = YourSpaceFileStore.storedFiles()
+    }
+
+    private func conversationTitle(_ id: String) -> String? {
+        conversations
+            .first(where: { $0.id == id })?
+            .computedDisplayName(memberNameOverride: contactNameOverride)
+    }
+
+    private func senderName(_ inboxId: String) -> String? {
+        if let name = contactNameOverride(inboxId) { return name }
+        return conversations
+            .lazy
+            .flatMap(\.membersWithoutCurrent)
+            .first(where: { $0.profile.inboxId == inboxId })?
+            .displayName(contactNameFallback: contactNameOverride)
+    }
+
+    private func shareFromContextBrowser(_ item: YourSpaceContextItem) {
+        browsingContextKind = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            sharingItem = item
+        }
+    }
+
+    private func addFromContextBrowser() {
+        browsingContextKind = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            presentingAddContext = true
+        }
+    }
+
+    private func stage(_ item: YourSpaceContextItem, in conversation: Conversation) {
+        sharingItem = nil
+        selectConversation(conversation)
+        Task { @MainActor in
+            do {
+                guard let composer = viewModel.selectedConversationViewModel else {
+                    throw YourSpaceShareError.composerUnavailable
+                }
+                try await YourSpaceShareStager.live.stage(item, in: composer)
+            } catch {
+                shareNotice = YourSpaceShareNotice(error: error)
+            }
+        }
+    }
+}
+
+private struct YourSpaceShareNotice: Identifiable {
+    let id: UUID = UUID()
+    let title: String = "Couldn't prepare that share"
+    let message: String
+
+    init(error: Error) {
+        message = error.localizedDescription
     }
 }
 
@@ -732,6 +933,54 @@ private extension YourSpaceView {
         )
         return [newYorkTrip, nash, studio, family]
     }()
+
+    static let visualFixtureContextItems: [YourSpaceContextItem] = [
+        ContextLibraryItem(
+            id: "fixture-link",
+            kind: .link,
+            title: "Saturday in the Lower East Side",
+            date: Date().addingTimeInterval(-900),
+            conversationId: "your-space-new-york",
+            senderInboxId: nil,
+            isMine: false,
+            attachmentKey: nil,
+            filename: nil,
+            mimeType: nil,
+            thumbnailDataBase64: nil,
+            destinationURLString: "https://example.com/new-york",
+            imageURLString: nil
+        ),
+        ContextLibraryItem(
+            id: "fixture-photo",
+            kind: .photo,
+            title: "menu-notes.jpg",
+            date: Date().addingTimeInterval(-1_800),
+            conversationId: "your-space-nash",
+            senderInboxId: nil,
+            isMine: false,
+            attachmentKey: nil,
+            filename: "menu-notes.jpg",
+            mimeType: "image/jpeg",
+            thumbnailDataBase64: nil,
+            destinationURLString: nil,
+            imageURLString: nil
+        ),
+        ContextLibraryItem(
+            id: "fixture-document",
+            kind: .file,
+            title: "Launch notes.pdf",
+            date: Date().addingTimeInterval(-3_600),
+            conversationId: "your-space-studio",
+            senderInboxId: nil,
+            isMine: true,
+            attachmentKey: nil,
+            filename: "Launch notes.pdf",
+            mimeType: "application/pdf",
+            thumbnailDataBase64: nil,
+            destinationURLString: nil,
+            imageURLString: nil
+        ),
+    ].map(YourSpaceContextItem.init(conversation:))
 }
 #endif
 

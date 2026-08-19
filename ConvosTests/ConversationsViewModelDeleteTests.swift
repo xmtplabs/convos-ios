@@ -331,6 +331,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         base.agentFilesLinksRepository(for: conversationId)
     }
 
+    func contextLibraryRepository() -> ContextLibraryRepository {
+        base.contextLibraryRepository()
+    }
+
     func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol {
         base.agentBuilderSummaryWriter()
     }

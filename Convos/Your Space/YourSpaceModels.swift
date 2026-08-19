@@ -1,5 +1,6 @@
 import ConvosCore
 import Foundation
+import UniformTypeIdentifiers
 
 struct YourSpaceUpdate: Identifiable, Equatable {
     let conversation: Conversation
@@ -29,13 +30,97 @@ struct YourSpaceBriefing: Equatable {
     var attentionCount: Int { attentionUpdates.count }
 }
 
-struct YourSpaceStoredFile: Identifiable, Equatable, Sendable {
+struct YourSpaceStoredFile: Identifiable, Hashable, Sendable {
     let url: URL
     let name: String
     let byteCount: Int
     let addedAt: Date
 
     var id: String { url.path }
+}
+
+enum YourSpaceContextKind: String, CaseIterable, Identifiable, Sendable {
+    case all
+    case photo
+    case video
+    case link
+    case file
+    case voice
+    case note
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .photo: "Photos"
+        case .video: "Videos"
+        case .link: "Links"
+        case .file: "Files"
+        case .voice: "Voice"
+        case .note: "Notes"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .all: "square.grid.2x2"
+        case .photo: "photo.fill"
+        case .video: "play.rectangle.fill"
+        case .link: "link"
+        case .file: "doc.fill"
+        case .voice: "waveform"
+        case .note: "note.text"
+        }
+    }
+}
+
+enum YourSpaceContextSource: Hashable, Sendable {
+    case local(YourSpaceStoredFile)
+    case conversation(ContextLibraryItem)
+}
+
+struct YourSpaceContextItem: Identifiable, Hashable, Sendable {
+    let id: String
+    let kind: YourSpaceContextKind
+    let title: String
+    let date: Date
+    let conversationId: String?
+    let senderInboxId: String?
+    let isMine: Bool
+    let source: YourSpaceContextSource
+
+    init(local file: YourSpaceStoredFile) {
+        id = "local-\(file.id)"
+        kind = Self.kind(filename: file.name)
+        title = file.name
+        date = file.addedAt
+        conversationId = nil
+        senderInboxId = nil
+        isMine = true
+        source = .local(file)
+    }
+
+    init(conversation item: ContextLibraryItem) {
+        id = item.id
+        kind = YourSpaceContextKind(rawValue: item.kind.rawValue) ?? .file
+        title = item.title
+        date = item.date
+        conversationId = item.conversationId
+        senderInboxId = item.senderInboxId
+        isMine = item.isMine
+        source = .conversation(item)
+    }
+
+    private static func kind(filename: String) -> YourSpaceContextKind {
+        let pathExtension = (filename as NSString).pathExtension
+        guard let type = UTType(filenameExtension: pathExtension) else { return .file }
+        if type.conforms(to: .image) { return .photo }
+        if type.conforms(to: .movie) { return .video }
+        if type.conforms(to: .audio) { return .voice }
+        if type.conforms(to: .plainText) { return .note }
+        return .file
+    }
 }
 
 struct YourSpaceFileImportOutcome: Equatable, Sendable {
@@ -149,6 +234,48 @@ enum YourSpaceFileStore {
         )
     }
 
+    static func store(data: Data, named proposedName: String) throws -> YourSpaceStoredFile {
+        guard data.count <= maxFileSize else {
+            throw CocoaError(.fileWriteOutOfSpace)
+        }
+        let fileManager = FileManager.default
+        let directory = try storageDirectory(fileManager: fileManager)
+        let destination = availableDestination(
+            for: sanitizedName(proposedName),
+            in: directory,
+            fileManager: fileManager
+        )
+        try data.write(to: destination, options: .atomic)
+        return storedFile(at: destination) ?? YourSpaceStoredFile(
+            url: destination,
+            name: destination.lastPathComponent,
+            byteCount: data.count,
+            addedAt: Date()
+        )
+    }
+
+    static func storeText(_ text: String, title: String) throws -> YourSpaceStoredFile {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseName = trimmedTitle.isEmpty ? "Note" : trimmedTitle
+        return try store(data: Data(text.utf8), named: "\(baseName).txt")
+    }
+
+    static func temporaryCopy(of file: YourSpaceStoredFile) throws -> URL {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("Your Space Share", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent(file.name, isDirectory: false)
+        try fileManager.createDirectory(
+            at: destination.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try fileManager.copyItem(at: file.url, to: destination)
+        return destination
+    }
+
     static func storedFiles() -> [YourSpaceStoredFile] {
         let fileManager = FileManager.default
         guard let directory = try? storageDirectory(fileManager: fileManager),
@@ -160,18 +287,7 @@ enum YourSpaceFileStore {
             return []
         }
 
-        return urls.compactMap { url in
-            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey, .isRegularFileKey]),
-                  values.isRegularFile == true else {
-                return nil
-            }
-            return YourSpaceStoredFile(
-                url: url,
-                name: url.lastPathComponent,
-                byteCount: values.fileSize ?? 0,
-                addedAt: values.creationDate ?? .distantPast
-            )
-        }
+        return urls.compactMap(storedFile(at:))
         .sorted { $0.addedAt > $1.addedAt }
     }
 
@@ -221,6 +337,27 @@ enum YourSpaceFileStore {
             suffix += 1
         }
         return destination
+    }
+
+    private static func storedFile(at url: URL) -> YourSpaceStoredFile? {
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey, .isRegularFileKey]),
+              values.isRegularFile == true else {
+            return nil
+        }
+        return YourSpaceStoredFile(
+            url: url,
+            name: url.lastPathComponent,
+            byteCount: values.fileSize ?? 0,
+            addedAt: values.creationDate ?? .distantPast
+        )
+    }
+
+    private static func sanitizedName(_ proposedName: String) -> String {
+        let trimmed = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = trimmed.isEmpty ? "Untitled" : trimmed
+        return fallback
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
     }
 }
 

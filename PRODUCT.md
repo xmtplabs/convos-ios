@@ -23,13 +23,14 @@ The home screen is not an inbox. It is a private, continuously growing layer of 
 ## Operating Context
 
 - The user lands in “Your Space” every time they open the app.
-- The title control at the top opens every conversation as a switcher rather than reserving the home screen for a large chat list.
+- The title control at the top opens every conversation in a panel that drops from directly beneath the header, keeps Your Space first, and places search above the convo list.
 - A top-right add control starts a new conversation or joins one by scanning a QR code.
 - The profile image at top left opens app settings.
 - A native overflow menu exposes connections, private file upload, stored files, home customization, and the conversations contributing to the private space.
 - The bottom dock keeps voice as the centered primary action and chat as the secondary action on the right.
 - Contacts are selected in the invite flow for a conversation rather than occupying a permanent bottom-level destination.
-- Personal context may be shared into a conversation only through an explicit user action.
+- The “My context and connections” library organizes the user's contact card, locally added context, and supported assets from loaded convos by type and provenance.
+- Any context item may be shared only by explicitly choosing a destination; the app opens that convo with the item staged in its composer for review and never auto-sends it.
 
 ## Capabilities and Constraints
 
@@ -38,6 +39,10 @@ The home screen is not an inbox. It is a private, continuously growing layer of 
 - Voice transcription, chat answers, and imported files stay on-device in this prototype; chat answers are grounded only in the currently visible briefing data.
 - The home experience needs useful loading, empty, unread, and no-attention states.
 - The conversation switcher must support many conversations, unread state, search, and direct navigation.
+- The context library must support search, type filters, provenance, local notes/photos/voice/files, an editable personal card, and an explicit add menu for context or connections.
+- The first production-grade context index is deliberately bounded to supported attachments and link previews in loaded conversations. Broader semantic extraction from arbitrary message text remains a separate data-contract decision.
+- Browsing the private library must not contact remote preview hosts; only local or already-cached media may render automatically.
+- Recent convo previews remain neutral context until the user explicitly saves one. The app must not present them as inferred personal facts without a dedicated suggestion contract.
 - The initial prototype may use clearly isolated sample insight content in previews. Production summaries, provenance, ranking, and persistence remain an open data-contract decision.
 - Existing notification, deep-link, QR joining, new-conversation, settings, stale-device, and conversation-detail behavior must remain reachable.
 
