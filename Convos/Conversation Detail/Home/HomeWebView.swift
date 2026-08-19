@@ -7,8 +7,10 @@ import WebKit
 /// published into the group's appData; until then it shows an inline
 /// placeholder page.
 ///
-/// `onLoaded` fires when a load finishes, so the surface's cover can
-/// cross-fade out and reveal the page.
+/// `onFirstPaint` fires when the page reports that it has actually drawn, and
+/// `onLoaded` when the navigation finishes. The surface reveals on the first of
+/// the two, so a page that paints early is not held behind a fixed wait and one
+/// that paints late is not revealed blank.
 struct HomeWebView: UIViewRepresentable {
     /// The conversation's Space web URL; nil loads the inline placeholder.
     var url: URL?
@@ -25,6 +27,9 @@ struct HomeWebView: UIViewRepresentable {
     var bottomContentInset: CGFloat = 0
     /// Fired on the main actor once the page finishes loading.
     var onLoaded: @MainActor () -> Void = {}
+    /// Fired on the main actor when the page reports its first contentful
+    /// paint. See `Constant.firstPaintScript`.
+    var onFirstPaint: @MainActor () -> Void = {}
     /// Fired on the main actor when the page requests navigation away from
     /// the loaded space URL (link tap, JS redirect, target=_blank). The
     /// navigation is cancelled in place; the host presents it in the home
@@ -34,12 +39,29 @@ struct HomeWebView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onLoaded: onLoaded,
+            onFirstPaint: onFirstPaint,
             onNavigationRequest: onNavigationRequest
         )
     }
 
+    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        // Back to the pool, cleared, ready for the next conversation.
+        HomeWebViewPool.shared.release(webView)
+    }
+
     func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        // Adopted rather than created: building one costs about a third of a
+        // second before it can even start a navigation. See `HomeWebViewPool`.
+        let adoption = HomeWebViewPool.shared.adoption(for: url)
+        let webView = HomeWebViewPool.shared.acquire()
+        let coordinator = context.coordinator
+        HomeWebViewPool.shared.paintReporter(of: webView)?.onPaint = { source in
+            MainActor.assumeIsolated { coordinator.reportPaint(source) }
+        }
+        // A page prepared while the screen was being pushed is already this
+        // view's page: loading it again would throw away the head start and
+        // show the cover for a second load of what is already drawn.
+        coordinator.adoptPreparedLoad(adoption, url: url, onFirstPaint: onFirstPaint)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         // Transparent web chrome: the SwiftUI host paints the home canvas
@@ -64,6 +86,7 @@ struct HomeWebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.onLoaded = onLoaded
+        context.coordinator.onFirstPaint = onFirstPaint
         context.coordinator.onNavigationRequest = onNavigationRequest
         webView.scrollView.isScrollEnabled = isScrollEnabled
         let scrollView = webView.scrollView
@@ -93,6 +116,7 @@ struct HomeWebView: UIViewRepresentable {
         // Tracking the returned navigation lets the coordinator ignore stale
         // completions from a superseded load.
         context.coordinator.hasFinishedInitialLoad = false
+        context.coordinator.markLoadStarted()
         if let url {
             context.coordinator.activeNavigation = webView.load(URLRequest(url: url))
         } else {
@@ -102,7 +126,14 @@ struct HomeWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var onLoaded: @MainActor () -> Void
+        var onFirstPaint: @MainActor () -> Void
         var onNavigationRequest: @MainActor (URL) -> Void
+        /// When the current load was started, for the stage timings. Nil once
+        /// they have all been reported.
+        private var loadStart: CFAbsoluteTime?
+        /// Guards the paint timing so a page reporting more than once (or a
+        /// stale load reporting late) logs a single figure.
+        private var hasReportedPaint: Bool = false
         /// The URL the host last asked for, which is what decides whether an
         /// update pass is a new destination or SwiftUI churn. Distinct from
         /// `loadedURL`, which follows redirects.
@@ -121,10 +152,85 @@ struct HomeWebView: UIViewRepresentable {
 
         init(
             onLoaded: @escaping @MainActor () -> Void,
+            onFirstPaint: @escaping @MainActor () -> Void,
             onNavigationRequest: @escaping @MainActor (URL) -> Void
         ) {
             self.onLoaded = onLoaded
+            self.onFirstPaint = onFirstPaint
             self.onNavigationRequest = onNavigationRequest
+        }
+
+        /// Starts the clock for a load the host just issued, so the stage
+        /// timings measure from the request rather than from whenever WebKit
+        /// got around to the navigation.
+        func markLoadStarted() {
+            loadStart = CFAbsoluteTimeGetCurrent()
+            hasReportedPaint = false
+            probeMainThreadLatency()
+        }
+
+        /// Measures how long an empty main-queue hop takes from the moment the
+        /// load is issued.
+        ///
+        /// Every stage below is reported through a main-thread delegate
+        /// callback, so a busy main thread inflates all of them equally and
+        /// would read as WebKit being slow. This says which it is: near zero
+        /// means the wait before the request is really WebKit's, and hundreds
+        /// of milliseconds means the main thread was busy opening the
+        /// conversation and the page never had a chance to start.
+        private func probeMainThreadLatency() {
+            let issued = CFAbsoluteTimeGetCurrent()
+            DispatchQueue.main.async {
+                let waited = (CFAbsoluteTimeGetCurrent() - issued) * 1000.0
+                Log.info("[PERF] HomeWebView.mainQueueLatency: \(String(format: "%.0f", waited))ms")
+            }
+        }
+
+        /// Milliseconds since the load was issued, or nil if no load is being
+        /// timed.
+        private func elapsedMilliseconds() -> Double? {
+            guard let loadStart else { return nil }
+            return (CFAbsoluteTimeGetCurrent() - loadStart) * 1000.0
+        }
+
+        private func logStage(_ stage: String) {
+            guard let elapsed = elapsedMilliseconds() else { return }
+            Log.info("[PERF] HomeWebView.\(stage): \(String(format: "%.0f", elapsed))ms")
+        }
+
+        /// Takes over a load the pool started before this view existed.
+        ///
+        /// Seeds the state `updateUIView` decides against, so it treats the
+        /// destination as already requested and does not start it again. A page
+        /// that has already painted has nothing left to wait for, so the
+        /// surface is told at once rather than after a load it will never see.
+        func adoptPreparedLoad(
+            _ adoption: HomeWebViewPool.Adoption,
+            url: URL?,
+            onFirstPaint: @escaping @MainActor () -> Void
+        ) {
+            guard adoption != .unprepared, let url else { return }
+            markLoadStarted()
+            requestedURL = url
+            loadedURL = url
+            hasLoaded = true
+            guard adoption == .painted else { return }
+            hasReportedPaint = true
+            hasFinishedInitialLoad = true
+            Log.info("[PERF] HomeWebView.adoptedPainted: page was ready before the surface")
+            Task { @MainActor in onFirstPaint() }
+        }
+
+        /// The page reporting that it has drawn. Reveals the surface without
+        /// waiting out the fallback delay.
+        func reportPaint(_ source: String) {
+            guard !hasReportedPaint else { return }
+            hasReportedPaint = true
+            if let elapsed = elapsedMilliseconds() {
+                Log.info("[PERF] HomeWebView.firstPaint(\(source)): \(String(format: "%.0f", elapsed))ms")
+            }
+            let onFirstPaint = onFirstPaint
+            Task { @MainActor in onFirstPaint() }
         }
 
         // WebKit calls navigation delegate methods on the main thread.
@@ -157,8 +263,24 @@ struct HomeWebView: UIViewRepresentable {
             return nil
         }
 
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation?) {
+            guard isCurrent(navigation) else { return }
+            // Splits the wait before the first byte in two: everything up to
+            // here is WebKit getting a web content process ready to ask, and
+            // everything from here to didCommit is DNS, TLS and the server.
+            logStage("didStartProvisional")
+        }
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
+            guard isCurrent(navigation) else { return }
+            // First bytes of the response: everything before this is DNS, TLS
+            // and the server's own time.
+            logStage("didCommit")
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
             guard isCurrent(navigation) else { return }
+            logStage("didFinish")
             hasFinishedInitialLoad = true
             // The initial chain may have redirected; pin the final committed
             // URL so a later reload of the displayed page stays in place
