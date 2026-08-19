@@ -1,12 +1,13 @@
 import SwiftUI
 
-/// Wraps `HomeWebView` with a cover that hides the reloading page. The cover
-/// is the last persisted snapshot of this conversation's home, or a neutral
-/// placeholder the first time it opens (or after the OS purges the cache). It
-/// sits on top until the live page finishes loading, then cross-fades out to
-/// reveal it.
+/// Wraps `HomeWebView` with a cover that hides the loading page: the home's
+/// preparing state, over the surface's own background. It sits on top until
+/// the live page finishes loading, then cross-fades out to reveal it.
+///
+/// The cover is generated, never a captured image of the page: a picture of a
+/// previous visit is not the page, and showing one claims the home still looks
+/// like that while the real one is still loading.
 struct HomeWebSurface: View {
-    let conversationId: String
     var url: URL?
     var isScrollEnabled: Bool = true
     /// Forwarded to `HomeWebView`: top clearance (the navigation chrome)
@@ -20,12 +21,10 @@ struct HomeWebSurface: View {
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
     @State private var isLoaded: Bool = false
-    @State private var coverImage: UIImage?
 
     var body: some View {
         ZStack {
             HomeWebView(
-                conversationId: conversationId,
                 url: url,
                 isScrollEnabled: isScrollEnabled,
                 topContentInset: topContentInset,
@@ -46,20 +45,16 @@ struct HomeWebSurface: View {
                 },
                 onNavigationRequest: onNavigationRequest
             )
-            HomeCoverView(image: coverImage, hasSpaceURL: url != nil)
+            HomeCoverView(hasSpaceURL: url != nil)
                 .opacity(isLoaded ? 0 : 1)
                 .allowsHitTesting(!isLoaded)
         }
-        .task(id: conversationId) {
-            let data: Data? = await HomeSnapshotStore.shared.snapshotData(for: conversationId)
-            coverImage = data.flatMap { UIImage(data: $0) }
-        }
-        // A conversation that loses its space goes back to waiting for one, so
-        // the cover comes back rather than leaving the last page on screen.
-        .onChange(of: url) { _, newURL in
-            if newURL == nil {
-                isLoaded = false
-            }
+        // Any change of url is a new page to wait for, so the cover comes back
+        // rather than leaving the previous one on screen - live and touchable -
+        // until the new one commits. That includes a space being republished at
+        // a different address, not only one going away.
+        .onChange(of: url) { _, _ in
+            isLoaded = false
         }
     }
 
@@ -71,37 +66,20 @@ struct HomeWebSurface: View {
     }
 }
 
-/// The cover drawn over the reloading home: the persisted snapshot when one
-/// exists, otherwise a neutral placeholder matching the web view's own empty
-/// state.
+/// The cover drawn over the loading home: the preparing state on an opaque
+/// canvas, which is what the surface shows until the page is ready.
 private struct HomeCoverView: View {
-    let image: UIImage?
     /// False until the worker publishes the space URL, which the preparing
     /// state uses to decide how far its bar may advance.
     let hasSpaceURL: Bool
 
     var body: some View {
-        if let image {
-            // Contain the fill: `scaledToFill` reports the image's oversized
-            // ideal frame, and an uncontained overflow here inflates the
-            // conversation's whole backing ZStack past the screen. Drawing it
-            // as an overlay on a container-sized base keeps the cover exactly
-            // the surface's size.
-            Color.clear
-                .overlay {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                }
-                .clipped()
-        } else {
-            // Opaque canvas fill (it must hide the loading page beneath),
-            // layered the same way the home layout paints its background.
-            ZStack {
-                Color.colorBackgroundSurfaceless
-                Color.colorBackgroundSubtle
-                HomePreparingView(stage: hasSpaceURL ? .loadingPage : .awaitingSpace)
-            }
+        // Opaque fill (it must hide the loading page beneath), layered the same
+        // way the home layout paints its background.
+        ZStack {
+            Color.colorBackgroundSurfaceless
+            Color.colorBackgroundSubtle
+            HomePreparingView(stage: hasSpaceURL ? .loadingPage : .awaitingSpace)
         }
     }
 }

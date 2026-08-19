@@ -28,9 +28,6 @@ struct HomeBrowserPageView: View {
     var body: some View {
         GeometryReader { proxy in
             HomeWebView(
-                // An empty conversation id keeps browser pages from
-                // overwriting the conversation's home cover snapshot.
-                conversationId: "",
                 url: entry.url,
                 topContentInset: proxy.safeAreaInsets.top,
                 bottomContentInset: sheetGeometry.homeBottomClearance,

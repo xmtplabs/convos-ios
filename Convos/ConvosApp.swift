@@ -21,8 +21,21 @@ struct ConvosApp: App {
     /// of the value-type App.
     private let timezoneForegroundGuard: ForegroundOnceGuard = ForegroundOnceGuard()
 
+    /// Deletes the cache the home's snapshot cover used to write.
+    ///
+    /// The feature is gone, so nothing reads these files and nothing else would
+    /// ever delete them: one full-screen PNG per conversation ever opened,
+    /// sitting in `Caches/` until the OS evicts it. Safe to delete this along
+    /// with the directory it clears, a release or two after everyone has
+    /// launched a build containing it.
+    private static func removeHomeSnapshotCache() {
+        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+        try? FileManager.default.removeItem(at: caches.appendingPathComponent("HomeSnapshots", isDirectory: true))
+    }
+
     init() {
         FileDescriptorDiagnostics.raiseSoftLimit(to: 512)
+        Self.removeHomeSnapshotCache()
 
         ConfigManager.configure(overrides: ConvosSecretOverrides(
             apiBaseURL: Secrets.CONVOS_API_BASE_URL,
