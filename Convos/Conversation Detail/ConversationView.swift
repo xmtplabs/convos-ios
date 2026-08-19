@@ -447,9 +447,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
         )
     }
 
-    /// Every conversation offers both transcripts.
+    /// Every conversation offers both transcripts - except one that is
+    /// already a DM with an agent, which has no second agent to open a DM
+    /// with. Its single lane is the conversation itself, relabelled: see
+    /// `ConversationTab.title(isPersonalSpace:)`.
     private var availableTabs: [ConversationTab] {
-        ConversationTab.allCases
+        isPersonalSpace ? [.group] : ConversationTab.allCases
+    }
+
+    /// The personal Space, and any other agent DM opened on its own: a locked
+    /// two-member conversation between the user and an agent.
+    private var isPersonalSpace: Bool {
+        viewModel.conversation.isAgentDm
     }
 
     /// The view model behind the transcript the selected tab is showing.
@@ -1643,6 +1652,7 @@ private extension ConversationView {
                 ConversationTabBar(
                     selectedTab: $selectedTab,
                     tabs: availableTabs,
+                    isPersonalSpace: isPersonalSpace,
                     badgedTabs: badgedTabs,
                     onReselect: handleTabReselect(_:)
                 )

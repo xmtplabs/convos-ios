@@ -168,33 +168,30 @@ struct MainTabView: View {
             .modifier(metricsObserversModifier)
     }
 
+    /// The app's root. The Space Home replaces the tab shell outright: the
+    /// design has no tab bar, and the one control that survives it - the Agent
+    /// pill - belongs to the Space's own floating sheet rather than to the
+    /// app.
+    ///
+    /// The `NavigationStack` stays, because the Space Home still pushes
+    /// conversations onto it.
     @ViewBuilder
     private var tabView: some View {
-        TabView(selection: $activeTab) {
-            Tab(ConvosTab.chats.title, systemImage: ConvosTab.chats.symbol, value: ConvosTab.chats) {
-                tabContainer(for: .chats) {
-                    ConversationsView(
-                        viewModel: conversationsViewModel,
-                        profileSettingsViewModel: profileSettingsViewModel,
-                        appIndicatorContext: appIndicatorContext,
-                        sidebarBottomAccessory: nil
-                    )
-                }
-            }
-
-            Tab(ConvosTab.contacts.title, systemImage: ConvosTab.contacts.symbol, value: ConvosTab.contacts) {
-                tabContainer(for: .contacts) {
-                    contactsTabContent
-                }
-            }
+        NavigationStack {
+            SpaceHomeView(
+                conversationsViewModel: conversationsViewModel,
+                profileSettingsViewModel: profileSettingsViewModel,
+                coreActions: coreActions,
+                subtitle: indicatorSubtitle,
+                onProfile: {
+                    appSettingsSource = .chats
+                    presentingAppSettings = true
+                },
+                onCompose: { conversationsViewModel.onStartConvo() }
+            )
         }
         .tint(Color.colorTextPrimary)
-        .onChange(of: activeTab) { _, newTab in
-            // Fires after SwiftUI has applied the tab switch, so a parked
-            // scan navigation gated on the Chats tab consumes only once the
-            // switch has actually committed.
-            conversationsViewModel.isChatsTabActive = newTab == .chats
-        }
+        .onAppear { conversationsViewModel.isChatsTabActive = true }
     }
 
     /// Builds the Contacts tab content from the live messaging service,
@@ -310,8 +307,6 @@ struct MainTabView: View {
         VStack(spacing: 0) {
             if let activeConvoVM = activeConvoVM {
                 centeredConversationIndicator(for: activeConvoVM)
-            } else if !isContactDetailPushed {
-                leadingAppIndicatorPill
             }
             Spacer()
         }

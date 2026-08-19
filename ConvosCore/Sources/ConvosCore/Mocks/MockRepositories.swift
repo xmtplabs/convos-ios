@@ -33,6 +33,13 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
         nil
     }
 
+    /// Mirrors the production rule: an agent DM with no recorded origin. The
+    /// mock has no `agent_dm_origin` table, so injected conversations stand in
+    /// for the link by carrying `isAgentDm` and nothing else.
+    public func findPersonalSpace() throws -> Conversation? {
+        mockConversations.first { $0.isAgentDm }
+    }
+
     public func agentDmTapRouting(forConversationId conversationId: String) throws -> AgentDmTapRouting? {
         nil
     }

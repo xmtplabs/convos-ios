@@ -70,6 +70,10 @@ private final class StubConversationsRepository: ConversationsRepositoryProtocol
         nil
     }
 
+    func findPersonalSpace() throws -> Conversation? {
+        nil
+    }
+
     func agentDmTapRouting(forConversationId conversationId: String) throws -> AgentDmTapRouting? {
         nil
     }
