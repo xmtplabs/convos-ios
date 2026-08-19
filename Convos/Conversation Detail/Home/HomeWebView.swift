@@ -49,8 +49,17 @@ struct HomeWebView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
-        // Back to the pool, cleared, ready for the next conversation.
-        HomeWebViewPool.shared.release(webView)
+        // Back to the pool with what it is showing, so a page that is still
+        // drawn can be handed straight back on re-entry.
+        // The URL asked for, not the one that committed: a page that redirects
+        // - or merely gains a trailing slash, as every bare host does - leaves
+        // `loadedURL` on something the next request will never be phrased as,
+        // so the kept page could never be matched to it.
+        HomeWebViewPool.shared.release(
+            webView,
+            showing: coordinator.requestedURL,
+            painted: coordinator.hasPainted
+        )
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -138,6 +147,9 @@ struct HomeWebView: UIViewRepresentable {
         /// Guards the paint timing so a page reporting more than once (or a
         /// stale load reporting late) logs a single figure.
         private var hasReportedPaint: Bool = false
+        /// Whether the page this view is showing has drawn, for the pool to
+        /// decide whether it is worth keeping.
+        var hasPainted: Bool { hasReportedPaint }
         /// The URL the host last asked for, which is what decides whether an
         /// update pass is a new destination or SwiftUI churn. Distinct from
         /// `loadedURL`, which follows redirects.
