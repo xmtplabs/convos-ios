@@ -113,7 +113,7 @@ struct AgentVerificationDowngradeTests {
         let updateMsg = try #require(messages.first {
             (try? $0.encodedContent.type) == ContentTypeProfileUpdate
         })
-        await processor.processMessage(updateMsg, params: params, activeConversationId: nil)
+        await processor.processMessage(updateMsg, params: params, activeConversationIds: [])
 
         let postMemberKind = try await fixtures.databaseManager.dbReader.read { db in
             try DBMemberProfile.fetchOne(db, conversationId: group.id, inboxId: inboxIdA)?.memberKind
@@ -192,7 +192,7 @@ struct AgentVerificationDowngradeTests {
         let snapshotMsg = try #require(messages.first {
             (try? $0.encodedContent.type) == ContentTypeProfileSnapshot
         })
-        await processor.processMessage(snapshotMsg, params: params, activeConversationId: nil)
+        await processor.processMessage(snapshotMsg, params: params, activeConversationIds: [])
 
         let postMemberKind = try await fixtures.databaseManager.dbReader.read { db in
             try DBMemberProfile.fetchOne(db, conversationId: group.id, inboxId: inboxIdA)?.memberKind

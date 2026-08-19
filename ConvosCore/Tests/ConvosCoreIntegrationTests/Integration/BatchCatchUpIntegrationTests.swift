@@ -93,7 +93,7 @@ struct BatchCatchUpIntegrationTests {
         let counter = CommitCounter()
         fixtures.databaseManager.dbWriter.add(transactionObserver: counter)
 
-        let result = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationId: nil)
+        let result = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationIds: [])
 
         // Headline assertions: the batch saw the conversation and at least
         // all N user messages. libxmtp emits group-membership update messages
@@ -166,7 +166,7 @@ struct BatchCatchUpIntegrationTests {
 
         // First batch persists the conversation row - the state a freshly
         // paired installation is in right after welcomes are ingested.
-        _ = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationId: nil)
+        _ = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationIds: [])
 
         // Now messages land in libxmtp's local database while the app-side
         // cursor sits ahead of their sentNs - the exact state a history-
@@ -198,7 +198,7 @@ struct BatchCatchUpIntegrationTests {
         // A forward-only batch fetches afterNs: cursor and must miss the
         // older messages entirely - this is the bug shape the backfill
         // exists for.
-        let forwardOnly = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationId: nil)
+        let forwardOnly = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationIds: [])
         #expect(forwardOnly.messagesProcessed == 0, "Forward-only batch should see nothing behind the cursor, got \(forwardOnly.messagesProcessed)")
 
         // The backfill ignores the cursor and re-ingests everything.
@@ -206,7 +206,7 @@ struct BatchCatchUpIntegrationTests {
             client: clientB,
             inboxId: inboxIdB,
             since: nil,
-            activeConversationId: nil,
+            activeConversationIds: [],
             fetchFromBeginning: true
         )
         #expect(backfill.messagesProcessed >= messageCount, "Backfill should ingest the \(messageCount) pre-cursor messages, got \(backfill.messagesProcessed)")
@@ -271,7 +271,7 @@ struct BatchCatchUpIntegrationTests {
             client: clientB,
             inboxId: inboxIdB,
             since: nil,
-            activeConversationId: group.id
+            activeConversationIds: [group.id]
         )
 
         #expect(result.messagesProcessed >= messageCount, "Expected at least \(messageCount) messages persisted, got \(result.messagesProcessed)")
@@ -337,7 +337,7 @@ struct BatchCatchUpIntegrationTests {
             databaseWriter: fixtures.databaseManager.dbWriter
         )
 
-        _ = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationId: nil)
+        _ = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationIds: [])
 
         // The backlog thinking message lands in the thinking-session store...
         let thinkingMomentCount = try await fixtures.databaseManager.dbReader.read { db in
@@ -396,7 +396,7 @@ struct BatchCatchUpIntegrationTests {
             client: clientB,
             inboxId: inboxIdB,
             since: Date(timeIntervalSinceNow: 60),
-            activeConversationId: nil
+            activeConversationIds: []
         )
 
         #expect(result.conversationsProcessed == 0, "Expected 0 changed conversations, got \(result.conversationsProcessed)")
@@ -443,7 +443,7 @@ struct BatchCatchUpIntegrationTests {
             messageWriter: messageWriter,
             databaseWriter: fixtures.databaseManager.dbWriter
         )
-        _ = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationId: nil)
+        _ = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationIds: [])
 
         let seededCursor = try await fixtures.databaseManager.dbReader.read { db in
             try DBConversationCatchUpCursor.caughtUpToNs(for: group.id, in: db)
@@ -482,7 +482,7 @@ struct BatchCatchUpIntegrationTests {
             ).insert(db)
         }
 
-        _ = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationId: nil)
+        _ = try await batch.run(client: clientB, inboxId: inboxIdB, since: nil, activeConversationIds: [])
 
         // The read receipt behind the pushed message must have been fetched
         // and stored.

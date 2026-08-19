@@ -1358,7 +1358,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 senderInboxId: message.senderInboxId,
                 currentInboxId: myInboxId,
                 conversationId: conversation.id,
-                activeConversationId: nil
+                activeConversationIds: []
             ) {
                 marksConversationAsUnread = true
             }

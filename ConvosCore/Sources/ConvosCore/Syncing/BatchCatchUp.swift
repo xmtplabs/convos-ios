@@ -122,7 +122,7 @@ struct BatchCatchUp {
         client: any XMTPClientProvider,
         inboxId: String,
         since: Date?,
-        activeConversationId: String?,
+        activeConversationIds: Set<String>,
         fetchFromBeginning: Bool = false,
         syncPerConversation: Bool = false
     ) async throws -> BatchCatchUpResult {
@@ -181,7 +181,7 @@ struct BatchCatchUp {
             try Self.persistPreparedEntries(
                 prepared,
                 inboxId: inboxId,
-                activeConversationId: activeConversationId,
+                activeConversationIds: activeConversationIds,
                 conversationWriter: conversationWriter,
                 messageWriter: messageWriter,
                 in: db
@@ -310,7 +310,7 @@ struct BatchCatchUp {
     private static func persistPreparedEntries(
         _ prepared: [PreparedEntry],
         inboxId: String,
-        activeConversationId: String?,
+        activeConversationIds: Set<String>,
         conversationWriter: ConversationWriter,
         messageWriter: IncomingMessageWriter,
         in db: Database
@@ -350,7 +350,7 @@ struct BatchCatchUp {
                     senderInboxId: preparedMessage.source.senderInboxId,
                     currentInboxId: inboxId,
                     conversationId: entry.conversation.dbConversation.id,
-                    activeConversationId: activeConversationId
+                    activeConversationIds: activeConversationIds
                 ) {
                     entryMarksUnread = true
                 }

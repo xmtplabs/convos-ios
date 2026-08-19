@@ -283,6 +283,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// no-browser connect runs. Observed (not `@ObservationIgnored`) so the busy
     /// state reacts when it changes.
     private var connectOnApproveInFlightRequestId: String?
+    /// Synchronous re-entrancy latch for the approve tap. The pipeline's own
+    /// guards are taken only after the async scope-resolution hop, so without
+    /// this a double-tap could double-run the revoke pass and race a second
+    /// result send. Held from tap until the resolved continuation has taken
+    /// the inner guards (or the tap ended blocked/diverged).
+    @ObservationIgnored
+    private var capabilityApproveTapInFlightRequestId: String?
     @ObservationIgnored
     var lastReadReceiptSentAt: Date?
     @ObservationIgnored
@@ -970,8 +977,19 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// scope to; nil while resolving or when the scope is blocked.
     var capabilityApprovalScopeName: String? {
         guard let resolution = capabilityGrantScopeResolution else { return nil }
-        guard case .unresolvableOrigin = resolution.scope else { return resolution.scopeDisplayName }
-        return nil
+        switch resolution.scope {
+        case .unresolvableOrigin:
+            return nil
+        case .originGroup:
+            // The resolver blocks nameless origins, so this is always the
+            // origin group's real name.
+            return resolution.scopeDisplayName
+        case .conversation:
+            // A nameless plain group falls back to the same user-facing
+            // display name the user is already looking at -- a real
+            // identity, never a generic noun.
+            return resolution.scopeDisplayName ?? conversation.displayName
+        }
     }
     /// The blocked-approval copy for an agent DM whose origin cannot back a
     /// grant; nil when the scope resolved (or is still resolving).
@@ -1779,7 +1797,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    let scopeResolution = await self.resolveCapabilityGrantScope(for: request)
+                    let scopeResolution = await self.resolveCapabilityGrantScopeForCurrentConversation(request: request)
                     // Grant-side reads (existing grants, resolver state) key
                     // on the grant scope so a DM sheet seeds from the origin
                     // group's grants. A blocked scope reads the DM itself,
@@ -2044,12 +2062,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// grant to: identity for a plain group, the verified origin group for an
     /// agent DM. The live-marker fallback reads the DM's own appData through
     /// the XMTP client and only runs when the local mirror row is absent.
-    private func resolveCapabilityGrantScope(for request: CapabilityRequest) async -> CapabilityGrantScopeResolution {
-        let repository = session.capabilityRequestRepository(for: conversation.id)
-        let conversationId = conversation.id
+    private func resolveCapabilityGrantScope(
+        for request: CapabilityRequest,
+        conversationId: String,
+        isAgentDm: Bool
+    ) async -> CapabilityGrantScopeResolution {
+        let repository = session.capabilityRequestRepository(for: conversationId)
         let messagingService = self.messagingService
         return await repository.resolveGrantScope(
-            isAgentDm: conversation.isAgentDm,
+            isAgentDm: isAgentDm,
             askerInboxId: request.askerInboxId,
             liveMarkerOrigin: {
                 guard let result = try? await messagingService.sessionStateManager.waitForInboxReadyResult(),
@@ -2059,6 +2080,18 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 }
                 return (try? group.agentDmOriginConversationId).flatMap { $0 }
             }
+        )
+    }
+
+    /// Captures the conversation identity at call time so an async resolution
+    /// can never span a draft-to-real conversation swap.
+    private func resolveCapabilityGrantScopeForCurrentConversation(
+        request: CapabilityRequest
+    ) async -> CapabilityGrantScopeResolution {
+        await resolveCapabilityGrantScope(
+            for: request,
+            conversationId: conversation.id,
+            isAgentDm: conversation.isAgentDm
         )
     }
 
@@ -2077,6 +2110,23 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         // the user on a fresh open; the sheet starts clean.
         capabilityApprovalErrorMessage = nil
         presentingCapabilityApproval = true
+        // A blocked scope self-heals here: the pending publisher only tracks
+        // message rows, so origin tables syncing later re-trigger nothing --
+        // re-resolving on every tap is what makes "the same tap succeeds
+        // after sync" actually true.
+        let request = layout.request
+        let conversationId = conversation.id
+        let isAgentDm = conversation.isAgentDm
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let resolution = await self.resolveCapabilityGrantScope(
+                for: request,
+                conversationId: conversationId,
+                isAgentDm: isAgentDm
+            )
+            guard self.pendingCapabilityPickerLayout?.request.requestId == request.requestId else { return }
+            self.capabilityGrantScopeResolution = resolution
+        }
     }
 
     /// User tapped the approval sheet's primary button with this provider
@@ -2106,7 +2156,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         guard let layout = pendingCapabilityPickerLayout else { return }
         let request = layout.request
         let conversationId = conversation.id
+        let isAgentDm = conversation.isAgentDm
+        guard capabilityApproveTapInFlightRequestId != request.requestId else { return }
+        capabilityApproveTapInFlightRequestId = request.requestId
         capabilityApprovalErrorMessage = nil
+        // The scope the sheet disclosed for this tap: consent is bound to it.
+        let displayedResolution = capabilityGrantScopeResolution
 
         let split = Self.splitCapabilityApproval(
             providerIds: providerIds,
@@ -2114,17 +2169,34 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         )
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.capabilityApproveTapInFlightRequestId = nil }
             // Approval-time origin consistency check: re-resolve the grant
             // scope at the moment of the tap rather than trusting the
             // presentation-time value. A blocked scope surfaces its message
             // and sends nothing -- no grant, no revoke, no result.
-            let resolution = await self.resolveCapabilityGrantScope(for: request)
+            let resolution = await self.resolveCapabilityGrantScope(
+                for: request,
+                conversationId: conversationId,
+                isAgentDm: isAgentDm
+            )
+            // A late completion must not repaint a newer request's sheet.
+            guard self.pendingCapabilityPickerLayout?.request.requestId == request.requestId else { return }
             self.capabilityGrantScopeResolution = resolution
             guard let grantScopeConversationId = resolution.scope.grantScopeConversationId else {
                 if case .unresolvableOrigin(let reason) = resolution.scope {
                     self.capabilityApprovalErrorMessage = reason.userFacingMessage
                     CapabilityApprovalTelemetry.blockedApproval(reason: reason.telemetryValue)
                 }
+                return
+            }
+            // Consent binding: the grant may only target the scope the sheet
+            // disclosed when the user tapped. On divergence (a rebind moved
+            // the origin between presentation and tap) nothing is written --
+            // the sheet re-presents with the fresh scope and the user
+            // re-consents to the newly named group.
+            guard displayedResolution?.scope == resolution.scope else {
+                self.capabilityApprovalErrorMessage = "This approval's destination changed. Check the group name and try again."
+                CapabilityApprovalTelemetry.blockedApproval(reason: "scope_diverged")
                 return
             }
             self.continueCapabilityApprove(
@@ -2939,9 +3011,14 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let registry = session.capabilityProviderRegistry()
         let resolver = session.capabilityResolver()
         let handler = CapabilityRequestHandler()
+        let isAgentDm = conversation.isAgentDm
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let scopeResolution = await self.resolveCapabilityGrantScope(for: request)
+            let scopeResolution = await self.resolveCapabilityGrantScope(
+                for: request,
+                conversationId: conversationId,
+                isAgentDm: isAgentDm
+            )
             let grantReadConversationId = scopeResolution.scope.grantScopeConversationId ?? conversationId
             let layout = await Self.computeCapabilityPickerLayout(
                 request: request,
@@ -2952,13 +3029,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 cloudConnectionRepository: self.session.cloudConnectionRepository(),
                 conversationId: grantReadConversationId
             )
-            self.capabilityGrantScopeResolution = scopeResolution
             // If a newer request arrived OR the user already approved/denied this one,
-            // don't revive the picker with a stale layout.
+            // don't revive the picker with a stale layout -- or repaint its
+            // scope: a stale recompute writing a transient blocked verdict
+            // would hide the newer request's approve control.
             guard self.latestObservedCapabilityRequest == request,
                   !self.locallyHandledCapabilityRequestIds.contains(request.requestId) else {
                 return
             }
+            self.capabilityGrantScopeResolution = scopeResolution
             self.pendingCapabilityPickerLayout = layout
         }
     }

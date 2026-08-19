@@ -45,12 +45,20 @@ public enum CapabilityGrantScopeBlockReason: Equatable, Sendable {
     /// The asking agent is no longer a member of the origin group (a rebind
     /// left the DM's recorded origin stale).
     case agentNotInOrigin
+    /// The recorded origin is not a group conversation: it names the DM
+    /// itself or another agent DM. The marker is member-writable, so this is
+    /// treated as untrusted input -- a DM-scoped grant authorizes nothing.
+    case originNotAGroup
+    /// The origin group carries no name, so the sheet cannot disclose which
+    /// conversation the grant would scope to. Named consent requires the
+    /// real name; a generic noun is not consent.
+    case originUnnamed
 
     public var userFacingMessage: String {
         switch self {
         case .userNotInOrigin:
             return "This request belongs to a conversation you're no longer in."
-        case .originUnknown, .originNotSynced, .agentNotInOrigin:
+        case .originUnknown, .originNotSynced, .agentNotInOrigin, .originNotAGroup, .originUnnamed:
             return "Can't approve from this chat right now — still syncing. Try again in a moment."
         }
     }
@@ -62,6 +70,8 @@ public enum CapabilityGrantScopeBlockReason: Equatable, Sendable {
         case .originNotSynced: return "origin_not_synced"
         case .userNotInOrigin: return "user_not_in_origin"
         case .agentNotInOrigin: return "agent_not_in_origin"
+        case .originNotAGroup: return "origin_not_a_group"
+        case .originUnnamed: return "origin_unnamed"
         }
     }
 }
@@ -83,9 +93,6 @@ public struct CapabilityGrantScopeResolution: Equatable, Sendable {
 }
 
 extension CapabilityGrantScopeResolution {
-    /// Shared fallback when a scope conversation row has no name of its own.
-    static let unnamedScopeFallback: String = "your group chat"
-
     /// Database-driven resolution. `liveMarkerOrigin` is consulted only when
     /// the mirror row is absent: it reads the DM's own XMTP appData marker,
     /// the authoritative source the row mirrors (covers a failed mirror write
@@ -99,13 +106,15 @@ extension CapabilityGrantScopeResolution {
         liveMarkerOrigin: @Sendable () async -> String?
     ) async -> CapabilityGrantScopeResolution {
         guard isAgentDm else {
+            // A nameless plain group keeps a nil name: the view model falls
+            // back to the conversation's own user-facing display name, which
+            // the user is already looking at -- never a generic noun.
             let name: String? = try? await dbReader.read { db in
                 try DBConversation.fetchOne(db, id: conversationId)?.name
             }
-            let displayName: String = (name?.isEmpty == false) ? (name ?? "") : Self.unnamedScopeFallback
             return CapabilityGrantScopeResolution(
                 scope: .conversation(conversationId),
-                scopeDisplayName: displayName
+                scopeDisplayName: (name?.isEmpty == false) ? name : nil
             )
         }
 
@@ -118,6 +127,11 @@ extension CapabilityGrantScopeResolution {
         }
         guard let originId, !originId.isEmpty else {
             return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originUnknown), scopeDisplayName: nil)
+        }
+        // The marker is member-writable: an origin naming the DM itself is
+        // untrusted input steering the grant back into the DM scope.
+        guard originId != conversationId else {
+            return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originNotAGroup), scopeDisplayName: nil)
         }
 
         let check: OriginConsistencyCheck? = try? await dbReader.read { db in
@@ -150,8 +164,18 @@ extension CapabilityGrantScopeResolution {
         guard check.agentIsMember else {
             return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.agentNotInOrigin), scopeDisplayName: nil)
         }
-        let displayName: String = (origin.name?.isEmpty == false) ? (origin.name ?? "") : Self.unnamedScopeFallback
-        return CapabilityGrantScopeResolution(scope: .originGroup(originId), scopeDisplayName: displayName)
+        // An origin that is itself an agent DM can never back a grant; the
+        // membership checks pass trivially for any DM the viewer and agent
+        // share, so this guard is what stops a steered marker.
+        guard !origin.isAgentDm else {
+            return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originNotAGroup), scopeDisplayName: nil)
+        }
+        // Named consent requires the origin's real name; without one the
+        // sheet cannot disclose the grant target, so the approval blocks.
+        guard let originName = origin.name, !originName.isEmpty else {
+            return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originUnnamed), scopeDisplayName: nil)
+        }
+        return CapabilityGrantScopeResolution(scope: .originGroup(originId), scopeDisplayName: originName)
     }
 
     private struct OriginConsistencyCheck {

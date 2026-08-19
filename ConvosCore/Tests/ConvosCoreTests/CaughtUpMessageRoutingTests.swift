@@ -15,7 +15,7 @@ struct CaughtUpMessageRoutingTests {
             senderInboxId: other,
             currentInboxId: me,
             conversationId: conversationId,
-            activeConversationId: nil
+            activeConversationIds: []
         ))
     }
 
@@ -26,7 +26,7 @@ struct CaughtUpMessageRoutingTests {
             senderInboxId: me,
             currentInboxId: me,
             conversationId: conversationId,
-            activeConversationId: nil
+            activeConversationIds: []
         ))
     }
 
@@ -37,7 +37,7 @@ struct CaughtUpMessageRoutingTests {
             senderInboxId: other,
             currentInboxId: me,
             conversationId: conversationId,
-            activeConversationId: conversationId
+            activeConversationIds: [conversationId]
         ))
     }
 
@@ -48,7 +48,7 @@ struct CaughtUpMessageRoutingTests {
             senderInboxId: other,
             currentInboxId: me,
             conversationId: conversationId,
-            activeConversationId: "some-other-conversation"
+            activeConversationIds: ["some-other-conversation"]
         ))
     }
 
@@ -64,7 +64,7 @@ struct CaughtUpMessageRoutingTests {
                 senderInboxId: other,
                 currentInboxId: me,
                 conversationId: conversationId,
-                activeConversationId: nil
+                activeConversationIds: []
             ), "\(contentType) should not mark unread")
         }
     }

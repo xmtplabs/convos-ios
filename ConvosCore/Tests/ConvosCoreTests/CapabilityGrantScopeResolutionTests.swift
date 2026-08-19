@@ -208,13 +208,50 @@ struct CapabilityGrantScopeResolutionTests {
         #expect(CapabilityGrantScopeBlockReason.agentNotInOrigin.userFacingMessage.contains("still syncing"))
     }
 
-    @Test("a resolved scope is always named — a nameless origin gets the fallback noun")
-    func resolvedScopeAlwaysNamed() async throws {
+    @Test("a nameless origin blocks — consent cannot name a group that has no name")
+    func namelessOriginBlocks() async throws {
         let fixture = makeFixture()
         try seedDmAndOrigin(fixture, originName: nil)
         let resolution = await resolve(fixture, conversationId: dmId)
-        #expect(resolution.scope == .originGroup(originId))
-        #expect(resolution.scopeDisplayName == "your group chat")
+        #expect(resolution.scope == .unresolvableOrigin(.originUnnamed))
+        #expect(resolution.scopeDisplayName == nil)
+    }
+
+    @Test("an origin marker naming the DM itself blocks — member-writable input must not steer the scope")
+    func originNamingDmItselfBlocks() async throws {
+        let fixture = makeFixture()
+        try await fixture.dbWriter.write { [self] db in
+            try seedConversation(db, id: dmId, name: nil, isAgentDm: true, members: [viewer, agent])
+            try DBAgentDmOrigin.record(conversationId: dmId, originConversationId: dmId, in: db)
+        }
+        let resolution = await resolve(fixture, conversationId: dmId)
+        #expect(resolution.scope == .unresolvableOrigin(.originNotAGroup))
+        #expect(resolution.scope.grantScopeConversationId == nil)
+    }
+
+    @Test("an origin that is itself an agent DM blocks")
+    func originBeingAnotherAgentDmBlocks() async throws {
+        let fixture = makeFixture()
+        try await fixture.dbWriter.write { [self] db in
+            try seedConversation(db, id: dmId, name: nil, isAgentDm: true, members: [viewer, agent])
+            // A second agent DM the viewer and agent share: every membership
+            // check passes, so only the not-a-group guard can stop it.
+            try seedConversation(db, id: "other-agent-dm", name: "Sneaky", isAgentDm: true, members: [viewer, agent])
+            try DBAgentDmOrigin.record(conversationId: dmId, originConversationId: "other-agent-dm", in: db)
+        }
+        let resolution = await resolve(fixture, conversationId: dmId)
+        #expect(resolution.scope == .unresolvableOrigin(.originNotAGroup))
+    }
+
+    @Test("a nameless plain group keeps a nil name for the view model's own-conversation fallback")
+    func namelessPlainGroupKeepsNilName() async throws {
+        let fixture = makeFixture()
+        try await fixture.dbWriter.write { [self] db in
+            try seedConversation(db, id: "group-unnamed", name: nil, isAgentDm: false, members: [viewer, agent])
+        }
+        let resolution = await resolve(fixture, conversationId: "group-unnamed", isAgentDm: false)
+        #expect(resolution.scope == .conversation("group-unnamed"))
+        #expect(resolution.scopeDisplayName == nil)
     }
 
     @Test("the repository seam resolves the same DM fixture the view model hands it")
@@ -264,7 +301,7 @@ struct CapabilityRequestUnreadTests {
             senderInboxId: "agent",
             currentInboxId: "me",
             conversationId: "dm-1",
-            activeConversationId: nil
+            activeConversationIds: []
         ))
     }
 
@@ -280,14 +317,37 @@ struct CapabilityRequestUnreadTests {
             senderInboxId: "me",
             currentInboxId: "me",
             conversationId: "dm-1",
-            activeConversationId: nil
+            activeConversationIds: []
         ) == false)
         #expect(marksConversationUnread(
             contentType: .capabilityRequest,
             senderInboxId: "agent",
             currentInboxId: "me",
             conversationId: "dm-1",
-            activeConversationId: "dm-1"
+            activeConversationIds: ["dm-1"]
         ) == false)
+    }
+
+    @Test("the open agent DM is exempt alongside its parent group")
+    func activeDmExemptWithParentGroup() {
+        // The conversation screen registers both surfaces: the group (its
+        // tab bar) and the folded DM (the Agent tab). A request arriving in
+        // the DM the user is reading must not mark it unread; a different
+        // DM's request still does.
+        let active: Set<String> = ["group-1", "dm-1"]
+        #expect(marksConversationUnread(
+            contentType: .capabilityRequest,
+            senderInboxId: "agent",
+            currentInboxId: "me",
+            conversationId: "dm-1",
+            activeConversationIds: active
+        ) == false)
+        #expect(marksConversationUnread(
+            contentType: .capabilityRequest,
+            senderInboxId: "agent",
+            currentInboxId: "me",
+            conversationId: "dm-2",
+            activeConversationIds: active
+        ))
     }
 }
