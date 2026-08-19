@@ -11,7 +11,6 @@ struct AgentChatLane: Identifiable {
     enum Kind: Equatable {
         case live(inboxId: String)
         case prototype(PrototypeAgent)
-        case linkedConvo(ConvoOwnedAgent)
         case external(ExternalAgentProvider)
         case ghost
     }
@@ -68,7 +67,7 @@ struct AgentChatLane: Identifiable {
 
     var isLocalPrototype: Bool {
         switch kind {
-        case .prototype, .linkedConvo, .external, .ghost: true
+        case .prototype, .external, .ghost: true
         case .live: false
         }
     }
@@ -80,11 +79,6 @@ struct AgentChatLane: Identifiable {
     var externalProvider: ExternalAgentProvider? {
         guard case .external(let provider) = kind else { return nil }
         return provider
-    }
-
-    var linkedConvoAgent: ConvoOwnedAgent? {
-        guard case .linkedConvo(let agent) = kind else { return nil }
-        return agent
     }
 
     static func live(profile: Profile, verification: AgentVerification) -> AgentChatLane {
@@ -115,17 +109,6 @@ struct AgentChatLane: Identifiable {
             name: provider.displayName,
             subtitle: provider.chatSubtitle,
             kind: .external(provider),
-            profile: nil,
-            agentVerification: .unverified
-        )
-    }
-
-    static func linkedConvo(_ agent: ConvoOwnedAgent) -> AgentChatLane {
-        AgentChatLane(
-            id: "prototype:linked-convo:\(agent.rawValue)",
-            name: agent.displayName,
-            subtitle: "Shared memory · \(agent.originConvoName)",
-            kind: .linkedConvo(agent),
             profile: nil,
             agentVerification: .unverified
         )
@@ -168,25 +151,24 @@ final class AgentChatPrototypeState {
     private(set) var draftsByLane: [String: String] = [:]
     private(set) var workingLaneIds: Set<String> = []
     private(set) var shareConfirmation: String?
-    private(set) var linkedConvoAgents: [ConvoOwnedAgent] = []
-    private(set) var memoryLinksByAgent: [ConvoOwnedAgent: ConvoAgentMemoryLink] = [:]
+    private(set) var approvedPersonalContextItemIds: Set<String> = []
     private(set) var connectedExternalProviders: [ExternalAgentProvider] = []
     private(set) var externalAccessByProvider: [ExternalAgentProvider: ExternalAgentAccess] = [:]
 
-    func link(_ agent: ConvoOwnedAgent, configuration: ConvoAgentMemoryLink) {
-        if !linkedConvoAgents.contains(agent) {
-            linkedConvoAgents.append(agent)
-        }
-        memoryLinksByAgent[agent] = configuration
+    var hasApprovedPersonalContext: Bool {
+        !approvedPersonalContextItemIds.isEmpty
     }
 
-    func memoryLink(for agent: ConvoOwnedAgent) -> ConvoAgentMemoryLink {
-        memoryLinksByAgent[agent] ?? .allCapabilities(for: agent)
+    func restorePersonalContext(itemIds: Set<String>) {
+        approvedPersonalContextItemIds = itemIds
     }
 
-    func unlink(_ agent: ConvoOwnedAgent) {
-        linkedConvoAgents.removeAll { $0 == agent }
-        memoryLinksByAgent[agent] = nil
+    func approvePersonalContext(_ bundle: PersonalContextBundle) {
+        approvedPersonalContextItemIds.formUnion(bundle.items.map(\.id))
+    }
+
+    func removePersonalContextAccess() {
+        approvedPersonalContextItemIds.removeAll()
     }
 
     func connect(_ provider: ExternalAgentProvider) {
@@ -298,13 +280,6 @@ final class AgentChatPrototypeState {
                     text: "Tokyo redesign is live. I can update Home, check in with members, or turn the next idea into a plan."
                 ),
             ]
-        case .linkedConvo(let agent):
-            [
-                AgentChatPrototypeMessage(
-                    sender: .agent,
-                    text: agent.welcomeMessage
-                ),
-            ]
         case .external(let provider):
             [
                 AgentChatPrototypeMessage(
@@ -332,8 +307,6 @@ final class AgentChatPrototypeState {
             "Got it. I’d turn “\(userText)” into the next concrete action and keep the working context in this lane."
         case .prototype(.spaceAbilities):
             "I can work with that privately here, then update Home or ping the right member once you approve it."
-        case .linkedConvo(let agent):
-            "I’ll save the useful part of “\(userText)” into \(agent.displayName)’s shared memory, so it can help in this convo and \(agent.originConvoName). Raw chat history stays separate."
         case .external(let provider):
             "Demo connection active. \(provider.displayName) would work on “\(userText)” with only the access you approved for this convo."
         case .ghost:
@@ -371,12 +344,6 @@ struct AgentChatLaneAvatar: View {
             Image(systemName: agent.symbolName)
                 .font(.system(size: size * 0.4, weight: .semibold))
                 .foregroundStyle(agent == .spaceAbilities ? Color.yellow : Color.white)
-                .frame(width: size, height: size)
-                .background(agent.tint, in: .circle)
-        case .linkedConvo(let agent):
-            Image(systemName: agent.symbolName)
-                .font(.system(size: size * 0.4, weight: .semibold))
-                .foregroundStyle(Color.white)
                 .frame(width: size, height: size)
                 .background(agent.tint, in: .circle)
         case .external(let provider):
@@ -439,10 +406,11 @@ struct AgentSwitcherSheet: View {
     let lanes: [AgentChatLane]
     let selectedLane: AgentChatLane
     let prototypeState: AgentChatPrototypeState
+    let conversationId: String
     let onSelect: (AgentChatLane) -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
-    @State private var isConvoAgentOnboardingPresented: Bool = false
+    @State private var isPersonalContextPresented: Bool = false
     @State private var isExternalOnboardingPresented: Bool = false
 
     var body: some View {
@@ -456,19 +424,19 @@ struct AgentSwitcherSheet: View {
 
                 Section {
                     Button {
-                        isConvoAgentOnboardingPresented = true
+                        isPersonalContextPresented = true
                     } label: {
                         HStack(spacing: DesignConstants.Spacing.step3x) {
-                            Image(systemName: "link")
+                            Image(systemName: "person.crop.circle.badge.plus")
                                 .font(.body.weight(.semibold))
                                 .foregroundStyle(.colorTextPrimaryInverted)
                                 .frame(width: 44, height: 44)
                                 .background(.colorLava, in: .circle)
                             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                                Text("Connect an agent from another convo")
+                                Text("My context")
                                     .font(.body.weight(.semibold))
                                     .foregroundStyle(.colorTextPrimary)
-                                Text("Share its memory, abilities, connections, and skills here")
+                                Text(personalContextSubtitle)
                                     .font(.footnote)
                                     .foregroundStyle(.colorTextSecondary)
                                     .lineLimit(2)
@@ -482,7 +450,7 @@ struct AgentSwitcherSheet: View {
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityHint("Shows agents you own and what sharing memory between convos means")
+                    .accessibilityHint("Suggests a relevant bundle, then asks before sharing anything with this group")
                 }
 
                 Section {
@@ -534,18 +502,31 @@ struct AgentSwitcherSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .fullScreenCover(isPresented: $isConvoAgentOnboardingPresented) {
-            ConvoAgentMemoryLinkOnboardingView(
-                prototypeState: prototypeState,
-                onLinked: { agent, configuration in
-                    let lane: AgentChatLane = .linkedConvo(agent)
-                    prototypeState.link(agent, configuration: configuration)
-                    onSelect(lane)
-                    isConvoAgentOnboardingPresented = false
+        .onAppear {
+            prototypeState.restorePersonalContext(
+                itemIds: PersonalContextPrototypeStore.approvedItemIds(for: conversationId)
+            )
+        }
+        .fullScreenCover(isPresented: $isPersonalContextPresented) {
+            PersonalContextSuggestionView(
+                conversationId: conversationId,
+                approvedItemIds: prototypeState.approvedPersonalContextItemIds,
+                onApproved: { bundle in
+                    prototypeState.approvePersonalContext(bundle)
+                    PersonalContextPrototypeStore.save(
+                        prototypeState.approvedPersonalContextItemIds,
+                        for: conversationId
+                    )
+                    isPersonalContextPresented = false
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(250))
                         dismiss()
                     }
+                },
+                onRemoved: {
+                    prototypeState.removePersonalContextAccess()
+                    PersonalContextPrototypeStore.removeAccess(for: conversationId)
+                    isPersonalContextPresented = false
                 }
             )
         }
@@ -605,6 +586,13 @@ struct AgentSwitcherSheet: View {
         prototypeState.isWorking(lane) ? "Working…" : lane.subtitle
     }
 
+    private var personalContextSubtitle: String {
+        if prototypeState.hasApprovedPersonalContext {
+            return "\(prototypeState.approvedPersonalContextItemIds.count) approved items · Home + conversation"
+        }
+        return "Get a suggested bundle for this Home + conversation"
+    }
+
     private func accessibilityValue(for lane: AgentChatLane) -> String {
         var values: [String] = []
         if lane.id == selectedLane.id { values.append("Current") }
@@ -624,7 +612,6 @@ struct AgentChatDemoTranscript: View {
     @State private var messageToShare: AgentChatPrototypeMessage?
     @State private var isShareDialogPresented: Bool = false
     @State private var isNativeSharePresented: Bool = false
-    @State private var isMemoryLinkSettingsPresented: Bool = false
     @State private var isExternalAccessPresented: Bool = false
 
     private var messages: [AgentChatPrototypeMessage] {
@@ -701,15 +688,6 @@ struct AgentChatDemoTranscript: View {
                 )
             }
         }
-        .sheet(isPresented: $isMemoryLinkSettingsPresented) {
-            if let agent = lane.linkedConvoAgent {
-                ConvoAgentMemoryLinkSettingsSheet(
-                    agent: agent,
-                    configuration: prototypeState.memoryLink(for: agent),
-                    onDisconnect: { prototypeState.unlink(agent) }
-                )
-            }
-        }
     }
 
     @ViewBuilder
@@ -747,13 +725,9 @@ struct AgentChatDemoTranscript: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
                 Spacer()
-                if lane.externalProvider != nil || lane.linkedConvoAgent != nil {
+                if lane.externalProvider != nil {
                     Button {
-                        if lane.linkedConvoAgent != nil {
-                            isMemoryLinkSettingsPresented = true
-                        } else {
-                            isExternalAccessPresented = true
-                        }
+                        isExternalAccessPresented = true
                     } label: {
                         Image(systemName: "slider.horizontal.3")
                             .font(.body.weight(.semibold))
@@ -761,12 +735,8 @@ struct AgentChatDemoTranscript: View {
                             .frame(width: 44, height: 44)
                             .background(.colorFillSubtle, in: .circle)
                     }
-                    .accessibilityLabel(lane.linkedConvoAgent == nil ? "Agent access" : "Shared memory settings")
-                    .accessibilityHint(
-                        lane.linkedConvoAgent == nil
-                            ? "Choose where this external agent can read and respond"
-                            : "Review the memory, abilities, connections, and skills shared across both convos"
-                    )
+                    .accessibilityLabel("Agent access")
+                    .accessibilityHint("Choose where this external agent can read and respond")
                 }
             }
             .padding(.bottom, DesignConstants.Spacing.step4x)
@@ -860,6 +830,7 @@ struct AgentChatDemoComposer: View {
     let lane: AgentChatLane
     let prototypeState: AgentChatPrototypeState
     @FocusState.Binding var focusState: MessagesViewInputFocus?
+    var onUsePersonalContext: () -> Void = {}
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
@@ -870,11 +841,15 @@ struct AgentChatDemoComposer: View {
                     .frame(width: 32, height: 32)
                     .accessibilityHidden(true)
             } else {
-                Image(systemName: "camera.fill")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.colorTextSecondary)
-                    .frame(width: 32, height: 32)
-                    .accessibilityHidden(true)
+                Button(action: onUsePersonalContext) {
+                    Image(systemName: "person.crop.circle.badge.plus")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                        .frame(width: 40, height: 40)
+                        .contentShape(.circle)
+                }
+                .accessibilityLabel("Use my context")
+                .accessibilityHint("Suggests a bundle for this Home and conversation, then asks for approval")
             }
 
             TextField(

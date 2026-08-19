@@ -9,6 +9,7 @@ import SwiftUI
 /// send silently no-op, since there is no DM to send into yet.
 struct AgentComposerBar: View {
     let session: AgentDmSession
+    let conversationId: String
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
     let isReadOnly: Bool
@@ -24,6 +25,7 @@ struct AgentComposerBar: View {
     var onSelectLane: (AgentChatLane) -> Void = { _ in }
 
     @State private var isSwitcherPresented: Bool = false
+    @State private var isPersonalContextPresented: Bool = false
 
     var body: some View {
         if let prototypeState, let selectedLane {
@@ -75,7 +77,32 @@ struct AgentComposerBar: View {
                 lanes: lanes,
                 selectedLane: selectedLane,
                 prototypeState: state,
+                conversationId: conversationId,
                 onSelect: onSelectLane
+            )
+        }
+        .fullScreenCover(isPresented: $isPersonalContextPresented) {
+            PersonalContextSuggestionView(
+                conversationId: conversationId,
+                approvedItemIds: state.approvedPersonalContextItemIds,
+                onApproved: { bundle in
+                    state.approvePersonalContext(bundle)
+                    PersonalContextPrototypeStore.save(
+                        state.approvedPersonalContextItemIds,
+                        for: conversationId
+                    )
+                    isPersonalContextPresented = false
+                },
+                onRemoved: {
+                    state.removePersonalContextAccess()
+                    PersonalContextPrototypeStore.removeAccess(for: conversationId)
+                    isPersonalContextPresented = false
+                }
+            )
+        }
+        .onAppear {
+            state.restorePersonalContext(
+                itemIds: PersonalContextPrototypeStore.approvedItemIds(for: conversationId)
             )
         }
     }
@@ -89,7 +116,8 @@ struct AgentComposerBar: View {
             AgentChatDemoComposer(
                 lane: selectedLane,
                 prototypeState: state,
-                focusState: $focusState
+                focusState: $focusState,
+                onUsePersonalContext: { isPersonalContextPresented = true }
             )
         } else if let dmViewModel = session.dmViewModel {
             ConversationComposerBar(

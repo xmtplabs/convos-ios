@@ -416,6 +416,11 @@ struct ContactDetailView: View {
                     .padding(.top, DesignConstants.Spacing.step8x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
                 }
+                if showsPersonalContextPrototype, let conversationId = mode.conversationId {
+                    PersonalContextAgentAccessSection(conversationId: conversationId)
+                        .padding(.top, DesignConstants.Spacing.step6x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                }
                 ContactDetailActions(
                     isBlocked: isBlocked,
                     isApplyingBlockChange: isApplyingBlockChange,
@@ -477,6 +482,15 @@ struct ContactDetailView: View {
     /// prototype preference from promising a server-side behavior change.
     private var showsAgentModelPrototype: Bool {
         isVerifiedAgent && !ConfigManager.shared.currentEnvironment.isProduction
+    }
+
+    /// Shows only the context this user explicitly approved for the current
+    /// conversation. The prototype store is local and non-production; the
+    /// production profile must read a server-enforced, viewer-scoped grant.
+    private var showsPersonalContextPrototype: Bool {
+        isVerifiedAgent
+            && mode.isScopedToConversation
+            && !ConfigManager.shared.currentEnvironment.isProduction
     }
 
     @ViewBuilder
