@@ -7,14 +7,9 @@ import WebKit
 /// published into the group's appData; until then it shows an inline
 /// placeholder page.
 ///
-/// On every finished load it captures a snapshot of the rendered page and
-/// hands it to `HomeSnapshotStore`, keyed by `conversationId`, so the next
-/// time this conversation's home opens it can show that image as a cover
-/// while the live page reloads. `onLoaded` fires at the same moment so the
-/// cover can cross-fade out.
+/// `onLoaded` fires when a load finishes, so the surface's cover can
+/// cross-fade out and reveal the page.
 struct HomeWebView: UIViewRepresentable {
-    /// Identifies which conversation's snapshot this load should persist under.
-    var conversationId: String
     /// The conversation's Space web URL; nil loads the inline placeholder.
     var url: URL?
     /// False when an outer scroll view (the home layout) owns the
@@ -38,7 +33,6 @@ struct HomeWebView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
-            conversationId: conversationId,
             onLoaded: onLoaded,
             onNavigationRequest: onNavigationRequest
         )
@@ -69,7 +63,6 @@ struct HomeWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        context.coordinator.conversationId = conversationId
         context.coordinator.onLoaded = onLoaded
         context.coordinator.onNavigationRequest = onNavigationRequest
         webView.scrollView.isScrollEnabled = isScrollEnabled
@@ -101,16 +94,13 @@ struct HomeWebView: UIViewRepresentable {
         // completions from a superseded load.
         context.coordinator.hasFinishedInitialLoad = false
         if let url {
-            context.coordinator.isShowingPlaceholder = false
             context.coordinator.activeNavigation = webView.load(URLRequest(url: url))
         } else {
-            context.coordinator.isShowingPlaceholder = true
             context.coordinator.activeNavigation = webView.loadHTMLString(Constant.placeholderHTML, baseURL: nil)
         }
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        var conversationId: String
         var onLoaded: @MainActor () -> Void
         var onNavigationRequest: @MainActor (URL) -> Void
         /// The URL the host last asked for, which is what decides whether an
@@ -122,11 +112,6 @@ struct HomeWebView: UIViewRepresentable {
         /// measures against this, so a reload of the displayed page is not
         /// mistaken for outbound navigation.
         var loadedURL: URL?
-        /// True while the inline placeholder is what is loaded. It is not this
-        /// conversation's home, so it must never be persisted as the cover
-        /// snapshot: doing so caches an image reading "Home" that then shows on
-        /// every later open in place of the preparing state.
-        var isShowingPlaceholder: Bool = false
         var hasLoaded: Bool = false
         var hasFinishedInitialLoad: Bool = false
         /// The most recently started load; completions for anything else are
@@ -135,11 +120,9 @@ struct HomeWebView: UIViewRepresentable {
         var activeNavigation: WKNavigation?
 
         init(
-            conversationId: String,
             onLoaded: @escaping @MainActor () -> Void,
             onNavigationRequest: @escaping @MainActor (URL) -> Void
         ) {
-            self.conversationId = conversationId
             self.onLoaded = onLoaded
             self.onNavigationRequest = onNavigationRequest
         }
@@ -183,24 +166,6 @@ struct HomeWebView: UIViewRepresentable {
             loadedURL = webView.url ?? loadedURL
             let onLoaded = onLoaded
             Task { @MainActor in onLoaded() }
-            // Pushed browser pages pass no conversation id; only the
-            // conversation's own home persists a cover snapshot.
-            let conversationId = conversationId
-            guard !conversationId.isEmpty, !isShowingPlaceholder else { return }
-            // The Space page is a JS app: at didFinish it hasn't painted
-            // yet, and an immediate capture stores a blank cover. Give it a
-            // beat to render before persisting.
-            let navigation = navigation
-            DispatchQueue.main.asyncAfter(deadline: .now() + Constant.snapshotDelay) { [weak self, weak webView] in
-                guard let self, let webView, self.isCurrent(navigation) else { return }
-                webView.takeSnapshot(with: nil) { image, error in
-                    if let error {
-                        Log.error("HomeWebView snapshot failed: \(error)")
-                    }
-                    guard let pngData = image?.pngData() else { return }
-                    Task { await HomeSnapshotStore.shared.store(pngData, for: conversationId) }
-                }
-            }
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: Error) {
@@ -213,8 +178,8 @@ struct HomeWebView: UIViewRepresentable {
 
         /// A failed load must not strand the surface: clearing `hasLoaded`
         /// lets the next update pass retry the same URL, and firing
-        /// `onLoaded` drops the snapshot cover so the surface isn't an
-        /// opaque, untouchable ghost while it waits. Cancellations (a newer
+        /// `onLoaded` drops the cover so the surface isn't an opaque,
+        /// untouchable ghost while it waits. Cancellations (a newer
         /// load superseding this one) are not failures.
         private func handleLoadFailure(_ navigation: WKNavigation?, error: Error) {
             guard isCurrent(navigation) else { return }
@@ -235,9 +200,6 @@ struct HomeWebView: UIViewRepresentable {
     }
 
     private enum Constant {
-        /// How long after didFinish the persisted cover snapshot waits for
-        /// the page's JS to actually paint.
-        static let snapshotDelay: TimeInterval = 1.0
         static let placeholderHTML: String = """
         <!doctype html>
         <html>
