@@ -122,9 +122,6 @@ struct MessagesView<BottomBarContent: View>: View {
     var onScrollToBottomAvailable: ((@escaping (Bool) -> Void) -> Void)?
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
-    /// Set by a host that shows less of this view than the frame it hands over -
-    /// the conversation sheet. Zero for every other host.
-    @Environment(\.transcriptClippedTopOverflow) private var clippedTopOverflow: CGFloat
     @State private var bottomBarHeight: CGFloat = 0.0
     @State private var isPhotoPickerPresented: Bool = false
     @State private var scrollToBottom: ((Bool) -> Void)?
@@ -247,7 +244,6 @@ struct MessagesView<BottomBarContent: View>: View {
             // bottom-bar measurement before applying its initial state and
             // revealing the list.
             hasBottomBar: !isReadOnly && hostsBottomBar,
-            clippedTopOverflow: clippedTopOverflow,
             onContentHeightChanged: onContentHeightChanged,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn

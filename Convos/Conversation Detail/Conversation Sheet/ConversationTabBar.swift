@@ -21,13 +21,32 @@ struct ConversationTabBar: View {
     /// bar's re-tap contract: pop to root / scroll to top). Not fired when a
     /// drag visits other slots before returning.
     var onReselect: (ConversationTab) -> Void = { _ in }
+    /// Whether a tab reads as active at all.
+    ///
+    /// False with the sheet away: the capsule still names which lane a tap would
+    /// open, but neither lane is being shown, so marking one active would claim a
+    /// transcript is on screen when the Home has the whole screen.
+    var showsSelection: Bool = true
 
     /// True while a finger is on the bar; compresses the thumb slightly,
     /// mirroring the native segmented thumb's pressed state.
     @GestureState private var isTracking: Bool = false
-    /// Whether the current gesture moved the selection; a touch that never
-    /// does and ends on the selected tab is a re-tap.
-    @State private var gestureChangedSelection: Bool = false
+    /// Which tab was selected when the current gesture began.
+    ///
+    /// Written on the gesture's first event, before the selection can move, and
+    /// cleared when the gesture ends *or is cancelled*. Both halves matter: a
+    /// flag cleared only in `onEnded` goes stale when raising the sheet cancels
+    /// the gesture mid-flight, and a start captured after the selection has
+    /// already moved makes every tab switch look like a re-tap.
+    @State private var selectionAtGestureStart: ConversationTab?
+    /// Whether the selection moved at any point during the current gesture.
+    ///
+    /// Start and end tab alone cannot tell a tap from a drag that crossed to the
+    /// other lane and came back, and the two mean opposite things: the round trip
+    /// is a lane switch, and collapsing the sheet under it is the last thing the
+    /// finger asked for. Cleared alongside `selectionAtGestureStart`, so a
+    /// cancelled gesture cannot leave it set for the next one to inherit.
+    @State private var didMoveSelectionDuringGesture: Bool = false
 
     private var selectedIndex: Int {
         tabs.firstIndex(of: selectedTab) ?? 0
@@ -47,6 +66,14 @@ struct ConversationTabBar: View {
         // distance zero fires on touch-down), so selection follows the
         // finger the way the system segmented control's thumb does.
         .gesture(trackingGesture)
+        // Cleared when the gesture ends *or is cancelled* - the gesture state
+        // resets itself either way - so a cancelled gesture cannot leave a stale
+        // start behind for the next one to inherit.
+        .onChange(of: isTracking) { _, tracking in
+            guard !tracking else { return }
+            selectionAtGestureStart = nil
+            didMoveSelectionDuringGesture = false
+        }
         .padding(Constant.capsulePadding)
         // The liquid-glass capsule the native floating tab bar rides in.
         .glassEffect(.regular.interactive(), in: .capsule)
@@ -60,10 +87,12 @@ struct ConversationTabBar: View {
     private var thumb: some View {
         Capsule()
             .fill(DesignConstants.Colors.fillSubtle)
+            .opacity(showsSelection ? 1 : 0)
             .frame(width: Constant.slotWidth, height: Constant.slotHeight)
             .scaleEffect(isTracking ? Constant.trackingThumbScale : 1.0)
             .offset(x: CGFloat(selectedIndex) * (Constant.slotWidth + Constant.slotSpacing))
             .animation(.spring(response: 0.32, dampingFraction: 0.85), value: selectedIndex)
+            .animation(.easeInOut(duration: 0.2), value: showsSelection)
             .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isTracking)
     }
 
@@ -73,14 +102,31 @@ struct ConversationTabBar: View {
                 state = true
             }
             .onChanged { value in
+                // Captured here, before the selection can move, and only once per
+                // gesture. Capturing it from `isTracking` instead ran *after*
+                // `onChanged` had already switched tabs, so the start looked like
+                // the destination and every switch read as a re-tap - which closed
+                // the sheet instead of changing lane.
+                if selectionAtGestureStart == nil {
+                    selectionAtGestureStart = selectedTab
+                }
                 select(atX: value.location.x)
             }
             .onEnded { value in
+                // Resolved before the release can move the selection: a state
+                // written and read inside one callback is not guaranteed to read
+                // back what was just written, and this answer must not depend on
+                // that. Everything it reads is settled by earlier events.
+                let endTab: ConversationTab? = tab(atX: value.location.x)
+                let isReselect: Bool = !didMoveSelectionDuringGesture
+                    && selectionAtGestureStart != nil
+                    && endTab == selectionAtGestureStart
                 select(atX: value.location.x)
-                if !gestureChangedSelection, let tab = tab(atX: value.location.x), tab == selectedTab {
-                    onReselect(tab)
+                // A re-tap is a gesture that began on the tab it ended on and
+                // never moved the selection in between.
+                if isReselect, let endTab {
+                    onReselect(endTab)
                 }
-                gestureChangedSelection = false
             }
     }
 
@@ -98,14 +144,14 @@ struct ConversationTabBar: View {
     /// tracking: called on touch-down and every drag sample.
     private func select(atX x: CGFloat) {
         guard let tab = tab(atX: x), tab != selectedTab else { return }
-        gestureChangedSelection = true
+        didMoveSelectionDuringGesture = true
         withAnimation(.easeInOut(duration: 0.25)) {
             selectedTab = tab
         }
     }
 
     private func slot(for tab: ConversationTab) -> some View {
-        let isSelected: Bool = tab == selectedTab
+        let isSelected: Bool = showsSelection && tab == selectedTab
         let isBadged: Bool = badgedTabs.contains(tab)
         return VStack(spacing: Constant.glyphLabelSpacing) {
             glyph(for: tab, isSelected: isSelected)
@@ -183,6 +229,14 @@ struct ConversationTabBar: View {
             .frame(height: Constant.iconSlotHeight)
     }
 
+    /// The two numbers other parties need: the sheet insets its composer by the
+    /// capsule's height, and the Home reserves the same clearance. Re-exposed
+    /// from `Constant` so the capsule stays the single source of its own size.
+    enum Metrics {
+        static let slotHeight: CGFloat = Constant.slotHeight
+        static let capsulePadding: CGFloat = Constant.capsulePadding
+    }
+
     private enum Constant {
         /// The native segmented thumb compresses slightly under a finger.
         static let trackingThumbScale: CGFloat = 0.95
@@ -192,10 +246,14 @@ struct ConversationTabBar: View {
         /// Slots sit adjacent inside the track (Figma tabs stack with no
         /// gap).
         static let slotSpacing: CGFloat = 0.0
-        /// Slot metrics from Figma 7156:13839: fixed 102x54 slots so the
-        /// tabs read as uniform regardless of label.
-        static let slotWidth: CGFloat = 102.0
-        static let slotHeight: CGFloat = 54.0
+        /// Slot metrics from Figma 7156:13839: fixed-width slots so the tabs read
+        /// as uniform regardless of label.
+        /// 180pt of buttons across the capsule's 188, split in two.
+        static let slotWidth: CGFloat = 90.0
+        /// Sized so the capsule matches the system's floating tab bar exactly:
+        /// measured at 52pt tall, less the track padding on either side. The two
+        /// sit in the same place on screen and have to read as the same control.
+        static let slotHeight: CGFloat = ConversationSheetMetrics.capsuleHeight - capsulePadding * 2
         /// 17pt semibold symbols in a 28pt icon slot over 10pt bold labels,
         /// tightly stacked (gap 1).
         static let iconPointSize: CGFloat = 17.0
