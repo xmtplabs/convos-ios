@@ -198,6 +198,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol
     func agentFilesLinksRepository(for conversationId: String) -> AgentFilesLinksRepository
+    func contextLibraryRepository() -> ContextLibraryRepository
     func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol
     func agentBuilderSummaryRepository() -> any AgentBuilderSummaryRepositoryProtocol
     func builderBundleHiddenMessagesRepository() -> any BuilderBundleHiddenMessagesRepositoryProtocol

@@ -826,6 +826,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         AgentFilesLinksRepository(dbReader: databaseReader, conversationId: conversationId)
     }
 
+    public func contextLibraryRepository() -> ContextLibraryRepository {
+        ContextLibraryRepository(dbReader: databaseReader)
+    }
+
     public func agentBuilderSummaryWriter() -> any AgentBuilderSummaryWriterProtocol {
         AgentBuilderSummaryWriter(databaseWriter: databaseWriter)
     }

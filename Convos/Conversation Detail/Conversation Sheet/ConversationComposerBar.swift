@@ -13,6 +13,8 @@ import SwiftUI
 /// from `MessagesView.onScrollToBottomAvailable`.
 struct ConversationComposerBar<ExtraBarContent: View>: View {
     @Bindable var viewModel: ConversationViewModel
+    var conversationId: String?
+    var showsPersonalContextShare: Bool = false
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
     let messagesTextFieldEnabled: Bool
@@ -32,6 +34,8 @@ struct ConversationComposerBar<ExtraBarContent: View>: View {
     @ViewBuilder let extraBarContent: () -> ExtraBarContent
 
     @State private var isPhotoPickerPresented: Bool = false
+    @State private var isPersonalContextPresented: Bool = false
+    @State private var contextShareReceipt: PersonalContextShareReceipt?
 
     var body: some View {
         MessagesBottomBar(
@@ -77,12 +81,19 @@ struct ConversationComposerBar<ExtraBarContent: View>: View {
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: onDebugAttachmentTap,
+            onShareContextTap: showsPersonalContextShare ? { isPersonalContextPresented = true } : nil,
             usesInlineMediaButtons: usesInlineMediaButtons,
             onBaseHeightChanged: { _ in
                 // The sheet measures its own full card height; the bar's base
                 // height is not needed separately.
             },
             bottomBarContent: {
+                if let contextShareReceipt {
+                    PersonalContextShareConfirmationView(
+                        receipt: contextShareReceipt,
+                        onDismiss: { self.contextShareReceipt = nil }
+                    )
+                }
                 extraBarContent()
                 if let replyingToMessage = viewModel.replyingToMessage {
                     ReplyComposerBar(
@@ -114,6 +125,19 @@ struct ConversationComposerBar<ExtraBarContent: View>: View {
                 )
             }
         )
+        .fullScreenCover(isPresented: $isPersonalContextPresented) {
+            if let conversationId {
+                PersonalContextShareView(
+                    conversationId: conversationId,
+                    onShared: { receipt in
+                        let approvedIds: Set<String> = Set(receipt.items.map(\.id))
+                        PersonalContextPrototypeStore.save(approvedIds, for: conversationId)
+                        contextShareReceipt = receipt
+                        isPersonalContextPresented = false
+                    }
+                )
+            }
+        }
     }
 
     @MainActor @ViewBuilder

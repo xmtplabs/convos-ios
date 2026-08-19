@@ -77,6 +77,10 @@ struct ContactDetailView: View {
     /// dismisses this sheet and selects the conversation's agent-DM page.
     /// When nil, Chat creates/opens the DM conversation directly.
     private let onStartAgentDm: ((String) -> Void)?
+    /// Stable local key for the prototype model selection. Runtime-backed
+    /// model configuration will replace this store once the agent API exposes
+    /// a model field.
+    private let agentModelPreferenceId: String
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var isBlocked: Bool
@@ -104,6 +108,11 @@ struct ContactDetailView: View {
     /// The agent template's description, resolved on appear for template-backed
     /// agents (it isn't stored on the contact). Rendered under the name.
     @State private var agentDescription: String?
+    @State private var selectedAgentModel: AgentModelOption
+    @State private var pendingAgentModel: AgentModelOption?
+    @State private var hasPlusSubscription: Bool
+    @State private var presentingAgentModelPicker: Bool = false
+    @State private var presentingAgentModelPaywall: Bool = false
     @State private var navState: ContactCardNavigatorImpl = .init()
     @State private var navigator: ContactCardCollector?
 
@@ -141,10 +150,29 @@ struct ContactDetailView: View {
         self.pushedConversationInsetsTopSafeArea = pushedConversationInsetsTopSafeArea
         self.onRemove = onRemove
         self.onStartAgentDm = onStartAgentDm
+        let modelPreferenceId: String = contact.agentInstanceId
+            ?? contact.agentTemplateId
+            ?? contact.inboxId
+        self.agentModelPreferenceId = modelPreferenceId
         _isBlocked = State(initialValue: contact.isBlocked)
         // Suggested-agent contacts carry the description, so it renders
         // immediately; saved agent contacts seed nil and resolve it on appear.
         _agentDescription = State(initialValue: contact.agentDescription)
+        let storedModel: AgentModelOption = AgentModelPreferenceStore.live.selection(
+            for: modelPreferenceId
+        )
+        let hasPlusSubscription: Bool = SubscriptionServices.shared.currentSubscription != nil
+        _selectedAgentModel = State(
+            initialValue: storedModel.requiresPlus && !hasPlusSubscription
+                ? .gpt56Sol
+                : storedModel
+        )
+        _pendingAgentModel = State(
+            initialValue: storedModel.requiresPlus && !hasPlusSubscription
+                ? storedModel
+                : nil
+        )
+        _hasPlusSubscription = State(initialValue: hasPlusSubscription)
     }
 
     var body: some View {
@@ -158,6 +186,15 @@ struct ContactDetailView: View {
             .task(id: contact.inboxId) { await syncBlockedState() }
             .task(id: contact.agentTemplateId) { await observeAgentTemplateConversations() }
             .task(id: contact.agentTemplateId) { await loadAgentDescription() }
+            .onReceive(SubscriptionServices.shared.subscriptionPublisher) { subscription in
+                hasPlusSubscription = subscription != nil
+                if subscription != nil, let pendingAgentModel {
+                    activateAgentModel(pendingAgentModel)
+                } else if subscription == nil, selectedAgentModel.requiresPlus {
+                    pendingAgentModel = selectedAgentModel
+                    selectedAgentModel = .gpt56Sol
+                }
+            }
             .onAppear {
                 ensureNavigator()
                 navState.markScreenAppeared()
@@ -192,6 +229,17 @@ struct ContactDetailView: View {
                     profileSettingsViewModel: profileSettingsViewModel
                 )
                 .background(.colorBackgroundSurfaceless)
+            }
+            .sheet(isPresented: $presentingAgentModelPicker) {
+                AgentModelPickerSheet(
+                    activeModel: selectedAgentModel,
+                    highlightedModel: pendingAgentModel ?? selectedAgentModel,
+                    hasPlusSubscription: hasPlusSubscription,
+                    onSelect: handleAgentModelSelection
+                )
+            }
+            .sheet(isPresented: $presentingAgentModelPaywall) {
+                agentModelPaywall
             }
             .navigationDestination(item: $pushedConversation) { vm in
                 pushedConversationView(vm)
@@ -358,6 +406,21 @@ struct ContactDetailView: View {
                         .padding(.top, DesignConstants.Spacing.step6x)
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
                 }
+                if showsAgentModelPrototype {
+                    AgentModelSelectorSection(
+                        model: pendingAgentModel ?? selectedAgentModel,
+                        needsUpgrade: pendingAgentModel != nil,
+                        onChooseModel: { presentingAgentModelPicker = true },
+                        onUpgrade: { presentingAgentModelPaywall = true }
+                    )
+                    .padding(.top, DesignConstants.Spacing.step8x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                }
+                if showsPersonalContextPrototype, let conversationId = mode.conversationId {
+                    PersonalContextAgentAccessSection(conversationId: conversationId)
+                        .padding(.top, DesignConstants.Spacing.step6x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                }
                 ContactDetailActions(
                     isBlocked: isBlocked,
                     isApplyingBlockChange: isApplyingBlockChange,
@@ -391,7 +454,12 @@ struct ContactDetailView: View {
                     onRemove: handleRemoveTap,
                     onToggleBlock: handleBlockTap
                 )
-                .padding(.top, DesignConstants.Spacing.step8x)
+                .padding(
+                    .top,
+                    showsAgentModelPrototype
+                        ? DesignConstants.Spacing.step6x
+                        : DesignConstants.Spacing.step8x
+                )
             }
             .padding(.bottom, 80.0)
         }
@@ -407,6 +475,35 @@ struct ContactDetailView: View {
 
     private var isVerifiedAgent: Bool {
         contact.isVerifiedAgent
+    }
+
+    /// The selector is intentionally non-production until the agent runtime
+    /// owns a model catalog and mutation endpoint. This prevents a local-only
+    /// prototype preference from promising a server-side behavior change.
+    private var showsAgentModelPrototype: Bool {
+        isVerifiedAgent && !ConfigManager.shared.currentEnvironment.isProduction
+    }
+
+    /// Shows only the context this user explicitly approved for the current
+    /// conversation. The prototype store is local and non-production; the
+    /// production profile must read a server-enforced, viewer-scoped grant.
+    private var showsPersonalContextPrototype: Bool {
+        isVerifiedAgent
+            && mode.isScopedToConversation
+            && !ConfigManager.shared.currentEnvironment.isProduction
+    }
+
+    @ViewBuilder
+    private var agentModelPaywall: some View {
+        let viewModel = PaywallViewModel(
+            subscriptionService: SubscriptionServices.shared,
+            paywallSource: .settings,
+            coreActions: coreActions
+        )
+        PaywallView(
+            viewModel: viewModel,
+            onPurchaseSucceeded: handleAgentModelUpgradeSucceeded
+        )
     }
 
     /// True when this contact is a template-backed agent - it carries the
@@ -470,6 +567,30 @@ struct ContactDetailView: View {
             suggestedAgentsService: SuggestedAgentsService.live(),
             onConfirm: handlePickerConfirm
         )
+    }
+
+    // MARK: - Agent model prototype
+
+    /// Applies locally so the prototype survives navigation and app relaunch.
+    /// The agent runtime does not expose a model mutation endpoint yet; the
+    /// product spec names the server contract that should replace this store.
+    private func activateAgentModel(_ model: AgentModelOption) {
+        selectedAgentModel = model
+        pendingAgentModel = nil
+        AgentModelPreferenceStore.live.save(model, for: agentModelPreferenceId)
+    }
+
+    private func handleAgentModelSelection(_ model: AgentModelOption) {
+        if model.requiresPlus, !hasPlusSubscription {
+            pendingAgentModel = model
+        } else {
+            activateAgentModel(model)
+        }
+    }
+
+    private func handleAgentModelUpgradeSucceeded() {
+        presentingAgentModelPaywall = false
+        Task { await SubscriptionServices.shared.refresh(force: true) }
     }
 
     // MARK: - Block alert content

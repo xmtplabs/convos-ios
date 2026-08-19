@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-19T03:22:06Z",
+  "title": "Design System: Convos",
+  "extensions": {
+    "colorMeta": {
+      "attention-surface": {
+        "role": "primary",
+        "displayName": "Semantic Attention Ink"
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Surfaceless Canvas"
+      },
+      "raised-neutral": {
+        "role": "neutral",
+        "displayName": "Raised Neutral"
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Primary Text"
+      },
+      "text-secondary": {
+        "role": "neutral",
+        "displayName": "Secondary Text"
+      },
+      "text-tertiary": {
+        "role": "neutral",
+        "displayName": "Tertiary Text"
+      },
+      "text-on-attention": {
+        "role": "neutral",
+        "displayName": "Attention Text"
+      },
+      "fill-on-attention-subtle": {
+        "role": "neutral",
+        "displayName": "Attention Subtle Fill"
+      },
+      "border-subtle": {
+        "role": "neutral",
+        "displayName": "Subtle Border"
+      },
+      "unread-signal": {
+        "role": "tertiary",
+        "displayName": "Unread Lava"
+      },
+      "voice-action": {
+        "role": "tertiary",
+        "displayName": "Voice Lava"
+      },
+      "included-signal": {
+        "role": "tertiary",
+        "displayName": "Included Green"
+      }
+    },
+    "typographyMeta": {
+      "briefing": {
+        "displayName": "Briefing Voice",
+        "purpose": "Dynamic-Type system serif for the main live briefing sentence only."
+      },
+      "section-title": {
+        "displayName": "Section Title",
+        "purpose": "Bold system-sans titles for major briefing groups."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "System-sans leads, actions, and privacy promises."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "System-sans previews, explanations, controls, and provenance."
+      },
+      "caption": {
+        "displayName": "Supporting Label",
+        "purpose": "Compact system-sans time, counts, and identity labels."
+      }
+    }
+  },
+  "components": [
+    {
+      "name": "Attention Action",
+      "kind": "button",
+      "refersTo": "attention-action",
+      "description": "The single inverted next-step surface for the first convo that needs attention.",
+      "html": "<button class='ds-attention-action' aria-label='Three convos need a look. Start with Studio'><span class='ds-attention-icon' aria-hidden='true'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M7 17 17 7'/><path d='M7 7h10v10'/></svg></span><span class='ds-attention-copy'><strong>Three convos need a look</strong><span>Start with Studio</span></span></button>",
+      "css": ".ds-attention-action { color-scheme: light dark; width: 100%; display: flex; align-items: center; gap: 16px; padding: 16px; border: 0; border-radius: 16px; background: light-dark(#000000, #ffffff); color: light-dark(#ffffff, #000000); font-family: -apple-system, BlinkMacSystemFont, sans-serif; text-align: left; } .ds-attention-action:hover { cursor: pointer; } .ds-attention-action:focus-visible { outline: auto; } .ds-attention-icon { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; border-radius: 50%; background: light-dark(#333333, #f5f5f5); } .ds-attention-icon svg { width: 1em; height: 1em; } .ds-attention-copy { display: grid; gap: 2px; } .ds-attention-copy strong { font-weight: 600; } .ds-attention-copy span { opacity: 0.72; }"
+    },
+    {
+      "name": "Update Row",
+      "kind": "button",
+      "refersTo": "update-row",
+      "description": "A flat, source-attributed conversation update with a circular identity and non-color attention value.",
+      "html": "<button class='ds-update-row' aria-label='Studio, The launch notes are ready, in Studio. Needs attention'><span class='ds-update-avatar' aria-hidden='true'>S</span><span class='ds-update-copy'><strong>New in Studio</strong><span>The launch notes are ready</span><small>2h ago</small></span><span class='ds-update-signal' aria-hidden='true'></span></button>",
+      "css": ".ds-update-row { color-scheme: light dark; width: 100%; display: flex; align-items: flex-start; gap: 16px; padding: 16px 0; border: 0; border-bottom: 1px solid light-dark(#ebebeb, #333333); background: light-dark(#ffffff, #000000); color: light-dark(#000000, #ffffff); font-family: -apple-system, BlinkMacSystemFont, sans-serif; text-align: left; } .ds-update-row:hover { cursor: pointer; } .ds-update-row:focus-visible { outline: auto; } .ds-update-avatar { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; border-radius: 50%; background: light-dark(#f5f5f5, #1c1c1c); font-weight: 600; } .ds-update-copy { display: grid; flex: 1; gap: 4px; } .ds-update-copy strong { font-weight: 600; } .ds-update-copy small { color: light-dark(#666666, #999999); } .ds-update-signal { flex: 0 0 8px; width: 8px; height: 8px; margin-top: 8px; border-radius: 50%; background: #fc4f37; }"
+    },
+    {
+      "name": "Footprint Widget",
+      "kind": "card",
+      "refersTo": "footprint-widget",
+      "description": "A compact raised-neutral count surface split into three equal, readable columns.",
+      "html": "<section class='ds-footprint' aria-label='Your Space footprint'><div><strong>8</strong><span>Convos</span></div><div><strong>14</strong><span>People</span></div><div><strong>3</strong><span>Need a look</span></div></section>",
+      "css": ".ds-footprint { color-scheme: light dark; display: grid; grid-template-columns: repeat(3, 1fr); padding: 16px 0; border-radius: 16px; background: light-dark(#f5f5f5, #1c1c1c); color: light-dark(#000000, #ffffff); font-family: -apple-system, BlinkMacSystemFont, sans-serif; } .ds-footprint div { display: grid; gap: 4px; padding: 0 8px; text-align: center; } .ds-footprint div + div { border-left: 1px solid light-dark(#ebebeb, #333333); } .ds-footprint strong { font-size: 1.375rem; font-variant-numeric: tabular-nums; } .ds-footprint span { overflow: hidden; color: light-dark(#666666, #999999); font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }"
+    },
+    {
+      "name": "People Identity",
+      "kind": "custom",
+      "refersTo": "people-identity",
+      "description": "A compact circular person identity used in the horizontal people pulse.",
+      "html": "<div class='ds-person' aria-label='Molly'><span aria-hidden='true'>M</span><small>Molly</small></div>",
+      "css": ".ds-person { color-scheme: light dark; display: grid; justify-items: center; gap: 8px; width: 72px; color: light-dark(#666666, #999999); font-family: -apple-system, BlinkMacSystemFont, sans-serif; text-align: center; } .ds-person > span { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; background: light-dark(#f5f5f5, #1c1c1c); color: light-dark(#000000, #ffffff); font-weight: 600; } .ds-person small { width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"
+    },
+    {
+      "name": "Sheet Selection Row",
+      "kind": "button",
+      "refersTo": "sheet-selection-row",
+      "description": "A native-list-style context choice with a visible and accessible selected state.",
+      "html": "<button class='ds-selection-row' aria-pressed='true'><span class='ds-selection-copy'><span>Studio: The launch notes are ready</span><small>2h ago</small></span><span class='ds-selection-check' aria-hidden='true'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='9'/><path d='m8 12 3 3 5-6'/></svg></span></button>",
+      "css": ".ds-selection-row { color-scheme: light dark; width: 100%; display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border: 0; border-bottom: 1px solid light-dark(#ebebeb, #333333); background: light-dark(#ffffff, #000000); color: light-dark(#000000, #ffffff); font-family: -apple-system, BlinkMacSystemFont, sans-serif; text-align: left; } .ds-selection-row:hover { cursor: pointer; } .ds-selection-row:focus-visible { outline: auto; } .ds-selection-copy { display: grid; flex: 1; gap: 4px; } .ds-selection-copy small { color: light-dark(#666666, #999999); } .ds-selection-check { width: 24px; height: 24px; } .ds-selection-check svg { width: 100%; height: 100%; }"
+    },
+    {
+      "name": "Your Space Dock",
+      "kind": "button",
+      "refersTo": "your-space-dock",
+      "description": "The fixed More, visible agent command, and chat tray with a compact Lava waveform well.",
+      "html": "<nav class='ds-space-dock' aria-label='Your Space controls'><button aria-label='More in Your Space'>•••</button><button class='ds-space-agent' aria-label='Ask your agent to make, edit, or find anything'><span>⌁</span><strong>Ask your agent</strong><small>Make, edit, or find anything</small></button><button aria-label='Chat with Your Space'>●</button></nav>",
+      "css": ".ds-space-dock { color-scheme: light dark; width: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 12px; align-items: center; padding: 8px 16px; color: light-dark(#000000, #ffffff); } .ds-space-dock button { min-height: 44px; border: 0; border-radius: 22px; background: light-dark(#f5f5f5, #1c1c1c); color: inherit; } .ds-space-dock .ds-space-agent { min-height: 56px; display: grid; grid-template-columns: 40px 1fr; grid-template-rows: 1fr 1fr; column-gap: 12px; padding: 8px; text-align: left; border-radius: 14px; } .ds-space-agent span { grid-row: 1 / 3; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: #fc4f37; color: #ffffff; } .ds-space-agent strong { align-self: end; font-size: .875rem; } .ds-space-agent small { align-self: start; opacity: .65; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Private Signal Desk",
+    "overview": "Convos is a quiet personal briefing room, not an inbox dashboard. Its visual world is restrained and editorial: open space, adaptive neutral surfaces, circular identity, and a single decisive inverted surface that tells the user where attention is useful.\n\nThe briefing voice is expressive, while every control around it remains unmistakably native iOS. System components, semantic colors, Dynamic Type, and familiar sheet and list behavior keep the interface calm and trustworthy; privacy is communicated through visible provenance and deliberate boundaries rather than decorative security theater.\n\nThe authenticated shell follows the pinned topology `YS-SHELL-2026-08-18`: profile at top left, the centered space switcher, add at top right, private content between them, and a More–agent command–chat tray at the bottom. The topology is durable; the content within the private space can grow as the product's evidence improves.",
+    "keyCharacteristics": [
+      "Restrained, adaptive Convos neutrals with Lava reserved for unread state and the live voice entry point.",
+      "One editorial serif briefing voice inside an otherwise system-sans interface.",
+      "Circular identity, native capsules, and one softly rounded attention surface.",
+      "System glass only on persistent shell controls; native sheets and lists everywhere else.",
+      "Private-by-default content with explicit, user-initiated sharing from a conversation composer."
+    ],
+    "rules": [
+      {
+        "name": "The Semantic Neutral Rule",
+        "body": "Always use the adaptive Convos asset role for a surface or text hierarchy; do not replace it with a fixed light-appearance value.",
+        "section": "colors"
+      },
+      {
+        "name": "The Inverted Attention Rule",
+        "body": "Give the briefing at most one solid inverted attention surface at a time so its rarity continues to mean “start here.”",
+        "section": "colors"
+      },
+      {
+        "name": "The Signal and Voice Rule",
+        "body": "Lava is limited to compact unread signals and the waveform well inside the agent command bar; green remains a compact confirmation signal. Neither becomes decorative surface paint.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Serif Sentence Rule",
+        "body": "Reserve the system serif for the main briefing sentence; controls, rows, widgets, and sheet content remain SF system sans.",
+        "section": "typography"
+      },
+      {
+        "name": "The Pinned Shell Rule",
+        "body": "Preserve the profile–switcher–add top line and More–agent command–chat bottom line; conversations belong behind the switcher, not in a large home-screen list.",
+        "section": "layout"
+      },
+      {
+        "name": "The Accessibility Reflow Rule",
+        "body": "When text reaches an accessibility size, move persistent bottom actions into the content flow rather than forcing them to compete with enlarged text.",
+        "section": "layout"
+      },
+      {
+        "name": "The Native Depth Rule",
+        "body": "Use system materials for persistent chrome and system sheet presentation for modal depth; content surfaces stay flat unless a semantic tonal or inverted layer carries meaning.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Circular Identity Rule",
+        "body": "People, convos, and compact shell actions stay circular; rounded rectangles are reserved for information surfaces and full-width actions.",
+        "section": "shapes"
+      },
+      {
+        "name": "The Open Boundary Rule",
+        "body": "In PR and Dev prototype builds, private context may cross into a convo only through an explicit composer action in that destination; home voice, chat, and file actions remain private, and the composer action is not yet enabled in Production.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "Do compose new surfaces from Convos semantic asset colors so Light Mode and Dark Mode invert together.",
+      "Do use Dynamic Type text styles and allow the briefing, descriptions, and provenance to wrap.",
+      "Do keep identity circular and every interactive target at least `44pt`.",
+      "Do use native navigation, sheets, lists, search, toggles, menus, and SF Symbols.",
+      "Do name the source convo and express unread or urgency with words as well as color.",
+      "Do preserve the pinned `YS-SHELL-2026-08-18` topology and its private-by-default composer boundary."
+    ],
+    "donts": [
+      "Don't use the serif voice for controls, row content, settings, or sheet titles.",
+      "Don't scatter inverted cards, bright accents, glass content cards, gradients, or custom shadows through the briefing.",
+      "Don't hand-build glass, modal chrome, list rows, search fields, or platform transitions.",
+      "Don't turn the home into a large conversation list or add a permanent contacts destination to this shell.",
+      "Don't infer a person's identity from message text, imply server-side synthesis, or suggest that home context was uploaded or sent automatically.",
+      "Don't keep bottom overlay actions in place when accessibility Dynamic Type makes them compete with content."
+    ]
+  }
+}

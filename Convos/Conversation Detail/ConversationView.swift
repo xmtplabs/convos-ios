@@ -104,6 +104,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Binds the Agent tab to the agent's real DM conversation; shared by the
     /// backing transcript and the sheet's agent composer.
     @State private var agentDmSession: AgentDmSession?
+    /// Owns the Firebase-only switcher, lane drafts, demo messages, and
+    /// in-flight prototype replies. Production never renders it.
+    @State private var agentChatPrototypeState: AgentChatPrototypeState = .init()
     /// Tracks keyboard visibility so tab switches can transfer composer
     /// focus between the group and agent composers.
     @State private var isKeyboardVisible: Bool = false
@@ -360,7 +363,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         guard !didSeedInitialTab else { return }
         didSeedInitialTab = true
         let agentDmRequested: Bool = initialAgentDmInboxId != nil
-            && initialAgentDmInboxId == primaryAgentInboxId
+            && agentChatLanes.contains { $0.liveInboxId == initialAgentDmInboxId }
         sheetDetent = ConversationSheetDetent.initial(
             hasUnread: hasUnreadToRead,
             agentDmRequested: agentDmRequested
@@ -404,6 +407,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
               conversationId == viewModel.conversation.id else {
             return
         }
+        if let agentInboxId = note.userInfo?["agentInboxId"] as? String,
+           let requestedLane = agentChatLanes.first(where: { $0.liveInboxId == agentInboxId }) {
+            agentChatPrototypeState.select(requestedLane)
+        }
         selectTab(.agent)
     }
 
@@ -427,6 +434,73 @@ struct ConversationView<MessagesBottomBar: View>: View {
             .profile.inboxId
     }
 
+    /// Agent switching and Ghost Mode stay non-production until the server
+    /// contracts in `agent-chat-server-contract.md` are implemented. PR and
+    /// Dev builds get the complete clickable prototype.
+    private var showsAgentChatPrototype: Bool {
+        !ConfigManager.shared.currentEnvironment.isProduction
+    }
+
+    private var liveAgentChatLanes: [AgentChatLane] {
+        guard !viewModel.conversation.isAgentDm else { return [] }
+        return viewModel.conversation.members
+            .filter(\.isVerifiedAgent)
+            .map { member in
+                AgentChatLane.live(
+                    profile: member.profile,
+                    verification: member.agentVerification
+                )
+            }
+    }
+
+    /// The prototype always exposes the three lanes from the brief. A matching
+    /// real agent replaces its demo row, so Space Abilities keeps its actual
+    /// transcript when present. Any additional live agents follow them.
+    private var agentChatLanes: [AgentChatLane] {
+        guard showsAgentChatPrototype else { return liveAgentChatLanes }
+        var remainingLive: [AgentChatLane] = liveAgentChatLanes
+        var result: [AgentChatLane] = []
+
+        for prototype in AgentChatLane.PrototypeAgent.allCases {
+            if let index = remainingLive.firstIndex(where: {
+                $0.name.compare(
+                    prototype.displayName,
+                    options: [.caseInsensitive, .diacriticInsensitive]
+                ) == .orderedSame
+            }) {
+                result.append(remainingLive.remove(at: index))
+            } else {
+                result.append(.prototype(prototype))
+            }
+        }
+
+        result.append(contentsOf: remainingLive)
+        result.append(contentsOf: agentChatPrototypeState.connectedExternalProviders.map(AgentChatLane.external))
+        result.append(.ghost)
+        return result
+    }
+
+    private var selectedAgentChatLane: AgentChatLane? {
+        if let selectedLaneId = agentChatPrototypeState.selectedLaneId,
+           let selected = agentChatLanes.first(where: { $0.id == selectedLaneId }) {
+            return selected
+        }
+        if let initialAgentDmInboxId,
+           let requested = agentChatLanes.first(where: { $0.liveInboxId == initialAgentDmInboxId }) {
+            return requested
+        }
+        if let primaryAgentInboxId,
+           let primary = agentChatLanes.first(where: { $0.liveInboxId == primaryAgentInboxId }) {
+            return primary
+        }
+        return agentChatLanes.first
+    }
+
+    private var activeAgentInboxId: String? {
+        guard showsAgentChatPrototype else { return primaryAgentInboxId }
+        return selectedAgentChatLane?.liveInboxId
+    }
+
     /// Identity of the agent binding: which agent, and which view model it is
     /// resolved against. The host can replace the latter without the former
     /// changing.
@@ -438,7 +512,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var agentBindingKey: AgentBindingKey {
         AgentBindingKey(
             conversationViewModel: ObjectIdentifier(viewModel),
-            agentInboxId: primaryAgentInboxId
+            agentInboxId: activeAgentInboxId
         )
     }
 
@@ -604,7 +678,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onChange(of: viewModel.conversation.id) { oldId, newId in
             handleConversationIdChanged(from: oldId, to: newId)
         }
-        // Keeps the Agent tab bound to the conversation's current agent, and
+        // Keeps the Agent tab bound to the selected live agent, and
         // keeps retrying the DM bind until the agent-created DM syncs in.
         // Keyed on the view model too: the new-convo flow swaps a placeholder
         // for the real conversation, and the session must follow it even when
@@ -615,7 +689,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 agentDmSession = session
             }
             session.updateOrigin(viewModel)
-            session.setAgent(inboxId: primaryAgentInboxId)
+            session.setAgent(inboxId: activeAgentInboxId)
             await session.rebindWhenDmAppears()
         }
     }
@@ -887,11 +961,20 @@ private extension ConversationView {
             viewModel.onConversationAppeared()
             updateActiveGroupLane(isActive: true)
         }
-        // Switching to a tab that is holding something unread opens the sheet on
-        // it; switching to one that is not leaves the sheet down, with the Home
-        // still in view. Raising it claims the incoming lane and marks it read
-        // through the detent handler.
-        openCollapsedSheetIfUnread(for: newTab)
+        // A different tab is an explicit request to see that lane. Open all the
+        // way so Group/Agent navigation is one tap rather than a tap followed by
+        // a manual sheet drag.
+        withAnimation(.snappy(duration: 0.35)) {
+            sheetDetent = .full
+        }
+    }
+
+    private func handleAgentLaneSelection(_ lane: AgentChatLane) {
+        agentContextMenuState.cancelInFlightSwipe()
+        agentChatPrototypeState.select(lane)
+        withAnimation(.snappy(duration: 0.35)) {
+            sheetDetent = .full
+        }
     }
 
     /// Leaving the Group tab. When the group was actually on screen,
@@ -1527,6 +1610,9 @@ private extension ConversationView {
                             agentScrollToBottom = scrollFn
                         }
                     },
+                    prototypeState: showsAgentChatPrototype ? agentChatPrototypeState : nil,
+                    selectedLane: showsAgentChatPrototype ? selectedAgentChatLane : nil,
+                    lanes: showsAgentChatPrototype ? agentChatLanes : []
                 )
                 .opacity(selectedTab == .agent ? 1 : 0)
                 .allowsHitTesting(selectedTab == .agent)
@@ -1594,6 +1680,8 @@ private extension ConversationView {
             if !effectiveReadOnly {
                 ConversationComposerBar(
                     viewModel: viewModel,
+                    conversationId: viewModel.conversation.id,
+                    showsPersonalContextShare: showsAgentChatPrototype,
                     focusState: groupFocus,
                     focusCoordinator: focusCoordinator,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
@@ -1610,10 +1698,15 @@ private extension ConversationView {
             if let agentDmSession, !effectiveReadOnly {
                 AgentComposerBar(
                     session: agentDmSession,
+                    conversationId: viewModel.conversation.id,
                     focusState: agentFocus,
                     focusCoordinator: agentFocusCoordinator,
                     isReadOnly: effectiveReadOnly,
-                    scrollToBottom: { agentScrollToBottom?(true) }
+                    scrollToBottom: { agentScrollToBottom?(true) },
+                    prototypeState: showsAgentChatPrototype ? agentChatPrototypeState : nil,
+                    lanes: showsAgentChatPrototype ? agentChatLanes : [],
+                    selectedLane: showsAgentChatPrototype ? selectedAgentChatLane : nil,
+                    onSelectLane: handleAgentLaneSelection(_:)
                 )
                 // The participation control governs the group room; it has
                 // no meaning in a 1:1 agent DM.

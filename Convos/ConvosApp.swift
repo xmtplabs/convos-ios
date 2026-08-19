@@ -272,13 +272,7 @@ struct ConvosApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MainTabView(
-                conversationsViewModel: conversationsViewModel,
-                profileSettingsViewModel: profileSettingsViewModel,
-                coreActions: coreActions
-            )
-            .additionalTopSafeArea(DesignConstants.Spacing.stepX)
-            .withSafeAreaEnvironment()
+            rootView
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
                 case .active:
@@ -292,6 +286,33 @@ struct ConvosApp: App {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var rootView: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CONVOS_AGENT_MODEL_PROTOTYPE"] == "1" {
+            AgentModelPrototypeView(coreActions: coreActions)
+                .withSafeAreaEnvironment()
+        } else if ProcessInfo.processInfo.environment["CONVOS_PERSONAL_CONTEXT_PROTOTYPE"] == "1" {
+            PersonalContextShareView(conversationId: "design-review", onShared: { _ in })
+                .withSafeAreaEnvironment()
+        } else {
+            mainTabView
+        }
+        #else
+        mainTabView
+        #endif
+    }
+
+    private var mainTabView: some View {
+        MainTabView(
+            conversationsViewModel: conversationsViewModel,
+            profileSettingsViewModel: profileSettingsViewModel,
+            coreActions: coreActions
+        )
+        .additionalTopSafeArea(DesignConstants.Spacing.stepX)
+        .withSafeAreaEnvironment()
     }
 
     private func handleScenePhaseActive() {

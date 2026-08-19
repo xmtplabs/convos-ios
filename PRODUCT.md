@@ -1,0 +1,75 @@
+# Product
+
+<!-- impeccable:product-schema 1 -->
+
+## Platform
+
+ios
+
+## Users
+
+People who participate in several private Convos and want to understand what changed, who needs attention, and what matters without opening every conversation one by one.
+
+## Product Purpose
+
+Convos is an everyday private messenger for the surveillance age. This prototype makes the app's default destination a private personal space that connects context across a person's conversations, surfaces meaningful updates, and helps them decide where to act next.
+
+Success means opening Convos immediately answers “what is new and what deserves my attention?” while keeping every underlying conversation easy to reach.
+
+## Positioning
+
+The home screen is not an inbox. It is a private, continuously growing layer of personal context assembled from the user's Convos. It can help the user remember people, notice changes across groups, and selectively bring personal context back into a specific conversation without making that context public by default.
+
+## Operating Context
+
+- The user lands in “Your Space” every time they open the app.
+- The title control at the top opens every conversation in a panel that drops from directly beneath the header, keeps Your Space first, and places search above the convo list.
+- A top-right add control starts a new conversation or joins one by scanning a QR code.
+- The profile image at top left opens app settings.
+- A native overflow menu exposes connections, private file upload, stored files, home customization, and the conversations contributing to the private space.
+- The bottom dock keeps a visible personal-agent command bar as the primary action, with More on the left and chat on the right. When an external harness is connected in the prototype, the bar names it and exposes a native harness switcher.
+- Contacts are selected in the invite flow for a conversation rather than occupying a permanent bottom-level destination.
+- The “My context and connections” library organizes the user's editable contact card, locally added context, automatically detected useful message details, and supported assets from loaded convos by type and provenance.
+- Useful details are not contact-card fields: addresses, phone numbers, and emails are indexed from message text with the full source message, sender, convo, and time preserved for search and later sharing.
+- Optional widgets include an “Agents across your convos” list. Each row identifies the agent and source convo and opens that agent's private lane; widgets remain removable from the native widget picker.
+- A dismissible “Bring your own agent” callout and the More menu both open the existing honest external-agent connection prototype. Agent text outputs can be saved into Your Space and explicitly staged into a chosen convo, while adding that personal agent to a shared space remains future work.
+- Any context item may be shared only by explicitly choosing a destination; the app opens that convo with the item staged in its composer for review and never auto-sends it.
+
+## Capabilities and Constraints
+
+- Preserve Convos' invitation-only, identity-per-conversation, local-first privacy model.
+- Use the existing conversation store and navigation paths; the prototype must not fabricate real messages or imply that private context has been uploaded.
+- Voice transcription, chat answers, and imported files stay on-device in this prototype; chat answers are grounded only in the currently visible briefing data.
+- The home experience needs useful loading, empty, unread, and no-attention states.
+- The conversation switcher must support many conversations, unread state, search, and direct navigation.
+- The context library must support search, type filters, provenance, local notes/photos/voice/files, an editable personal card with bounded custom title-and-info fields, and an explicit add menu for context or connections.
+- The first production-grade context index is deliberately bounded to the 500 newest combined results across at most 500 loaded conversations. It indexes supported attachments/link previews plus addresses, phone numbers, and emails detected within the latest 5,000 eligible text messages, capped at 250 useful-detail results. Broader semantic extraction and paging remain separate data-contract decisions.
+- Visible context cards render the richest safe preview available: decrypted or local thumbnails, document thumbnails, text excerpts, map snapshots, and cached link artwork. A visible link card may hydrate metadata and artwork through the app's existing bounded rich-link service, then caches the result; background indexing never crawls preview hosts.
+- Recent convo previews remain neutral context until the user explicitly saves one. The app must not present them as inferred personal facts without a dedicated suggestion contract.
+- The initial prototype may use clearly isolated sample insight content in previews. Production summaries, provenance, ranking, and persistence remain an open data-contract decision.
+- Existing notification, deep-link, QR joining, new-conversation, settings, stale-device, and conversation-detail behavior must remain reachable.
+
+## Brand Commitments
+
+- Product name: Convos.
+- Voice: direct, human, calm, private, and useful; never surveillance-like or breathlessly “AI.”
+- The supplied “Switching Spaces” screenshot is a structural reference for a private landing space and title-bar switcher, not an instruction to copy its visual styling or its “Spaces” terminology.
+
+## Evidence on Hand
+
+- Current iOS application and design tokens in this repository.
+- User-supplied concept screenshot at `/var/folders/3n/rwbv43pn3sj51ml6bhqrpl6r0000gn/T/codex-clipboard-3cc6e300-c7b1-40a2-9069-6480c38da797.png`.
+- No confirmed production API currently provides cross-conversation summaries, attention ranking, or shareable personal-memory objects; the interface must label preview-only sample data and keep the integration boundary explicit.
+
+## Product Principles
+
+1. Private by default: Your Space belongs to one person, and sharing out is deliberate.
+2. Orient before opening: the first screen explains what changed and where attention is valuable.
+3. Conversations stay one gesture away: replacing the inbox must not make navigation slower.
+4. Context compounds: the surface should become more useful as relationships and conversations grow.
+5. Show provenance: every update names its conversation, and names a person only when verified sender metadata is available, so the user can trust and inspect it.
+
+## Accessibility & Inclusion
+
+- Preserve Dynamic Type, VoiceOver labels and ordering, minimum 44-point controls, sufficient contrast, Reduce Motion behavior, and non-color indicators for unread and urgency states.
+- Summaries must not require familiarity with a person's display name alone; conversation provenance and explicit action labels remain available to assistive technology.

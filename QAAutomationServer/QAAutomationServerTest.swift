@@ -6,6 +6,23 @@ final class QAAutomationServerTest: XCTestCase {
     }
 
     @MainActor
+    func testYourSpaceHomeScrolls() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["YOUR_SPACE_VISUAL_FIXTURE"] = "1"
+        app.launch()
+
+        let contextSearch = app.buttons["your-space-context-search"]
+        XCTAssertTrue(contextSearch.waitForExistence(timeout: 10))
+        let initialY = contextSearch.frame.minY
+
+        let homeScroll = app.scrollViews["your-space-home-scroll"]
+        XCTAssertTrue(homeScroll.waitForExistence(timeout: 2))
+        homeScroll.swipeUp()
+
+        XCTAssertLessThan(contextSearch.frame.minY, initialY - 40)
+    }
+
+    @MainActor
     func testQAAutomationServer() throws {
         let app = XCUIApplication()
         app.launch()
