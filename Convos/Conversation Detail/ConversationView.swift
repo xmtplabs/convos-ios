@@ -1436,8 +1436,11 @@ private extension ConversationView {
                 )
             }
         }
-        // Above the sheet and outliving it, in a window of its own.
-        .conversationCapsuleOverlay(isVisible: isOnScreen && !isBrowsingHome) {
+        // Above the sheet and outliving it, in a window of its own. Browsing does
+        // not take it away: a pushed page is still the conversation's own screen,
+        // the sheet stays up behind it, and the page already insets its content by
+        // the capsule's clearance.
+        .conversationCapsuleOverlay(isVisible: isOnScreen) {
             conversationCapsule
         }
         // On the conversation, never on the sheet's content. Attached inside the
