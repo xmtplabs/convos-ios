@@ -25,6 +25,8 @@ final class HomeWebViewPool {
     /// What the spare view has been pointed at, and how far it got, so a
     /// surface adopting it knows whether it still has to load anything.
     private var prepared: Prepared = .none
+    /// The window the spare view waits in. See `parkingWindow()`.
+    private var parking: UIWindow?
 
     /// How ready the spare view is for a given destination.
     enum Adoption: Equatable {
@@ -152,8 +154,15 @@ final class HomeWebViewPool {
             }
         }
         guard idle == nil else { return }
-        parkOffscreen(webView)
         idle = webView
+        // Parking puts a screen-sized view into the key window, and a release
+        // happens during the pop that caused it. Left in that transaction it
+        // disturbs the transition running around it, so the window is touched
+        // once the pop has finished with it.
+        Task { @MainActor [weak self] in
+            guard let self, self.idle === webView else { return }
+            self.parkOffscreen(webView)
+        }
     }
 
     /// The paint reporter installed on a pooled view, for the surface to point
@@ -185,23 +194,43 @@ final class HomeWebViewPool {
         return WKWebView(frame: .zero, configuration: configuration)
     }
 
-    /// Parks a view behind everything the app draws.
+    /// Parks a view in the pool's own window, behind the app's.
     ///
-    /// Behind rather than hidden, and screen-sized rather than zero-sized, both
-    /// deliberately: WebKit does not render a hidden view, and a page laid out
-    /// at zero width would have to lay out again on adoption - so a prepared
-    /// page would arrive unpainted, which is the whole thing this avoids. At
-    /// the back of the key window it is covered by the app's own opaque
-    /// content, and it takes no touches.
+    /// A window of its own, not the app's key window, and that is the point.
+    /// WebKit will not render a view that is in no window, so the spare has to
+    /// be in one - but inserting and removing a screen-sized view in the window
+    /// that hosts the navigation bar disturbs the transitions running there:
+    /// the top bar's buttons stopped animating between the list and a
+    /// conversation, which is a push away from the moment the pool parks or
+    /// takes back a view. Its own window is invisible behind the app's opaque
+    /// one, renders all the same, and cannot interfere with anything.
     private func parkOffscreen(_ webView: WKWebView) {
         webView.isUserInteractionEnabled = false
         webView.isHidden = false
-        let keyWindow = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }
-        webView.frame = keyWindow?.bounds ?? .zero
-        keyWindow?.insertSubview(webView, at: 0)
+        guard let window = parkingWindow() else { return }
+        webView.frame = window.bounds
+        window.rootViewController?.view.addSubview(webView)
+    }
+
+    /// The pool's own window, made once, sitting below everything the app
+    /// draws. Never key, never interactive: somewhere to render, nothing else.
+    private func parkingWindow() -> UIWindow? {
+        if let parking { return parking }
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive })
+            ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else {
+            return nil
+        }
+        let window = ParkingWindow(windowScene: scene)
+        window.rootViewController = UIViewController()
+        window.rootViewController?.view.backgroundColor = .clear
+        window.backgroundColor = .clear
+        window.isUserInteractionEnabled = false
+        window.windowLevel = .normal - 1
+        window.isHidden = false
+        parking = window
+        return window
     }
 
     /// Whether two URLs name the same page.
@@ -231,6 +260,15 @@ final class HomeWebViewPool {
         /// loading state for it would be theatre.
         static let freshness: TimeInterval = 60
     }
+}
+
+/// The window the pool parks its spare view in: visible to WebKit, invisible to
+/// the reader, and untouchable. It takes no touches at all, so it cannot shadow
+/// the app's own window even by accident.
+private final class ParkingWindow: UIWindow {
+    override var canBecomeKey: Bool { false }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
 }
 
 /// Receives the page's own report that it has painted, and forwards it to

@@ -618,7 +618,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     var body: some View {
-        conversationCore
+        // The conversation's own sheets are hosted out here, not on the sheet's
+        // content. The chrome that raises them lives out here too, and the
+        // sheet is not always presented - hosted inside it, the contacts picker
+        // had nowhere to appear from while the sheet was down, so tapping
+        // Invite set a flag that sat there until something raised the sheet and
+        // let it present out of nowhere.
+        conversationLevelPresentations(conversationCore, isActive: !sheetDetent.isPresented)
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
             viewModel.checkForAgentShareURL()
@@ -712,55 +718,75 @@ private extension ConversationView {
     /// They inherit the sheet's environment as a consequence, the forced scheme
     /// on the Agent lane included. That is the right way round: a tray opened
     /// from a message in the agent transcript belongs to that lane.
-    @ViewBuilder
-    func conversationPresentations(_ content: some View) -> some View {
-        messagePresentations(conversationLevelPresentations(content))
-    }
-
     /// The sheets the conversation itself raises, as opposed to the ones a
     /// message raises. Split from `messagePresentations` only to keep each
     /// function inside the type-check budget and the body-length limit.
+    ///
+    /// Hosted twice - once out on the conversation, once on the sheet's content
+    /// - with `isActive` letting exactly one of them through at a time. Neither
+    /// host works alone: the sheet's content does not exist while the sheet is
+    /// collapsed, so nothing could present from it (tapping Invite set a flag
+    /// that waited there until something raised the sheet), and a controller
+    /// already presenting the sheet cannot present anything else, so the
+    /// conversation cannot do it either while the sheet is up.
     @ViewBuilder
-    func conversationLevelPresentations(_ content: some View) -> some View {
+    func conversationLevelPresentations(_ content: some View, isActive: Bool) -> some View {
         content
-            .selfSizingSheet(isPresented: $viewModel.presentingConversationForked) {
+            .selfSizingSheet(isPresented: gated($viewModel.presentingConversationForked, isActive)) {
                 ConversationForkedInfoView {
                     viewModel.leaveConvo()
                 }
             }
-            .selfSizingSheet(isPresented: $viewModel.presentingCapabilityApproval) {
+            .selfSizingSheet(isPresented: gated($viewModel.presentingCapabilityApproval, isActive)) {
                 capabilityApprovalSheet
             }
-            .sheet(isPresented: $viewModel.presentingProfileSettings) {
+            .sheet(isPresented: gated($viewModel.presentingProfileSettings, isActive)) {
                 // ProfileSetupSheet owns the full save; no dismiss handler -
                 // the old onProfileSettingsDismissed re-saved from the stale
                 // myProfileViewModel and clobbered the just-saved profile.
                 ProfileSetupSheet(mode: .edit)
             }
             .debugConnectionInjectorSheet(
-                isPresented: debugInjectorBinding,
+                isPresented: gated(debugInjectorBinding, isActive),
                 conversationId: viewModel.conversation.id,
                 messagingService: viewModel.messagingService
             )
             .addFromContactsPicker(
                 viewModel: viewModel,
-                isPresented: $presentingAddFromContactsPicker,
+                isPresented: gated($presentingAddFromContactsPicker, isActive),
                 onInviteShared: onInviteShared
             )
             .shareSheet(
-                isPresented: $presentingInviteShareSheet,
+                isPresented: gated($presentingInviteShareSheet, isActive),
                 items: inviteShareItems,
                 onCompletion: handleInviteShareCompletion
             )
-            .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
+            .sheet(item: gated($viewModel.presentingNewConversationForInvite, isActive)) { viewModel in
                 newConversationSheet(viewModel)
             }
-            .sheet(item: $viewModel.presentingContactForAgentShare) { contact in
+            .sheet(item: gated($viewModel.presentingContactForAgentShare, isActive)) { contact in
                 agentShareContactDetailSheet(for: contact)
             }
-            .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
+            .selfSizingSheet(isPresented: gated($viewModel.presentingExplodedInviteInfo, isActive)) {
                 ExplodeInfoView()
             }
+    }
+
+    /// A binding that reads false while this host is not the one that can
+    /// present. Writes pass straight through, so dismissing still clears the
+    /// state whichever host is showing it.
+    private func gated(_ binding: Binding<Bool>, _ isActive: Bool) -> Binding<Bool> {
+        Binding(
+            get: { isActive && binding.wrappedValue },
+            set: { binding.wrappedValue = $0 }
+        )
+    }
+
+    private func gated<Item>(_ binding: Binding<Item?>, _ isActive: Bool) -> Binding<Item?> {
+        Binding(
+            get: { isActive ? binding.wrappedValue : nil },
+            set: { binding.wrappedValue = $0 }
+        )
     }
 
     /// The sheets a message raises - a tray, a detail, a member's card.
@@ -1429,10 +1455,14 @@ private extension ConversationView {
                 agentCoordinator: agentFocusCoordinator,
                 resetToken: viewModel.conversation.id
             ) { groupFocus, agentFocus in
-                // Presentations go on the sheet's content, which is the only place
-                // they can present from - see `conversationPresentations`.
-                conversationPresentations(
-                    conversationSheet(groupFocus: groupFocus, agentFocus: agentFocus)
+                // Only the presentations a message raises. They belong to the
+                // sheet's content and inherit its environment, the Agent lane's
+                // forced scheme included - see `messagePresentations`.
+                messagePresentations(
+                    conversationLevelPresentations(
+                        conversationSheet(groupFocus: groupFocus, agentFocus: agentFocus),
+                        isActive: sheetDetent.isPresented
+                    )
                 )
             }
         }
@@ -1440,7 +1470,19 @@ private extension ConversationView {
         // not take it away: a pushed page is still the conversation's own screen,
         // the sheet stays up behind it, and the page already insets its content by
         // the capsule's clearance.
-        .conversationCapsuleOverlay(isVisible: isOnScreen) {
+        // Hidden while the conversation's info sheet is up. That sheet is
+        // presented from the indicator, which lives in the app's chrome above
+        // this screen rather than inside it, so the capsule's own
+        // covered-by-a-presentation check cannot see it - it only watches what
+        // is presented over this conversation's sheet.
+        // The info sheet covers the capsule rather than taking it away: it is
+        // coming straight back, and tearing the capsule's window down for it
+        // left the capsule crawling back afterwards.
+        .conversationCapsuleOverlay(
+            isVisible: isOnScreen,
+            ownPresentationDepth: sheetDetent.isPresented ? 1 : 0,
+            isCovered: viewModel.presentingConversationSettings
+        ) {
             conversationCapsule
         }
         // On the conversation, never on the sheet's content. Attached inside the

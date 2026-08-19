@@ -16,11 +16,26 @@ struct ConversationCapsuleOverlay<Capsule: View>: ViewModifier {
     /// Whether the capsule should be on screen at all. The conversation hides it
     /// while it is leaving, so it does not outlive the screen it belongs to.
     var isVisible: Bool
+    /// How many presentations the conversation expects to be over it and still
+    /// wants the capsule: one while its own sheet is up, none while it is away.
+    /// Anything beyond that is a menu, an alert or a picker, and the capsule has
+    /// no business floating over it.
+    var ownPresentationDepth: Int
+    /// Covered by something the conversation knows about, rather than something
+    /// the poll has to notice - the info sheet, which is raised from the app's
+    /// chrome above this screen and never appears in this screen's own
+    /// presentation chain.
+    var isCovered: Bool
     @ViewBuilder var capsule: () -> Capsule
 
     func body(content: Content) -> some View {
         content.background {
-            CapsuleWindowHost(isVisible: isVisible, capsule: capsule)
+            CapsuleWindowHost(
+                isVisible: isVisible,
+                ownPresentationDepth: ownPresentationDepth,
+                isCovered: isCovered,
+                capsule: capsule
+            )
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
         }
@@ -32,6 +47,8 @@ struct ConversationCapsuleOverlay<Capsule: View>: ViewModifier {
 /// and comes down when it leaves.
 private struct CapsuleWindowHost<Capsule: View>: UIViewControllerRepresentable {
     var isVisible: Bool
+    var ownPresentationDepth: Int
+    var isCovered: Bool
     @ViewBuilder var capsule: () -> Capsule
 
     func makeUIViewController(context: Context) -> Controller {
@@ -39,6 +56,8 @@ private struct CapsuleWindowHost<Capsule: View>: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.ownPresentationDepth = ownPresentationDepth
+        controller.setCoveredByHost(isCovered)
         controller.update(capsule: capsule, isVisible: isVisible)
     }
 
@@ -62,6 +81,19 @@ private struct CapsuleWindowHost<Capsule: View>: UIViewControllerRepresentable {
         private var keyboardObservers: [NSObjectProtocol] = []
         private var presentationPoll: Timer?
         private var isCoveredByPresentation: Bool = false
+        /// See `ConversationCapsuleOverlay.ownPresentationDepth`.
+        var ownPresentationDepth: Int = 0
+        /// Coverage the conversation reports directly. Kept apart from the
+        /// polled kind so either can end without waiting for the other.
+        private var isCoveredByHost: Bool = false
+        /// Consecutive polls that saw something covering the sheet.
+        ///
+        /// A presentation reaches the hierarchy a moment before the state that
+        /// describes it settles, so a single covered poll is as likely to be the
+        /// conversation's own sheet arriving as it is to be something over it.
+        /// Hiding on the second one holds the capsule still through that,
+        /// while showing it again takes effect on the first uncovered poll.
+        private var coveredPolls: Int = 0
 
         func update(capsule: @escaping () -> Capsule, isVisible: Bool) {
             guard isVisible else {
@@ -129,6 +161,13 @@ private struct CapsuleWindowHost<Capsule: View>: UIViewControllerRepresentable {
             let window = PassthroughWindow(windowScene: scene)
             window.rootViewController = root
             window.backgroundColor = .clear
+            // Only the strip the capsule lives in, never the whole screen. A
+            // full-screen window over the app's took the navigation bar's own
+            // transition with it: the top bar's buttons stopped blurring
+            // between the list and a conversation and swapped in a hard cut
+            // instead. The capsule never rises past the keyboard, so a bottom
+            // strip is all it needs.
+            window.frame = Self.capsuleStripFrame(in: scene)
             window.isHidden = false
             // Above the sheet, below anything the system puts up for itself -
             // alerts and the status bar stay where they belong.
@@ -172,10 +211,55 @@ private struct CapsuleWindowHost<Capsule: View>: UIViewControllerRepresentable {
             while let parent = conversationRoot.parent {
                 conversationRoot = parent
             }
-            let isCovered: Bool = conversationRoot.presentedViewController?.presentedViewController != nil
+            var depth: Int = 0
+            var presented: UIViewController? = conversationRoot.presentedViewController
+            while let controller = presented {
+                depth += 1
+                presented = controller.presentedViewController
+            }
+            // Deeper than the conversation's own sheet means something else is
+            // over it. Counting rather than assuming the sheet is always the
+            // first presentation: with the sheet away, a picker raised from the
+            // conversation is itself the first, and the capsule used to float
+            // over it.
+            let isCovered: Bool = depth > ownPresentationDepth
+            coveredPolls = isCovered ? coveredPolls + 1 : 0
+            applyCoverage(coveredPolls >= Constant.coveredPollsBeforeHiding, host: host)
+        }
+
+        /// Records coverage the conversation reported itself, which needs no
+        /// confirming - it is state, not an observation.
+        func setCoveredByHost(_ covered: Bool) {
+            guard isCoveredByHost != covered else { return }
+            isCoveredByHost = covered
+            guard let host else { return }
+            applyCoverage(coveredPolls >= Constant.coveredPollsBeforeHiding, host: host)
+        }
+
+        /// Blurs the capsule away while it is covered, and back when it is not.
+        ///
+        /// The window stays up throughout, deliberately: taking it down and
+        /// rebuilding it is what made the capsule crawl back after the info
+        /// sheet closed, and there is nothing to tear down for - the capsule is
+        /// coming straight back.
+        private func applyCoverage(_ polled: Bool, host: UIHostingController<CapsuleAppearance<Capsule>>) {
+            let isCovered: Bool = polled || isCoveredByHost
             guard isCovered != isCoveredByPresentation else { return }
             isCoveredByPresentation = isCovered
             host.rootView = CapsuleAppearance(isPresent: !isCovered, content: host.rootView.content)
+        }
+
+        /// The bottom strip the capsule window occupies, tall enough to hold
+        /// the capsule when the keyboard has pushed it as high as it goes.
+        private static func capsuleStripFrame(in scene: UIWindowScene) -> CGRect {
+            let bounds = scene.screen.bounds
+            let height = min(bounds.height, Constant.capsuleStripHeight)
+            return CGRect(
+                x: 0,
+                y: bounds.height - height,
+                width: bounds.width,
+                height: height
+            )
         }
 
         /// Swaps the inset as the keyboard comes and goes.
@@ -241,6 +325,8 @@ private struct CapsuleWindowHost<Capsule: View>: UIViewControllerRepresentable {
             presentationPoll?.invalidate()
             presentationPoll = nil
             isCoveredByPresentation = false
+            isCoveredByHost = false
+            coveredPolls = 0
             keyboardObservers.forEach(NotificationCenter.default.removeObserver)
             keyboardObservers = []
             bottomConstraint = nil
@@ -282,6 +368,13 @@ private enum Constant {
     /// the sheet. Fast enough that the capsule is gone before a menu has
     /// finished animating in, slow enough to cost nothing.
     static let presentationPollInterval: TimeInterval = 0.1
+    /// Two polls, so a presentation appearing a beat before the state that
+    /// describes it cannot flicker the capsule out and back.
+    static let coveredPollsBeforeHiding: Int = 2
+    /// How much of the bottom of the screen the capsule's window covers. Deep
+    /// enough for the capsule riding above a keyboard, shallow enough to leave
+    /// the navigation bar - and its transitions - in the app's own window.
+    static let capsuleStripHeight: CGFloat = 420
 }
 
 /// The duration and curve UIKit is using for the keyboard, lifted out of the
@@ -332,8 +425,15 @@ extension View {
     /// `ConversationCapsuleOverlay`.
     func conversationCapsuleOverlay<Capsule: View>(
         isVisible: Bool,
+        ownPresentationDepth: Int,
+        isCovered: Bool,
         @ViewBuilder capsule: @escaping () -> Capsule
     ) -> some View {
-        modifier(ConversationCapsuleOverlay(isVisible: isVisible, capsule: capsule))
+        modifier(ConversationCapsuleOverlay(
+            isVisible: isVisible,
+            ownPresentationDepth: ownPresentationDepth,
+            isCovered: isCovered,
+            capsule: capsule
+        ))
     }
 }
