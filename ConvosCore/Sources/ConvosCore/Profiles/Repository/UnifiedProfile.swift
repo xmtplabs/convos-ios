@@ -42,6 +42,22 @@ public struct UnifiedProfile: Identifiable, Hashable, Sendable {
         memberKind?.isAgent ?? false
     }
 
+    /// Same fallbacks as the conversation-scoped `Profile`, so a member reads
+    /// identically whichever type a view happens to hold during the cutover.
+    public var displayName: String {
+        if let name, !name.isEmpty { return name }
+        return isAgent ? "Agent" : "Somebody"
+    }
+
+    /// An agent may publish an emoji in place of a picture; it arrives in the
+    /// conversation-scoped metadata the ProfileUpdate already carries.
+    public var profileEmoji: String? {
+        metadata?[Constant.emojiMetadataKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
     /// The avatar to show for a conversation: that conversation's slot if
     /// present, otherwise the most recently updated slot across all
     /// conversations. nil when the person has no (non-cleared) avatar anywhere.
@@ -84,3 +100,39 @@ public struct UnifiedProfile: Identifiable, Hashable, Sendable {
         )
     }
 }
+
+extension UnifiedProfile: ImageCacheable {
+    public var imageCacheIdentifier: String {
+        inboxId
+    }
+
+    public var imageCacheURL: URL? {
+        avatarUrl
+    }
+
+    /// Backend-served avatars are plain bytes behind an unguessable key, so
+    /// there is nothing to decrypt. This is what lets the whole per-group
+    /// encryption path (salt, nonce, per-conversation key) fall away: the cache
+    /// treats a profile like any other URL image.
+    public var isEncryptedImage: Bool {
+        false
+    }
+
+    public var encryptionKey: Data? {
+        nil
+    }
+
+    public var encryptionSalt: Data? {
+        nil
+    }
+
+    public var encryptionNonce: Data? {
+        nil
+    }
+}
+
+private enum Constant {
+    static let emojiMetadataKey: String = "emoji"
+}
+
+extension UnifiedProfile: AvatarRenderable {}
