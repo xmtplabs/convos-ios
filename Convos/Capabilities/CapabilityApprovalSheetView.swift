@@ -30,6 +30,13 @@ struct CapabilityApprovalSheetView: View {
     /// Non-nil when the last approval attempt failed (grant POST or result
     /// send). Rendered above the primary button, which becomes a retry.
     let approvalErrorMessage: String?
+    /// Name of the conversation the grant will scope to (the origin group
+    /// for an agent DM, the conversation itself otherwise). The approve
+    /// control renders only when this is resolved -- named consent.
+    let scopeDisplayName: String?
+    /// Copy for a blocked agent-DM approval (origin unresolvable, departed,
+    /// or failed the consistency check); replaces the approve control.
+    let blockedMessage: String?
     let onApprove: (Set<ProviderID>, [String: Set<String>]) -> Void
 
     init(
@@ -37,12 +44,16 @@ struct CapabilityApprovalSheetView: View {
         agentName: String?,
         isApproving: Bool = false,
         approvalErrorMessage: String? = nil,
+        scopeDisplayName: String? = nil,
+        blockedMessage: String? = nil,
         onApprove: @escaping (Set<ProviderID>, [String: Set<String>]) -> Void
     ) {
         self.layout = layout
         self.agentName = agentName
         self.isApproving = isApproving
         self.approvalErrorMessage = approvalErrorMessage
+        self.scopeDisplayName = scopeDisplayName
+        self.blockedMessage = blockedMessage
         self.onApprove = onApprove
     }
 
@@ -52,6 +63,8 @@ struct CapabilityApprovalSheetView: View {
             agentName: agentName,
             isApproving: isApproving,
             approvalErrorMessage: approvalErrorMessage,
+            scopeDisplayName: scopeDisplayName,
+            blockedMessage: blockedMessage,
             onApprove: onApprove
         )
         // Reseed the selection state if a newer request replaces the layout
@@ -113,6 +126,8 @@ private struct ApprovalSheetContent: View {
     let agentName: String?
     let isApproving: Bool
     let approvalErrorMessage: String?
+    let scopeDisplayName: String?
+    let blockedMessage: String?
     let onApprove: (Set<ProviderID>, [String: Set<String>]) -> Void
 
     @State private var selection: Set<ProviderID>
@@ -126,12 +141,16 @@ private struct ApprovalSheetContent: View {
         agentName: String?,
         isApproving: Bool,
         approvalErrorMessage: String?,
+        scopeDisplayName: String?,
+        blockedMessage: String?,
         onApprove: @escaping (Set<ProviderID>, [String: Set<String>]) -> Void
     ) {
         self.layout = layout
         self.agentName = agentName
         self.isApproving = isApproving
         self.approvalErrorMessage = approvalErrorMessage
+        self.scopeDisplayName = scopeDisplayName
+        self.blockedMessage = blockedMessage
         self.onApprove = onApprove
         _selection = State(initialValue: CapabilityApprovalSheetView.seedSelection(for: layout))
         _enabledBundleIds = State(initialValue: CapabilityApprovalSheetView.seedBundleSelection(for: layout))
@@ -406,6 +425,10 @@ private struct ApprovalSheetContent: View {
         return needsConnect ? "Connect" : "Done"
     }
 
+    /// Named-consent gate: the approve control renders only when the scope
+    /// conversation is resolved and named. A blocked scope shows its copy
+    /// instead; an unresolved one shows progress. In a plain group the scope
+    /// resolves immediately to the conversation itself.
     private var approveButton: some View {
         let approveAction: () -> Void = {
             onApprove(selection, approvedBundleSelection)
@@ -417,9 +440,21 @@ private struct ApprovalSheetContent: View {
                     .font(.caption)
                     .foregroundStyle(.colorCaution)
             }
-            Button(approveButtonTitle, action: approveAction)
-                .convosButtonStyle(.rounded(fullWidth: true))
-                .disabled(buttonDisabled)
+            if let blockedMessage {
+                Text(blockedMessage)
+                    .font(.caption)
+                    .foregroundStyle(.colorCaution)
+            } else if let scopeDisplayName {
+                Text("For use in \(scopeDisplayName)")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                Button(approveButtonTitle, action: approveAction)
+                    .convosButtonStyle(.rounded(fullWidth: true))
+                    .disabled(buttonDisabled)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+            }
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
     }
@@ -527,6 +562,7 @@ private func previewRequest() -> CapabilityRequest {
             serviceBundles: previewBundles()
         ),
         agentName: "Agent",
+        scopeDisplayName: "Space Camp",
         onApprove: { _, _ in }
     )
 }
@@ -541,6 +577,7 @@ private func previewRequest() -> CapabilityRequest {
             serviceBundles: previewBundles()
         ),
         agentName: "Agent",
+        scopeDisplayName: "Space Camp",
         onApprove: { _, _ in }
     )
 }
@@ -555,6 +592,7 @@ private func previewRequest() -> CapabilityRequest {
             serviceBundles: previewBundles(grantedBundleIds: ["calendar.events"])
         ),
         agentName: "Agent",
+        scopeDisplayName: "Space Camp",
         onApprove: { _, _ in }
     )
 }
@@ -568,6 +606,7 @@ private func previewRequest() -> CapabilityRequest {
             defaultSelection: [ProviderID(rawValue: "composio.googlecalendar")]
         ),
         agentName: "Agent",
+        scopeDisplayName: "Space Camp",
         onApprove: { _, _ in }
     )
 }
@@ -589,6 +628,7 @@ private func previewRequest() -> CapabilityRequest {
             serviceBundles: previewBundles()
         ),
         agentName: "Agent",
+        scopeDisplayName: "Space Camp",
         onApprove: { _, _ in }
     )
 }

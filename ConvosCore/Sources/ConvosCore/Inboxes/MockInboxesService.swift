@@ -257,8 +257,13 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         InMemoryCapabilityResolver(registry: mockCapabilityRegistry)
     }
 
+    /// Test hook: when set, `capabilityRequestRepository(for:)` returns this
+    /// instead of the inert mock, so view-model tests can control grant-scope
+    /// resolutions (timing included).
+    public var capabilityRequestRepositoryOverride: (any CapabilityRequestRepositoryProtocol)?
+
     public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
-        MockCapabilityRequestRepository()
+        capabilityRequestRepositoryOverride ?? MockCapabilityRequestRepository()
     }
 
     public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
@@ -288,5 +293,13 @@ private struct MockDeviceConnectionAuthorizer: DeviceConnectionAuthorizer {
 }
 
 private final class MockCapabilityRequestRepository: CapabilityRequestRepositoryProtocol, @unchecked Sendable {
+    func resolveGrantScope(
+        isAgentDm: Bool,
+        askerInboxId: String,
+        liveMarkerOrigin: @escaping @Sendable () async -> String?
+    ) async -> CapabilityGrantScopeResolution {
+        CapabilityGrantScopeResolution(scope: .conversation("mock"), scopeDisplayName: "Mock Group")
+    }
+
     let pendingRequestPublisher: AnyPublisher<CapabilityRequest?, Never> = Just(nil).eraseToAnyPublisher()
 }

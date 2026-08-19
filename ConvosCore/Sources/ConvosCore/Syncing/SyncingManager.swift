@@ -168,6 +168,10 @@ actor SyncingManager: SyncingManagerProtocol {
     private var agentTemplateCacheCoordinator: AgentTemplateCacheCoordinator?
 
     private var activeConversationId: String?
+    /// The folded agent DM currently on screen (the Agent tab), tracked
+    /// separately: the DM is its own conversation whose id never appears in
+    /// `activeConversationChanged` (that carries the parent group id).
+    private var activeDmConversationId: String?
 
     // Stream readiness tracking - used to wait for streams to subscribe before signaling ready
     private var messageStreamReadyContinuation: AsyncStream<Void>.Continuation?
@@ -408,7 +412,7 @@ actor SyncingManager: SyncingManagerProtocol {
                 client: client,
                 inboxId: identity.inboxId,
                 since: since,
-                activeConversationId: await activeConversationId,
+                activeConversationIds: await activeConversationIds,
                 fetchFromBeginning: fetchFromBeginning,
                 syncPerConversation: syncPerConversation
             )
@@ -1069,7 +1073,7 @@ actor SyncingManager: SyncingManagerProtocol {
                     await streamProcessor.processMessage(
                         message,
                         params: params,
-                        activeConversationId: activeConversationId
+                        activeConversationIds: activeConversationIds
                     )
                 }
 
@@ -1168,6 +1172,16 @@ extension SyncingManager {
     func setActiveConversationId(_ conversationId: String?) {
         // Update the active conversation
         activeConversationId = conversationId
+    }
+
+    func setActiveDmConversationId(_ conversationId: String?) {
+        activeDmConversationId = conversationId
+    }
+
+    /// The conversations exempt from unread marking right now: the active
+    /// group and, when the Agent tab is up, its folded DM.
+    var activeConversationIds: Set<String> {
+        Set([activeConversationId, activeDmConversationId].compactMap { $0 })
     }
 
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
@@ -1309,6 +1323,17 @@ extension SyncingManager {
             }
         }
         notificationObservers.append(activeConversationObserver)
+        let activeDmObserver = NotificationCenter.default.addObserver(
+            forName: .activeDmConversationChanged,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            let conversationId = notification.userInfo?["conversationId"] as? String
+            Task { [weak self] in
+                await self?.setActiveDmConversationId(conversationId)
+            }
+        }
+        notificationObservers.append(activeDmObserver)
         installPushTokenObserver()
     }
 

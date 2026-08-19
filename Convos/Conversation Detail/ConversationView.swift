@@ -1375,6 +1375,8 @@ private extension ConversationView {
                 agentName: viewModel.askerDisplayName(for: layout.request),
                 isApproving: viewModel.capabilityApprovalInFlight,
                 approvalErrorMessage: viewModel.capabilityApprovalErrorMessage,
+                scopeDisplayName: viewModel.capabilityApprovalScopeName,
+                blockedMessage: viewModel.capabilityApprovalBlockedMessage,
                 onApprove: { providerIds, bundleSelection in
                     viewModel.onCapabilityApprove(
                         providerIds: providerIds,

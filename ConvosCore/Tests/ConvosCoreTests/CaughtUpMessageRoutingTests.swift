@@ -15,7 +15,7 @@ struct CaughtUpMessageRoutingTests {
             senderInboxId: other,
             currentInboxId: me,
             conversationId: conversationId,
-            activeConversationId: nil
+            activeConversationIds: []
         ))
     }
 
@@ -26,7 +26,7 @@ struct CaughtUpMessageRoutingTests {
             senderInboxId: me,
             currentInboxId: me,
             conversationId: conversationId,
-            activeConversationId: nil
+            activeConversationIds: []
         ))
     }
 
@@ -37,7 +37,7 @@ struct CaughtUpMessageRoutingTests {
             senderInboxId: other,
             currentInboxId: me,
             conversationId: conversationId,
-            activeConversationId: conversationId
+            activeConversationIds: [conversationId]
         ))
     }
 
@@ -48,21 +48,23 @@ struct CaughtUpMessageRoutingTests {
             senderInboxId: other,
             currentInboxId: me,
             conversationId: conversationId,
-            activeConversationId: "some-other-conversation"
+            activeConversationIds: ["some-other-conversation"]
         ))
     }
 
     @Test("Does not mark unread for content types that never mark unread")
     func skipsNonUnreadContentTypes() {
-        // `.update` (group membership) and the connection/capability silent
-        // types never mark a conversation unread, even from another sender.
-        for contentType: MessageContentType in [.update, .connectionEvent, .capabilityRequest, .connectionInvocation] {
+        // `.update` (group membership) and the connection silent types never
+        // mark a conversation unread, even from another sender.
+        // `.capabilityRequest` deliberately left this list: a connect request
+        // in the member's agent DM is discovered through the unread dot.
+        for contentType: MessageContentType in [.update, .connectionEvent, .capabilityRequestResult, .connectionInvocation] {
             #expect(!marksConversationUnread(
                 contentType: contentType,
                 senderInboxId: other,
                 currentInboxId: me,
                 conversationId: conversationId,
-                activeConversationId: nil
+                activeConversationIds: []
             ), "\(contentType) should not mark unread")
         }
     }

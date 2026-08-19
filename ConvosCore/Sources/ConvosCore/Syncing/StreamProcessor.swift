@@ -25,7 +25,7 @@ protocol StreamProcessorProtocol: Actor {
     func processMessage(
         _ message: DecodedMessage,
         params: SyncClientParams,
-        activeConversationId: String?
+        activeConversationIds: Set<String>
     ) async
 
     func reconcilePushSubscriptions(params: SyncClientParams, context: String) async
@@ -258,7 +258,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     func processMessage(
         _ message: DecodedMessage,
         params: SyncClientParams,
-        activeConversationId: String?
+        activeConversationIds: Set<String>
     ) async {
         if handleFastPaths(message: message, params: params) { return }
 
@@ -350,7 +350,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                         senderInboxId: message.senderInboxId,
                         currentInboxId: params.client.inboxId,
                         conversationId: conversation.id,
-                        activeConversationId: activeConversationId
+                        activeConversationIds: activeConversationIds
                     ) {
                         try await localStateWriter.setUnread(true, for: conversation.id)
                     }
