@@ -262,7 +262,11 @@ struct AgentDmPageView: View {
                 return item
             }
         }
-        items.insert(.agentDmInfo(agentName: agentName), at: 0)
+        // The stamp lives on the agent member's profile, written by the
+        // assistants worker at join. nil for a default agent, and nil off dev,
+        // where the header renders exactly as before.
+        let variant = dmVm.conversation.members.first(where: { $0.isAgent })?.profile.variant
+        items.insert(.agentDmInfo(agentName: agentName, variant: variant), at: 0)
         return items
     }
 
