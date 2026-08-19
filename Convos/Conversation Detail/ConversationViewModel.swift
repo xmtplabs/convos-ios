@@ -4240,6 +4240,14 @@ extension ConversationViewModel {
         UIPasteboard.general.string = urlString
     }
 
+    /// Debug override for the Space web URL: writes the given value into the
+    /// group's appData (or clears it when nil), replacing whatever the
+    /// Assistant Worker published. Backs the "Space URL" row in conversation
+    /// info's debug section.
+    func debugOverrideSpaceURL(_ urlString: String?) async throws {
+        try await metadataWriter.updateSpaceURL(urlString, for: conversation.id)
+    }
+
     /// Presents the invite-code sheet (`InviteCodeSheet`) via
     /// `ConversationPresenter`. Used by the home page's
     /// `window.convos.showInviteCode()` bridge call.
