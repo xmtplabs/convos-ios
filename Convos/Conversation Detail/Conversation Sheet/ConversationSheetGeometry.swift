@@ -19,11 +19,15 @@ import SwiftUI
 final class ConversationSheetGeometry {
     /// How much of the screen the sheet occupies right now, measured from the
     /// physical bottom edge - which is how much of the Home it covers.
-    var coveredHeight: CGFloat = ConversationSheetMetrics.estimatedRestingHeight
+    var coveredHeight: CGFloat = ConversationSheetMetrics.homeCapsuleClearance
     /// The tallest the sheet can be, in the same convention. Zero until measured.
     var containerHeight: CGFloat = 0
-    /// The height the sheet rests at when collapsed.
-    var restingHeight: CGFloat = ConversationSheetMetrics.estimatedRestingHeight
+    /// Whether the sheet is on screen at all. With it away the Home reserves only
+    /// the capsule's clearance, whatever the sheet last reported.
+    var isSheetPresented: Bool = false
+    /// What is over the Home when the sheet is away: the capsule, and the gap
+    /// below it. The Home never reserves less than this.
+    var restingHeight: CGFloat = ConversationSheetMetrics.homeCapsuleClearance
 
     /// What the Home keeps clear at its bottom.
     ///
@@ -37,6 +41,10 @@ final class ConversationSheetGeometry {
     /// and the gap between the two conventions showed up as a page that stopped
     /// a few points short of the sheet's edge.
     var homeBottomClearance: CGFloat {
+        // The sheet's presence decides this, not its last reported height. A
+        // dismissal reports on its way out, and relying on those reports to stop
+        // arriving left the Home holding half a screen for a sheet that was gone.
+        guard isSheetPresented else { return restingHeight }
         let covered: CGFloat = max(coveredHeight, restingHeight)
         guard containerHeight > 0 else { return covered }
         return min(covered, max(containerHeight, restingHeight))

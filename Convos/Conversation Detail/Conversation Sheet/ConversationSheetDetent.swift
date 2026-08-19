@@ -1,64 +1,84 @@
 import CoreGraphics
 import Foundation
+import SwiftUI
 
-/// Resting sizes for the conversation's floating sheet, smallest first. The
-/// sheet holds the selected transcript above its composer and tab bar, and the
-/// detent decides how much of that transcript is showing; the Home surface is
-/// always behind it.
+/// Resting sizes for the conversation's sheet, smallest first.
 ///
-/// These map onto system presentation detents - see
-/// `ConversationSheetPresentationDetents` - so the sheet is a real `.sheet`
-/// and the system owns the drag and the physics.
+/// The sheet is a view in the conversation's own hierarchy, not a presentation,
+/// so these are plain heights rather than system detents. That is what lets the
+/// capsule sit *over* the sheet and outlive it: a presentation renders above
+/// everything in the presenting view, so a capsule drawn over the Home would be
+/// behind the sheet, and a dismissed sheet would take a capsule of its own with
+/// it. Neither is what this design asks for.
 ///
-/// Three fixed sizes, and the fixedness is the point. An earlier version had a
-/// fourth, `fitted`, whose height was the selected lane's transcript, so that the
-/// sheet stopped where the messages did. It cost more than it bought. Its height
-/// moved whenever a transcript re-measured, which rebuilt the set of sizes on
-/// offer underneath a live sheet; and because each lane had its own, the same
-/// detent meant two different heights on the two tabs, so switching tabs resized
-/// the sheet without anything asking it to. These three are the same height on
-/// both lanes and never move, so the offered set is built once and the only thing
-/// that changes the sheet's size is somebody asking it to change.
+/// It also retires the whole class of trouble the presentation brought: no set
+/// of offered detents to rebuild underneath a live sheet, no selection for the
+/// system to re-resolve, and no resize that moves the sheet's origin a layout
+/// pass before its height.
 enum ConversationSheetDetent: CaseIterable, Comparable {
-    /// Chrome only - the grabber, the selected tab's bar, and the tab bar.
-    /// No transcript. The floating card as it rests today.
+    /// No sheet at all. The Home has the screen, and the capsule floating over it
+    /// is the only conversation control left.
     case collapsed
     /// Half the screen: enough transcript to read an exchange, with the Home
     /// still showing above it.
-    case compact
-    /// Everything up to just below the conversation indicator.
+    case half
+    /// The whole screen.
     case full
 
-    /// Ordered smallest to largest, which `Comparable` follows.
     static let ascending: [ConversationSheetDetent] = allCases
 
-    /// Whether the sheet shows transcript content at this size. `collapsed`
-    /// is the only one that does not, which is what lets the Home own the
-    /// whole screen behind it.
-    var showsTranscript: Bool {
+    /// Whether the sheet is on screen at this size.
+    var isPresented: Bool {
         self != .collapsed
     }
 
-    /// The smallest size that shows any transcript, for opening the sheet on
-    /// something the user asked to read.
-    static let smallestReadable: ConversationSheetDetent = .compact
+    /// Whether the sheet's own surface reaches the top of the screen, where its
+    /// rounded corners and its grabber stop being drawn.
+    var isFullScreen: Bool {
+        self == .full
+    }
 
-    /// The tallest size, for anything that wants the sheet open as far as it goes.
-    static let tallest: ConversationSheetDetent = .full
+    /// The system detent this size presents as. `collapsed` has none - it is the
+    /// sheet not being presented - so it answers with the smallest real size, for
+    /// the selection binding's benefit while the sheet is on its way out.
+    var presentationDetent: PresentationDetent {
+        switch self {
+        case .collapsed, .half: return .fraction(Constant.halfFraction)
+        case .full: return .large
+        }
+    }
+
+    /// The sizes the sheet offers. Fixed, and independent of the transcript and
+    /// of the selected lane, so the set is built once and never rebuilt beneath a
+    /// live sheet.
+    static let presentationDetents: Set<PresentationDetent> = [
+        .fraction(Constant.halfFraction),
+        .large
+    ]
+
+    /// The size matching a system detent, or nil for one it does not describe.
+    static func from(presentationDetent: PresentationDetent) -> ConversationSheetDetent? {
+        switch presentationDetent {
+        case .fraction(Constant.halfFraction): return .half
+        case .large: return .full
+        default: return nil
+        }
+    }
 
     /// The size a conversation opens at.
     ///
-    /// Nothing to read means the Home is the point, so the sheet rests
-    /// collapsed and leaves it uncovered. Anything unread - or a tap that
-    /// asked for the agent DM outright - opens onto the transcript holding it,
-    /// so a backlog is never hidden behind the Home.
+    /// Nothing to read means the Home is the point, so the sheet stays away and
+    /// leaves it uncovered. Anything unread - or a tap that asked for the agent DM
+    /// outright - opens onto the transcript holding it.
     ///
-    /// `compact`, not the ceiling. Opening a conversation is not a request to be
-    /// taken to full screen: the unread message is at the bottom of the
-    /// transcript, half a screen shows it and what came before it, and the Home
-    /// stays in view above. Anyone who wants the rest can drag - which is a
-    /// gesture, where arriving at full screen unasked is a surprise.
+    /// `half`, not `full`: opening a conversation is not a request to be taken to
+    /// full screen. The unread message is at the bottom of the transcript, half a
+    /// screen shows it and what came before it, and the Home stays in view above.
     static func initial(hasUnread: Bool, agentDmRequested: Bool) -> ConversationSheetDetent {
-        hasUnread || agentDmRequested ? .compact : .collapsed
+        hasUnread || agentDmRequested ? .half : .collapsed
+    }
+
+    private enum Constant {
+        static let halfFraction: CGFloat = 0.5
     }
 }
