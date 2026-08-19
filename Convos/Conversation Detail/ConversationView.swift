@@ -1567,7 +1567,6 @@ private extension ConversationView {
     /// collapsed and progressively hidden as it grows.
     var backingViews: some View {
         HomeLayoutView(
-            conversationId: viewModel.conversation.id,
             webURL: viewModel.conversation.spaceURL,
             sheetGeometry: sheetGeometry,
             onNavigationRequest: { url in

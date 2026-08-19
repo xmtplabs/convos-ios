@@ -101,6 +101,34 @@ struct ConversationsView: View {
         )
     }
 
+    /// The home most likely to be opened next: the one already selected, or
+    /// the first in the list that has a home at all.
+    ///
+    /// One page, prepared speculatively. It is the same bet the old snapshot
+    /// cache made and lost - except this loads the real page rather than
+    /// photographing it, so being wrong costs one background request and being
+    /// right means the home is already drawn when the screen arrives.
+    private var likeliestHomeURL: URL? {
+        if let selected = viewModel.selectedConversationViewModel?.conversation.spaceURL {
+            return selected
+        }
+        return viewModel.conversations.first(where: { $0.spaceURL != nil })?.spaceURL
+    }
+
+    /// Points the pool at the home the reader is likeliest to open next.
+    ///
+    /// Off the update that asked for it, deliberately. Selecting a conversation
+    /// is what starts the push, and the chrome's blur transition runs in that
+    /// same transaction - building a web view and starting a load inside it
+    /// ended the transaction early and the top bar's buttons swapped with no
+    /// animation at all.
+    private func prepareLikeliestHome() {
+        guard let spaceURL = likeliestHomeURL else { return }
+        Task { @MainActor in
+            HomeWebViewPool.shared.prepare(url: spaceURL)
+        }
+    }
+
     @ViewBuilder
     private func pushedConversationDestination(viewModel convoVM: ConversationViewModel) -> some View {
         let isReadOnly: Bool = viewModel.staleDeviceObserver.isDeviceRemoved
@@ -231,7 +259,24 @@ struct ConversationsView: View {
             .navigationDestination(item: chatsDetailBinding) { vm in
                 pushedConversationDestination(viewModel: vm)
             }
+            // The home's page starts loading while the list is still on screen,
+            // rather than when the pushed screen builds its web surface. Waiting
+            // for the selection bought nothing: SwiftUI resolves it and builds
+            // the destination in one update, so the load still began after the
+            // push. The list is where the head start is - seconds of it, while
+            // the reader decides what to open. See `HomeWebViewPool.prepare(url:)`.
+            .onChange(of: likeliestHomeURL, initial: true) { _, _ in
+                prepareLikeliestHome()
+            }
             .onAppear {
+                // Again on every appearance, not only when the destination
+                // changes. Coming back from a conversation returns its view to
+                // the pool blank, and the URL the list would prepare has not
+                // changed - so nothing would re-prepare it, and going straight
+                // back in loaded the page after the push. `prepare` is a no-op
+                // when the spare is already pointed at the same page, so the
+                // common return costs nothing.
+                prepareLikeliestHome()
                 viewModel.onAppear()
             }
             .task {
