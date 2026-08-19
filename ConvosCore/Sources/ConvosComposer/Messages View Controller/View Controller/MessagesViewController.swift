@@ -453,6 +453,10 @@ public final class MessagesViewController: UIViewController {
     var messageLinkRouter: MessageLinkRouter = { _ in false } {
         didSet { dataSource.messageLinkRouter = messageLinkRouter }
     }
+    /// The conversation's own Space; see `SpaceLink`.
+    var conversationSpaceURL: URL? {
+        didSet { dataSource.conversationSpaceURL = conversationSpaceURL }
+    }
     var agentShareResolver: any AgentShareResolving = MockAgentShareResolver() {
         didSet { dataSource.agentShareResolver = agentShareResolver }
     }

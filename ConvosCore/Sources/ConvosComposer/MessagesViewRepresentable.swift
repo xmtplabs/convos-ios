@@ -17,6 +17,8 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// Offered every link tapped in a bubble before the in-app browser gets
     /// it; see `MessageLinkRouter`.
     var messageLinkRouter: MessageLinkRouter = { _ in false }
+    /// The conversation's own Space; see `SpaceLink`.
+    var conversationSpaceURL: URL?
     var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
     var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
     let onReaction: (String, String) -> Void
@@ -103,6 +105,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onTapInvite: @escaping (MessageInvite) -> Void,
         onTapAgentShare: @escaping (MessageAgentShare) -> Void = { _ in },
         messageLinkRouter: @escaping MessageLinkRouter = { _ in false },
+        conversationSpaceURL: URL? = nil,
         agentShareResolver: any AgentShareResolving = MockAgentShareResolver(),
         inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver(),
         onReaction: @escaping (String, String) -> Void,
@@ -156,6 +159,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.onTapInvite = onTapInvite
         self.onTapAgentShare = onTapAgentShare
         self.messageLinkRouter = messageLinkRouter
+        self.conversationSpaceURL = conversationSpaceURL
         self.agentShareResolver = agentShareResolver
         self.inviteMembershipResolver = inviteMembershipResolver
         self.onReaction = onReaction
@@ -230,6 +234,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onTapInvite = onTapInvite
         messagesViewController.onTapAgentShare = onTapAgentShare
         messagesViewController.messageLinkRouter = messageLinkRouter
+        messagesViewController.conversationSpaceURL = conversationSpaceURL
         messagesViewController.agentShareResolver = agentShareResolver
         messagesViewController.inviteMembershipResolver = inviteMembershipResolver
         messagesViewController.onReaction = onReaction

@@ -169,6 +169,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             .environment(\.inviteMembershipResolver, config.inviteMembershipResolver)
             .environment(\.onTapAgentShare, config.onTapAgentShare)
             .environment(\.messageLinkRouter, config.messageLinkRouter)
+            .environment(\.conversationSpaceURL, config.conversationSpaceURL)
         }
         .margins(.horizontal, 0.0)
         .margins(.vertical, 0.0)

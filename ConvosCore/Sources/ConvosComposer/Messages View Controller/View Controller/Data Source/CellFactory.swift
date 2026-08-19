@@ -21,6 +21,9 @@ struct CellConfig {
     /// `MessageLinkRouter`. Declines by default, which sends the link to the
     /// in-app browser.
     let messageLinkRouter: MessageLinkRouter
+    /// The conversation's own Space, for the bubbles that render a link home
+    /// differently. Nil until it exists.
+    let conversationSpaceURL: URL?
     let onTapAvatar: (AnyMessage) -> Void
     /// Fired when an avatar / sender label is tapped on a group that has no
     /// concrete `AnyMessage` to attach (e.g. the synthesized agent

@@ -242,7 +242,8 @@ struct MessagesGroupItemView: View {
             preview: TransientLinkPreviewCache.enriched(preview),
             style: style,
             isOutgoing: message.source == .outgoing,
-            profile: message.sender.profile
+            profile: message.sender.profile,
+            sentAt: message.date
         )
         .messageGesture(
             message: message,
@@ -351,7 +352,8 @@ struct MessagesGroupItemView: View {
             style: bubbleType,
             isOutgoing: message.source == .outgoing,
             profile: message.sender.profile,
-            messageId: message.messageId
+            messageId: message.messageId,
+            sentAt: message.date
         )
         .messageGesture(
             message: message,

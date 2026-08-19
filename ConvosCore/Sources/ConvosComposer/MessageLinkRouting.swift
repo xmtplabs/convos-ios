@@ -25,6 +25,21 @@ public extension EnvironmentValues {
     }
 }
 
+private struct ConversationSpaceURLKey: EnvironmentKey {
+    /// No Space, so no link can belong to one.
+    static let defaultValue: URL? = nil
+}
+
+public extension EnvironmentValues {
+    /// The conversation's own Space, injected beside `messageLinkRouter` for
+    /// the bubbles that render a link differently when it points home - see
+    /// `SpaceLink`. Nil until the Space exists.
+    var conversationSpaceURL: URL? {
+        get { self[ConversationSpaceURLKey.self] }
+        set { self[ConversationSpaceURLKey.self] = newValue }
+    }
+}
+
 /// The one door transcript links go through: the host first, the in-app
 /// browser for everything it declines.
 public enum MessageLinkOpener {

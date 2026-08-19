@@ -264,6 +264,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onTapInvite: viewModel.onTapInvite(_:),
             onTapAgentShare: viewModel.onTapAgentShare(_:),
             messageLinkRouter: routeSpaceLink(_:),
+            conversationSpaceURL: viewModel.conversation.spaceURL,
             agentShareResolver: viewModel.agentShareResolver,
             inviteMembershipResolver: viewModel.inviteMembershipResolver,
             onReaction: viewModel.onReaction(emoji:messageId:),
@@ -1073,10 +1074,19 @@ private extension ConversationView {
             // The root *is* the Home. Walk any open chain back to it rather
             // than stacking a second copy on top of itself.
             homeBrowserEntries.removeAll()
-        } else {
+        } else if !isShowingHomeBrowserPage(for: url) {
             pushHomeBrowserPage(for: url)
         }
         return true
+    }
+
+    /// Whether the page on top of the browsing chain is already this one, in
+    /// which case the tap has nowhere to go and only the sheet moves. Pushing
+    /// would stack the page on itself and leave a back chevron that returns to
+    /// an identical screen.
+    private func isShowingHomeBrowserPage(for url: URL) -> Bool {
+        guard let current = homeBrowserEntries.last else { return false }
+        return SpaceLink.isSamePage(current.url, as: url)
     }
 
     private func pushHomeBrowserPage(for url: URL) {
@@ -1568,6 +1578,7 @@ private extension ConversationView {
                     focusState: agentFocus,
                     focusCoordinator: agentFocusCoordinator,
                     messageLinkRouter: routeSpaceLink(_:),
+                    conversationSpaceURL: viewModel.conversation.spaceURL,
                     onScrollToBottomAvailable: { scrollFn in
                         // Same deferral as the group transcript's bridge.
                         DispatchQueue.main.async {
@@ -1722,6 +1733,7 @@ private extension ConversationView {
         // nothing from the cells: a link tapped in a bubble's menu preview
         // routes where the bubble's own tap routes only because of this.
         .environment(\.messageLinkRouter, routeSpaceLink(_:))
+        .environment(\.conversationSpaceURL, viewModel.conversation.spaceURL)
     }
 
     /// Extra rows above the group composer: the injected bottom-bar slot plus

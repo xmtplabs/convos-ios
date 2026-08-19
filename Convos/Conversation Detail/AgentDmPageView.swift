@@ -51,6 +51,8 @@ struct AgentDmPageView: View {
     /// gets it. Carries the *group's* Space, not the DM's: the agent DMs you
     /// about pages it built for the group, and those belong in the same Home.
     var messageLinkRouter: MessageLinkRouter = { _ in false }
+    /// The *group's* Space, for the same reason the router carries it.
+    var conversationSpaceURL: URL?
     /// Bridges the DM transcript's scroll-to-bottom up to the sheet's
     /// composer, which fires it on send.
     var onScrollToBottomAvailable: ((@escaping (Bool) -> Void) -> Void)?
@@ -352,6 +354,7 @@ struct AgentDmPageView: View {
             onTapAvatar: dmVm.onTapAvatar(_:),
             onTapInvite: { _ in },
             messageLinkRouter: messageLinkRouter,
+            conversationSpaceURL: conversationSpaceURL,
             agentShareResolver: dmVm.agentShareResolver,
             onReaction: dmVm.onReaction(emoji:messageId:),
             onToggleReaction: dmVm.onReaction(emoji:messageId:),

@@ -377,7 +377,8 @@ public struct MessageContextMenuOverlay: View {
                 preview: TransientLinkPreviewCache.enriched(preview),
                 style: state.bubbleStyle,
                 isOutgoing: state.isOutgoing,
-                profile: message.sender.profile
+                profile: message.sender.profile,
+                sentAt: message.date
             )
         case .whole:
             MessageBubble(
@@ -440,7 +441,8 @@ public struct MessageContextMenuOverlay: View {
                     preview: preview,
                     style: state.bubbleStyle,
                     isOutgoing: state.isOutgoing,
-                    profile: message.sender.profile
+                    profile: message.sender.profile,
+                    sentAt: message.date
                 )
 
             default:
