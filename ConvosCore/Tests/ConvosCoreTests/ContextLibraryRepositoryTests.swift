@@ -79,6 +79,25 @@ struct ContextLibraryRepositoryTests {
         #expect(items.isEmpty)
     }
 
+    @Test("publisher starts safely from a non-main task")
+    func startsPublisherOutsideMainThread() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try await dbManager.dbWriter.write { db in
+            try Self.seedIdentityAndConversations(db)
+        }
+        let repository = ContextLibraryRepository(dbReader: dbManager.dbReader)
+
+        let items = await Task.detached {
+            let publisher = repository.itemsPublisher(conversationIds: ["included"])
+            for await items in publisher.values {
+                return items
+            }
+            return []
+        }.value
+
+        #expect(items.isEmpty)
+    }
+
     @Test("bounds oversized attachment context during launch")
     func boundsOversizedAttachmentContext() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()

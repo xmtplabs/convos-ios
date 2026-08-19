@@ -83,7 +83,7 @@ public final class ContextLibraryRepository: Sendable {
             .tracking { db in
                 try Self.loadItems(db: db, conversationIds: uniqueIds)
             }
-            .publisher(in: dbReader, scheduling: .immediate)
+            .publisher(in: dbReader, scheduling: .mainActor)
             .replaceError(with: [])
             .removeDuplicates()
             .eraseToAnyPublisher()
