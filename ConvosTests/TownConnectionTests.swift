@@ -101,6 +101,6 @@ private final class MemoryKeychain: KeychainServiceProtocol, @unchecked Sendable
     }
 
     func delete(account: String) throws {
-        lock.withLock { values.removeValue(forKey: account) }
+        _ = lock.withLock { values.removeValue(forKey: account) }
     }
 }
