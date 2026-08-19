@@ -263,9 +263,12 @@ extension Database {
         resortByActivity: Bool
     ) throws -> [Conversation] {
         let summaries = try agentDmSummaries(forGroupIds: conversations.map(\.id), consent: consent)
-        let folded = try conversations.map { (conversation: Conversation) -> Conversation in
-            guard let summary = try summaries[conversation.id]
-                ?? agentDmSummaryFromGroupMembers(of: conversation, consent: consent) else {
+        let legacySummaries = try legacyAgentDmSummaries(
+            forGroupsWithoutLinks: conversations.filter { summaries[$0.id] == nil },
+            consent: consent
+        )
+        let folded = conversations.map { (conversation: Conversation) -> Conversation in
+            guard let summary = summaries[conversation.id] ?? legacySummaries[conversation.id] else {
                 return conversation
             }
             var row = conversation
@@ -352,30 +355,98 @@ extension Database {
         return summaries
     }
 
-    /// Legacy path for a DM saved before `agent_dm_origin` existed, which has no
-    /// link row until its next save. Finds the DM from the group's verified-agent
-    /// member instead, which is what every row used to do.
-    func agentDmSummaryFromGroupMembers(
-        of conversation: Conversation,
+    /// Legacy path for DMs saved before `agent_dm_origin` existed, which have no
+    /// link row until their next save. Finds each DM from its group's
+    /// verified-agent member instead, which is what every row used to do.
+    ///
+    /// Resolved for the whole batch in one query, for the same reason
+    /// `agentDmSummaries` is: the per-group form compiled and ran a fresh 1:1
+    /// lookup for every group that had no link row, and before the link table
+    /// is populated that is every row in the list. Inside the list observation
+    /// that is N statement compilations, on every connection in the reader pool
+    /// at once - which starved the pool at launch and blocked whatever else
+    /// needed a reader, up to and including the main thread.
+    func legacyAgentDmSummaries(
+        forGroupsWithoutLinks conversations: [Conversation],
         consent: [Consent]
-    ) throws -> Conversation.AgentDmSummary? {
-        guard let agentMember = conversation.members.first(where: { $0.isVerifiedAgent }) else {
-            return nil
+    ) throws -> [String: Conversation.AgentDmSummary] {
+        var agentByGroupId: [String: (inboxId: String, displayName: String)] = [:]
+        for conversation in conversations {
+            guard let agentMember = conversation.members.first(where: { $0.isVerifiedAgent }) else {
+                continue
+            }
+            agentByGroupId[conversation.id] = (agentMember.profile.inboxId, agentMember.displayName)
         }
-        guard let dm = try composeOneToOne(
-            with: agentMember.profile.inboxId,
-            excluding: nil,
-            consent: consent,
-            onlyAgentDms: true
-        ) else {
-            return nil
+        guard !agentByGroupId.isEmpty else { return [:] }
+
+        let agentInboxIds: [String] = Array(Set(agentByGroupId.values.map(\.inboxId)))
+        // The same 1:1 shape `composeOneToOne` matches - the agent is a member,
+        // the current user is a member, and those two are the whole membership -
+        // widened from one inbox to the batch's.
+        let batchedOneToOnePredicate: SQL = """
+            EXISTS (
+                SELECT 1 FROM conversation_members AS cm_other
+                WHERE cm_other.conversationId = conversation.id
+                AND cm_other.inboxId IN \(agentInboxIds)
+            )
+            AND EXISTS (
+                SELECT 1 FROM conversation_members AS cm_self
+                WHERE cm_self.conversationId = conversation.id
+                AND cm_self.inboxId IN (SELECT inboxId FROM inbox)
+            )
+            AND (
+                SELECT COUNT(*) FROM conversation_members AS cm_count
+                WHERE cm_count.conversationId = conversation.id
+            ) = 2
+            """
+        let dmDetails = try DBConversation
+            .filter(
+                !DBConversation.Columns.id.like("draft-%")
+                || (DBConversation.Columns.inviteTag != nil
+                    && length(DBConversation.Columns.inviteTag) > 0)
+            )
+            .filter(DBConversation.Columns.isAgentDm == true)
+            .filter(consent.contains(DBConversation.Columns.consent))
+            .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
+            .filter(DBConversation.Columns.isUnused == false)
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
+            .filter(literal: batchedOneToOnePredicate)
+            .detailedConversationQuery()
+            .fetchAll(self)
+        guard !dmDetails.isEmpty else { return [:] }
+
+        let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
+        let contactNameResolver = try ContactsRepository.contactNameResolverInTransaction(db: self)
+        // Keyed by the agent's inbox id, keeping the most recently active DM -
+        // `composeOneToOne` fetched one row from a query ordered by activity
+        // descending, so the same match wins here.
+        var dmByAgentInboxId: [String: Conversation] = [:]
+        for details in dmDetails {
+            let dm = details.hydrateConversation(
+                currentInboxId: currentInboxId,
+                contactNameResolver: contactNameResolver
+            )
+            guard let agentInboxId = dm.members.first(where: { !$0.isCurrentUser })?.profile.inboxId else {
+                continue
+            }
+            if let existing = dmByAgentInboxId[agentInboxId],
+               existing.lastActivityDate >= dm.lastActivityDate {
+                continue
+            }
+            dmByAgentInboxId[agentInboxId] = dm
         }
-        return Conversation.AgentDmSummary(
-            inboxId: agentMember.profile.inboxId,
-            displayName: agentMember.displayName,
-            lastMessage: dm.lastMessage,
-            isUnread: dm.isUnread
-        )
+
+        var summaries: [String: Conversation.AgentDmSummary] = [:]
+        for (groupId, agent) in agentByGroupId {
+            guard let dm = dmByAgentInboxId[agent.inboxId] else { continue }
+            summaries[groupId] = Conversation.AgentDmSummary(
+                inboxId: agent.inboxId,
+                displayName: agent.displayName,
+                lastMessage: dm.lastMessage,
+                isUnread: dm.isUnread
+            )
+        }
+        return summaries
     }
 
     /// A single conversation by id under the same eligibility filters as

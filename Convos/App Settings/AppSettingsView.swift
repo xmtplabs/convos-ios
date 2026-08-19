@@ -296,7 +296,7 @@ struct AppSettingsView: View {
     }
 
     @State private var presentingPaywall: Bool = false
-    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var creditBalance: CreditBalance?
     @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var subscriptionSyncState: SubscriptionSyncState = SubscriptionServices.shared.currentSyncState
 

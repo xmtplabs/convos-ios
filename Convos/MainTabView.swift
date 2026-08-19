@@ -57,9 +57,15 @@ struct MainTabView: View {
     /// Live subscription drives the app-indicator subtitle (plan name,
     /// or "Basic" when not subscribed). Seeded from the service's current
     /// value so the first render doesn't flicker, then kept in sync via
-    /// `.onReceive` on the publisher.
+    /// `.onReceive` on the publisher. Seeding is safe here because the
+    /// subscription's current value is held in memory.
     @State private var userSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
-    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    /// Not seeded, unlike the subscription above: the balance's current value
+    /// comes from a synchronous database read, and a `@State` default is
+    /// evaluated on every init of this view - so seeding it blocks the main
+    /// thread on the reader pool during body evaluation. See
+    /// `CreditsServiceProtocol.currentBalance`. The publisher fills it in.
+    @State private var creditBalance: CreditBalance?
     /// Shared namespace for the app-settings pill -> sheet zoom transition.
     /// The pill applies
     /// `.matchedTransitionSource(id: ..., in: namespace)` and the
