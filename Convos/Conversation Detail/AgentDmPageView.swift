@@ -47,6 +47,10 @@ struct AgentDmPageView: View {
     /// group composer's focus state, which stays mounted alongside this tab.
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
+    /// Offered every link tapped in this transcript before the in-app browser
+    /// gets it. Carries the *group's* Space, not the DM's: the agent DMs you
+    /// about pages it built for the group, and those belong in the same Home.
+    var messageLinkRouter: MessageLinkRouter = { _ in false }
     /// Bridges the DM transcript's scroll-to-bottom up to the sheet's
     /// composer, which fires it on send.
     var onScrollToBottomAvailable: ((@escaping (Bool) -> Void) -> Void)?
@@ -347,6 +351,7 @@ struct AgentDmPageView: View {
             onClearMediaAttachment: dmVm.removeMediaAttachment(id:),
             onTapAvatar: dmVm.onTapAvatar(_:),
             onTapInvite: { _ in },
+            messageLinkRouter: messageLinkRouter,
             agentShareResolver: dmVm.agentShareResolver,
             onReaction: dmVm.onReaction(emoji:messageId:),
             onToggleReaction: dmVm.onReaction(emoji:messageId:),

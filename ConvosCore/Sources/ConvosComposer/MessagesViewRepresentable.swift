@@ -14,6 +14,9 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onLoadPreviousMessages: () -> Void
     let onTapInvite: (MessageInvite) -> Void
     var onTapAgentShare: (MessageAgentShare) -> Void = { _ in }
+    /// Offered every link tapped in a bubble before the in-app browser gets
+    /// it; see `MessageLinkRouter`.
+    var messageLinkRouter: MessageLinkRouter = { _ in false }
     var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
     var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
     let onReaction: (String, String) -> Void
@@ -99,6 +102,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onLoadPreviousMessages: @escaping () -> Void,
         onTapInvite: @escaping (MessageInvite) -> Void,
         onTapAgentShare: @escaping (MessageAgentShare) -> Void = { _ in },
+        messageLinkRouter: @escaping MessageLinkRouter = { _ in false },
         agentShareResolver: any AgentShareResolving = MockAgentShareResolver(),
         inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver(),
         onReaction: @escaping (String, String) -> Void,
@@ -151,6 +155,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.onLoadPreviousMessages = onLoadPreviousMessages
         self.onTapInvite = onTapInvite
         self.onTapAgentShare = onTapAgentShare
+        self.messageLinkRouter = messageLinkRouter
         self.agentShareResolver = agentShareResolver
         self.inviteMembershipResolver = inviteMembershipResolver
         self.onReaction = onReaction
@@ -224,6 +229,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onLoadPreviousMessages = onLoadPreviousMessages
         messagesViewController.onTapInvite = onTapInvite
         messagesViewController.onTapAgentShare = onTapAgentShare
+        messagesViewController.messageLinkRouter = messageLinkRouter
         messagesViewController.agentShareResolver = agentShareResolver
         messagesViewController.inviteMembershipResolver = inviteMembershipResolver
         messagesViewController.onReaction = onReaction

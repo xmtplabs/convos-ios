@@ -448,6 +448,11 @@ public final class MessagesViewController: UIViewController {
 
     var onTapInvite: ((MessageInvite) -> Void)?
     var onTapAgentShare: ((MessageAgentShare) -> Void)?
+    /// Offered every link tapped in a bubble before the in-app browser gets
+    /// it; see `MessageLinkRouter`.
+    var messageLinkRouter: MessageLinkRouter = { _ in false } {
+        didSet { dataSource.messageLinkRouter = messageLinkRouter }
+    }
     var agentShareResolver: any AgentShareResolving = MockAgentShareResolver() {
         didSet { dataSource.agentShareResolver = agentShareResolver }
     }
