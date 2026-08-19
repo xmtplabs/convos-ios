@@ -20,7 +20,28 @@ struct HomeWebSurface: View {
     /// away from the space URL.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
-    @State private var isLoaded: Bool = false
+    /// Whether the page is showing rather than the cover.
+    ///
+    /// Seeded from the pool, not from `false`: a page prepared while the reader
+    /// was still on the list is already drawn when this view is built, and
+    /// starting covered would put the preparing state over a finished home and
+    /// then fade it out. The wait it describes has already happened.
+    @State private var isLoaded: Bool
+
+    init(
+        url: URL? = nil,
+        isScrollEnabled: Bool = true,
+        topContentInset: CGFloat = 0,
+        bottomContentInset: CGFloat = 0,
+        onNavigationRequest: @escaping @MainActor (URL) -> Void = { _ in }
+    ) {
+        self.url = url
+        self.isScrollEnabled = isScrollEnabled
+        self.topContentInset = topContentInset
+        self.bottomContentInset = bottomContentInset
+        self.onNavigationRequest = onNavigationRequest
+        _isLoaded = State(initialValue: HomeWebViewPool.shared.adoption(for: url) == .painted)
+    }
 
     var body: some View {
         ZStack {
@@ -46,6 +67,13 @@ struct HomeWebSurface: View {
                     // The page says it has drawn, so there is nothing left to
                     // wait for.
                     reveal(after: 0)
+                },
+                onAdoptedPainted: {
+                    // Already drawn before this view existed. Straight to the
+                    // page, with no fade: there is no wait to describe, and
+                    // animating one out is how a ready home still shows a
+                    // progress bar.
+                    isLoaded = true
                 },
                 onNavigationRequest: onNavigationRequest
             )
