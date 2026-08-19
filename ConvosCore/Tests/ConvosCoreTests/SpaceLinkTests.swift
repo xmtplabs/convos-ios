@@ -65,7 +65,30 @@ struct SpaceLinkTests {
         #expect(!SpaceLink.matches(url("https://example.com"), space: space))
     }
 
-    @Test("The port is part of the origin")
+    /// 443 is what https means, so spelling it out addresses the same origin.
+    @Test("An explicit default https port is the same origin as none")
+    func explicitDefaultPortMatches() {
+        #expect(
+            SpaceLink.matches(
+                url("https://abcdefghijklmnop.spaces.convos.fun:443/goals"),
+                space: space
+            )
+        )
+        #expect(
+            SpaceLink.matches(
+                url("https://abcdefghijklmnop.spaces.convos.fun/goals"),
+                space: url("https://abcdefghijklmnop.spaces.convos.fun:443")
+            )
+        )
+        #expect(
+            SpaceLink.isRoot(
+                url("https://abcdefghijklmnop.spaces.convos.fun:443/"),
+                space: space
+            )
+        )
+    }
+
+    @Test("A non-default port is still part of the origin")
     func portIsPartOfOrigin() {
         let local: URL = url("https://localhost:8787")
         #expect(SpaceLink.matches(url("https://localhost:8787/goals"), space: local))
@@ -126,6 +149,39 @@ struct SpaceLinkTests {
             !SpaceLink.isSamePage(
                 url("https://abcdefghijklmnop.spaces.convos.fun/goals?filter=done"),
                 as: url("https://abcdefghijklmnop.spaces.convos.fun/goals")
+            )
+        )
+    }
+
+    // MARK: - Same location
+
+    /// An anchor is a place on the page, and nothing can scroll a page that is
+    /// already open, so a link to one is somewhere to go.
+    @Test("A differing fragment is a different location")
+    func fragmentIsADifferentLocation() {
+        let page: URL = url("https://abcdefghijklmnop.spaces.convos.fun/goals")
+        #expect(!SpaceLink.isSameLocation(url("\(page.absoluteString)#today"), as: page))
+        #expect(!SpaceLink.isSameLocation(page, as: url("\(page.absoluteString)#today")))
+    }
+
+    @Test("The same location includes the same anchor")
+    func sameLocationIncludesAnchor() {
+        let page: URL = url("https://abcdefghijklmnop.spaces.convos.fun/goals")
+        #expect(SpaceLink.isSameLocation(page, as: page))
+        #expect(
+            SpaceLink.isSameLocation(
+                url("\(page.absoluteString)/#today"),
+                as: url("\(page.absoluteString)#today")
+            )
+        )
+    }
+
+    @Test("A different page is a different location whatever the anchor")
+    func differentPageIsADifferentLocation() {
+        #expect(
+            !SpaceLink.isSameLocation(
+                url("https://abcdefghijklmnop.spaces.convos.fun/notes#today"),
+                as: url("https://abcdefghijklmnop.spaces.convos.fun/goals#today")
             )
         )
     }

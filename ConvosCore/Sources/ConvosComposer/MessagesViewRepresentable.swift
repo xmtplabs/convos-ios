@@ -233,8 +233,10 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onLoadPreviousMessages = onLoadPreviousMessages
         messagesViewController.onTapInvite = onTapInvite
         messagesViewController.onTapAgentShare = onTapAgentShare
-        messagesViewController.messageLinkRouter = messageLinkRouter
-        messagesViewController.conversationSpaceURL = conversationSpaceURL
+        messagesViewController.applySpaceLinkHandling(
+            router: messageLinkRouter,
+            spaceURL: conversationSpaceURL
+        )
         messagesViewController.agentShareResolver = agentShareResolver
         messagesViewController.inviteMembershipResolver = inviteMembershipResolver
         messagesViewController.onReaction = onReaction

@@ -47,6 +47,17 @@ public enum SpaceLink {
             && lhs.query == rhs.query
     }
 
+    /// Whether `url` addresses the same page *and* the same place within it.
+    ///
+    /// The stricter of the two: a differing fragment is somewhere on the page
+    /// the reader is not, and nothing here can scroll a page that is already
+    /// open, so the caller has to treat it as somewhere to go.
+    public static func isSameLocation(_ url: URL, as other: URL) -> Bool {
+        guard isSamePage(url, as: other) else { return false }
+        return URLComponents(url: url, resolvingAgainstBaseURL: false)?.fragment
+            == URLComponents(url: other, resolvingAgainstBaseURL: false)?.fragment
+    }
+
     /// Paths that differ only by a trailing slash are one page, and so are
     /// "" and "/".
     private static func normalizedPath(_ path: String) -> String {
@@ -68,7 +79,9 @@ public enum SpaceLink {
               let host = components.host?.lowercased(), !host.isEmpty else {
             return nil
         }
-        let port = components.port.map { ":\($0)" } ?? ""
+        // 443 is what https means, so a URL that spells it out addresses the
+        // same origin as one that leaves it off.
+        let port = components.port.flatMap { $0 == 443 ? nil : ":\($0)" } ?? ""
         return "\(scheme)://\(host)\(port)"
     }
 }

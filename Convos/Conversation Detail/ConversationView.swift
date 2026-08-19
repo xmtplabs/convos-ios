@@ -1100,13 +1100,18 @@ private extension ConversationView {
         moveSheet(to: .compact)
     }
 
-    /// Whether the page on top of the browsing chain is already this one, in
-    /// which case the tap has nowhere to go and only the sheet moves. Pushing
-    /// would stack the page on itself and leave a back chevron that returns to
-    /// an identical screen.
+    /// Whether the page on top of the browsing chain is already showing this
+    /// exact location, in which case the tap has nowhere to go and only the
+    /// sheet moves. Pushing would stack the page on itself and leave a back
+    /// chevron that returns to an identical screen.
+    ///
+    /// The anchor counts. `/goals` and `/goals#today` are one page but two
+    /// places in it, and nothing here can scroll a page that is already open -
+    /// so a link to the anchor is pushed, and lands on it, rather than being
+    /// swallowed as somewhere the reader already is.
     private func isShowingHomeBrowserPage(for url: URL) -> Bool {
         guard let current = homeBrowserEntries.last else { return false }
-        return SpaceLink.isSamePage(current.url, as: url)
+        return SpaceLink.isSameLocation(current.url, as: url)
     }
 
     private func pushHomeBrowserPage(for url: URL) {
