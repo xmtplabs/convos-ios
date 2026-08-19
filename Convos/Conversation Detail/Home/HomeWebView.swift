@@ -28,8 +28,12 @@ struct HomeWebView: UIViewRepresentable {
     /// Fired on the main actor once the page finishes loading.
     var onLoaded: @MainActor () -> Void = {}
     /// Fired on the main actor when the page reports its first contentful
-    /// paint. See `Constant.firstPaintScript`.
+    /// paint. See `HomeWebViewPaintReporter.script`.
     var onFirstPaint: @MainActor () -> Void = {}
+    /// Fired on the main actor when the adopted view was already showing this
+    /// page, drawn, before this view was built - so there is nothing to wait
+    /// for and nothing to fade.
+    var onAdoptedPainted: @MainActor () -> Void = {}
     /// Fired on the main actor when the page requests navigation away from
     /// the loaded space URL (link tap, JS redirect, target=_blank). The
     /// navigation is cancelled in place; the host presents it in the home
@@ -61,7 +65,7 @@ struct HomeWebView: UIViewRepresentable {
         // A page prepared while the screen was being pushed is already this
         // view's page: loading it again would throw away the head start and
         // show the cover for a second load of what is already drawn.
-        coordinator.adoptPreparedLoad(adoption, url: url, onFirstPaint: onFirstPaint)
+        coordinator.adoptPreparedLoad(adoption, url: url, onAdoptedPainted: onAdoptedPainted)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         // Transparent web chrome: the SwiftUI host paints the home canvas
@@ -207,7 +211,7 @@ struct HomeWebView: UIViewRepresentable {
         func adoptPreparedLoad(
             _ adoption: HomeWebViewPool.Adoption,
             url: URL?,
-            onFirstPaint: @escaping @MainActor () -> Void
+            onAdoptedPainted: @escaping @MainActor () -> Void
         ) {
             guard adoption != .unprepared, let url else { return }
             markLoadStarted()
@@ -218,7 +222,7 @@ struct HomeWebView: UIViewRepresentable {
             hasReportedPaint = true
             hasFinishedInitialLoad = true
             Log.info("[PERF] HomeWebView.adoptedPainted: page was ready before the surface")
-            Task { @MainActor in onFirstPaint() }
+            Task { @MainActor in onAdoptedPainted() }
         }
 
         /// The page reporting that it has drawn. Reveals the surface without
