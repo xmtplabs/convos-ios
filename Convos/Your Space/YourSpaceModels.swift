@@ -39,7 +39,7 @@ struct YourSpaceStoredFile: Identifiable, Hashable, Sendable {
     var id: String { url.path }
 }
 
-enum YourSpaceContextKind: String, CaseIterable, Identifiable, Sendable {
+enum YourSpaceContextKind: String, CaseIterable, Codable, Identifiable, Sendable {
     case all
     case photo
     case video
@@ -47,6 +47,10 @@ enum YourSpaceContextKind: String, CaseIterable, Identifiable, Sendable {
     case file
     case voice
     case note
+    case address
+    case phone
+    case email
+    case detail
 
     var id: String { rawValue }
 
@@ -59,6 +63,10 @@ enum YourSpaceContextKind: String, CaseIterable, Identifiable, Sendable {
         case .file: "Files"
         case .voice: "Voice"
         case .note: "Notes"
+        case .address: "Addresses"
+        case .phone: "Phone numbers"
+        case .email: "Email"
+        case .detail: "Remembered"
         }
     }
 
@@ -71,19 +79,111 @@ enum YourSpaceContextKind: String, CaseIterable, Identifiable, Sendable {
         case .file: "doc.fill"
         case .voice: "waveform"
         case .note: "note.text"
+        case .address: "map.fill"
+        case .phone: "phone.fill"
+        case .email: "envelope.fill"
+        case .detail: "text.badge.checkmark"
         }
+    }
+}
+
+enum YourSpaceRememberedFieldCategory: String, CaseIterable, Codable, Identifiable, Sendable {
+    case address
+    case phone
+    case email
+    case website
+    case other
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .address: "Address"
+        case .phone: "Phone number"
+        case .email: "Email"
+        case .website: "Website"
+        case .other: "Other"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .address: "map.fill"
+        case .phone: "phone.fill"
+        case .email: "envelope.fill"
+        case .website: "globe"
+        case .other: "text.badge.checkmark"
+        }
+    }
+
+    var contextKind: YourSpaceContextKind {
+        switch self {
+        case .address: .address
+        case .phone: .phone
+        case .email: .email
+        case .website: .link
+        case .other: .detail
+        }
+    }
+}
+
+struct YourSpaceRememberedField: Identifiable, Codable, Hashable, Sendable {
+    let id: UUID
+    let category: YourSpaceRememberedFieldCategory
+    let title: String
+    let info: String
+    let createdAt: Date
+    let updatedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        category: YourSpaceRememberedFieldCategory,
+        title: String,
+        info: String,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.category = category
+        self.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.info = info.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    var shareText: String { "\(title): \(info)" }
+}
+
+enum YourSpaceRememberedFieldStore {
+    private static let key: String = "your-space-card-remembered-fields-v1"
+    private static let maximumFieldCount: Int = 100
+
+    static func fields(defaults: UserDefaults = .standard) -> [YourSpaceRememberedField] {
+        guard let data = defaults.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([YourSpaceRememberedField].self, from: data) else {
+            return []
+        }
+        return Array(decoded.prefix(maximumFieldCount))
+    }
+
+    static func save(_ fields: [YourSpaceRememberedField], defaults: UserDefaults = .standard) {
+        let boundedFields = Array(fields.prefix(maximumFieldCount))
+        guard let data = try? JSONEncoder().encode(boundedFields) else { return }
+        defaults.set(data, forKey: key)
     }
 }
 
 enum YourSpaceContextSource: Hashable, Sendable {
     case local(YourSpaceStoredFile)
     case conversation(ContextLibraryItem)
+    case rememberedField(YourSpaceRememberedField)
 }
 
 struct YourSpaceContextItem: Identifiable, Hashable, Sendable {
     let id: String
     let kind: YourSpaceContextKind
     let title: String
+    let detail: String?
     let date: Date
     let conversationId: String?
     let senderInboxId: String?
@@ -94,6 +194,7 @@ struct YourSpaceContextItem: Identifiable, Hashable, Sendable {
         id = "local-\(file.id)"
         kind = Self.kind(filename: file.name)
         title = file.name
+        detail = nil
         date = file.addedAt
         conversationId = nil
         senderInboxId = nil
@@ -105,11 +206,24 @@ struct YourSpaceContextItem: Identifiable, Hashable, Sendable {
         id = item.id
         kind = YourSpaceContextKind(rawValue: item.kind.rawValue) ?? .file
         title = item.title
+        detail = nil
         date = item.date
         conversationId = item.conversationId
         senderInboxId = item.senderInboxId
         isMine = item.isMine
         source = .conversation(item)
+    }
+
+    init(rememberedField field: YourSpaceRememberedField) {
+        id = "remembered-\(field.id.uuidString)"
+        kind = field.category.contextKind
+        title = field.title
+        detail = field.info
+        date = field.updatedAt
+        conversationId = nil
+        senderInboxId = nil
+        isMine = true
+        source = .rememberedField(field)
     }
 
     private static func kind(filename: String) -> YourSpaceContextKind {

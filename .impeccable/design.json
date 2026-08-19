@@ -121,14 +121,14 @@
       "name": "Your Space Dock",
       "kind": "button",
       "refersTo": "your-space-dock",
-      "description": "The fixed three-position More, voice, and chat dock with a physically centered primary voice action.",
-      "html": "<nav class='ds-space-dock' aria-label='Your Space controls'><button aria-label='More in Your Space'>•••</button><button class='ds-space-voice' aria-label='Talk to Your Space'>⌁</button><button aria-label='Chat with Your Space'>●</button></nav>",
-      "css": ".ds-space-dock { color-scheme: light dark; width: 100%; display: grid; grid-template-columns: 1fr 56px 1fr; align-items: center; padding: 8px 24px; color: light-dark(#000000, #ffffff); } .ds-space-dock button { width: 44px; height: 44px; border: 0; border-radius: 50%; background: light-dark(#f5f5f5, #1c1c1c); color: inherit; } .ds-space-dock button:last-child { justify-self: end; } .ds-space-dock .ds-space-voice { width: 56px; height: 56px; background: #fc4f37; color: #ffffff; font-size: 1.25rem; }"
+      "description": "The fixed More, visible agent command, and chat tray with a compact Lava waveform well.",
+      "html": "<nav class='ds-space-dock' aria-label='Your Space controls'><button aria-label='More in Your Space'>•••</button><button class='ds-space-agent' aria-label='Ask your agent to make, edit, or find anything'><span>⌁</span><strong>Ask your agent</strong><small>Make, edit, or find anything</small></button><button aria-label='Chat with Your Space'>●</button></nav>",
+      "css": ".ds-space-dock { color-scheme: light dark; width: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 12px; align-items: center; padding: 8px 16px; color: light-dark(#000000, #ffffff); } .ds-space-dock button { min-height: 44px; border: 0; border-radius: 22px; background: light-dark(#f5f5f5, #1c1c1c); color: inherit; } .ds-space-dock .ds-space-agent { min-height: 56px; display: grid; grid-template-columns: 40px 1fr; grid-template-rows: 1fr 1fr; column-gap: 12px; padding: 8px; text-align: left; border-radius: 14px; } .ds-space-agent span { grid-row: 1 / 3; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: #fc4f37; color: #ffffff; } .ds-space-agent strong { align-self: end; font-size: .875rem; } .ds-space-agent small { align-self: start; opacity: .65; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }"
     }
   ],
   "narrative": {
     "northStar": "The Private Signal Desk",
-    "overview": "Convos is a quiet personal briefing room, not an inbox dashboard. Its visual world is restrained and editorial: open space, adaptive neutral surfaces, circular identity, and a single decisive inverted surface that tells the user where attention is useful.\n\nThe briefing voice is expressive, while every control around it remains unmistakably native iOS. System components, semantic colors, Dynamic Type, and familiar sheet and list behavior keep the interface calm and trustworthy; privacy is communicated through visible provenance and deliberate boundaries rather than decorative security theater.\n\nThe authenticated shell follows the pinned topology `YS-SHELL-2026-08-18`: profile at top left, the centered space switcher, add at top right, private content between them, and a More–voice–chat dock at the bottom. The topology is durable; the content within the private space can grow as the product's evidence improves.",
+    "overview": "Convos is a quiet personal briefing room, not an inbox dashboard. Its visual world is restrained and editorial: open space, adaptive neutral surfaces, circular identity, and a single decisive inverted surface that tells the user where attention is useful.\n\nThe briefing voice is expressive, while every control around it remains unmistakably native iOS. System components, semantic colors, Dynamic Type, and familiar sheet and list behavior keep the interface calm and trustworthy; privacy is communicated through visible provenance and deliberate boundaries rather than decorative security theater.\n\nThe authenticated shell follows the pinned topology `YS-SHELL-2026-08-18`: profile at top left, the centered space switcher, add at top right, private content between them, and a More–agent command–chat tray at the bottom. The topology is durable; the content within the private space can grow as the product's evidence improves.",
     "keyCharacteristics": [
       "Restrained, adaptive Convos neutrals with Lava reserved for unread state and the live voice entry point.",
       "One editorial serif briefing voice inside an otherwise system-sans interface.",
@@ -149,7 +149,7 @@
       },
       {
         "name": "The Signal and Voice Rule",
-        "body": "Lava is limited to compact unread signals and the centered voice action; green remains a compact confirmation signal. Neither becomes decorative surface paint.",
+        "body": "Lava is limited to compact unread signals and the waveform well inside the agent command bar; green remains a compact confirmation signal. Neither becomes decorative surface paint.",
         "section": "colors"
       },
       {
@@ -159,7 +159,7 @@
       },
       {
         "name": "The Pinned Shell Rule",
-        "body": "Preserve the profile–switcher–add top line and More–voice–chat bottom line; conversations belong behind the switcher, not in a large home-screen list.",
+        "body": "Preserve the profile–switcher–add top line and More–agent command–chat bottom line; conversations belong behind the switcher, not in a large home-screen list.",
         "section": "layout"
       },
       {

@@ -72,6 +72,35 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
         XCTAssertEqual(contextItem(named: "Brief.pdf").kind, .file)
     }
 
+    func testRememberedFieldsBecomeSearchableContext() {
+        let field = YourSpaceRememberedField(
+            category: .address,
+            title: "Home",
+            info: "123 King Street West, Toronto"
+        )
+        let item = YourSpaceContextItem(rememberedField: field)
+
+        XCTAssertEqual(item.kind, .address)
+        XCTAssertEqual(item.title, "Home")
+        XCTAssertEqual(item.detail, "123 King Street West, Toronto")
+        XCTAssertTrue(item.isMine)
+    }
+
+    func testRememberedFieldsPersistLocally() throws {
+        let suiteName = "YourSpaceRememberedFieldTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let field = YourSpaceRememberedField(
+            category: .phone,
+            title: "Mobile",
+            info: "+1 416 555 0123"
+        )
+
+        YourSpaceRememberedFieldStore.save([field], defaults: defaults)
+
+        XCTAssertEqual(YourSpaceRememberedFieldStore.fields(defaults: defaults), [field])
+    }
+
     @MainActor
     func testShareStagerPreparesEveryPayloadWithoutSending() async throws {
         let directory = FileManager.default.temporaryDirectory
@@ -99,8 +128,19 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
         }
         try await stager.stage(conversationItem(kind: .link), in: draft)
         try await stager.stage(conversationItem(kind: .file, attachmentKey: "remote-key"), in: draft)
+        try await stager.stage(
+            YourSpaceContextItem(rememberedField: YourSpaceRememberedField(
+                category: .address,
+                title: "Home",
+                info: "123 King Street West, Toronto"
+            )),
+            in: draft
+        )
 
-        XCTAssertEqual(draft.messageText, "Remember this\nhttps://example.com/context")
+        XCTAssertEqual(
+            draft.messageText,
+            "Remember this\nhttps://example.com/context\nHome: 123 King Street West, Toronto"
+        )
         XCTAssertEqual(draft.photoCount, 1)
         XCTAssertEqual(draft.videoNames, ["Clip.mov"])
         XCTAssertEqual(draft.fileNames, ["Thought.m4a", "Brief.pdf", "Shared.pdf"])

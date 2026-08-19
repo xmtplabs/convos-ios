@@ -33,6 +33,8 @@ struct YourSpaceShareStager {
             try stageLocal(file, kind: item.kind, in: composer)
         case let .conversation(context):
             try await stageConversationContext(context, kind: item.kind, in: composer)
+        case let .rememberedField(field):
+            append(field.shareText, to: composer)
         }
     }
 

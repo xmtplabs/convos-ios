@@ -109,7 +109,7 @@ Convos is a quiet personal briefing room, not an inbox dashboard. Its visual wor
 
 The briefing voice is expressive, while every control around it remains unmistakably native iOS. System components, semantic colors, Dynamic Type, and familiar sheet and list behavior keep the interface calm and trustworthy; privacy is communicated through visible provenance and deliberate boundaries rather than decorative security theater.
 
-The authenticated shell follows the pinned topology `YS-SHELL-2026-08-18`: profile at top left, the centered space switcher, add at top right, private content between them, and a More–voice–chat dock at the bottom. The switcher expands downward from the header rather than rising from the bottom. The topology is durable; the content within the private space can grow as the product's evidence improves.
+The authenticated shell follows the pinned topology `YS-SHELL-2026-08-18`: profile at top left, the centered space switcher, add at top right, private content between them, and a More–agent command–chat tray at the bottom. The switcher expands downward from the header rather than rising from the bottom. The topology is durable; the content within the private space can grow as the product's evidence improves.
 
 **Key Characteristics:**
 
@@ -130,7 +130,7 @@ The palette is an adaptive black-to-white neutral system whose meaning survives 
 ### Tertiary
 
 - **Unread Lava** (`unread-signal`): A tiny unread or attention marker; it supplements explicit language and never carries meaning alone.
-- **Voice Lava** (`voice-action`): The compact centered voice action; it is the only persistent solid accent control.
+- **Voice Lava** (`voice-action`): The compact waveform well inside the persistent agent command bar; it is the only persistent solid accent control.
 - **Included Green** (`included-signal`): A compact confirmation marker in the connected-conversations list.
 
 ### Neutral
@@ -145,7 +145,7 @@ The palette is an adaptive black-to-white neutral system whose meaning survives 
 
 **The Inverted Attention Rule.** Give the briefing at most one solid inverted attention surface at a time so its rarity continues to mean “start here.”
 
-**The Signal and Voice Rule.** Lava is limited to compact unread signals and the centered voice action; green remains a compact confirmation signal. Neither becomes decorative surface paint.
+**The Signal and Voice Rule.** Lava is limited to compact unread signals and the waveform well inside the agent command bar; green remains a compact confirmation signal. Neither becomes decorative surface paint.
 
 ## Typography
 
@@ -166,7 +166,7 @@ The palette is an adaptive black-to-white neutral system whose meaning survives 
 
 ## Layout
 
-The shell is pinned to `YS-SHELL-2026-08-18`. Its top safe-area bar places circular profile identity, a flexible centered switcher, and a circular add menu on one line. The main briefing scrolls independently beneath it, and a fixed three-position More–voice–chat dock occupies the bottom safe area when reading size permits. Equal side regions keep the `56pt` voice action physically centered between `44pt` side controls.
+The shell is pinned to `YS-SHELL-2026-08-18`. Its top safe-area bar places circular profile identity, a flexible centered switcher, and a circular add menu on one line. The main briefing scrolls independently beneath it, and a fixed More–agent command–chat tray occupies the bottom safe area when reading size permits. The flexible command bar names its purpose in text instead of relying on an isolated waveform symbol.
 
 The home scroll view owns the visible viewport. Temporary chrome such as the anchored convo switcher is an overlay on that viewport and must never wrap, expand, or replace the scroll container's layout bounds.
 
@@ -174,7 +174,7 @@ Content follows the existing `DesignConstants.Spacing` four-point rhythm. The ma
 
 At accessibility Dynamic Type sizes, the bottom controls leave the safe-area overlay and reappear as full-width, `52pt`-minimum actions inside the scrolling content. The compact top chrome caps at the largest standard Dynamic Type size so profile, switcher, and add remain one usable row while the briefing continues to scale through the accessibility sizes. Text wraps vertically, update details retain conversation provenance, and controls preserve at least a `44pt` target without squeezing the briefing.
 
-**The Pinned Shell Rule.** Preserve the profile–switcher–add top line and More–voice–chat bottom line; conversations belong in a searchable panel anchored directly beneath the header, not in a large home-screen list or bottom sheet.
+**The Pinned Shell Rule.** Preserve the profile–switcher–add top line and More–agent command–chat bottom line; conversations belong in a searchable panel anchored directly beneath the header, not in a large home-screen list or bottom sheet.
 
 **The Accessibility Reflow Rule.** When text reaches an accessibility size, move persistent bottom actions into the content flow rather than forcing them to compete with enlarged text.
 
@@ -213,7 +213,9 @@ One full-width inverted surface uses the medium corner, a `44pt` circular icon w
 
 ### My Context and Connections
 
-The main library begins with an editable personal contact card, followed by a single search entry, a balanced category grid, recent assets, and one inverted “See all context” action. It combines on-device items the user adds with supported attachments and link previews from loaded convos. Every item retains source-convo and sender provenance when the data is available; private local items are labeled as such. Cards may render local or already-cached thumbnails, but opening the private library must never fetch remote preview media from a third party.
+The main library begins with an editable personal contact card, followed by a single search entry, a balanced category grid, an organized Useful details list, recent assets, and one inverted “See all context” action. The contact card's Remember section accepts bounded custom title-and-info fields categorized as addresses, phone numbers, email, website, or other; every field is editable and has its own explicit Share action before Recent context. It combines on-device items the user adds with supported attachments and link previews from loaded convos. Every item retains source-convo and sender provenance when the data is available; private local items are labeled as such.
+
+Context-card preview wells show content rather than file-type glyphs: photos and videos use decrypted thumbnails, documents use Quick Look thumbnails, notes use excerpts, voice notes use a waveform and duration, addresses and map links use a map snapshot, and links use cached or safely hydrated rich-link artwork. Loading is scoped to visible cards and results are cached so the library remains responsive.
 
 The `+` menu offers Add context and Add connections. Add context supports text notes, photos, voice notes, and native file import. Search or “See all context” opens a large, native-file-picker-like browser with type filters and an adaptive asset grid.
 

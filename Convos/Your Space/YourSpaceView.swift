@@ -26,6 +26,7 @@ struct YourSpaceView: View {
     @State private var fileImportNotice: YourSpaceFileImportNotice?
     @State private var localContextFiles: [YourSpaceStoredFile] = YourSpaceFileStore.storedFiles()
     @State private var conversationContextItems: [ContextLibraryItem] = []
+    @State private var rememberedFields: [YourSpaceRememberedField] = YourSpaceRememberedFieldStore.fields()
     @State private var browsingContextKind: YourSpaceContextKind?
     @State private var presentingAddContext: Bool = false
     @State private var presentingPersonalCard: Bool = false
@@ -93,6 +94,7 @@ struct YourSpaceView: View {
         return (
             localContextFiles.map(YourSpaceContextItem.init(local:))
                 + conversationContextItems.map(YourSpaceContextItem.init(conversation:))
+                + rememberedFields.map(YourSpaceContextItem.init(rememberedField:))
         )
         .sorted { $0.date > $1.date }
     }
@@ -173,7 +175,9 @@ struct YourSpaceView: View {
                 YourSpacePersonalCardEditor(
                     profile: profileSettingsViewModel.profile,
                     profileImage: profileSettingsViewModel.profileImage,
-                    recentContext: briefing.recentUpdates
+                    recentContext: briefing.recentUpdates,
+                    rememberedFields: $rememberedFields,
+                    onShareField: shareRememberedField
                 )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
@@ -245,6 +249,9 @@ struct YourSpaceView: View {
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active { staleDeviceSheetDismissed = false }
+            }
+            .onChange(of: rememberedFields) { _, fields in
+                YourSpaceRememberedFieldStore.save(fields)
             }
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                 if let url = activity.webpageURL { viewModel.handleURL(url) }
@@ -614,18 +621,21 @@ private extension YourSpaceView {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
             toolsMenu
-                .frame(maxWidth: .infinity, alignment: .leading)
 
-            voiceButton
+            agentCommandButton
+                .frame(maxWidth: .infinity)
 
             chatButton
-                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .foregroundStyle(.colorTextPrimary)
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
+        .background(.bar.opacity(0.96))
+        .overlay(alignment: .top) {
+            Divider()
+        }
     }
 
     private var accessibilityActions: some View {
@@ -643,12 +653,24 @@ private extension YourSpaceView {
             Button {
                 inputMode = .voice
             } label: {
-                Label("Talk to Your Space", systemImage: "waveform")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 52)
+                HStack(spacing: DesignConstants.Spacing.step3x) {
+                    Image(systemName: "waveform")
+                        .font(.headline.weight(.semibold))
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                        Text("Ask your agent")
+                            .font(.headline)
+                        Text("Make, edit, or find anything")
+                            .font(.caption)
+                            .foregroundStyle(Color.colorTextPrimaryInverted.opacity(0.78))
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .frame(maxWidth: .infinity, minHeight: 60)
             }
             .buttonStyle(.borderedProminent)
             .tint(.colorLava)
+            .accessibilityLabel("Ask your agent to make, edit, or find anything")
             .accessibilityIdentifier("your-space-voice-button")
 
             Button {
@@ -700,19 +722,41 @@ private extension YourSpaceView {
         }
     }
 
-    private var voiceButton: some View {
+    private var agentCommandButton: some View {
         Button {
             inputMode = .voice
         } label: {
-            Image(systemName: "waveform")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.colorTextPrimaryInverted)
-                .frame(width: 56, height: 56)
-                .contentShape(.circle)
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                Image(systemName: "waveform")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .frame(width: 40, height: 40)
+                    .background(.colorLava, in: .circle)
+
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                    Text("Ask your agent")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                        .lineLimit(1)
+                    Text("Make, edit, or find anything")
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .frame(maxWidth: .infinity, minHeight: 56)
+            .background(
+                .colorBackgroundRaisedSecondary,
+                in: .rect(cornerRadius: DesignConstants.CornerRadius.medium)
+            )
+            .shadow(color: Color.black.opacity(0.10), radius: 12, x: 0, y: 4)
         }
         .buttonStyle(.plain)
-        .background(Color.colorLava, in: .circle)
-        .accessibilityLabel("Talk to Your Space")
+        .accessibilityLabel("Ask your agent to make, edit, or find anything")
         .accessibilityIdentifier("your-space-voice-button")
     }
 
@@ -814,6 +858,14 @@ private extension YourSpaceView {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(350))
             sharingItem = item
+        }
+    }
+
+    private func shareRememberedField(_ field: YourSpaceRememberedField) {
+        presentingPersonalCard = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            sharingItem = YourSpaceContextItem(rememberedField: field)
         }
     }
 

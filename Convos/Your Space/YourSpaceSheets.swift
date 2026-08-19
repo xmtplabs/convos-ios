@@ -493,7 +493,7 @@ struct YourSpaceInputSheet: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 inputBar
             }
-            .navigationTitle(mode == .voice ? "Talk to Your Space" : "Chat with Your Space")
+            .navigationTitle("Ask your agent")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -535,7 +535,7 @@ struct YourSpaceInputSheet: View {
 
     private var chatComposer: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
-            TextField("Ask Your Space", text: $draft, axis: .vertical)
+            TextField("Ask your agent to make, edit, or find anything", text: $draft, axis: .vertical)
                 .focused($isChatFocused)
                 .font(.body)
                 .lineLimit(1 ... 5)
@@ -558,7 +558,7 @@ struct YourSpaceInputSheet: View {
             .buttonStyle(.plain)
             .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
-            .accessibilityLabel("Ask Your Space")
+            .accessibilityLabel("Ask your agent")
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.vertical, DesignConstants.Spacing.step2x)

@@ -27,9 +27,9 @@ The home screen is not an inbox. It is a private, continuously growing layer of 
 - A top-right add control starts a new conversation or joins one by scanning a QR code.
 - The profile image at top left opens app settings.
 - A native overflow menu exposes connections, private file upload, stored files, home customization, and the conversations contributing to the private space.
-- The bottom dock keeps voice as the centered primary action and chat as the secondary action on the right.
+- The bottom dock keeps a visible “Ask your agent” command bar as the primary action, with More on the left and chat on the right.
 - Contacts are selected in the invite flow for a conversation rather than occupying a permanent bottom-level destination.
-- The “My context and connections” library organizes the user's contact card, locally added context, and supported assets from loaded convos by type and provenance.
+- The “My context and connections” library organizes the user's contact card, locally added context, remembered addresses/numbers/details, and supported assets from loaded convos by type and provenance.
 - Any context item may be shared only by explicitly choosing a destination; the app opens that convo with the item staged in its composer for review and never auto-sends it.
 
 ## Capabilities and Constraints
@@ -39,9 +39,9 @@ The home screen is not an inbox. It is a private, continuously growing layer of 
 - Voice transcription, chat answers, and imported files stay on-device in this prototype; chat answers are grounded only in the currently visible briefing data.
 - The home experience needs useful loading, empty, unread, and no-attention states.
 - The conversation switcher must support many conversations, unread state, search, and direct navigation.
-- The context library must support search, type filters, provenance, local notes/photos/voice/files, an editable personal card, and an explicit add menu for context or connections.
+- The context library must support search, type filters, provenance, local notes/photos/voice/files, an editable personal card with bounded custom title-and-info fields, and an explicit add menu for context or connections.
 - The first production-grade context index is deliberately bounded to the 500 most recent supported attachments and link previews across at most 500 loaded conversations. Broader semantic extraction, paging, and arbitrary message text remain separate data-contract decisions.
-- Browsing the private library must not contact remote preview hosts; only local or already-cached media may render automatically.
+- Visible context cards render the richest safe preview available: decrypted or local thumbnails, document thumbnails, text excerpts, map snapshots, and cached link artwork. A visible link card may hydrate metadata and artwork through the app's existing bounded rich-link service, then caches the result; background indexing never crawls preview hosts.
 - Recent convo previews remain neutral context until the user explicitly saves one. The app must not present them as inferred personal facts without a dedicated suggestion contract.
 - The initial prototype may use clearly isolated sample insight content in previews. Production summaries, provenance, ranking, and persistence remain an open data-contract decision.
 - Existing notification, deep-link, QR joining, new-conversation, settings, stale-device, and conversation-detail behavior must remain reachable.

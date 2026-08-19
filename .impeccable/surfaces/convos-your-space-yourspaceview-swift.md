@@ -11,9 +11,9 @@ related_targets: ["Convos/Your Space/YourSpaceContextViews.swift","Convos/Your S
 - Audience: an existing Convos user who belongs to multiple conversations and wants to understand what changed without opening each one.
 - Job and action: connect recent people, updates, attention, and owned assets across convos; make new private context; open the right convo or explicitly stage a selected item into a chosen destination's composer.
 - Runtime constraint: the bounded home scroll view owns viewport sizing; the anchored switcher overlays it, and the main-actor-scheduled local context observation keeps only the latest 500 supported items from at most 500 loaded convos so launch sync cannot starve interaction or start GRDB's immediate scheduler off-main.
-- Proof and content: real local conversation previews, unread state, supported attachments and link previews, source convo names, verified sender metadata, and relative time. The production summarization service remains an open data boundary.
+- Proof and content: real local conversation previews, unread state, content-first photo/file/link/map previews, editable remembered addresses/numbers/details, source convo names, verified sender metadata, and relative time. The production summarization service remains an open data boundary.
 - Constraints: private by default; never auto-send or imply server-side synthesis; preserve existing start, join, pairing, deep-link, stale-device, settings, and conversation flows.
-- Direction: a quiet personal signal desk using Convos neutrals, dramatic editorial type, one inverted attention surface, and glass only for persistent controls.
+- Direction: a quiet personal signal desk using Convos neutrals, dramatic editorial type, one inverted attention surface, and a visible bottom agent command bar between native More and chat controls.
 - Memorable moment: the launch sentence reads like a live mad-lib across people and convos, then resolves into an editable personal card and a browsable library of everything the user is carrying across them.
 - Pinned shell: `YS-SHELL-2026-08-18`, recorded durably in `docs/your-space-shell-reference.md`; this user-supplied shell reference replaced a generated concept seed.
 - Unresolved: production policy and API for richer semantic summaries beyond deterministic message-preview synthesis.

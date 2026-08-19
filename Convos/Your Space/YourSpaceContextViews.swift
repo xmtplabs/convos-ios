@@ -24,6 +24,13 @@ struct YourSpaceContextSection: View {
         Array(items.sorted { $0.date > $1.date }.prefix(4))
     }
 
+    private var rememberedItemCount: Int {
+        items.count {
+            if case .rememberedField = $0.source { return true }
+            return false
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
             sectionHeader
@@ -49,6 +56,8 @@ struct YourSpaceContextSection: View {
             .accessibilityIdentifier("your-space-context-search")
 
             categoryGrid
+
+            usefulDetailsSection
 
             if !recentItems.isEmpty {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
@@ -154,7 +163,14 @@ struct YourSpaceContextSection: View {
                             .foregroundStyle(.colorTextSecondary)
                     }
 
-                    if let update = recentContext.first {
+                    if rememberedItemCount > 0 {
+                        Text(rememberedItemCount == 1
+                            ? "1 remembered detail ready to share"
+                            : "\(rememberedItemCount) remembered details ready to share")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.colorTextPrimary)
+                            .multilineTextAlignment(.leading)
+                    } else if let update = recentContext.first {
                         Text("Recent context from \(update.conversationTitle): \(update.detail)")
                             .font(.subheadline)
                             .foregroundStyle(.colorTextPrimary)
@@ -195,6 +211,76 @@ struct YourSpaceContextSection: View {
                 action: onAddConnections
             )
         }
+    }
+
+    private var usefulDetailsSection: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                Text("Useful details")
+                    .font(.headline)
+                    .foregroundStyle(.colorTextPrimary)
+                Text("Addresses, numbers, and the things you share often.")
+                    .font(.subheadline)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+
+            VStack(spacing: 0) {
+                usefulDetailRow(.address, subtitle: "Saved locations")
+                Divider().padding(.leading, 52)
+                usefulDetailRow(.phone, subtitle: "Numbers ready to share")
+                Divider().padding(.leading, 52)
+                usefulDetailRow(.email, subtitle: "Saved email addresses")
+                Divider().padding(.leading, 52)
+                usefulDetailRow(.detail, subtitle: "Anything else worth remembering")
+            }
+            .background(
+                .colorBackgroundRaisedSecondary,
+                in: .rect(cornerRadius: DesignConstants.CornerRadius.medium)
+            )
+        }
+    }
+
+    private func usefulDetailRow(_ kind: YourSpaceContextKind, subtitle: String) -> some View {
+        let itemCount = count(kind)
+        return Button {
+            if itemCount == 0 {
+                onEditCard()
+            } else {
+                onBrowse(kind)
+            }
+        } label: {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                Image(systemName: kind.systemImage)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(width: 36, height: 36)
+                    .background(.colorFillMinimal, in: .circle)
+
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                    Text(kind.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: DesignConstants.Spacing.step2x)
+
+                Text(itemCount == 0 ? "Add" : "\(itemCount)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(itemCount == 0 ? .colorTextPrimary : .colorTextSecondary)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.colorTextTertiary)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .frame(minHeight: 60)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(kind.title), \(itemCount) saved")
     }
 
     private func categoryButton(_ kind: YourSpaceContextKind, count: Int) -> some View {
@@ -287,6 +373,7 @@ struct YourSpaceContextBrowser: View {
             .filter { item in
                 guard !query.isEmpty else { return true }
                 return item.title.localizedCaseInsensitiveContains(query)
+                    || item.detail?.localizedCaseInsensitiveContains(query) == true
                     || provenance(for: item).localizedCaseInsensitiveContains(query)
             }
             .sorted { $0.date > $1.date }
@@ -328,7 +415,7 @@ struct YourSpaceContextBrowser: View {
             .background(.colorBackgroundSurfaceless)
             .navigationTitle("All context")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, prompt: "Links, photos, files, people")
+            .searchable(text: $query, prompt: "Links, photos, addresses, details")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -394,13 +481,21 @@ struct YourSpaceContextItemCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
-            preview
+            YourSpaceContextPreview(item: item)
+                .frame(height: 104)
+                .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.small))
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text(item.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
                     .lineLimit(2)
+                if let detail = item.detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextPrimary)
+                        .lineLimit(2)
+                }
                 Text(provenance)
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
@@ -418,55 +513,8 @@ struct YourSpaceContextItemCard: View {
             .accessibilityLabel("Share \(item.title) to a convo")
         }
         .padding(DesignConstants.Spacing.step3x)
-        .frame(maxWidth: .infinity, minHeight: 196, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 222, alignment: .topLeading)
         .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
-    }
-
-    @ViewBuilder
-    private var preview: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small)
-                .fill(previewColor)
-
-            if let image = localOrThumbnailImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                fallbackIcon
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 84)
-        .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.small))
-    }
-
-    private var fallbackIcon: some View {
-        Image(systemName: item.kind.systemImage)
-            .font(.title2.weight(.semibold))
-            .foregroundStyle(.colorTextPrimary)
-    }
-
-    private var previewColor: Color {
-        switch item.kind {
-        case .photo, .video: .colorBackgroundMedia
-        case .link: .colorFillTertiary
-        case .voice: Color.colorLava.opacity(0.18)
-        case .note: .colorFillMinimal
-        case .file, .all: .colorFillSubtle
-        }
-    }
-
-    private var localOrThumbnailImage: UIImage? {
-        switch item.source {
-        case let .local(file):
-            guard item.kind == .photo else { return nil }
-            return UIImage(contentsOfFile: file.url.path)
-        case let .conversation(context):
-            guard let base64 = context.thumbnailDataBase64,
-                  let data = Data(base64Encoded: base64) else { return nil }
-            return UIImage(data: data)
-        }
     }
 }
 
@@ -474,12 +522,17 @@ struct YourSpacePersonalCardEditor: View {
     let profile: Profile
     let profileImage: UIImage?
     let recentContext: [YourSpaceUpdate]
+    @Binding var rememberedFields: [YourSpaceRememberedField]
+    let onShareField: (YourSpaceRememberedField) -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @AppStorage("your-space-card-about") private var about: String = ""
     @AppStorage("your-space-card-preferences") private var preferences: String = ""
     @AppStorage("your-space-card-memory") private var memory: String = ""
     @State private var presentingProfileEditor: Bool = false
+    @State private var presentingFieldEditor: Bool = false
+    @State private var fieldBeingEdited: YourSpaceRememberedField?
+    @State private var fieldPendingDeletion: YourSpaceRememberedField?
 
     var body: some View {
         NavigationStack {
@@ -524,10 +577,22 @@ struct YourSpacePersonalCardEditor: View {
                 Section {
                     TextField("Things Your Space should keep handy", text: $memory, axis: .vertical)
                         .lineLimit(2 ... 8)
+
+                    ForEach(rememberedFields) { field in
+                        rememberedFieldRow(field)
+                    }
+
+                    Button {
+                        fieldBeingEdited = nil
+                        presentingFieldEditor = true
+                    } label: {
+                        Label("Add a field", systemImage: "plus.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                    }
                 } header: {
                     Text("Remember")
                 } footer: {
-                    Text("These details stay in this app on this device until you choose to share them.")
+                    Text("Add any title and info. Each field stays private here until you choose a convo to share it with.")
                 }
 
                 if !recentContext.isEmpty {
@@ -564,11 +629,196 @@ struct YourSpacePersonalCardEditor: View {
         .sheet(isPresented: $presentingProfileEditor) {
             ProfileSetupSheet(mode: .edit)
         }
+        .sheet(
+            isPresented: $presentingFieldEditor,
+            onDismiss: { fieldBeingEdited = nil },
+            content: {
+                YourSpaceRememberedFieldEditor(field: fieldBeingEdited) { field in
+                    upsert(field)
+                    presentingFieldEditor = false
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+        )
+        .confirmationDialog(
+            "Delete \(fieldPendingDeletion?.title ?? "this field")?",
+            isPresented: Binding(
+                get: { fieldPendingDeletion != nil },
+                set: { if !$0 { fieldPendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let fieldPendingDeletion {
+                    rememberedFields.removeAll { $0.id == fieldPendingDeletion.id }
+                }
+                fieldPendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) {
+                fieldPendingDeletion = nil
+            }
+        } message: {
+            Text("This removes the field from Your Space. It does not affect anything you already shared.")
+        }
+    }
+
+    private func rememberedFieldRow(_ field: YourSpaceRememberedField) -> some View {
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step3x) {
+            Image(systemName: field.category.systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.colorTextPrimary)
+                .frame(width: 32, height: 32)
+                .background(.colorFillMinimal, in: .circle)
+
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                Text(field.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                Text(field.info)
+                    .font(.subheadline)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(3)
+            }
+
+            Spacer(minLength: DesignConstants.Spacing.step2x)
+
+            Button {
+                onShareField(field)
+            } label: {
+                Image(systemName: "arrowshape.turn.up.right.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Share \(field.title) to a convo")
+
+            Menu {
+                Button("Edit", systemImage: "pencil") {
+                    fieldBeingEdited = field
+                    presentingFieldEditor = true
+                }
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    fieldPendingDeletion = field
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("More actions for \(field.title)")
+        }
+        .padding(.vertical, DesignConstants.Spacing.stepX)
+    }
+
+    private func upsert(_ field: YourSpaceRememberedField) {
+        if let index = rememberedFields.firstIndex(where: { $0.id == field.id }) {
+            rememberedFields[index] = field
+        } else {
+            rememberedFields.insert(field, at: 0)
+        }
     }
 
     private func appendToMemory(_ value: String) {
         guard !memory.localizedCaseInsensitiveContains(value) else { return }
         memory = memory.isEmpty ? value : "\(memory)\n\(value)"
+    }
+}
+
+private struct YourSpaceRememberedFieldEditor: View {
+    let field: YourSpaceRememberedField?
+    let onSave: (YourSpaceRememberedField) -> Void
+
+    @Environment(\.dismiss) private var dismiss: DismissAction
+    @State private var category: YourSpaceRememberedFieldCategory
+    @State private var title: String
+    @State private var info: String
+    @FocusState private var focusedField: FocusedField?
+
+    init(
+        field: YourSpaceRememberedField?,
+        onSave: @escaping (YourSpaceRememberedField) -> Void
+    ) {
+        self.field = field
+        self.onSave = onSave
+        _category = State(initialValue: field?.category ?? .other)
+        _title = State(initialValue: field?.title ?? "")
+        _info = State(initialValue: field?.info ?? "")
+    }
+
+    private var canSave: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !info.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Home address, assistant, favorite order…", text: $title)
+                        .focused($focusedField, equals: .title)
+                        .textInputAutocapitalization(.words)
+                        .onChange(of: title) { _, newValue in
+                            title = String(newValue.prefix(80))
+                        }
+
+                    Picker("Type", selection: $category) {
+                        ForEach(YourSpaceRememberedFieldCategory.allCases) { category in
+                            Label(category.title, systemImage: category.systemImage)
+                                .tag(category)
+                        }
+                    }
+                } header: {
+                    Text("Field")
+                }
+
+                Section {
+                    TextField("Add the info you want to keep handy", text: $info, axis: .vertical)
+                        .focused($focusedField, equals: .info)
+                        .lineLimit(3 ... 8)
+                        .onChange(of: info) { _, newValue in
+                            info = String(newValue.prefix(2_000))
+                        }
+                } header: {
+                    Text("Info")
+                } footer: {
+                    Text("Sharing opens a draft in the convo you choose. Nothing sends automatically.")
+                }
+            }
+            .navigationTitle(field == nil ? "Add remembered field" : "Edit remembered field")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }
+                        .disabled(!canSave)
+                }
+            }
+        }
+        .onAppear {
+            focusedField = field == nil ? .title : .info
+        }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        let now = Date()
+        onSave(YourSpaceRememberedField(
+            id: field?.id ?? UUID(),
+            category: category,
+            title: title,
+            info: info,
+            createdAt: field?.createdAt ?? now,
+            updatedAt: now
+        ))
+    }
+
+    private enum FocusedField: Hashable {
+        case title
+        case info
     }
 }
 
