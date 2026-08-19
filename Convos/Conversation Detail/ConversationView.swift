@@ -133,6 +133,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// when the shown conversation changes).
     @State private var escalationViewModel: ConversationEscalationViewModel?
     @State private var presentingAddFromContactsPicker: Bool = false
+    /// Non-nil presents the Connections browser modal, carrying the
+    /// launching agent DM's context (see `ConnectionsBrowserMode`).
+    @State private var connectionsBrowserContext: ConnectionsBrowserMode?
     /// Drives the system share sheet behind the top bar's invite-link button.
     @State private var presentingInviteShareSheet: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
@@ -706,7 +709,18 @@ private extension ConversationView {
     /// from a message in the agent transcript belongs to that lane.
     @ViewBuilder
     func conversationPresentations(_ content: some View) -> some View {
-        messagePresentations(conversationLevelPresentations(content))
+        messagePresentations(conversationLevelPresentations(connectionsBrowserPresentation(content)))
+    }
+
+    /// The Connections browser, raised full-screen by the agent composer's
+    /// powerplug. Its own function so `conversationLevelPresentations` stays
+    /// inside the type-check budget it was already split to respect.
+    @ViewBuilder
+    func connectionsBrowserPresentation(_ content: some View) -> some View {
+        content
+            .fullScreenCover(item: $connectionsBrowserContext) { mode in
+                AbilitiesListScreen(selection: AbilitiesServices.selection, mode: mode)
+            }
     }
 
     /// The sheets the conversation itself raises, as opposed to the ones a
@@ -1615,6 +1629,8 @@ private extension ConversationView {
                     focusState: agentFocus,
                     focusCoordinator: agentFocusCoordinator,
                     isReadOnly: effectiveReadOnly,
+                    connectionsEnabled: composerConnectionsEnabled,
+                    onConnectionsTap: handleComposerConnectionsTap,
                     scrollToBottom: { agentScrollToBottom?(true) }
                 )
                 // The participation control governs the group room; it has
@@ -1622,6 +1638,29 @@ private extension ConversationView {
                 .environment(\.agentParticipation, nil)
             }
         }
+    }
+
+    /// The single host seam for the composer's connections capability: the
+    /// quick icon, the `+` menu row, and the browser modal all feed from
+    /// this one read. No composer surface consults the flag directly.
+    var composerConnectionsEnabled: Bool {
+        FeatureFlags.shared.isAbilitiesV2Enabled
+    }
+
+    /// Powerplug tap, from the quick row or the `+` menu row alike: presents
+    /// the Connections browser full-screen, carrying the launching DM's
+    /// context. Guarded by the same capability that offered the entries.
+    func handleComposerConnectionsTap() {
+        guard composerConnectionsEnabled,
+              let agentDmSession,
+              let agentInboxId = agentDmSession.agentInboxId,
+              let dmConversationId = agentDmSession.dmViewModel?.conversation.id else {
+            return
+        }
+        connectionsBrowserContext = .composerModal(
+            conversationId: dmConversationId,
+            agentInboxId: agentInboxId
+        )
     }
 
     /// The message long-press menu for whichever transcript raised it, layered

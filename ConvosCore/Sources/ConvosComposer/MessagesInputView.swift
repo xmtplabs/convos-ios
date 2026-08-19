@@ -4,7 +4,7 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
-public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsButton: View>: View {
+public struct MessagesInputView<FilePreview: View, AgentChip: View, QuickActions: View, AttachmentsButton: View>: View {
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String
     let messagePlaceholder: String
@@ -40,6 +40,10 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
     /// App-provided chip for a staged agent-share link. Rendered when
     /// `isShowingAgentShareChip` is true.
     @ViewBuilder let agentShareChip: () -> AgentChip
+    /// Trailing accessory between the text and the send/voice button: the
+    /// agent composer's curated quick-action row. The host supplies it (with
+    /// its own visibility rule); the group composer passes an `EmptyView`.
+    @ViewBuilder let quickActionsAccessory: () -> QuickActions
     /// The attachments control, rendered as a leading accessory inside the field
     /// just before the placeholder - see `attachmentsAccessory`. Supplied by the
     /// host because the menu it opens belongs to the composer's own state.
@@ -75,6 +79,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
         onClearMediaAttachment: ((UUID) -> Void)? = nil,
         @ViewBuilder fileAttachmentPreview: @escaping (PendingFileAttachment) -> FilePreview,
         @ViewBuilder agentShareChip: @escaping () -> AgentChip,
+        @ViewBuilder quickActionsAccessory: @escaping () -> QuickActions,
         @ViewBuilder attachmentsButton: @escaping () -> AttachmentsButton
     ) {
         _displayName = displayName
@@ -102,6 +107,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
         self.onClearMediaAttachment = onClearMediaAttachment
         self.fileAttachmentPreview = fileAttachmentPreview
         self.agentShareChip = agentShareChip
+        self.quickActionsAccessory = quickActionsAccessory
         self.attachmentsButton = attachmentsButton
     }
 
@@ -205,6 +211,8 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
             HStack(alignment: .bottom, spacing: 0) {
                 attachmentsAccessory
                 messageTextField
+                quickActionsAccessory()
+                    .frame(height: Self.defaultHeight)
                 trailingButton
             }
         }

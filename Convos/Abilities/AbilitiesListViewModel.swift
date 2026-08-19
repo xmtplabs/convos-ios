@@ -48,6 +48,20 @@ final class AbilitiesListViewModel {
         !trimmedQuery.isEmpty
     }
 
+    /// Whether the list should sell the feature rather than enumerate it:
+    /// the catalog loaded authoritatively, the member is not searching, and
+    /// they hold nothing. Withheld under `entitlementsUnavailable`, where
+    /// every ability reads as not-entitled from last-known state and
+    /// "nothing connected yet" would assert stale state as fact directly
+    /// under a banner admitting the app cannot check.
+    var showsNothingConnectedHero: Bool {
+        hasLoadedOnce
+            && !entitlementsUnavailable
+            && !isSearching
+            && entitledAbilities.isEmpty
+            && !availableAbilities.isEmpty
+    }
+
     /// Abilities the caller holds an entitlement for, in any lifecycle
     /// state. Under `entitlementsUnavailable` this reflects last-known
     /// state, already resolved by the service.
