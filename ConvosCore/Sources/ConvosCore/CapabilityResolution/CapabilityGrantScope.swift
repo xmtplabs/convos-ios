@@ -49,16 +49,20 @@ public enum CapabilityGrantScopeBlockReason: Equatable, Sendable {
     /// itself or another agent DM. The marker is member-writable, so this is
     /// treated as untrusted input -- a DM-scoped grant authorizes nothing.
     case originNotAGroup
-    /// The origin group carries no name, so the sheet cannot disclose which
-    /// conversation the grant would scope to. Named consent requires the
-    /// real name; a generic noun is not consent.
-    case originUnnamed
+    /// The origin group's identity could not be derived at all (hydration
+    /// failed), so the sheet cannot truthfully disclose which conversation
+    /// the grant would scope to. Ordinary unnamed groups do not land here:
+    /// their identity derives from the member list, exactly as the rest of
+    /// the app names them.
+    case originUnidentifiable
 
     public var userFacingMessage: String {
         switch self {
         case .userNotInOrigin:
             return "This request belongs to a conversation you're no longer in."
-        case .originUnknown, .originNotSynced, .agentNotInOrigin, .originNotAGroup, .originUnnamed:
+        case .originUnidentifiable:
+            return "Can't identify the conversation this request belongs to."
+        case .originUnknown, .originNotSynced, .agentNotInOrigin, .originNotAGroup:
             return "Can't approve from this chat right now — still syncing. Try again in a moment."
         }
     }
@@ -71,7 +75,7 @@ public enum CapabilityGrantScopeBlockReason: Equatable, Sendable {
         case .userNotInOrigin: return "user_not_in_origin"
         case .agentNotInOrigin: return "agent_not_in_origin"
         case .originNotAGroup: return "origin_not_a_group"
-        case .originUnnamed: return "origin_unnamed"
+        case .originUnidentifiable: return "origin_unidentifiable"
         }
     }
 }
@@ -170,12 +174,23 @@ extension CapabilityGrantScopeResolution {
         guard !origin.isAgentDm else {
             return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originNotAGroup), scopeDisplayName: nil)
         }
-        // Named consent requires the origin's real name; without one the
-        // sheet cannot disclose the grant target, so the approval blocks.
-        guard let originName = origin.name, !originName.isEmpty else {
-            return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originUnnamed), scopeDisplayName: nil)
+        // Named consent requires the origin's real identity. An explicit
+        // name is returned verbatim; an unnamed group derives its title from
+        // the member list -- the same derivation every other surface uses to
+        // name it -- so ordinary unnamed groups approve normally. Only a
+        // group whose identity cannot be derived at all blocks.
+        let originDisplayName: String? = try? await dbReader.read { db in
+            let details = try DBConversation
+                .filter(DBConversation.Columns.id == originId)
+                .detailedConversationQuery()
+                .fetchOne(db)
+            let currentInboxId = try DBInbox.currentInboxId(db) ?? viewerInboxId
+            return details?.hydrateConversation(currentInboxId: currentInboxId).displayName
         }
-        return CapabilityGrantScopeResolution(scope: .originGroup(originId), scopeDisplayName: originName)
+        guard let originDisplayName, !originDisplayName.isEmpty else {
+            return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originUnidentifiable), scopeDisplayName: nil)
+        }
+        return CapabilityGrantScopeResolution(scope: .originGroup(originId), scopeDisplayName: originDisplayName)
     }
 
     private struct OriginConsistencyCheck {

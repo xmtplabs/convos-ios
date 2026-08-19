@@ -290,6 +290,15 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// the inner guards (or the tap ended blocked/diverged).
     @ObservationIgnored
     private var capabilityApproveTapInFlightRequestId: String?
+    /// Orders concurrent scope resolutions: each initiator (pill tap,
+    /// observe/recompute, approve) bumps the generation synchronously on the
+    /// main actor and only the latest generation may assign
+    /// `capabilityGrantScopeResolution`. This is what lets an approve-time
+    /// divergence re-present win over a pill-tap resolution still in flight
+    /// -- without it the late tap repaint could restore the stale scope and
+    /// re-diverge every retry.
+    @ObservationIgnored
+    private var capabilityScopeGeneration: UInt64 = 0
     @ObservationIgnored
     var lastReadReceiptSentAt: Date?
     @ObservationIgnored
@@ -1797,6 +1806,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    self.capabilityScopeGeneration += 1
+                    let generation = self.capabilityScopeGeneration
                     let scopeResolution = await self.resolveCapabilityGrantScopeForCurrentConversation(request: request)
                     // Grant-side reads (existing grants, resolver state) key
                     // on the grant scope so a DM sheet seeds from the origin
@@ -1821,7 +1832,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                     // `latestObservedCapabilityRequest`, so the staleness check above can't
                     // see that the user already answered.
                     guard !self.locallyHandledCapabilityRequestIds.contains(request.requestId) else { return }
-                    self.capabilityGrantScopeResolution = scopeResolution
+                    if generation == self.capabilityScopeGeneration {
+                        self.capabilityGrantScopeResolution = scopeResolution
+                    }
                     self.pendingCapabilityPickerLayout = layout
                 }
             }
@@ -2117,6 +2130,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let request = layout.request
         let conversationId = conversation.id
         let isAgentDm = conversation.isAgentDm
+        capabilityScopeGeneration += 1
+        let generation = capabilityScopeGeneration
         Task { @MainActor [weak self] in
             guard let self else { return }
             let resolution = await self.resolveCapabilityGrantScope(
@@ -2125,6 +2140,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 isAgentDm: isAgentDm
             )
             guard self.pendingCapabilityPickerLayout?.request.requestId == request.requestId else { return }
+            guard generation == self.capabilityScopeGeneration else { return }
             self.capabilityGrantScopeResolution = resolution
         }
     }
@@ -2159,6 +2175,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let isAgentDm = conversation.isAgentDm
         guard capabilityApproveTapInFlightRequestId != request.requestId else { return }
         capabilityApproveTapInFlightRequestId = request.requestId
+        capabilityScopeGeneration += 1
+        let approveGeneration = capabilityScopeGeneration
         capabilityApprovalErrorMessage = nil
         // The scope the sheet disclosed for this tap: consent is bound to it.
         let displayedResolution = capabilityGrantScopeResolution
@@ -2179,8 +2197,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                 conversationId: conversationId,
                 isAgentDm: isAgentDm
             )
-            // A late completion must not repaint a newer request's sheet.
+            // A late completion must not repaint a newer request's sheet,
+            // and a newer initiator (a fresh tap or recompute) must not be
+            // repainted by this approve either.
             guard self.pendingCapabilityPickerLayout?.request.requestId == request.requestId else { return }
+            guard approveGeneration == self.capabilityScopeGeneration else { return }
             self.capabilityGrantScopeResolution = resolution
             guard let grantScopeConversationId = resolution.scope.grantScopeConversationId else {
                 if case .unresolvableOrigin(let reason) = resolution.scope {
@@ -3014,6 +3035,8 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         let isAgentDm = conversation.isAgentDm
         Task { @MainActor [weak self] in
             guard let self else { return }
+            self.capabilityScopeGeneration += 1
+            let generation = self.capabilityScopeGeneration
             let scopeResolution = await self.resolveCapabilityGrantScope(
                 for: request,
                 conversationId: conversationId,
@@ -3037,7 +3060,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
                   !self.locallyHandledCapabilityRequestIds.contains(request.requestId) else {
                 return
             }
-            self.capabilityGrantScopeResolution = scopeResolution
+            if generation == self.capabilityScopeGeneration {
+                self.capabilityGrantScopeResolution = scopeResolution
+            }
             self.pendingCapabilityPickerLayout = layout
         }
     }

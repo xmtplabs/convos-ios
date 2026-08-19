@@ -31,7 +31,8 @@ struct CapabilityGrantScopeResolutionTests {
         id: String,
         name: String?,
         isAgentDm: Bool,
-        members: [String]
+        members: [String],
+        withLocalState: Bool = true
     ) throws {
         for inboxId in members {
             try DBMember(inboxId: inboxId).save(db, onConflict: .ignore)
@@ -61,6 +62,21 @@ struct CapabilityGrantScopeResolutionTests {
             hasHadVerifiedAgent: false,
             isAgentDm: isAgentDm
         ).insert(db)
+        if withLocalState {
+            try ConversationLocalState(
+                conversationId: id,
+                isPinned: false,
+                isUnread: false,
+                isUnreadUpdatedAt: Date(),
+                isMuted: false,
+                pinnedOrder: nil,
+                hidesInviteCard: false,
+                leftHostedInviteSession: false,
+                wasRemoved: false,
+                hasHadOtherMembers: false,
+                hasSharedInvite: false
+            ).insert(db)
+        }
         for (index, inboxId) in members.enumerated() {
             try DBConversationMember(
                 conversationId: id,
@@ -208,13 +224,29 @@ struct CapabilityGrantScopeResolutionTests {
         #expect(CapabilityGrantScopeBlockReason.agentNotInOrigin.userFacingMessage.contains("still syncing"))
     }
 
-    @Test("a nameless origin blocks — consent cannot name a group that has no name")
-    func namelessOriginBlocks() async throws {
+    @Test("an unnamed origin approves with its member-derived identity — the same name the rest of the app shows")
+    func unnamedOriginApprovesWithDerivedName() async throws {
         let fixture = makeFixture()
         try seedDmAndOrigin(fixture, originName: nil)
         let resolution = await resolve(fixture, conversationId: dmId)
-        #expect(resolution.scope == .unresolvableOrigin(.originUnnamed))
-        #expect(resolution.scopeDisplayName == nil)
+        #expect(resolution.scope == .originGroup(originId))
+        let name = try #require(resolution.scopeDisplayName)
+        #expect(!name.isEmpty)
+    }
+
+    @Test("an origin whose identity cannot be derived blocks with honest copy")
+    func unidentifiableOriginBlocks() async throws {
+        let fixture = makeFixture()
+        try await fixture.dbWriter.write { [self] db in
+            try seedConversation(db, id: dmId, name: nil, isAgentDm: true, members: [viewer, agent])
+            // No local-state row: the identity hydration's required join
+            // fails, modelling a partially synced origin.
+            try seedConversation(db, id: originId, name: nil, isAgentDm: false, members: [viewer, agent], withLocalState: false)
+            try DBAgentDmOrigin.record(conversationId: dmId, originConversationId: originId, in: db)
+        }
+        let resolution = await resolve(fixture, conversationId: dmId)
+        #expect(resolution.scope == .unresolvableOrigin(.originUnidentifiable))
+        #expect(CapabilityGrantScopeBlockReason.originUnidentifiable.userFacingMessage == "Can't identify the conversation this request belongs to.")
     }
 
     @Test("an origin marker naming the DM itself blocks — member-writable input must not steer the scope")

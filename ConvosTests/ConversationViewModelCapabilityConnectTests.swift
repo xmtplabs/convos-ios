@@ -1,3 +1,4 @@
+import Combine
 @testable import Convos
 import ConvosConnections
 import ConvosCore
@@ -121,7 +122,7 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
 
     // MARK: - Connect-before-grant (pre-connect approvals)
 
-    func testApproveLinkedProviderResolvesImmediately() {
+    func testApproveLinkedProviderResolvesAfterScopeCheck() async {
         let viewModel = makeViewModel()
         viewModel.pendingCapabilityPickerLayout = makeLayout(requestId: "req-1")
 
@@ -130,8 +131,70 @@ final class ConversationViewModelCapabilityConnectTests: XCTestCase {
             bundleSelection: ["googlecalendar": ["calendar.events"]]
         )
 
+        // The approve pipeline runs after the async grant-scope consistency
+        // check; no connect step is needed, so the layout then clears.
+        await waitUntil { viewModel.pendingCapabilityPickerLayout == nil }
         XCTAssertNil(viewModel.pendingCapabilityPickerLayout,
-                     "No connect step needed — the approval resolves synchronously")
+                     "No connect step needed — the approval resolves after the scope check")
+    }
+
+    func testLateTapResolutionCannotRepaintAfterApproveDivergence() async throws {
+        let stub = StubScopeRepository(initial: CapabilityGrantScopeResolution(
+            scope: .originGroup("origin-a"),
+            scopeDisplayName: "Group A"
+        ))
+        let session = MockInboxesService()
+        session.capabilityRequestRepositoryOverride = stub
+        let viewModel = ConversationViewModel(
+            conversation: .mock(id: "test-convo"),
+            session: session,
+            messagingService: MockMessagingService(),
+            applyGlobalDefaultsForNewConversation: false
+        )
+        // Let the view model's init-time mock emissions (conversation update,
+        // capability-request observation reset) settle before arranging state
+        // by hand -- they clear the capability fields asynchronously.
+        try await Task.sleep(for: .milliseconds(200))
+        viewModel.pendingCapabilityPickerLayout = makeLayout(requestId: "req-1")
+
+        // First tap discloses scope A on the sheet.
+        viewModel.onTapCapabilityConnectPrompt(makePrompt(requestId: "req-1", status: .pending))
+        await waitUntil { stub.callCount >= 1 }
+        XCTAssertGreaterThanOrEqual(stub.callCount, 1, "The tap must reach the injected scope resolver")
+        await waitUntil { viewModel.capabilityGrantScopeResolution?.scopeDisplayName == "Group A" }
+        XCTAssertEqual(viewModel.capabilityGrantScopeResolution?.scopeDisplayName, "Group A",
+                       "The first tap must disclose scope A before the race is arranged")
+
+        // Second tap parks inside the resolver while it still reads scope A.
+        stub.setGated(true)
+        viewModel.onTapCapabilityConnectPrompt(makePrompt(requestId: "req-1", status: .pending))
+        await waitUntil { stub.waiterCount == 1 }
+        XCTAssertEqual(stub.waiterCount, 1, "The second tap's resolution must park in the gate")
+
+        // The origin moves: new resolutions now return scope B; the approve
+        // tap re-resolves, sees B against the disclosed A, and refuses.
+        stub.setGated(false)
+        stub.setResult(CapabilityGrantScopeResolution(
+            scope: .originGroup("origin-b"),
+            scopeDisplayName: "Group B"
+        ))
+        viewModel.onCapabilityApprove(
+            providerIds: [ProviderID(rawValue: "composio.googlecalendar")],
+            bundleSelection: ["googlecalendar": ["calendar.events"]]
+        )
+        await waitUntil { viewModel.capabilityApprovalErrorMessage != nil }
+        XCTAssertEqual(viewModel.capabilityGrantScopeResolution?.scopeDisplayName, "Group B")
+        XCTAssertNotNil(viewModel.pendingCapabilityPickerLayout,
+                        "A diverged approval must not consume the request")
+
+        // The parked tap resolution lands last carrying stale scope A. The
+        // generation guard must drop it -- otherwise the sheet silently
+        // reverts to A and the user's retry diverges forever.
+        stub.releaseAll()
+        await waitUntil { stub.waiterCount == 0 }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(viewModel.capabilityGrantScopeResolution?.scopeDisplayName, "Group B",
+                       "The divergence re-present must win over the stale tap resolution")
     }
 
     func testApproveUnlinkedProviderConnectsBeforeSendingResult() async {
@@ -279,6 +342,88 @@ private struct CancelledCloudConnectionManager: CloudConnectionManagerProtocol {
     func connect(serviceId: String) async throws -> CloudConnection { throw OAuthError.cancelled }
     func disconnect(connectionId: String) async throws {}
     func refreshConnections() async throws -> [CloudConnection] { [] }
+}
+
+/// Scope resolver with test-controlled results and timing: `setGated(true)`
+/// parks subsequent resolutions (each captures the result at call time, so a
+/// released call returns what the world looked like when it started);
+/// `releaseAll()` resumes them.
+private final class StubScopeRepository: CapabilityRequestRepositoryProtocol, @unchecked Sendable {
+    // Never emits: an emission (even nil) would asynchronously clear the
+    // layout and scope state the test arranged by hand.
+    let pendingRequestPublisher: AnyPublisher<CapabilityRequest?, Never> =
+        Empty(completeImmediately: false).eraseToAnyPublisher()
+
+    private let lock = NSLock()
+    private var result: CapabilityGrantScopeResolution
+    private var gated = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var calls = 0
+
+    var callCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+
+    init(initial: CapabilityGrantScopeResolution) {
+        self.result = initial
+    }
+
+    var waiterCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return waiters.count
+    }
+
+    func setResult(_ new: CapabilityGrantScopeResolution) {
+        lock.lock()
+        defer { lock.unlock() }
+        result = new
+    }
+
+    func setGated(_ value: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        gated = value
+    }
+
+    func releaseAll() {
+        lock.lock()
+        let toRelease = waiters
+        waiters.removeAll()
+        lock.unlock()
+        for waiter in toRelease {
+            waiter.resume()
+        }
+    }
+
+    private func snapshotResultAndGate() -> (CapabilityGrantScopeResolution, Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        calls += 1
+        return (result, gated)
+    }
+
+    private func park(_ continuation: CheckedContinuation<Void, Never>) {
+        lock.lock()
+        defer { lock.unlock() }
+        waiters.append(continuation)
+    }
+
+    func resolveGrantScope(
+        isAgentDm: Bool,
+        askerInboxId: String,
+        liveMarkerOrigin: @escaping @Sendable () async -> String?
+    ) async -> CapabilityGrantScopeResolution {
+        let (snapshot, shouldWait) = snapshotResultAndGate()
+        if shouldWait {
+            await withCheckedContinuation { continuation in
+                park(continuation)
+            }
+        }
+        return snapshot
+    }
 }
 
 private struct FailingCloudConnectionManager: CloudConnectionManagerProtocol {
