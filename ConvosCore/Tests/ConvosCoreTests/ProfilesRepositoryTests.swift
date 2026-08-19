@@ -60,7 +60,6 @@ struct ProfilesRepositoryTests {
 
         let profile = await repository.profile(inboxId: "alice")
         #expect(profile.name == "Alice")
-        #expect(profile.displayAvatar(for: "c1")?.url == "u")
     }
 
     @Test("apply ignores events authored by the current user")
@@ -120,46 +119,9 @@ struct ProfilesRepositoryTests {
         #expect(persisted?.name == "Me")
     }
 
-    @Test("displayAvatar falls back to the newest slot without a conversation match")
-    func displayAvatarFallback() async throws {
-        let repository = try makeRepository()
-        await repository.warmUp()
-        await repository.apply(event(
-            inboxId: "alice", conversationId: "c1", name: "Alice",
-            avatar: setAvatar("old"), sentAt: Date(timeIntervalSince1970: 1)
-        ))
-        await repository.apply(event(
-            inboxId: "alice", conversationId: "c2", name: "Alice",
-            avatar: setAvatar("new"), sentAt: Date(timeIntervalSince1970: 5)
-        ))
 
-        let profile = await repository.profile(inboxId: "alice")
-        #expect(profile.displayAvatar(for: "c2")?.url == "new")
-        #expect(profile.displayAvatar(for: nil)?.url == "new")
-        #expect(profile.displayAvatar(for: "unknown")?.url == "new")
-    }
 
-    @Test("purgeConversationAvatars drops only that conversation's slots")
-    func purgeAvatars() async throws {
-        let repository = try makeRepository()
-        await repository.warmUp()
-        await repository.apply(event(
-            inboxId: "alice", conversationId: "c1", name: "Alice",
-            avatar: setAvatar("a"), sentAt: Date(timeIntervalSince1970: 1)
-        ))
-        await repository.apply(event(
-            inboxId: "alice", conversationId: "c2", name: "Alice",
-            avatar: setAvatar("b"), sentAt: Date(timeIntervalSince1970: 2)
-        ))
-
-        await repository.purgeConversationAvatars("c1")
-
-        let profile = await repository.profile(inboxId: "alice")
-        #expect(profile.avatars["c1"] == nil)
-        #expect(profile.avatars["c2"]?.url == "b")
-    }
-
-    @Test("fetchProfile hydrates identity and avatar from the database")
+    @Test("fetchProfile hydrates identity from the database")
     func fetchProfileHydrates() async throws {
         let queue = try ProfileStoreTestSupport.makeQueue(conversations: ["c1"])
         let time = Date(timeIntervalSince1970: 1)
@@ -175,7 +137,6 @@ struct ProfilesRepositoryTests {
             try ProfilesRepository.fetchProfile(db, inboxId: "alice")
         }
         #expect(profile.name == "Alice")
-        #expect(profile.displayAvatar(for: "c1")?.url == "u")
 
         let missing = try await queue.read { db in
             try ProfilesRepository.fetchProfile(db, inboxId: "nobody")

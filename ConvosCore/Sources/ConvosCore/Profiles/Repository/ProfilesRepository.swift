@@ -126,8 +126,7 @@ public actor ProfilesRepository {
 
     static func fetchProfile(_ db: Database, inboxId: String) throws -> UnifiedProfile {
         let identity = try DBProfile.fetchOne(db, inboxId: inboxId)
-        let avatars = try DBProfileAvatar.fetchAll(db, inboxId: inboxId)
-        return UnifiedProfile.hydrate(identity: identity, avatarRows: avatars, inboxId: inboxId)
+        return UnifiedProfile.hydrate(identity: identity, inboxId: inboxId)
     }
 
     static func fetchSelfProfile(_ db: Database, inboxId: String) throws -> UnifiedProfile? {
@@ -137,13 +136,14 @@ public actor ProfilesRepository {
         guard let selfRow = try DBMyProfile
             .filter(DBMyProfile.Columns.inboxId == inboxId)
             .fetchOne(db) else { return nil }
-        let avatars = try DBProfileAvatar.fetchAll(db, inboxId: selfRow.inboxId)
+        // Self identity is authored locally, so it carries no backend row yet;
+        // the avatar follows once the user's own profile is published.
         return UnifiedProfile(
             inboxId: selfRow.inboxId,
             name: selfRow.name,
             memberKind: nil,
             metadata: selfRow.metadata,
-            avatars: UnifiedProfile.avatarMap(from: avatars),
+            avatarUrl: nil,
             updatedAt: selfRow.updatedAt
         )
     }
@@ -175,8 +175,7 @@ public actor ProfilesRepository {
     // MARK: - Reads
 
     func profile(inboxId: String) -> UnifiedProfile {
-        let rows = avatarsByInbox[inboxId].map { Array($0.values) } ?? []
-        return UnifiedProfile.hydrate(identity: identities[inboxId], avatarRows: rows, inboxId: inboxId)
+        UnifiedProfile.hydrate(identity: identities[inboxId], inboxId: inboxId)
     }
 
     func profiles(inboxIds: [String]) -> [String: UnifiedProfile] {
@@ -189,13 +188,12 @@ public actor ProfilesRepository {
 
     func selfProfile() -> UnifiedProfile? {
         guard let cachedSelf else { return nil }
-        let rows = avatarsByInbox[cachedSelf.inboxId].map { Array($0.values) } ?? []
         return UnifiedProfile(
             inboxId: cachedSelf.inboxId,
             name: cachedSelf.name,
             memberKind: nil,
             metadata: cachedSelf.metadata,
-            avatars: UnifiedProfile.avatarMap(from: rows),
+            avatarUrl: nil,
             updatedAt: cachedSelf.updatedAt
         )
     }
