@@ -9,15 +9,39 @@ import SwiftUI
 ///
 /// Figma 7686:39662. The three lines step down the iOS type scale -
 /// .body medium, .subheadline, .footnote - with the disclosure in secondary.
+///
+/// Dev-only: when the agent was built on a variant, the shared variant ribbon
+/// sits above the title as a badge. Everywhere else the ribbon rides the agent
+/// contact card, which a DM deliberately drops - so this header is the only
+/// place a DM can answer "which runtime am I talking to?". Without it a
+/// varianted agent is indistinguishable from a default one until its behavior
+/// disagrees, which is the whole failure mode the variant work exists to close.
 public struct AgentDmInfoCellView: View {
     let agentName: String
+    let variant: AgentVariantStamp?
 
-    public init(agentName: String) {
+    public init(agentName: String, variant: AgentVariantStamp? = nil) {
         self.agentName = agentName
+        self.variant = variant
     }
 
     public var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
+            // The empty-label guard is not defensive noise: the worker forwards
+            // `metadata.variant` verbatim for the cosmetic banner, so a stamp
+            // that parseVariantDescriptor would reject still decodes here. Its
+            // ribbon would be a bare emoji on a yellow pill - a placeholder that
+            // says less than showing nothing.
+            if !ConfigManager.shared.currentEnvironment.isProduction,
+               let variant, !variant.label.isEmpty {
+                // Sized to its content and centered, rather than the full-bleed
+                // bar the contact-card overlay uses: this header is a centered
+                // column, and a full-width left-aligned bar would read as a
+                // banner across the screen instead of a badge on the agent.
+                AgentVariantRibbon(variant: variant)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .clipShape(Capsule())
+            }
             Text("1-on-1 with \(agentName)")
                 .font(.body.weight(.medium))
                 .foregroundStyle(.colorTextPrimary)

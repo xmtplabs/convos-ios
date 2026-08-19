@@ -59,8 +59,11 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case agentBuilderSummary(AgentBuilderCardContent)
     case agentActivating(AgentActivatingCardContent)
     /// The agent-DM disclosure header: always the first cell of an agent-DM
-    /// transcript (and its empty state). See docs/plans/agent-dms.md.
-    case agentDmInfo(agentName: String)
+    /// transcript (and its empty state). See docs/plans/agent-dms.md. Carries
+    /// the agent's variant stamp so the DM can say which runtime it is talking
+    /// to -- the in-chat ribbon rides the agent contact card, which a DM
+    /// deliberately drops, so without this a varianted DM looks like any other.
+    case agentDmInfo(agentName: String, variant: AgentVariantStamp?)
     case typingIndicator(typers: [ConversationMember])
 
     public var id: String {
@@ -89,8 +92,10 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "agent-builder-summary-\(content.id)"
         case .agentActivating(let content):
             return "agent-activating-\(content.id)"
-        case .agentDmInfo:
-            return "agent-dm-info"
+        case .agentDmInfo(_, let variant):
+            // The slug rides the identity so a stamp that arrives after first
+            // render (profile sync) re-renders the cell instead of sticking.
+            return "agent-dm-info-\(variant?.slug ?? "none")"
         case .typingIndicator:
             return "typing-indicator"
         }
