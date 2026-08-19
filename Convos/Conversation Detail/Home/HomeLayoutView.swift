@@ -2,10 +2,8 @@ import SwiftUI
 
 /// The Home tab's backing view: the conversation's Space web surface
 /// filling the screen behind the floating conversation sheet, with the
-/// snapshot cover hiding reloads. The page owns its own vertical scrolling.
+/// preparing state covering the load. The page owns its own vertical scrolling.
 struct HomeLayoutView: View {
-    /// Keys the web section's persisted cover snapshot.
-    var conversationId: String = ""
     var webURL: URL?
     /// The sheet's live geometry, read here rather than handed in as a number:
     /// the read is what makes a view update when the sheet moves, and this is
@@ -28,7 +26,6 @@ struct HomeLayoutView: View {
         // can scroll fully below the floating top bar.
         GeometryReader { proxy in
             HomeWebSurface(
-                conversationId: conversationId,
                 url: webURL,
                 topContentInset: webURL != nil ? proxy.safeAreaInsets.top : 0,
                 bottomContentInset: webURL != nil ? sheetGeometry.homeBottomClearance : 0,
