@@ -1,13 +1,21 @@
 import ConvosCore
 import SwiftUI
 
-/// App-lifetime cache of the dev variant registry (`GET /v2/agent-variants`).
+/// Short-lived cache of the dev variant registry (`GET /v2/agent-variants`).
 ///
 /// The fetch deliberately does not live in a view's `.task`: the debug picker
 /// and the new-convo picker both sit inside a `Form`/sheet whose rows are
 /// recreated as state changes, which cancels an in-flight view-scoped task and
 /// restarts it from a fresh `.loading` -- a loop that never settles. Holding the
 /// load here means view churn re-reads a cached result instead of refetching.
+///
+/// The cache expires, because a variant is usually registered minutes before
+/// someone goes looking for it. Cached for the process's lifetime, a variant
+/// that CI registered after this app last loaded the list is invisible until
+/// the app is killed -- and worse than invisible: `reconcileSelection` and the
+/// new-convo sheet both drop a selected slug that the (stale) list does not
+/// contain, so the tester's pick is silently cleared and their agent quietly
+/// builds on the default runtime.
 @MainActor
 @Observable
 final class AgentVariantRegistry {
@@ -23,17 +31,30 @@ final class AgentVariantRegistry {
     private(set) var variants: [ConvosAPI.AgentVariant] = []
     private(set) var loadState: LoadState = .idle
 
+    /// How long a loaded list stays fresh. Long enough that Form row churn
+    /// re-reads the cache rather than refetching, short enough that reopening
+    /// a picker after CI registers a variant shows it.
+    private static let freshnessWindow: TimeInterval = 30.0
+
     private var loadTask: Task<Void, Never>?
+    private var loadedAt: Date?
     private let apiClient: any ConvosAPIClientProtocol
 
     init(apiClient: any ConvosAPIClientProtocol = ConvosAPIClientFactory.client(environment: ConfigManager.shared.currentEnvironment)) {
         self.apiClient = apiClient
     }
 
-    /// Loads once and caches. Re-entrant: concurrent callers await the same
-    /// task, and an already-loaded registry returns immediately.
+    /// Loads and caches for `freshnessWindow`. Re-entrant: concurrent callers
+    /// await the same task, and a registry loaded within the window returns
+    /// immediately. Past the window the next call refetches, so a picker opened
+    /// after CI registered a variant sees it without an app restart.
     func loadIfNeeded() async {
-        if loadState == .loaded { return }
+        if loadState == .loaded, let loadedAt,
+           Date().timeIntervalSince(loadedAt) < Self.freshnessWindow {
+            return
+        }
+        // An in-flight load is awaited rather than restarted -- that guard, not
+        // the absence of expiry, is what keeps view churn from looping.
         if let loadTask {
             await loadTask.value
             return
@@ -52,6 +73,7 @@ final class AgentVariantRegistry {
                 let fetched = try await self.apiClient.getAgentVariants()
                 self.variants = fetched
                 self.reconcileSelection(against: fetched)
+                self.loadedAt = Date()
                 self.loadState = .loaded
             } catch {
                 Log.error("AgentVariantRegistry: failed to load variants: \(error.localizedDescription)")
