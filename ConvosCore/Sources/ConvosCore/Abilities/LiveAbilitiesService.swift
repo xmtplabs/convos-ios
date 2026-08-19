@@ -458,13 +458,18 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     /// Drops a retained attempt only if it is still the one the caller was
     /// working on: same epoch, same connection-request id.
     ///
-    /// `pendingAttempts` is keyed by ability id alone, so a completion that
-    /// outlives the surface that started it (the composer modal's connect
-    /// deliberately survives dismissal) would otherwise delete an attempt a
-    /// later begin had already stored in its place. The next completion then
-    /// throws `missingConnectionRequest` -- "sign-in session expired" right
-    /// after a successful sign-in. The epoch alone cannot catch it: both
-    /// rounds belong to the same account.
+    /// The id comparison is load-bearing, not belt-and-braces. `pendingAttempts`
+    /// is keyed by ability id alone, and `beginEntitlement`'s resume-first pass
+    /// closes only the *begin after a complete* ordering. The reverse ordering
+    /// stays open: a begin gets past its resume pass while round A is still
+    /// retained, and is on the network minting round B when A's authorization
+    /// finally returns. That completion captured A before B was stored, so it
+    /// joins nothing and sees nothing -- and on success calls in here to
+    /// conclude A while B is what `pendingAttempts` now holds. Without the id
+    /// check it deletes B, and the second authorization dies on
+    /// `missingConnectionRequest`: "sign-in session expired" right after a
+    /// successful sign-in. The epoch cannot catch it -- both rounds belong to
+    /// the same account.
     private func removeAttempt(abilityId: String, epoch: UInt64, connectionRequestId: String) {
         guard scopeEpoch == epoch else { return }
         guard pendingAttempts[abilityId]?.connectionRequestId == connectionRequestId else { return }

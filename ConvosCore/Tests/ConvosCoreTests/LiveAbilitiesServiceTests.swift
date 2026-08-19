@@ -64,6 +64,23 @@ private final class AbilitiesStubAPIClient: TestStubAPIClient, @unchecked Sendab
 
 /// Mutable identity for tests that switch accounts mid-run. Reads and
 /// writes are sequenced by the test body itself.
+/// Counts stubbed endpoint calls so a test can wait for a specific one to
+/// have been reached before driving the next step.
+private actor CallCounter {
+    private(set) var createCount: Int = 0
+    private(set) var completeCount: Int = 0
+
+    func nextCreate() -> Int {
+        createCount += 1
+        return createCount
+    }
+
+    func nextComplete() -> Int {
+        completeCount += 1
+        return completeCount
+    }
+}
+
 /// A one-shot gate a stubbed endpoint can park on, so a test can hold one
 /// request open while it drives another.
 private actor TestGate {
@@ -97,6 +114,24 @@ private final class ScopeBox: @unchecked Sendable {
 
 @Suite("LiveAbilitiesService")
 struct LiveAbilitiesServiceTests {
+    /// Waits for a stubbed call to have been reached. The service's work runs
+    /// on tasks the test does not hold, so ordering is observed, not awaited.
+    /// The budget is generous because it is only ever spent on a genuine
+    /// failure -- the poll returns the moment the condition holds -- and the
+    /// suite runs alongside hundreds of others, where task scheduling can
+    /// stall for seconds.
+    private func settle(
+        timeout: Duration = .seconds(30),
+        until condition: () async -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if await condition() { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        Issue.record("condition never settled within \(timeout)")
+    }
+
     private func makeService(
         client: AbilitiesStubAPIClient,
         cache: AbilitiesCatalogDiskCache? = nil,
@@ -458,6 +493,69 @@ struct LiveAbilitiesServiceTests {
         #expect(resumed.status == .active, "the round it joined finished it")
         #expect(client.createCalls.count == 1)
         #expect(client.completeCalls.map(\.connectionRequestId) == ["creq-first"], "one round, submitted once")
+    }
+
+    /// The ordering the resume-first pass does **not** close. Resume-first
+    /// only covers a begin arriving after a completion; here the completion
+    /// arrives after the begin got past that pass.
+    ///
+    /// Round A is outstanding when a second tap runs. Its resume attempt on A
+    /// comes back `auth_incomplete`, so the tap falls through and goes to the
+    /// network to mint round B. While that is in flight, A's authorization
+    /// finally returns and its completion captures A -- there is nothing to
+    /// join, and B does not exist yet. B is stored, then A's completion
+    /// succeeds and concludes A. If concluding A deleted whatever the ability
+    /// happens to hold, it would delete B, and the sign-in the member is
+    /// about to finish would die on `missingConnectionRequest`.
+    @Test("Concluding an older round leaves a newer round's retained id alone")
+    func concludingRoundLeavesANewerAttemptAlone() async throws {
+        let client = AbilitiesStubAPIClient()
+        let calls = CallCounter()
+        let mintGate = TestGate()
+        let completeGate = TestGate()
+
+        client.onCreateEntitlement = { _, _ in
+            let index = await calls.nextCreate()
+            if index == 2 { await mintGate.wait() }
+            let round = index == 1 ? "a" : "b"
+            return try AbilitiesAPI.EntitlementInitiationResponse(
+                status: .pendingAuth,
+                redirectUrl: "https://consent.example/\(round)",
+                connectionRequestId: "creq-\(round)"
+            )
+        }
+        client.onCompleteEntitlement = { _, _ in
+            let index = await calls.nextComplete()
+            if index == 1 {
+                throw AbilitiesAPI.EndpointError.authIncomplete(connectionStatus: "INITIALIZING")
+            }
+            if index == 2 { await completeGate.wait() }
+            return AbilitiesAPI.EntitlementCompleteResponse()
+        }
+        let service = makeService(client: client)
+        _ = try await service.beginEntitlement(abilityId: "spotify")
+
+        // The second tap: resume A, get auth_incomplete, fall through, park
+        // on the network minting B.
+        let secondTap = Task { try await service.beginEntitlement(abilityId: "spotify") }
+        try await settle { await calls.createCount == 2 }
+
+        // A's authorization returns while B is still being minted, so this
+        // completion captures A and joins nothing.
+        let firstRoundCompletion = Task { try await service.completeEntitlement(abilityId: "spotify") }
+        try await settle { await calls.completeCount == 2 }
+
+        // B lands first, then A concludes on top of it.
+        await mintGate.open()
+        let second = try await secondTap.value
+        #expect(second.redirectUrl == "https://consent.example/b")
+        await completeGate.open()
+        try await firstRoundCompletion.value
+
+        // B is still completable: the member finishes the sign-in they were
+        // sent to, and it echoes B.
+        try await service.completeEntitlement(abilityId: "spotify")
+        #expect(client.completeCalls.map(\.connectionRequestId) == ["creq-a", "creq-a", "creq-b"])
     }
 
     @Test("Overlapping begins share one backend connection request")
