@@ -3,12 +3,10 @@ import ConvosCore
 import ConvosMetrics
 import SwiftUI
 
-/// Root tab shell for the app. Hosts `ConversationsView` under the "Convos"
-/// tab and `ContactsView` under "Contacts", in a standard SwiftUI `TabView`
-/// with the system tab bar.
-///
-/// The compose button lives in the shared toolbar; the app-indicator pill is
-/// a top-leading overlay (see `sharedAppIndicatorOverlay`).
+/// Root shell for the app. The default destination is `YourSpaceView`, a
+/// private cross-conversation briefing. Conversations move into the title-bar
+/// switcher and contacts remain available inside invite/settings flows, so the
+/// shell no longer needs a persistent tab bar.
 struct MainTabView: View {
     @Bindable var conversationsViewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
@@ -304,8 +302,6 @@ struct MainTabView: View {
         VStack(spacing: 0) {
             if let activeConvoVM = activeConvoVM {
                 centeredConversationIndicator(for: activeConvoVM)
-            } else if !isContactDetailPushed {
-                leadingAppIndicatorPill
             }
             Spacer()
         }
@@ -651,7 +647,19 @@ extension MainTabView {
     @ViewBuilder
     var bodyCore: some View {
         ZStack {
-            tabView
+            NavigationStack {
+                YourSpaceView(
+                    viewModel: conversationsViewModel,
+                    profileSettingsViewModel: profileSettingsViewModel,
+                    appIndicatorContext: appIndicatorContext,
+                    transitionNamespace: namespace,
+                    onOpenSettings: {
+                        appSettingsSource = .chats
+                        presentingAppSettings = true
+                    }
+                )
+                .toolbar(.hidden, for: .navigationBar)
+            }
 
             sharedAppIndicatorOverlay
         }

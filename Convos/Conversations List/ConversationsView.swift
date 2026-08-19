@@ -283,7 +283,7 @@ struct ConversationsView: View {
     }
 }
 
-private struct ConversationsSheetModifier: ViewModifier {
+struct ConversationsSheetModifier: ViewModifier {
     @Bindable var viewModel: ConversationsViewModel
     let profileSettingsViewModel: ProfileSettingsViewModel
     @Binding var conversationPendingExplosion: Conversation?
