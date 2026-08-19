@@ -33,6 +33,9 @@ public struct ConvosConfiguration: Sendable {
     public let xmtpEndpoint: String?
     public let xmtpNetwork: String?
     public let gatewayUrl: String?
+    /// Per-PR preview bundle token, when this build was given one. Empty for
+    /// every normal build.
+    public let previewToken: String
 
     public init(
         apiBaseURL: String,
@@ -41,7 +44,8 @@ public struct ConvosConfiguration: Sendable {
         siweConfiguration: SIWEConfiguration,
         xmtpEndpoint: String? = nil,
         xmtpNetwork: String? = nil,
-        gatewayUrl: String? = nil
+        gatewayUrl: String? = nil,
+        previewToken: String = ""
     ) {
         self.apiBaseURL = apiBaseURL
         self.appGroupIdentifier = appGroupIdentifier
@@ -50,5 +54,6 @@ public struct ConvosConfiguration: Sendable {
         self.xmtpEndpoint = xmtpEndpoint
         self.xmtpNetwork = xmtpNetwork
         self.gatewayUrl = gatewayUrl
+        self.previewToken = previewToken
     }
 }

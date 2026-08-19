@@ -453,7 +453,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             fatalError("Failed constructing API base URL")
         }
         self.baseURL = apiBaseURL
-        self.session = URLSession(configuration: .default)
+        self.session = URLSession(configuration: PreviewTokenSession.configuration(for: environment))
         self.environment = environment
         self.overrideJWTToken = overrideJWTToken
     }

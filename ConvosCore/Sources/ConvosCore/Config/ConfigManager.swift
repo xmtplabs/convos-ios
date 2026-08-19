@@ -7,11 +7,20 @@ public struct ConvosSecretOverrides: Sendable {
     public let apiBaseURL: String
     public let xmtpCustomHost: String
     public let gatewayURL: String
+    /// Per-PR preview bundle token. Defaulted so existing call sites - the app,
+    /// the App Clip, the notification extension - compile unchanged.
+    public let previewToken: String
 
-    public init(apiBaseURL: String, xmtpCustomHost: String, gatewayURL: String) {
+    public init(
+        apiBaseURL: String,
+        xmtpCustomHost: String,
+        gatewayURL: String,
+        previewToken: String = ""
+    ) {
         self.apiBaseURL = apiBaseURL
         self.xmtpCustomHost = xmtpCustomHost
         self.gatewayURL = gatewayURL
+        self.previewToken = previewToken
     }
 
     public static let empty: ConvosSecretOverrides = .init(
@@ -122,6 +131,8 @@ public final class ConfigManager: @unchecked Sendable {
             ? nil
             : overrides.gatewayURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
+        let previewToken: String = overrides.previewToken.trimmingCharacters(in: .whitespacesAndNewlines)
+
         let siweConfiguration = self.siweConfiguration
 
         switch envString {
@@ -138,7 +149,8 @@ public final class ConfigManager: @unchecked Sendable {
                 siweConfiguration: siweConfiguration,
                 xmtpEndpoint: xmtpEndpoint,
                 xmtpNetwork: xmtpNetwork,
-                gatewayUrl: gatewayUrl
+                gatewayUrl: gatewayUrl,
+                previewToken: previewToken
             )
             return .local(config: config)
 
@@ -154,7 +166,8 @@ public final class ConfigManager: @unchecked Sendable {
                 relyingPartyIdentifier: relyingPartyIdentifier,
                 siweConfiguration: siweConfiguration,
                 xmtpEndpoint: xmtpEndpoint,
-                xmtpNetwork: xmtpNetwork
+                xmtpNetwork: xmtpNetwork,
+                previewToken: previewToken
             )
             return .dev(config: config)
 
@@ -169,7 +182,8 @@ public final class ConfigManager: @unchecked Sendable {
                 appGroupIdentifier: appGroupIdentifier,
                 relyingPartyIdentifier: relyingPartyIdentifier,
                 siweConfiguration: siweConfiguration,
-                xmtpNetwork: xmtpNetwork
+                xmtpNetwork: xmtpNetwork,
+                previewToken: previewToken
             )
             return .production(config: config)
 
