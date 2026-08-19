@@ -273,6 +273,41 @@ All dependencies managed through SPM. See `ConvosCore/Package.swift` for current
 - Environments: Production, Development, Local
 - Firebase configuration per environment
 
+### Adding a secret / env key
+
+Secrets are a **generated, git-ignored `Secrets.swift`** (`Convos/Config/Secrets.swift`,
+with separate copies for `ConvosAppClip/` and `ShareExtension/`), regenerated on every
+build from root `.env`. Each target has its own build-phase generator:
+`Scripts/build-phases/copy-env-config-main-app.sh` for the app,
+`copy-env-config-share-extension.sh` for the extension. Non-secret per-environment runtime
+config lives in the bundled `config.{local,dev,pr,prod}.json` (read by `ConfigManager`);
+the `.xcconfig` files select which one and set bundle ids. There is **no Infisical here**
+(that's the convos-assistants stack) — this repo uses `.env` + 1Password + GitHub Actions
+secrets.
+
+To add a new key `NEW_KEY`:
+1. Add `NEW_KEY=` to root **`.env`** and document it in **`.env.example`**. **Only the
+   Local configuration auto-appends** arbitrary `.env` keys to `Secrets.swift`, so
+   `Secrets.NEW_KEY` is readable immediately in a Local build.
+2. **Every other build — Dev, CI, TestFlight, Prod — needs the key wired explicitly;** a
+   value in your local `.env` does nothing there. The Dev/CI path emits only its hard-coded
+   key list, so add `NEW_KEY` to `Scripts/generate-secrets-secure.sh` and add the matching
+   GitHub Actions repo secret/var (see the headers in `.github/workflows/testflight-dev.yml`
+   / `testflight-prod.yml`). Missing this is the classic "works in a Local build, empty
+   everywhere else" trap.
+3. If the **ShareExtension** (or App Clip) needs the key, wire it into that target's
+   generator too (`copy-env-config-share-extension.sh` currently emits only
+   `FIREBASE_APP_CHECK_DEBUG_TOKEN`) — the main-app generator does not cover it.
+4. Read it in Swift via `Secrets.NEW_KEY`. A URL/host override that should flow through
+   `ConfigManager` goes via `ConvosSecretOverrides`; other values are read directly.
+
+- **Footgun:** a fresh clone/worktree has **no `.env`** (git-ignored), so the app builds
+  with empty secrets and silently ships without an App Check token or backend override.
+  Copy `.env` from an existing checkout (or `.env.example` + `make secrets`) first.
+- App Check debug tokens are **per bundle id** and sourced from 1Password; sync/rotate via
+  the `/firebase-token` command. Code signing is fastlane `match` (repo
+  `convos-certificates`, `MATCH_PASSWORD`).
+
 ## Deep Linking
 
 ### URL Handling Architecture
