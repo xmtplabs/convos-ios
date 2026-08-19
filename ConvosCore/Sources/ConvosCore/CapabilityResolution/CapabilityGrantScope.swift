@@ -152,15 +152,11 @@ extension CapabilityGrantScopeResolution {
                 .filter(DBConversationMember.Columns.conversationId == originId)
                 .filter(DBConversationMember.Columns.inboxId == askerInboxId)
                 .fetchCount(db) > 0
-            let memberCount = try DBConversationMember
-                .filter(DBConversationMember.Columns.conversationId == originId)
-                .fetchCount(db)
             return OriginConsistencyCheck(
                 origin: origin,
                 userIsMember: userIsMember,
                 userDeparted: userDeparted,
-                agentIsMember: agentIsMember,
-                memberCount: memberCount
+                agentIsMember: agentIsMember
             )
         }
         guard let check, let origin = check.origin else {
@@ -172,18 +168,20 @@ extension CapabilityGrantScopeResolution {
         guard check.agentIsMember else {
             return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.agentNotInOrigin), scopeDisplayName: nil)
         }
-        // A grant must scope to a real group, not a DM. `kind` cannot make
-        // that distinction here: every conversation is persisted `.group`
-        // (extraction hardcodes it, ConversationWriter -- there is no `.dm`
-        // write path), so DM-ness is carried by shape, not `kind`. A DM is
-        // exactly two members, so the member-count check is what rejects a
-        // marker steered at any 2-member conversation the viewer and asking
-        // agent share -- including one that dodged agent-DM classification
-        // (unmarked, or an unverified-agent chat that never sets isAgentDm).
-        // The isAgentDm guard stays as belt-and-braces for the marked case.
-        guard check.memberCount > 2 else {
-            return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originNotAGroup), scopeDisplayName: nil)
-        }
+        // A marked agent DM can never back a grant. This is the only stable,
+        // persisted DM discriminator the schema offers: `kind` is always
+        // `.group` (extraction hardcodes it -- no `.dm` write path), the
+        // `agent_dm_origin` row is written only when `isAgentDm`, and no
+        // peer/dm-type column exists. Member count was tried and reverted: it
+        // is mutable normal-lifecycle state, so gating on it wrongly blocked a
+        // legitimate group that shrank to the viewer and agent.
+        //
+        // The residual it leaves open -- a marker steered at an unmarked
+        // 2-member (viewer + agent) conversation -- is indistinguishable in
+        // persisted state from that shrunken legit group, so no reliable guard
+        // can separate them. It is also inert: the backend keys entitlement on
+        // the agent's pinned primary conversation, so a grant scoped anywhere
+        // else authorizes nothing, and the sheet names the scope for consent.
         guard !origin.isAgentDm else {
             return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originNotAGroup), scopeDisplayName: nil)
         }
@@ -216,6 +214,5 @@ extension CapabilityGrantScopeResolution {
         let userIsMember: Bool
         let userDeparted: Bool
         let agentIsMember: Bool
-        let memberCount: Int
     }
 }

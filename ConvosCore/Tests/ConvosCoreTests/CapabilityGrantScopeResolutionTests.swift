@@ -242,9 +242,8 @@ struct CapabilityGrantScopeResolutionTests {
         let fixture = makeFixture()
         try await fixture.dbWriter.write { [self] db in
             try seedConversation(db, id: dmId, name: nil, isAgentDm: true, members: [viewer, agent])
-            // Three members so the member-count check passes; no local-state
-            // row, so the identity hydration's required join fails -- the block
-            // must come from an underivable identity, not from the shape.
+            // No local-state row, so the identity hydration's required join
+            // fails -- the block must come from an underivable identity.
             try seedConversation(db, id: originId, name: nil, isAgentDm: false, members: [viewer, agent, "other-member"], withLocalState: false)
             try DBAgentDmOrigin.record(conversationId: dmId, originConversationId: originId, in: db)
         }
@@ -265,29 +264,28 @@ struct CapabilityGrantScopeResolutionTests {
         #expect(resolution.scope.grantScopeConversationId == nil)
     }
 
-    @Test("an origin that is a plain DM blocks — a grant must scope to a group")
-    func originBeingPlainDmBlocks() async throws {
+    @Test("a group that shrank to the viewer and agent still resolves — membership is mutable, not a DM signal")
+    func shrunkTwoMemberGroupResolves() async throws {
         let fixture = makeFixture()
         try await fixture.dbWriter.write { [self] db in
             try seedConversation(db, id: dmId, name: "Sidekick chat", isAgentDm: true, members: [viewer, agent])
-            // A DM the viewer and asking agent share, in its real production
-            // shape: exactly two members, kind `.group` (the only kind
-            // production writes), and no agent-DM flag (it dodged
-            // classification -- unmarked, or an unverified-agent chat). Every
-            // membership guard passes; only the member-count check stops it.
-            try seedConversation(db, id: "plain-dm", name: "Sidekick chat", isAgentDm: false, members: [viewer, agent])
-            try DBAgentDmOrigin.record(conversationId: dmId, originConversationId: "plain-dm", in: db)
+            // A legitimate group whose other members left: only the viewer and
+            // the asking agent remain (2 members), kind `.group`, no agent-DM
+            // flag. It is indistinguishable in persisted state from an unmarked
+            // 2-member DM, so it must resolve -- blocking it (as the reverted
+            // member-count gate did) is the availability regression.
+            try seedConversation(db, id: originId, name: "Weekend Plans", isAgentDm: false, members: [viewer, agent])
+            try DBAgentDmOrigin.record(conversationId: dmId, originConversationId: originId, in: db)
         }
         let resolution = await resolve(fixture, conversationId: dmId)
-        #expect(resolution.scope == .unresolvableOrigin(.originNotAGroup))
-        #expect(resolution.scope.grantScopeConversationId == nil)
+        #expect(resolution.scope == .originGroup(originId))
+        #expect(resolution.scopeDisplayName == "Weekend Plans")
     }
 
     @Test("a whitespace-only origin name blocks — a blank sheet is not named consent")
     func whitespaceOnlyOriginNameBlocks() async throws {
         let fixture = makeFixture()
-        // Three members so the member-count check passes; the block must come
-        // from the name being blank after trimming, not from the shape.
+        // The block must come from the name being blank after trimming.
         try seedDmAndOrigin(fixture, originName: "   ")
         let resolution = await resolve(fixture, conversationId: dmId)
         #expect(resolution.scope == .unresolvableOrigin(.originUnidentifiable))
