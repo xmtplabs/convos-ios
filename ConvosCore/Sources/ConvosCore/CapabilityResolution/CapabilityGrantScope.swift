@@ -152,11 +152,15 @@ extension CapabilityGrantScopeResolution {
                 .filter(DBConversationMember.Columns.conversationId == originId)
                 .filter(DBConversationMember.Columns.inboxId == askerInboxId)
                 .fetchCount(db) > 0
+            let memberCount = try DBConversationMember
+                .filter(DBConversationMember.Columns.conversationId == originId)
+                .fetchCount(db)
             return OriginConsistencyCheck(
                 origin: origin,
                 userIsMember: userIsMember,
                 userDeparted: userDeparted,
-                agentIsMember: agentIsMember
+                agentIsMember: agentIsMember,
+                memberCount: memberCount
             )
         }
         guard let check, let origin = check.origin else {
@@ -168,12 +172,16 @@ extension CapabilityGrantScopeResolution {
         guard check.agentIsMember else {
             return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.agentNotInOrigin), scopeDisplayName: nil)
         }
-        // A grant must scope to a group conversation. The positive kind
-        // check rejects a marker steered at a plain DM (which has member
-        // rows and no agent-DM flag, so it passes every other guard); the
-        // agent-DM guard stays alongside it because an agent DM is itself a
-        // 2-member group -- kind alone would let it through.
-        guard origin.kind == .group else {
+        // A grant must scope to a real group, not a DM. `kind` cannot make
+        // that distinction here: every conversation is persisted `.group`
+        // (extraction hardcodes it, ConversationWriter -- there is no `.dm`
+        // write path), so DM-ness is carried by shape, not `kind`. A DM is
+        // exactly two members, so the member-count check is what rejects a
+        // marker steered at any 2-member conversation the viewer and asking
+        // agent share -- including one that dodged agent-DM classification
+        // (unmarked, or an unverified-agent chat that never sets isAgentDm).
+        // The isAgentDm guard stays as belt-and-braces for the marked case.
+        guard check.memberCount > 2 else {
             return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originNotAGroup), scopeDisplayName: nil)
         }
         guard !origin.isAgentDm else {
@@ -192,10 +200,15 @@ extension CapabilityGrantScopeResolution {
             let currentInboxId = try DBInbox.currentInboxId(db) ?? viewerInboxId
             return details?.hydrateConversation(currentInboxId: currentInboxId).displayName
         }
-        guard let originDisplayName, !originDisplayName.isEmpty else {
+        // A whitespace-only name (an explicit "   " passes computedDisplayName's
+        // non-empty check verbatim) would render a blank sheet while allowing
+        // approval -- a named-consent violation. Trim before the guard and
+        // disclose the trimmed value.
+        let trimmedName = originDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmedName, !trimmedName.isEmpty else {
             return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originUnidentifiable), scopeDisplayName: nil)
         }
-        return CapabilityGrantScopeResolution(scope: .originGroup(originId), scopeDisplayName: originDisplayName)
+        return CapabilityGrantScopeResolution(scope: .originGroup(originId), scopeDisplayName: trimmedName)
     }
 
     private struct OriginConsistencyCheck {
@@ -203,5 +216,6 @@ extension CapabilityGrantScopeResolution {
         let userIsMember: Bool
         let userDeparted: Bool
         let agentIsMember: Bool
+        let memberCount: Int
     }
 }

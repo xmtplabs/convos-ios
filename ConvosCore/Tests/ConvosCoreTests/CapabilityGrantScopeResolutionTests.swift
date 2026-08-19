@@ -32,7 +32,6 @@ struct CapabilityGrantScopeResolutionTests {
         name: String?,
         isAgentDm: Bool,
         members: [String],
-        kind: ConversationKind = .group,
         withLocalState: Bool = true
     ) throws {
         for inboxId in members {
@@ -43,7 +42,10 @@ struct CapabilityGrantScopeResolutionTests {
             clientConversationId: "client-\(id)",
             inviteTag: "invite-\(id)",
             creatorId: members.first ?? "creator",
-            kind: kind,
+            // Production persists every conversation as `.group` (extraction
+            // hardcodes it; there is no `.dm` write path), so DM-shaped
+            // fixtures must be 2-member `.group` rows, never `.dm`.
+            kind: .group,
             consent: .allowed,
             createdAt: Date(),
             name: name,
@@ -240,9 +242,10 @@ struct CapabilityGrantScopeResolutionTests {
         let fixture = makeFixture()
         try await fixture.dbWriter.write { [self] db in
             try seedConversation(db, id: dmId, name: nil, isAgentDm: true, members: [viewer, agent])
-            // No local-state row: the identity hydration's required join
-            // fails, modelling a partially synced origin.
-            try seedConversation(db, id: originId, name: nil, isAgentDm: false, members: [viewer, agent], withLocalState: false)
+            // Three members so the member-count check passes; no local-state
+            // row, so the identity hydration's required join fails -- the block
+            // must come from an underivable identity, not from the shape.
+            try seedConversation(db, id: originId, name: nil, isAgentDm: false, members: [viewer, agent, "other-member"], withLocalState: false)
             try DBAgentDmOrigin.record(conversationId: dmId, originConversationId: originId, in: db)
         }
         let resolution = await resolve(fixture, conversationId: dmId)
@@ -266,16 +269,29 @@ struct CapabilityGrantScopeResolutionTests {
     func originBeingPlainDmBlocks() async throws {
         let fixture = makeFixture()
         try await fixture.dbWriter.write { [self] db in
-            try seedConversation(db, id: dmId, name: nil, isAgentDm: true, members: [viewer, agent])
-            // An ordinary .dm the viewer and asking agent share: it has
-            // member rows and no agent-DM flag, so only the positive
-            // group-kind check can stop a marker steered at it.
-            try seedConversation(db, id: "plain-dm", name: nil, isAgentDm: false, members: [viewer, agent], kind: .dm)
+            try seedConversation(db, id: dmId, name: "Sidekick chat", isAgentDm: true, members: [viewer, agent])
+            // A DM the viewer and asking agent share, in its real production
+            // shape: exactly two members, kind `.group` (the only kind
+            // production writes), and no agent-DM flag (it dodged
+            // classification -- unmarked, or an unverified-agent chat). Every
+            // membership guard passes; only the member-count check stops it.
+            try seedConversation(db, id: "plain-dm", name: "Sidekick chat", isAgentDm: false, members: [viewer, agent])
             try DBAgentDmOrigin.record(conversationId: dmId, originConversationId: "plain-dm", in: db)
         }
         let resolution = await resolve(fixture, conversationId: dmId)
         #expect(resolution.scope == .unresolvableOrigin(.originNotAGroup))
         #expect(resolution.scope.grantScopeConversationId == nil)
+    }
+
+    @Test("a whitespace-only origin name blocks — a blank sheet is not named consent")
+    func whitespaceOnlyOriginNameBlocks() async throws {
+        let fixture = makeFixture()
+        // Three members so the member-count check passes; the block must come
+        // from the name being blank after trimming, not from the shape.
+        try seedDmAndOrigin(fixture, originName: "   ")
+        let resolution = await resolve(fixture, conversationId: dmId)
+        #expect(resolution.scope == .unresolvableOrigin(.originUnidentifiable))
+        #expect(resolution.scopeDisplayName == nil)
     }
 
     @Test("an origin that is itself an agent DM blocks")
