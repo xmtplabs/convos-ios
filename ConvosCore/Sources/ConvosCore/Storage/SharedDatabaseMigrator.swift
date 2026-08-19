@@ -367,6 +367,26 @@ extension SharedDatabaseMigrator {
             migrate: Self.addConversationLocalStateHasSharedInvite
         )
         migrator.registerMigration("createProfileTables", migrate: Self.createProfileTables)
+        // Backend-served identity lands on the canonical profile row rather than
+        // in a table of its own: one person is one row, which is the whole point
+        // of moving profiles off the per-conversation model. The columns are
+        // additive, so rows seeded from the legacy path keep resolving until the
+        // remote fetch fills them in.
+        migrator.registerMigration("addProfileRemoteIdentity") { db in
+            let existing = try db.columns(in: "profile").map(\.name)
+            guard !existing.contains("avatarUrl") else { return }
+            try db.alter(table: "profile") { t in
+                // Plain CDN URL. The per-conversation encrypted avatar lives in
+                // profileAvatar and is retired separately.
+                t.add(column: "avatarUrl", .text)
+                // The backend's monotonic version, echoed by the XMTP change
+                // signal so a client holding it can skip the fetch.
+                t.add(column: "remoteVersion", .integer)
+                // When the backend last answered for this inbox, for TTL
+                // revalidation. Nil means never fetched.
+                t.add(column: "remoteFetchedAt", .datetime)
+            }
+        }
         migrator.registerMigration("createProfileAvatarLatestView", migrate: Self.createProfileAvatarLatestView)
         migrator.registerMigration("dropSelfProfileTable", migrate: Self.dropSelfProfileTable)
         migrator.registerMigration("addProfileAvatarLastRenewed", migrate: Self.addProfileAvatarLastRenewed)
@@ -1781,6 +1801,9 @@ extension SharedDatabaseMigrator {
             t.column("metadata", .jsonText)
             t.column("profileSource", .text).notNull()
             t.column("avatarContentDigest", .text)
+            t.column("avatarUrl", .text)
+            t.column("remoteVersion", .integer)
+            t.column("remoteFetchedAt", .datetime)
             t.column("updatedAt", .datetime).notNull()
         }
 

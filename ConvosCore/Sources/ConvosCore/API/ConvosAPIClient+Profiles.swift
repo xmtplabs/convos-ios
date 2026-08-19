@@ -41,7 +41,7 @@ public enum ProfilesAPI {
 extension ConvosAPIClient {
     /// Resolves one person. Returns nil when the backend has no profile for the
     /// inbox — a normal outcome for someone who has not upgraded, not an error.
-    func getProfile(inboxId: String) async throws -> ProfilesAPI.Profile? {
+    public func getProfile(inboxId: String) async throws -> ProfilesAPI.Profile? {
         let request = try profilesRequest(pathSegments: ["v2", "profiles", inboxId], method: "GET")
         let (data, httpResponse) = try await performAuthenticatedRequest(request)
         if httpResponse.statusCode == 404 { return nil }
@@ -54,7 +54,7 @@ extension ConvosAPIClient {
     /// Resolves many people at once — the workhorse read for member lists and
     /// message authors. Unknown ids are simply absent from the result, so the
     /// caller must not assume the response is index-aligned with its input.
-    func getProfiles(inboxIds: [String]) async throws -> [ProfilesAPI.Profile] {
+    public func getProfiles(inboxIds: [String]) async throws -> [ProfilesAPI.Profile] {
         let unique: [String] = Array(Set(inboxIds)).filter { !$0.isEmpty }
         guard !unique.isEmpty else { return [] }
 

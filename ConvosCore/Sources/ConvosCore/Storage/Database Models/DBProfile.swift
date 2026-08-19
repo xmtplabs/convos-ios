@@ -17,6 +17,9 @@ struct DBProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let metadata: Column = Column(CodingKeys.metadata)
         static let profileSource: Column = Column(CodingKeys.profileSource)
         static let avatarContentDigest: Column = Column(CodingKeys.avatarContentDigest)
+        static let avatarUrl: Column = Column(CodingKeys.avatarUrl)
+        static let remoteVersion: Column = Column(CodingKeys.remoteVersion)
+        static let remoteFetchedAt: Column = Column(CodingKeys.remoteFetchedAt)
         static let updatedAt: Column = Column(CodingKeys.updatedAt)
     }
 
@@ -29,6 +32,15 @@ struct DBProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
     /// Always nil until that work lands; declared here so the follow-up needs no
     /// further migration.
     var avatarContentDigest: String?
+    /// Plain CDN avatar URL as served by the backend. Nil until this inbox has
+    /// been resolved remotely, or when the person has no photo.
+    var avatarUrl: String?
+    /// The backend's version for this profile; nil until first resolved. Lets a
+    /// client holding the version off the XMTP signal skip a fetch.
+    var remoteVersion: Int?
+    /// When the backend last answered for this inbox. Nil means never fetched,
+    /// which is what makes an unresolved row distinguishable from a stale one.
+    var remoteFetchedAt: Date?
     var updatedAt: Date
 
     init(
@@ -38,6 +50,9 @@ struct DBProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         metadata: ProfileMetadata? = nil,
         profileSource: ProfileSource,
         avatarContentDigest: String? = nil,
+        avatarUrl: String? = nil,
+        remoteVersion: Int? = nil,
+        remoteFetchedAt: Date? = nil,
         updatedAt: Date
     ) {
         self.inboxId = inboxId
@@ -46,6 +61,9 @@ struct DBProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         self.metadata = metadata
         self.profileSource = profileSource
         self.avatarContentDigest = avatarContentDigest
+        self.avatarUrl = avatarUrl
+        self.remoteVersion = remoteVersion
+        self.remoteFetchedAt = remoteFetchedAt
         self.updatedAt = updatedAt
     }
 

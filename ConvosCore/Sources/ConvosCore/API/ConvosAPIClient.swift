@@ -92,6 +92,14 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// per-field semantics, including the retry-stable `idempotencyKey`).
     /// `forceErrorCode` is a test/debug knob riding an HTTP header, which is
     /// why it is a separate parameter and not part of the body type.
+    /// Resolves one person's display identity. Nil when the backend has no
+    /// profile for the inbox, which is a normal state rather than an error.
+    func getProfile(inboxId: String) async throws -> ProfilesAPI.Profile?
+
+    /// Resolves many at once. The result is sparse - unknown ids are absent -
+    /// so callers key by inbox id rather than by position.
+    func getProfiles(inboxIds: [String]) async throws -> [ProfilesAPI.Profile]
+
     func requestAgentJoin(
         _ joinRequest: ConvosAPI.AgentJoinRequest,
         forceErrorCode: Int?
@@ -301,6 +309,16 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
 }
 
 extension ConvosAPIClientProtocol {
+    /// Doubles and stubs resolve nobody by default. Only the live client talks
+    /// to the profile surface; a test that needs identities overrides these.
+    func getProfile(inboxId: String) async throws -> ProfilesAPI.Profile? {
+        nil
+    }
+
+    func getProfiles(inboxIds: [String]) async throws -> [ProfilesAPI.Profile] {
+        []
+    }
+
     func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {
         try await requestAgentJoin(ConvosAPI.AgentJoinRequest(slug: slug), forceErrorCode: nil)
     }
