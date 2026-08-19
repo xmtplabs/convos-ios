@@ -168,9 +168,14 @@ extension CapabilityGrantScopeResolution {
         guard check.agentIsMember else {
             return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.agentNotInOrigin), scopeDisplayName: nil)
         }
-        // An origin that is itself an agent DM can never back a grant; the
-        // membership checks pass trivially for any DM the viewer and agent
-        // share, so this guard is what stops a steered marker.
+        // A grant must scope to a group conversation. The positive kind
+        // check rejects a marker steered at a plain DM (which has member
+        // rows and no agent-DM flag, so it passes every other guard); the
+        // agent-DM guard stays alongside it because an agent DM is itself a
+        // 2-member group -- kind alone would let it through.
+        guard origin.kind == .group else {
+            return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originNotAGroup), scopeDisplayName: nil)
+        }
         guard !origin.isAgentDm else {
             return CapabilityGrantScopeResolution(scope: .unresolvableOrigin(.originNotAGroup), scopeDisplayName: nil)
         }

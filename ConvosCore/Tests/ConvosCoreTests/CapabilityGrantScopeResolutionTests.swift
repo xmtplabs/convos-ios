@@ -32,6 +32,7 @@ struct CapabilityGrantScopeResolutionTests {
         name: String?,
         isAgentDm: Bool,
         members: [String],
+        kind: ConversationKind = .group,
         withLocalState: Bool = true
     ) throws {
         for inboxId in members {
@@ -42,7 +43,7 @@ struct CapabilityGrantScopeResolutionTests {
             clientConversationId: "client-\(id)",
             inviteTag: "invite-\(id)",
             creatorId: members.first ?? "creator",
-            kind: .group,
+            kind: kind,
             consent: .allowed,
             createdAt: Date(),
             name: name,
@@ -255,6 +256,22 @@ struct CapabilityGrantScopeResolutionTests {
         try await fixture.dbWriter.write { [self] db in
             try seedConversation(db, id: dmId, name: nil, isAgentDm: true, members: [viewer, agent])
             try DBAgentDmOrigin.record(conversationId: dmId, originConversationId: dmId, in: db)
+        }
+        let resolution = await resolve(fixture, conversationId: dmId)
+        #expect(resolution.scope == .unresolvableOrigin(.originNotAGroup))
+        #expect(resolution.scope.grantScopeConversationId == nil)
+    }
+
+    @Test("an origin that is a plain DM blocks — a grant must scope to a group")
+    func originBeingPlainDmBlocks() async throws {
+        let fixture = makeFixture()
+        try await fixture.dbWriter.write { [self] db in
+            try seedConversation(db, id: dmId, name: nil, isAgentDm: true, members: [viewer, agent])
+            // An ordinary .dm the viewer and asking agent share: it has
+            // member rows and no agent-DM flag, so only the positive
+            // group-kind check can stop a marker steered at it.
+            try seedConversation(db, id: "plain-dm", name: nil, isAgentDm: false, members: [viewer, agent], kind: .dm)
+            try DBAgentDmOrigin.record(conversationId: dmId, originConversationId: "plain-dm", in: db)
         }
         let resolution = await resolve(fixture, conversationId: dmId)
         #expect(resolution.scope == .unresolvableOrigin(.originNotAGroup))
