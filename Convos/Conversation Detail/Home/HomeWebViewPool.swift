@@ -39,12 +39,13 @@ final class HomeWebViewPool {
     private enum Prepared: Equatable {
         case none
         case loading(URL)
-        case painted(URL)
+        case painted(URL, at: Date)
 
         var url: URL? {
             switch self {
             case .none: nil
-            case .loading(let url), .painted(let url): url
+            case .loading(let url): url
+            case let .painted(url, _): url
             }
         }
     }
@@ -59,7 +60,7 @@ final class HomeWebViewPool {
     /// home arriving with the screen and arriving after it.
     func prepare(url: URL) {
         warm()
-        guard let idle, prepared.url != url else {
+        guard let idle, !Self.isSameDestination(prepared.url, url) else {
             Log.info("[PERF] HomeWebViewPool.prepare skipped: idle=\(idle != nil) alreadyPrepared=\(prepared.url == url)")
             return
         }
@@ -68,7 +69,7 @@ final class HomeWebViewPool {
         paintReporter(of: idle)?.onPaint = { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, case .loading(let loading) = self.prepared, loading == url else { return }
-                self.prepared = .painted(url)
+                self.prepared = .painted(url, at: Date())
             }
         }
         idle.load(URLRequest(url: url))
@@ -81,10 +82,11 @@ final class HomeWebViewPool {
             return .unprepared
         }
         switch prepared {
-        case .painted(let painted) where painted == url:
+        case let .painted(painted, at) where Self.isSameDestination(painted, url)
+            && Date().timeIntervalSince(at) < Constant.freshness:
             Log.info("[PERF] HomeWebViewPool.adoption: painted")
             return .painted
-        case .loading(let loading) where loading == url:
+        case let .loading(loading) where Self.isSameDestination(loading, url):
             Log.info("[PERF] HomeWebViewPool.adoption: loading")
             return .loading
         default:
@@ -131,15 +133,23 @@ final class HomeWebViewPool {
     /// `about:blank` in place of the page it was showing - so the next
     /// conversation cannot inherit the last one's home, and nothing is retained
     /// through the configuration.
-    func release(_ webView: WKWebView) {
-        prepared = .none
-        webView.stopLoading()
+    func release(_ webView: WKWebView, showing url: URL? = nil, painted: Bool = false) {
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         webView.removeFromSuperview()
         paintReporter(of: webView)?.onPaint = nil
-        if let blank = URL(string: "about:blank") {
-            webView.load(URLRequest(url: blank))
+        // A page that was on screen a moment ago is kept, not blanked. Popping
+        // back to the list and going straight in again is the commonest way to
+        // open a home, and reloading from scratch for it put the progress bar
+        // back in front of a page the pool had already drawn once.
+        if let url, painted {
+            prepared = .painted(url, at: Date())
+        } else {
+            prepared = .none
+            webView.stopLoading()
+            if let blank = URL(string: "about:blank") {
+                webView.load(URLRequest(url: blank))
+            }
         }
         guard idle == nil else { return }
         parkOffscreen(webView)
@@ -192,6 +202,34 @@ final class HomeWebViewPool {
             .first { $0.isKeyWindow }
         webView.frame = keyWindow?.bounds ?? .zero
         keyWindow?.insertSubview(webView, at: 0)
+    }
+
+    /// Whether two URLs name the same page.
+    ///
+    /// Not `==`: a bare host and the same host with a trailing slash are the
+    /// same destination to everyone except `URL`, and the app holds the first
+    /// while WebKit reports the second.
+    private static func isSameDestination(_ lhs: URL?, _ rhs: URL?) -> Bool {
+        guard let lhs, let rhs else { return lhs == nil && rhs == nil }
+        return canonical(lhs) == canonical(rhs)
+    }
+
+    private static func canonical(_ url: URL) -> String {
+        var string = url.absoluteString
+        while string.hasSuffix("/") {
+            string.removeLast()
+        }
+        return string
+    }
+
+    private enum Constant {
+        /// How long a drawn page may be adopted without reloading.
+        ///
+        /// The page is the agent's and changes when the agent changes it, so a
+        /// kept copy cannot stand indefinitely - but within a minute the reader
+        /// is coming straight back to what they just left, and showing them a
+        /// loading state for it would be theatre.
+        static let freshness: TimeInterval = 60
     }
 }
 
