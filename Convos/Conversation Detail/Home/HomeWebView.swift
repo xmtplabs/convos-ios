@@ -130,6 +130,10 @@ struct HomeWebView: UIViewRepresentable {
         // completions from a superseded load.
         context.coordinator.hasFinishedInitialLoad = false
         context.coordinator.markLoadStarted()
+        // Only this load's paint counts. The page being replaced can still
+        // report one from the web content process, and that report arrives
+        // here against the load that replaced it.
+        HomeWebViewPool.shared.armPaint(on: webView)
         if let url {
             context.coordinator.activeNavigation = webView.load(URLRequest(url: url))
         } else {

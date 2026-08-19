@@ -68,6 +68,7 @@ final class HomeWebViewPool {
         }
         Log.info("[PERF] HomeWebViewPool.prepare: \(url.host() ?? "?")\(url.path())")
         prepared = .loading(url)
+        armPaint(on: idle)
         paintReporter(of: idle)?.onPaint = { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, case .loading(let loading) = self.prepared, loading == url else { return }
@@ -140,6 +141,16 @@ final class HomeWebViewPool {
         webView.uiDelegate = nil
         webView.removeFromSuperview()
         paintReporter(of: webView)?.onPaint = nil
+        paintReporter(of: webView)?.currentToken = nil
+        // A view the pool is not keeping says nothing about the one it is. The
+        // metadata describes the spare's page, so a second surface handing its
+        // view back must not clear it: doing so left an idle view still loading
+        // or already drawn while the next adoption was told it was unprepared,
+        // and the page was loaded a second time.
+        guard idle == nil else {
+            webView.stopLoading()
+            return
+        }
         // A page that was on screen a moment ago is kept, not blanked. Popping
         // back to the list and going straight in again is the commonest way to
         // open a home, and reloading from scratch for it put the progress bar
@@ -153,11 +164,10 @@ final class HomeWebViewPool {
                 webView.load(URLRequest(url: blank))
             }
         }
-        guard idle == nil else { return }
         idle = webView
-        // Parking puts a screen-sized view into the key window, and a release
+        // Parking moves a screen-sized view into a window, and a release
         // happens during the pop that caused it. Left in that transaction it
-        // disturbs the transition running around it, so the window is touched
+        // disturbs the transition running around it, so the view is put away
         // once the pop has finished with it.
         Task { @MainActor [weak self] in
             guard let self, self.idle === webView else { return }
@@ -173,15 +183,13 @@ final class HomeWebViewPool {
 
     private func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
-        let script = WKUserScript(
-            source: HomeWebViewPaintReporter.script,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: true
-        )
-        configuration.userContentController.addUserScript(script)
-        // Installed once, with the view, because a configuration cannot be
-        // changed after the view is built. The reporter forwards to whichever
-        // surface currently holds the view, and to nobody while it is idle.
+        // The paint script is not installed here: it carries the token of the
+        // load it belongs to, so it is reinstalled per load. See `armPaint`.
+        //
+        // The reporter is installed once, with the view, because a
+        // configuration cannot be changed after the view is built. The reporter
+        // forwards to whichever surface currently holds the view, and to nobody
+        // while it is idle.
         let reporter = HomeWebViewPaintReporter()
         configuration.userContentController.add(
             reporter,
@@ -192,6 +200,29 @@ final class HomeWebViewPool {
             for: configuration.userContentController
         )
         return WKWebView(frame: .zero, configuration: configuration)
+    }
+
+    /// Arms the paint reporter for a load about to be issued on this view.
+    ///
+    /// The script is reinstalled per load with that load's token baked in,
+    /// because a page reports its paint from the web content process and the
+    /// report can arrive after the load that replaced it has already started.
+    /// Without something to tell the two documents apart, the outgoing page's
+    /// paint lifted the incoming page's cover and had it filed as drawn.
+    ///
+    /// Call it immediately before `load`, on the view that is about to load.
+    func armPaint(on webView: WKWebView) {
+        let token = UUID().uuidString
+        let controller = webView.configuration.userContentController
+        controller.removeAllUserScripts()
+        controller.addUserScript(
+            WKUserScript(
+                source: HomeWebViewPaintReporter.script(token: token),
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
+        paintReporter(of: webView)?.currentToken = token
     }
 
     /// Parks a view in the pool's own window, behind the app's.
@@ -285,12 +316,22 @@ final class HomeWebViewPaintReporter: NSObject, WKScriptMessageHandler {
     /// the view sits in the pool.
     var onPaint: ((String) -> Void)?
 
+    /// The token of the load currently being waited on. A report carrying any
+    /// other token is a document that has already been replaced, and saying so
+    /// would reveal the new page's cover over a page that has not drawn.
+    /// See `HomeWebViewPool.armPaint(on:)`.
+    var currentToken: String?
+
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
         guard message.name == Self.messageName else { return }
-        onPaint?((message.body as? String) ?? "unknown")
+        guard let body = message.body as? [String: Any],
+              let token = body["token"] as? String,
+              let currentToken,
+              token == currentToken else { return }
+        onPaint?((body["source"] as? String) ?? "unknown")
     }
 
     /// Asks the page to say when it has actually drawn, rather than guessing a
@@ -303,14 +344,18 @@ final class HomeWebViewPaintReporter: NSObject, WKScriptMessageHandler {
     /// page has certainly rendered - so a page WebKit reports no paint timing
     /// for still reveals itself rather than sitting behind the cover until the
     /// fallback fires.
-    static let script: String = """
+    static func script(token: String) -> String {
+        """
     (function() {
         var reported = false;
         function report(source) {
             if (reported) { return; }
             reported = true;
             try {
-                window.webkit.messageHandlers.\(messageName).postMessage(source);
+                window.webkit.messageHandlers.\(messageName).postMessage({
+                    source: source,
+                    token: "\(token)"
+                });
             } catch (error) {}
         }
         try {
@@ -329,6 +374,7 @@ final class HomeWebViewPaintReporter: NSObject, WKScriptMessageHandler {
         });
     })();
     """
+    }
 }
 
 private extension WKUserContentController {

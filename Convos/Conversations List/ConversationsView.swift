@@ -115,6 +115,20 @@ struct ConversationsView: View {
         return viewModel.conversations.first(where: { $0.spaceURL != nil })?.spaceURL
     }
 
+    /// Points the pool at the home the reader is likeliest to open next.
+    ///
+    /// Off the update that asked for it, deliberately. Selecting a conversation
+    /// is what starts the push, and the chrome's blur transition runs in that
+    /// same transaction - building a web view and starting a load inside it
+    /// ended the transaction early and the top bar's buttons swapped with no
+    /// animation at all.
+    private func prepareLikeliestHome() {
+        guard let spaceURL = likeliestHomeURL else { return }
+        Task { @MainActor in
+            HomeWebViewPool.shared.prepare(url: spaceURL)
+        }
+    }
+
     @ViewBuilder
     private func pushedConversationDestination(viewModel convoVM: ConversationViewModel) -> some View {
         let isReadOnly: Bool = viewModel.staleDeviceObserver.isDeviceRemoved
@@ -251,18 +265,18 @@ struct ConversationsView: View {
             // the destination in one update, so the load still began after the
             // push. The list is where the head start is - seconds of it, while
             // the reader decides what to open. See `HomeWebViewPool.prepare(url:)`.
-            .onChange(of: likeliestHomeURL, initial: true) { _, spaceURL in
-                guard let spaceURL else { return }
-                // Off this update, deliberately. Selecting a conversation is
-                // what starts the push, and the chrome's blur transition runs
-                // in that same transaction - building a web view and starting a
-                // load inside it ended the transaction early and the top bar's
-                // buttons swapped with no animation at all.
-                Task { @MainActor in
-                    HomeWebViewPool.shared.prepare(url: spaceURL)
-                }
+            .onChange(of: likeliestHomeURL, initial: true) { _, _ in
+                prepareLikeliestHome()
             }
             .onAppear {
+                // Again on every appearance, not only when the destination
+                // changes. Coming back from a conversation returns its view to
+                // the pool blank, and the URL the list would prepare has not
+                // changed - so nothing would re-prepare it, and going straight
+                // back in loaded the page after the push. `prepare` is a no-op
+                // when the spare is already pointed at the same page, so the
+                // common return costs nothing.
+                prepareLikeliestHome()
                 viewModel.onAppear()
             }
             .task {
