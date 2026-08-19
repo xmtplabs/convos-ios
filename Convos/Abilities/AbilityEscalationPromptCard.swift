@@ -193,7 +193,7 @@ struct AbilityEscalationPromptSurface: View {
     }
 }
 
-/// Self-contained preview fixtures: a data: URI so `AsyncImage` has a real
+/// Self-contained preview fixtures: a data: URI so the icon loader has a real
 /// image to decode without any network dependency.
 private enum PreviewData {
     static let calendarIconDataUrl: String = """
