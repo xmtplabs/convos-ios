@@ -35,13 +35,17 @@ struct HomeWebSurface: View {
                     // arriving, and revealing it would replace the preparing
                     // state with a bare "Home".
                     guard url != nil else { return }
-                    // The reveal waits a beat past didFinish - a JS page
-                    // hasn't painted yet at that moment - and only the
-                    // fade animates: the cover must never fade IN, or the
-                    // cleared layer shows through.
-                    withAnimation(.easeInOut(duration: Constant.coverFadeDuration).delay(Constant.revealDelay)) {
-                        isLoaded = true
-                    }
+                    // The fallback: a page that reports no paint at all still
+                    // has to be revealed, and a beat past didFinish is the old
+                    // guess at when it has drawn. `onFirstPaint` normally gets
+                    // there first and makes this a no-op.
+                    reveal(after: Constant.revealDelay)
+                },
+                onFirstPaint: {
+                    guard url != nil else { return }
+                    // The page says it has drawn, so there is nothing left to
+                    // wait for.
+                    reveal(after: 0)
                 },
                 onNavigationRequest: onNavigationRequest
             )
@@ -58,10 +62,21 @@ struct HomeWebSurface: View {
         }
     }
 
+    /// Fades the cover away, optionally after a delay. Idempotent: the paint
+    /// report and the finished navigation both ask for the reveal, and only the
+    /// fade animates - the cover must never fade back IN, or the cleared layer
+    /// shows through.
+    private func reveal(after delay: Double) {
+        guard !isLoaded else { return }
+        withAnimation(.easeInOut(duration: Constant.coverFadeDuration).delay(delay)) {
+            isLoaded = true
+        }
+    }
+
     private enum Constant {
         static let coverFadeDuration: Double = 0.35
-        /// The gap between didFinish and the page's JS actually painting;
-        /// revealing at didFinish would expose an unpainted canvas.
+        /// The fallback gap between didFinish and a page's JS painting, used
+        /// only when the page reports no paint of its own.
         static let revealDelay: Double = 0.6
     }
 }
