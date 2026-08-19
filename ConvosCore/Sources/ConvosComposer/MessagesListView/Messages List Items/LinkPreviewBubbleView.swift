@@ -47,6 +47,18 @@ struct LinkPreviewCardView: View {
         ogTitle ?? preview.title ?? preview.displayHost
     }
 
+    /// Whether this card has an image on the way, and so should hold a place
+    /// for one.
+    ///
+    /// Only a preview that already names an image reserves the slot. The
+    /// placeholder used to stand in for every unfetched card and was taken away
+    /// again when the fetch found nothing, which shrank the card by the height
+    /// of the placeholder after it had been measured. A Space page names no
+    /// image today, so that was every card an agent posts.
+    private var expectsImage: Bool {
+        preview.imageURL != nil || ogImageURL != nil
+    }
+
     /// Whether this card points at the group's own Space, which is the page
     /// the Home is showing rather than somewhere out on the web.
     private var isSpacePage: Bool {
@@ -77,14 +89,14 @@ struct LinkPreviewCardView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .blendMode(.multiply)
-                } else if hasFetchedMetadata {
-                    EmptyView()
-                } else {
+                } else if expectsImage {
                     Image(systemName: "link")
                         .font(.largeTitle)
                         .foregroundStyle(.colorTextSecondary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 100.0)
+                } else {
+                    EmptyView()
                 }
             }
             .frame(maxWidth: .infinity)
