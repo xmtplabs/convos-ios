@@ -30,16 +30,16 @@ The home screen is not an inbox. It is a private, continuously growing layer of 
 - The bottom dock keeps a visible personal-agent command bar as the primary action, with More on the left and chat on the right. When an external harness is connected in the prototype, the bar names it and exposes a native harness switcher.
 - Contacts are selected in the invite flow for a conversation rather than occupying a permanent bottom-level destination.
 - The “My context and connections” library organizes the user's editable contact card, locally added context, automatically detected useful message details, and supported assets from loaded convos by type and provenance.
-- Useful details are not contact-card fields: addresses, phone numbers, and emails are indexed from message text with the full source message, sender, convo, and time preserved for search and later sharing.
+- Useful details are not contact-card fields: the home shows compact Addresses, Phone numbers, Email, and All useful details filter rows, while the All Context sheet renders every indexed fact as a searchable full-width card with its source message, sender, convo, time, source-convo link, sender-message action, and share action.
 - Optional widgets include an “Agents across your convos” list. Each row identifies the agent and source convo and opens that agent's private lane; widgets remain removable from the native widget picker.
-- A dismissible “Bring your own agent” callout and the More menu both open the existing honest external-agent connection prototype. Agent text outputs can be saved into Your Space and explicitly staged into a chosen convo, while adding that personal agent to a shared space remains future work.
+- A dismissible “Bring your own agent” callout and the More menu both open the external-agent connection flow. Codex can pair with the user's authenticated Mac app-server through a revocable capability token; other providers remain honest demos. Codex outputs and individual returned links can be saved into Your Space and explicitly staged into a chosen convo, while adding that personal agent to a shared space remains future work.
 - Any context item may be shared only by explicitly choosing a destination; the app opens that convo with the item staged in its composer for review and never auto-sends it.
 
 ## Capabilities and Constraints
 
 - Preserve Convos' invitation-only, identity-per-conversation, local-first privacy model.
 - Use the existing conversation store and navigation paths; the prototype must not fabricate real messages or imply that private context has been uploaded.
-- Voice transcription, chat answers, and imported files stay on-device in this prototype; chat answers are grounded only in the currently visible briefing data.
+- Voice transcription and imported files stay on-device. Built-in chat answers remain local and use the currently visible briefing data; when the user selects connected Codex, the app sends the request and the explicitly enabled, bounded Your Space snapshot to Codex on the user's Mac.
 - The home experience needs useful loading, empty, unread, and no-attention states.
 - The conversation switcher must support many conversations, unread state, search, and direct navigation.
 - The context library must support search, type filters, provenance, local notes/photos/voice/files, an editable personal card with bounded custom title-and-info fields, and an explicit add menu for context or connections.

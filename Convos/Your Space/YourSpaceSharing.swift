@@ -44,7 +44,7 @@ struct YourSpaceShareStager {
         kind: YourSpaceContextKind,
         in composer: any YourSpaceDraftStaging
     ) throws {
-        if kind == .note,
+        if kind == .note || kind == .link,
            let text = try? String(contentsOf: file.url, encoding: .utf8) {
             append(text, to: composer)
             return

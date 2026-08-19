@@ -84,6 +84,9 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
         XCTAssertEqual(item.title, "Home")
         XCTAssertEqual(item.detail, "123 King Street West, Toronto")
         XCTAssertTrue(item.isMine)
+        XCTAssertFalse(item.isAutomaticallyIndexedUsefulDetail)
+        XCTAssertFalse(item.matchesBrowserFilter(.address))
+        XCTAssertTrue(item.matchesBrowserFilter(.all))
     }
 
     func testRememberedFieldsPersistLocally() throws {
@@ -155,6 +158,9 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
         XCTAssertEqual(item.title, "3728 Bear Hollow Rd, Joelton, TN 37080")
         XCTAssertEqual(item.detail, "Joel said this is the cabin address.")
         XCTAssertTrue(item.isAutomaticallyIndexedUsefulDetail)
+        XCTAssertTrue(item.matchesBrowserFilter(.useful))
+        XCTAssertTrue(item.matchesBrowserFilter(.address))
+        XCTAssertFalse(item.matchesBrowserFilter(.phone))
     }
 
     private func contextItem(named name: String) -> YourSpaceContextItem {

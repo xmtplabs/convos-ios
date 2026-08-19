@@ -86,6 +86,28 @@ final class ConversationsViewModel {
         )
     }
 
+    /// Opens the existing one-to-one with a person when available, otherwise
+    /// starts the standard new-conversation flow with that person included.
+    /// Cross-conversation context surfaces use this after dismissing their
+    /// sheet so the global new-conversation presentation has a stable anchor.
+    func messagePerson(inboxId: String) {
+        let repository = session.conversationsRepository(for: [.allowed, .unknown])
+        if let existingConversation = try? repository.findOneToOne(with: inboxId, excluding: nil) {
+            newConversationViewModel = NewConversationViewModel(
+                session: session,
+                mode: .existingConversation(conversationId: existingConversation.id),
+                coreActions: coreActions
+            )
+            return
+        }
+
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversationWithMembers(initialMemberInboxIds: [inboxId]),
+            coreActions: coreActions
+        )
+    }
+
     /// Returns the agent inbox id to open the DM page for, when the DM holds the
     /// most-recent unread message; nil to open the group page.
     private func agentDmInboxIdForMostRecentUnread(in conversation: Conversation) -> String? {

@@ -228,6 +228,11 @@ final class AgentChatPrototypeState {
         )
         workingLaneIds.insert(lane.id)
 
+        if case .external(.codex) = lane.kind {
+            sendToCodex(text, in: lane)
+            return
+        }
+
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(850))
             guard let self else { return }
@@ -255,6 +260,43 @@ final class AgentChatPrototypeState {
 
     func clearShareConfirmation() {
         shareConfirmation = nil
+    }
+
+    private func sendToCodex(_ text: String, in lane: AgentChatLane) {
+        guard let configuration = CodexConnectionStore.configuration() else {
+            messagesByLane[lane.id, default: []].append(
+                AgentChatPrototypeMessage(
+                    sender: .agent,
+                    text: "Codex isn’t connected yet. Open Add an external agent, choose Codex, and connect this iPhone to the app-server on your Mac."
+                )
+            )
+            workingLaneIds.remove(lane.id)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await CodexAppServerClient().send(
+                    userRequest: text,
+                    configuration: configuration,
+                    snapshot: nil,
+                    existingThreadId: CodexConnectionStore.threadId()
+                )
+                CodexConnectionStore.saveThreadId(result.threadId)
+                messagesByLane[lane.id, default: []].append(
+                    AgentChatPrototypeMessage(sender: .agent, text: result.text)
+                )
+            } catch {
+                messagesByLane[lane.id, default: []].append(
+                    AgentChatPrototypeMessage(
+                        sender: .agent,
+                        text: "I couldn’t reach Codex on your Mac. \(error.localizedDescription)"
+                    )
+                )
+            }
+            workingLaneIds.remove(lane.id)
+        }
     }
 
     private func initialMessages(for lane: AgentChatLane) -> [AgentChatPrototypeMessage] {

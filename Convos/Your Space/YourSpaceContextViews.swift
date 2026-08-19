@@ -27,13 +27,6 @@ struct YourSpaceContextSection: View {
             .prefix(4))
     }
 
-    private var usefulItems: [YourSpaceContextItem] {
-        Array(items
-            .filter(\.isAutomaticallyIndexedUsefulDetail)
-            .sorted { $0.date > $1.date }
-            .prefix(3))
-    }
-
     private var rememberedItemCount: Int {
         items.count {
             if case .rememberedField = $0.source { return true }
@@ -235,54 +228,60 @@ struct YourSpaceContextSection: View {
                 Text("Useful details")
                     .font(.headline)
                     .foregroundStyle(.colorTextPrimary)
-                Text("Addresses, phone numbers, and emails found in your convos—with the message they came from.")
+                Text("Find details from messages, with who shared them and where they came from.")
                     .font(.subheadline)
                     .foregroundStyle(.colorTextSecondary)
             }
 
-            if usefulItems.isEmpty {
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                    Label("Nothing indexed yet", systemImage: "sparkles.rectangle.stack")
+            VStack(spacing: 0) {
+                usefulDetailFilterRow(.address)
+                Divider().padding(.leading, 56)
+                usefulDetailFilterRow(.phone)
+                Divider().padding(.leading, 56)
+                usefulDetailFilterRow(.email)
+                Divider().padding(.leading, 56)
+                usefulDetailFilterRow(.useful)
+            }
+            .background(
+                .colorBackgroundRaisedSecondary,
+                in: .rect(cornerRadius: DesignConstants.CornerRadius.medium)
+            )
+        }
+    }
+
+    private func usefulDetailFilterRow(_ kind: YourSpaceContextKind) -> some View {
+        let itemCount = usefulDetailCount(kind)
+        return Button {
+            onBrowse(kind)
+        } label: {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                Image(systemName: kind.systemImage)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(width: 36, height: 36)
+                    .background(.colorFillMinimal, in: .circle)
+
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                    Text(kind == .useful ? "All useful details" : kind.title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.colorTextPrimary)
-                    Text("Useful details appear automatically when they are shared in a convo. You can search and share them without changing your contact card.")
+                    Text(itemCount == 1 ? "1 detail found" : "\(itemCount) details found")
                         .font(.caption)
                         .foregroundStyle(.colorTextSecondary)
                 }
-                .padding(DesignConstants.Spacing.step4x)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    .colorBackgroundRaisedSecondary,
-                    in: .rect(cornerRadius: DesignConstants.CornerRadius.medium)
-                )
-            } else {
-                ForEach(usefulItems) { item in
-                    YourSpaceUsefulDetailCard(
-                        item: item,
-                        provenance: usefulProvenance(for: item),
-                        onShare: { onShare(item) }
-                    )
-                }
 
-                Button {
-                    onBrowse(.useful)
-                } label: {
-                    HStack {
-                        Label("Search all useful details", systemImage: "magnifyingglass")
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-                    .frame(minHeight: 48)
-                    .background(.colorFillMinimal, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("your-space-useful-details-search")
+                Spacer(minLength: DesignConstants.Spacing.step2x)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.colorTextTertiary)
             }
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .frame(minHeight: 60)
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(kind.title), \(itemCount) automatically indexed details")
+        .accessibilityIdentifier("your-space-useful-details-\(kind.rawValue)")
     }
 
     private func categoryButton(_ kind: YourSpaceContextKind, count: Int) -> some View {
@@ -327,6 +326,13 @@ struct YourSpaceContextSection: View {
         items.count { $0.kind == kind }
     }
 
+    private func usefulDetailCount(_ kind: YourSpaceContextKind) -> Int {
+        items.count { item in
+            item.isAutomaticallyIndexedUsefulDetail
+                && (kind == .useful || item.kind == kind)
+        }
+    }
+
     private func provenance(for item: YourSpaceContextItem) -> String {
         if item.isAutomaticallyIndexedUsefulDetail {
             let person: String = item.senderInboxId.flatMap(senderName)
@@ -344,14 +350,6 @@ struct YourSpaceContextSection: View {
         }
         return "Private in Your Space"
     }
-
-    private func usefulProvenance(for item: YourSpaceContextItem) -> String {
-        let person: String = item.senderInboxId.flatMap(senderName)
-            ?? (item.isMine ? "You" : "Someone")
-        let convo: String = item.conversationId.flatMap(conversationTitle) ?? "a convo"
-        let relativeDate = item.date.formatted(.relative(presentation: .named))
-        return "Shared by \(person) in \(convo) · \(relativeDate)"
-    }
 }
 
 struct YourSpaceContextBrowser: View {
@@ -360,6 +358,8 @@ struct YourSpaceContextBrowser: View {
     let conversationTitle: (String) -> String?
     let senderName: (String) -> String?
     let onShare: (YourSpaceContextItem) -> Void
+    let onOpenConversation: (String) -> Void
+    let onMessageSender: (String) -> Void
     let onAddContext: () -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -372,6 +372,8 @@ struct YourSpaceContextBrowser: View {
         conversationTitle: @escaping (String) -> String?,
         senderName: @escaping (String) -> String?,
         onShare: @escaping (YourSpaceContextItem) -> Void,
+        onOpenConversation: @escaping (String) -> Void,
+        onMessageSender: @escaping (String) -> Void,
         onAddContext: @escaping () -> Void
     ) {
         self.items = items
@@ -379,20 +381,32 @@ struct YourSpaceContextBrowser: View {
         self.conversationTitle = conversationTitle
         self.senderName = senderName
         self.onShare = onShare
+        self.onOpenConversation = onOpenConversation
+        self.onMessageSender = onMessageSender
         self.onAddContext = onAddContext
         _selectedKind = State(initialValue: initialFilter)
     }
 
     private var filteredItems: [YourSpaceContextItem] {
-        items
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return items
             .filter { selectedKind == .all || matchesSelectedKind($0) }
             .filter { item in
-                guard !query.isEmpty else { return true }
-                return item.title.localizedCaseInsensitiveContains(query)
-                    || item.detail?.localizedCaseInsensitiveContains(query) == true
-                    || provenance(for: item).localizedCaseInsensitiveContains(query)
+                guard !normalizedQuery.isEmpty else { return true }
+                return item.title.localizedCaseInsensitiveContains(normalizedQuery)
+                    || item.detail?.localizedCaseInsensitiveContains(normalizedQuery) == true
+                    || item.kind.title.localizedCaseInsensitiveContains(normalizedQuery)
+                    || provenance(for: item).localizedCaseInsensitiveContains(normalizedQuery)
             }
             .sorted { $0.date > $1.date }
+    }
+
+    private var usefulItems: [YourSpaceContextItem] {
+        filteredItems.filter(\.isAutomaticallyIndexedUsefulDetail)
+    }
+
+    private var otherItems: [YourSpaceContextItem] {
+        filteredItems.filter { !$0.isAutomaticallyIndexedUsefulDetail }
     }
 
     var body: some View {
@@ -411,20 +425,12 @@ struct YourSpaceContextBrowser: View {
                         )
                         .frame(maxWidth: .infinity, minHeight: 360)
                     } else {
-                        LazyVGrid(
-                            columns: [GridItem(
-                                .adaptive(minimum: 150, maximum: 320),
-                                spacing: DesignConstants.Spacing.step3x
-                            )],
-                            spacing: DesignConstants.Spacing.step3x
-                        ) {
-                            ForEach(filteredItems) { item in
-                                YourSpaceContextItemCard(
-                                    item: item,
-                                    provenance: provenance(for: item),
-                                    onShare: { onShare(item) }
-                                )
-                            }
+                        if selectedKind.isUsefulDetailFilter {
+                            usefulDetailsList(usefulItems)
+                        } else if selectedKind == .all {
+                            allContextResults
+                        } else {
+                            contextGrid(otherItems)
                         }
                     }
                 }
@@ -434,7 +440,7 @@ struct YourSpaceContextBrowser: View {
             .background(.colorBackgroundSurfaceless)
             .navigationTitle("All context")
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, prompt: "Links, photos, addresses, details")
+            .searchable(text: $query, prompt: "Messages, people, convos, details")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -452,7 +458,7 @@ struct YourSpaceContextBrowser: View {
     private var filterBar: some View {
         ScrollView(.horizontal) {
             HStack(spacing: DesignConstants.Spacing.step2x) {
-                ForEach(YourSpaceContextKind.allCases) { kind in
+                ForEach(YourSpaceContextKind.browserFilters) { kind in
                     Button {
                         selectedKind = kind
                     } label: {
@@ -474,13 +480,78 @@ struct YourSpaceContextBrowser: View {
     }
 
     private func matchesSelectedKind(_ item: YourSpaceContextItem) -> Bool {
-        if selectedKind == .useful {
-            return item.isAutomaticallyIndexedUsefulDetail
+        item.matchesBrowserFilter(selectedKind)
+    }
+
+    @ViewBuilder
+    private var allContextResults: some View {
+        if !usefulItems.isEmpty {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+                Text("Useful details")
+                    .font(.headline)
+                    .foregroundStyle(.colorTextPrimary)
+                usefulDetailsList(usefulItems)
+            }
         }
-        if selectedKind == .file {
-            return [.file, .video, .voice, .note].contains(item.kind)
+
+        if !otherItems.isEmpty {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+                if !usefulItems.isEmpty {
+                    Text("Everything else")
+                        .font(.headline)
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                contextGrid(otherItems)
+            }
         }
-        return item.kind == selectedKind
+    }
+
+    private func usefulDetailsList(_ items: [YourSpaceContextItem]) -> some View {
+        LazyVStack(spacing: DesignConstants.Spacing.step3x) {
+            ForEach(items) { item in
+                YourSpaceUsefulDetailCard(
+                    item: item,
+                    sender: senderDisplayName(for: item),
+                    conversation: conversationDisplayName(for: item),
+                    onShare: { onShare(item) },
+                    onOpenConversation: item.conversationId.map { conversationId in
+                        { onOpenConversation(conversationId) }
+                    },
+                    onMessageSender: messageSenderAction(for: item)
+                )
+            }
+        }
+    }
+
+    private func contextGrid(_ items: [YourSpaceContextItem]) -> some View {
+        LazyVGrid(
+            columns: [GridItem(
+                .adaptive(minimum: 150, maximum: 320),
+                spacing: DesignConstants.Spacing.step3x
+            )],
+            spacing: DesignConstants.Spacing.step3x
+        ) {
+            ForEach(items) { item in
+                YourSpaceContextItemCard(
+                    item: item,
+                    provenance: provenance(for: item),
+                    onShare: { onShare(item) }
+                )
+            }
+        }
+    }
+
+    private func senderDisplayName(for item: YourSpaceContextItem) -> String {
+        item.senderInboxId.flatMap(senderName) ?? (item.isMine ? "You" : "Someone")
+    }
+
+    private func conversationDisplayName(for item: YourSpaceContextItem) -> String {
+        item.conversationId.flatMap(conversationTitle) ?? "a convo"
+    }
+
+    private func messageSenderAction(for item: YourSpaceContextItem) -> (() -> Void)? {
+        guard !item.isMine, let senderInboxId = item.senderInboxId else { return nil }
+        return { onMessageSender(senderInboxId) }
     }
 
     private func provenance(for item: YourSpaceContextItem) -> String {
@@ -551,50 +622,97 @@ struct YourSpaceContextItemCard: View {
 
 private struct YourSpaceUsefulDetailCard: View {
     let item: YourSpaceContextItem
-    let provenance: String
+    let sender: String
+    let conversation: String
     let onShare: () -> Void
+    let onOpenConversation: (() -> Void)?
+    let onMessageSender: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
-            YourSpaceContextPreview(item: item)
-                .frame(maxWidth: .infinity)
-                .frame(height: item.kind == .address ? 132 : 96)
-                .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.small))
-
-            Label(item.title, systemImage: item.kind.systemImage)
-                .font(.headline)
-                .foregroundStyle(.colorTextPrimary)
-                .lineLimit(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            if let detail = item.detail,
-               detail.localizedCaseInsensitiveCompare(item.title) != .orderedSame {
-                Text(detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextPrimary)
-                    .lineLimit(4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+            if item.kind == .address {
+                YourSpaceContextPreview(item: item)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 164)
+                    .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.small))
             }
 
-            Text(provenance)
-                .font(.caption)
-                .foregroundStyle(.colorTextSecondary)
-                .lineLimit(2)
+            HStack(alignment: .top, spacing: DesignConstants.Spacing.step3x) {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                    Label(item.kind.title, systemImage: item.kind.systemImage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.colorTextSecondary)
 
-            Button(action: onShare) {
-                Label("Share to a convo", systemImage: "arrowshape.turn.up.right")
+                    Text(item.title)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if let onMessageSender {
+                    Button(action: onMessageSender) {
+                        Image(systemName: "message.fill")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.colorTextPrimary)
+                            .frame(width: 44, height: 44)
+                            .background(.colorFillSubtle, in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Message \(sender)")
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                Text("Shared by \(sender)")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
-                    .frame(maxWidth: .infinity, minHeight: 40)
-                    .background(.colorFillSubtle, in: .capsule)
+                Text("\(conversation) · \(item.date.formatted(.relative(presentation: .named)))")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Share \(item.title) to a convo")
+
+            Text(item.detail ?? item.title)
+                .font(.body)
+                .foregroundStyle(.colorTextPrimary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    actionButtons
+                }
+                VStack(spacing: DesignConstants.Spacing.step2x) {
+                    actionButtons
+                }
+            }
         }
-        .padding(DesignConstants.Spacing.step3x)
+        .padding(DesignConstants.Spacing.step4x)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
         .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.medium))
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        if let onOpenConversation {
+            Button(action: onOpenConversation) {
+                Label("Open convo", systemImage: "bubble.left.and.bubble.right.fill")
+                    .frame(maxWidth: .infinity, minHeight: 40)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Open \(conversation)")
+        }
+
+        Button(action: onShare) {
+            Label("Share", systemImage: "arrowshape.turn.up.right")
+                .frame(maxWidth: .infinity, minHeight: 40)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Share \(item.title) to a convo")
     }
 }
 

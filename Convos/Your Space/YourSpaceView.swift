@@ -108,6 +108,21 @@ struct YourSpaceView: View {
         ExternalAgentProvider(rawValue: personalAgentProviderRawValue)
     }
 
+    private var codexConnectionConfiguration: CodexConnectionConfiguration? {
+        guard activePersonalAgent == .codex else { return nil }
+        return CodexConnectionStore.configuration()
+    }
+
+    private var codexYourSpaceSnapshot: CodexYourSpaceSnapshot? {
+        guard codexConnectionConfiguration?.sharesYourSpaceContext == true else { return nil }
+        return CodexYourSpaceSnapshot(
+            briefing: briefing,
+            contextItems: allContextItems,
+            conversationTitle: conversationTitle,
+            senderName: senderName
+        )
+    }
+
     private var selectedConversationBinding: Binding<ConversationViewModel?> {
         Binding(
             get: { viewModel.selectedConversationViewModel },
@@ -160,7 +175,10 @@ struct YourSpaceView: View {
                     briefing: briefing,
                     contextItems: allContextItems,
                     agentName: activePersonalAgent?.displayName,
+                    codexConfiguration: codexConnectionConfiguration,
+                    codexSnapshot: codexYourSpaceSnapshot,
                     onSaveOutput: saveAgentOutput,
+                    onSaveLink: saveAgentLink,
                     onShareOutput: shareAgentOutput
                 )
                 .presentationDetents([.large])
@@ -179,6 +197,8 @@ struct YourSpaceView: View {
                     conversationTitle: conversationTitle,
                     senderName: senderName,
                     onShare: shareFromContextBrowser,
+                    onOpenConversation: openConversationFromContextBrowser,
+                    onMessageSender: messageSenderFromContextBrowser,
                     onAddContext: addFromContextBrowser
                 )
                 .presentationDetents([.large])
@@ -247,6 +267,9 @@ struct YourSpaceView: View {
 #if DEBUG
                 if ProcessInfo.processInfo.environment["YOUR_SPACE_SWITCHER_FIXTURE"] == "1" {
                     presentingSwitcher = true
+                }
+                if ProcessInfo.processInfo.environment["YOUR_SPACE_CONTEXT_BROWSER_FIXTURE"] == "1" {
+                    browsingContextKind = .address
                 }
 #endif
                 guard !usesVisualFixture else { return }
@@ -921,7 +944,7 @@ private extension YourSpaceView {
                             .lineLimit(1)
                         Text(activePersonalAgent == nil
                             ? "Make, edit, or find anything"
-                            : "Connected demo · Your Space context")
+                            : personalAgentConnectionSubtitle)
                             .font(.caption)
                             .foregroundStyle(.colorTextSecondary)
                             .lineLimit(1)
@@ -980,6 +1003,16 @@ private extension YourSpaceView {
             .frame(width: size, height: size)
             .background(provider.tint, in: .circle)
             .accessibilityHidden(true)
+    }
+
+    private var personalAgentConnectionSubtitle: String {
+        guard let activePersonalAgent else { return "Make, edit, or find anything" }
+        if activePersonalAgent == .codex {
+            return codexConnectionConfiguration == nil
+                ? "Reconnect Codex to your Mac"
+                : "Connected to your Mac · Your Space context"
+        }
+        return "Connected demo · Your Space context"
     }
 
     private var chatButton: some View {
@@ -1078,6 +1111,12 @@ private extension YourSpaceView {
         return YourSpaceContextItem(local: file)
     }
 
+    private func saveAgentLink(_ url: URL) throws -> YourSpaceContextItem {
+        let file = try YourSpaceFileStore.storeLink(url)
+        refreshLocalContext(selecting: file)
+        return YourSpaceContextItem(local: file)
+    }
+
     private func shareAgentOutput(_ item: YourSpaceContextItem) {
         inputMode = nil
         Task { @MainActor in
@@ -1106,6 +1145,23 @@ private extension YourSpaceView {
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(350))
             sharingItem = item
+        }
+    }
+
+    private func openConversationFromContextBrowser(_ conversationId: String) {
+        guard let conversation = conversations.first(where: { $0.id == conversationId }) else { return }
+        browsingContextKind = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            viewModel.select(conversation)
+        }
+    }
+
+    private func messageSenderFromContextBrowser(_ inboxId: String) {
+        browsingContextKind = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            viewModel.messagePerson(inboxId: inboxId)
         }
     }
 
@@ -1248,8 +1304,10 @@ private extension YourSpaceView {
             title: "3728 Bear Hollow Rd, Joelton, TN 37080",
             date: Date().addingTimeInterval(-600),
             conversationId: "your-space-nash",
-            senderInboxId: nil,
-            isMine: true,
+            senderInboxId: visualFixtureConversations
+                .first(where: { $0.id == "your-space-nash" })?
+                .membersWithoutCurrent.first?.profile.inboxId,
+            isMine: false,
             attachmentKey: nil,
             filename: nil,
             mimeType: nil,

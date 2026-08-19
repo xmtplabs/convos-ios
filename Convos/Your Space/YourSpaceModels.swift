@@ -55,6 +55,22 @@ enum YourSpaceContextKind: String, CaseIterable, Codable, Identifiable, Sendable
 
     var id: String { rawValue }
 
+    static let browserFilters: [YourSpaceContextKind] = [
+        .all,
+        .useful,
+        .address,
+        .phone,
+        .email,
+        .photo,
+        .link,
+        .file,
+        .detail,
+    ]
+
+    var isUsefulDetailFilter: Bool {
+        [.useful, .address, .phone, .email].contains(self)
+    }
+
     var title: String {
         switch self {
         case .all: "All"
@@ -67,7 +83,7 @@ enum YourSpaceContextKind: String, CaseIterable, Codable, Identifiable, Sendable
         case .note: "Notes"
         case .address: "Addresses"
         case .phone: "Phone numbers"
-        case .email: "Email"
+        case .email: "Emails"
         case .detail: "Remembered"
         }
     }
@@ -222,6 +238,21 @@ struct YourSpaceContextItem: Identifiable, Hashable, Sendable {
         return [.address, .phone, .email].contains(kind)
     }
 
+    func matchesBrowserFilter(_ filter: YourSpaceContextKind) -> Bool {
+        switch filter {
+        case .all:
+            true
+        case .useful:
+            isAutomaticallyIndexedUsefulDetail
+        case .address, .phone, .email:
+            isAutomaticallyIndexedUsefulDetail && kind == filter
+        case .file:
+            [.file, .video, .voice, .note].contains(kind)
+        default:
+            kind == filter
+        }
+    }
+
     init(rememberedField field: YourSpaceRememberedField) {
         id = "remembered-\(field.id.uuidString)"
         kind = field.category.contextKind
@@ -236,6 +267,7 @@ struct YourSpaceContextItem: Identifiable, Hashable, Sendable {
 
     private static func kind(filename: String) -> YourSpaceContextKind {
         let pathExtension = (filename as NSString).pathExtension
+        if pathExtension.caseInsensitiveCompare("url") == .orderedSame { return .link }
         guard let type = UTType(filenameExtension: pathExtension) else { return .file }
         if type.conforms(to: .image) { return .photo }
         if type.conforms(to: .movie) { return .video }
@@ -380,6 +412,11 @@ enum YourSpaceFileStore {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseName = trimmedTitle.isEmpty ? "Note" : trimmedTitle
         return try store(data: Data(text.utf8), named: "\(baseName).txt")
+    }
+
+    static func storeLink(_ url: URL) throws -> YourSpaceStoredFile {
+        let title = url.host(percentEncoded: false) ?? "Codex link"
+        return try store(data: Data(url.absoluteString.utf8), named: "\(title).url")
     }
 
     static func temporaryCopy(of file: YourSpaceStoredFile) throws -> URL {

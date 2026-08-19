@@ -1,0 +1,69 @@
+#!/bin/zsh
+
+set -euo pipefail
+
+port="${CONVOS_CODEX_PORT:-4500}"
+workspace="${1:-$PWD}"
+token_directory="${CONVOS_CODEX_TOKEN_DIRECTORY:-$HOME/.codex}"
+token_file="$token_directory/convos-token"
+
+if ! command -v codex >/dev/null 2>&1; then
+  print -u2 "Codex is not installed or is not available in this terminal."
+  exit 1
+fi
+
+if [[ "$workspace" != /* ]]; then
+  workspace="$PWD/$workspace"
+fi
+if [[ ! -d "$workspace" ]]; then
+  print -u2 "Workspace does not exist: $workspace"
+  exit 1
+fi
+
+network_interface="$(route get default 2>/dev/null | awk '/interface:/{print $2; exit}')"
+mac_address=""
+if [[ -n "$network_interface" ]]; then
+  mac_address="$(ipconfig getifaddr "$network_interface" 2>/dev/null || true)"
+fi
+if [[ -z "$mac_address" ]]; then
+  mac_name="$(scutil --get LocalHostName 2>/dev/null || hostname -s)"
+  mac_address="${mac_name}.local"
+fi
+
+mkdir -p "$token_directory"
+if [[ ! -s "$token_file" ]]; then
+  openssl rand -hex 32 > "$token_file"
+fi
+chmod 600 "$token_file"
+token="$(tr -d '\r\n' < "$token_file")"
+endpoint="ws://${mac_address}:${port}"
+
+pairing_link="$(/usr/bin/python3 - "$endpoint" "$token" "$workspace" <<'PY'
+import sys
+from urllib.parse import urlencode
+
+endpoint, token, workspace = sys.argv[1:]
+print("convos://codex/connect?" + urlencode({
+    "endpoint": endpoint,
+    "token": token,
+    "workspace": workspace,
+}))
+PY
+)"
+
+print -n "$pairing_link" | pbcopy
+
+print "Ready for Convos."
+print "1. On your iPhone, open Your Space → Bring your own agent → Codex."
+print "2. Tap Pair from Mac."
+print "3. Keep this terminal open while Codex works."
+print ""
+print "Approved workspace: $workspace"
+print "Private-network endpoint: $endpoint"
+print "The capability token is in $token_file and was copied only inside the pairing link."
+print ""
+
+exec codex app-server \
+  --listen "ws://0.0.0.0:${port}" \
+  --ws-auth capability-token \
+  --ws-token-file "$token_file"

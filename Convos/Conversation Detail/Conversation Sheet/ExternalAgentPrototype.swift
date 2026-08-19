@@ -32,7 +32,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
 
     var chatSubtitle: String {
         switch self {
-        case .codex: "Connected demo · Private desktop collaborator"
+        case .codex: "Connected to your Mac · Private desktop collaborator"
         case .claudeCode: "Connected demo · Private desktop collaborator"
         case .hermes: "Paired gateway demo · Scoped to this convo"
         case .openClaw: "Paired gateway demo · Scoped to this convo"
@@ -73,7 +73,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
     var connectionExplanation: String {
         switch self {
         case .codex:
-            "Convos would pair with a small desktop bridge, then use your existing Codex sign-in or an OpenAI project key kept off the phone."
+            "Convos connects to Codex app-server on your Mac. Your existing ChatGPT sign-in, Codex history, tools, and workspace stay on the computer."
         case .claudeCode:
             "Convos would pair with Claude Code on your computer after you authenticate with Anthropic, Claude Pro or Max, Bedrock, or Vertex AI."
         case .hermes:
@@ -89,9 +89,9 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .codex:
             [
-                .init(symbol: "desktopcomputer", title: "Convos desktop bridge", detail: "Pairs this convo to the machine where Codex can work."),
-                .init(symbol: "person.crop.circle.badge.checkmark", title: "OpenAI authorization", detail: "Sign in with ChatGPT or use a server-held project API key."),
-                .init(symbol: "folder.badge.gearshape", title: "Approved workspace", detail: "Choose which project and tools this convo may reach."),
+                .init(symbol: "desktopcomputer", title: "Codex app-server", detail: "Runs on the Mac where Codex already has your sign-in and tools."),
+                .init(symbol: "key.fill", title: "Capability token", detail: "A revocable token protects this connection and stays in the iPhone Keychain."),
+                .init(symbol: "folder.badge.gearshape", title: "Approved workspace", detail: "Choose the Mac project where Codex may read and make things."),
             ]
         case .claudeCode:
             [
@@ -122,7 +122,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
 
     var welcomeMessage: String {
         switch self {
-        case .codex: "Codex is paired for this demo. Point me at a Home card or describe what you want to build, and I’ll keep the work inside the access you chose."
+        case .codex: "I’m connected to Codex on your Mac. Point me at Your Space context or describe what you want to build, and I’ll keep the work inside the workspace you chose."
         case .claudeCode: "Claude Code is paired for this demo. I can help shape or implement a Home update from the workspace you approve."
         case .hermes: "Your Hermes gateway is paired for this demo. Its memory and tools remain yours; Convos only sends this lane’s approved context."
         case .openClaw: "Your OpenClaw gateway is paired for this demo. I’ll use only the device and operator scopes shown in Agent access."
@@ -262,7 +262,7 @@ struct ExternalAgentOnboardingView: View {
 
     private var privacyNote: some View {
         Label {
-            Text("Credentials stay in the connector or paired desktop. Convos receives a revocable connection—not your raw secret.")
+            Text("Codex uses a revocable capability token stored in this device’s Keychain. The other providers remain connection demos and never ask for a secret.")
         } icon: {
             Image(systemName: "lock.fill")
         }
@@ -271,7 +271,18 @@ struct ExternalAgentOnboardingView: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
+    @ViewBuilder
     private func connectionView(_ provider: ExternalAgentProvider) -> some View {
+        if provider == .codex {
+            CodexConnectionSetupView {
+                onConnected(.codex)
+            }
+        } else {
+            demoConnectionView(provider)
+        }
+    }
+
+    private func demoConnectionView(_ provider: ExternalAgentProvider) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step8x) {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {

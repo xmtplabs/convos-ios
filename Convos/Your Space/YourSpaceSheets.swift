@@ -1,6 +1,7 @@
 import ConvosComposer
 import ConvosCore
 import ConvosCoreiOS
+import Foundation
 import SwiftUI
 
 struct YourSpaceConversationSwitcher: View {
@@ -458,7 +459,10 @@ struct YourSpaceInputSheet: View {
     let briefing: YourSpaceBriefing
     let contextItems: [YourSpaceContextItem]
     let agentName: String?
+    let codexConfiguration: CodexConnectionConfiguration?
+    let codexSnapshot: CodexYourSpaceSnapshot?
     let onSaveOutput: (String) throws -> YourSpaceContextItem
+    let onSaveLink: (URL) throws -> YourSpaceContextItem
     let onShareOutput: (YourSpaceContextItem) -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -466,6 +470,9 @@ struct YourSpaceInputSheet: View {
     @State private var submittedPrompt: String?
     @State private var response: String?
     @State private var savedOutput: YourSpaceContextItem?
+    @State private var savedLinks: [String: YourSpaceContextItem] = [:]
+    @State private var isAgentWorking: Bool = false
+    @State private var requestTask: Task<Void, Never>?
     @State private var recorder: VoiceMemoRecorder = VoiceMemoRecorder()
     @State private var isTranscribing: Bool = false
     @State private var inputError: InputError?
@@ -478,10 +485,14 @@ struct YourSpaceInputSheet: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
-                    assistantMessage(briefing.headline)
+                    assistantMessage(initialAssistantMessage)
 
                     if let submittedPrompt {
                         userMessage(submittedPrompt)
+                    }
+
+                    if isAgentWorking {
+                        agentWorkingMessage
                     }
 
                     if let response {
@@ -492,7 +503,7 @@ struct YourSpaceInputSheet: View {
                         promptSuggestions
                     }
 
-                    Label("Answers use private context already on this device.", systemImage: "lock.fill")
+                    Label(contextBoundaryCopy, systemImage: "lock.fill")
                         .font(.caption)
                         .foregroundStyle(.colorTextSecondary)
                         .padding(.top, DesignConstants.Spacing.step3x)
@@ -524,6 +535,7 @@ struct YourSpaceInputSheet: View {
             }
         }
         .onDisappear {
+            requestTask?.cancel()
             recorder.cancelRecording()
             Task {
                 await transcriber.cancel(messageId: transcriptionID)
@@ -555,6 +567,7 @@ struct YourSpaceInputSheet: View {
                 .lineLimit(1 ... 5)
                 .submitLabel(.send)
                 .onSubmit { submitQuestion() }
+                .disabled(isAgentWorking)
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
                 .padding(.vertical, DesignConstants.Spacing.step3x)
                 .background(.colorFillMinimal, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
@@ -570,8 +583,8 @@ struct YourSpaceInputSheet: View {
                     .background(.colorFillPrimary, in: .circle)
             }
             .buttonStyle(.plain)
-            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .opacity(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
+            .disabled(isAgentWorking || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .opacity(isAgentWorking || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
             .accessibilityLabel("Ask your agent")
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -638,9 +651,9 @@ struct YourSpaceInputSheet: View {
     private var promptSuggestions: some View {
         ScrollView(.horizontal) {
             HStack(spacing: DesignConstants.Spacing.step2x) {
-                suggestionButton("What needs me?")
-                suggestionButton("What's new?")
-                suggestionButton("Who is active?")
+                ForEach(promptSuggestionTitles, id: \.self) { title in
+                    suggestionButton(title)
+                }
             }
         }
         .scrollIndicators(.hidden)
@@ -666,9 +679,33 @@ struct YourSpaceInputSheet: View {
             .accessibilityLabel("Your Space: \(text)")
     }
 
+    private var agentWorkingMessage: some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            ProgressView()
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                Text(isCodexSelected ? "Codex is working on your Mac…" : "Your agent is working…")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                if isCodexSelected, let workspace = codexConfiguration?.workspacePath {
+                    Text(workspace)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(DesignConstants.Spacing.step4x)
+        .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+        .accessibilityElement(children: .combine)
+    }
+
     private func agentOutput(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
             assistantMessage(text)
+
+            ForEach(detectedLinks(in: text), id: \.absoluteString) { url in
+                resultLink(url)
+            }
 
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 Button {
@@ -695,6 +732,45 @@ struct YourSpaceInputSheet: View {
         }
     }
 
+    private func resultLink(_ url: URL) -> some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Link(destination: url) {
+                Label(url.host ?? "Open result", systemImage: "arrow.up.right.square")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Menu {
+                Button {
+                    saveLink(url)
+                } label: {
+                    Label(
+                        savedLinks[url.absoluteString] == nil ? "Save link to Your Space" : "Saved to Your Space",
+                        systemImage: savedLinks[url.absoluteString] == nil ? "square.and.arrow.down" : "checkmark"
+                    )
+                }
+                .disabled(savedLinks[url.absoluteString] != nil)
+
+                Button {
+                    shareLink(url)
+                } label: {
+                    Label("Share link to a convo", systemImage: "arrowshape.turn.up.right")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title3)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
+            }
+            .accessibilityLabel("Actions for \(url.host ?? "Codex link")")
+        }
+        .padding(.leading, DesignConstants.Spacing.step4x)
+        .padding(.trailing, DesignConstants.Spacing.step2x)
+        .frame(maxWidth: 560, minHeight: 52)
+        .background(.colorFillMinimal, in: .rect(cornerRadius: 12))
+    }
+
     private func userMessage(_ text: String) -> some View {
         Text(text)
             .font(.body)
@@ -709,11 +785,83 @@ struct YourSpaceInputSheet: View {
 
     private func submitQuestion(_ suppliedQuestion: String? = nil) {
         let question = (suppliedQuestion ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty else { return }
+        guard !question.isEmpty, !isAgentWorking else { return }
         submittedPrompt = question
-        response = groundedResponse(to: question)
+        response = nil
         savedOutput = nil
+        savedLinks = [:]
         draft = ""
+
+        guard isCodexSelected else {
+            response = groundedResponse(to: question)
+            return
+        }
+        guard let codexConfiguration else {
+            inputError = InputError(
+                title: "Connect Codex first",
+                message: CodexConnectionError.notConfigured.localizedDescription
+            )
+            return
+        }
+
+        isAgentWorking = true
+        requestTask = Task { @MainActor in
+            defer { isAgentWorking = false }
+            do {
+                let result = try await CodexAppServerClient().send(
+                    userRequest: question,
+                    configuration: codexConfiguration,
+                    snapshot: codexSnapshot,
+                    existingThreadId: CodexConnectionStore.threadId()
+                )
+                guard !Task.isCancelled else { return }
+                CodexConnectionStore.saveThreadId(result.threadId)
+                response = result.text
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled else { return }
+                inputError = InputError(
+                    title: "Couldn’t reach Codex",
+                    message: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    private var isCodexSelected: Bool {
+        agentName == ExternalAgentProvider.codex.displayName
+    }
+
+    private var initialAssistantMessage: String {
+        guard isCodexSelected, codexConfiguration != nil else { return briefing.headline }
+        let contextCount = codexSnapshot?.items.count ?? 0
+        if codexConfiguration?.sharesYourSpaceContext == true {
+            return "Codex is connected to your Mac with \(contextCount) approved items from Your Space. Tell me what you want to make, and I’ll bring the result back here."
+        }
+        return "Codex is connected to your Mac. Tell me what you want to make, and I’ll bring the result back here."
+    }
+
+    private var promptSuggestionTitles: [String] {
+        guard isCodexSelected else {
+            return ["What needs me?", "What's new?", "Who is active?"]
+        }
+        return [
+            "Make a tiny site from my latest idea",
+            "Turn my recent links into a useful prototype",
+            "Build something surprising from this context",
+        ]
+    }
+
+    private var contextBoundaryCopy: String {
+        guard isCodexSelected else {
+            return "Answers use private context already on this device."
+        }
+        guard codexConfiguration?.sharesYourSpaceContext == true else {
+            return "This question goes to Codex on your Mac without Your Space context."
+        }
+        let count = codexSnapshot?.items.count ?? 0
+        return "This question and an approved snapshot of \(count) Your Space items go to Codex on your Mac."
     }
 
     private func groundedResponse(to question: String) -> String {
@@ -776,6 +924,38 @@ struct YourSpaceInputSheet: View {
             savedOutput = try onSaveOutput(text)
         } catch {
             inputError = InputError(title: "Couldn't save that", message: error.localizedDescription)
+        }
+    }
+
+    private func detectedLinks(in text: String) -> [URL] {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return []
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        var seen: Set<String> = []
+        return detector.matches(in: text, options: [], range: range).compactMap { match in
+            guard let url = match.url,
+                  ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                  seen.insert(url.absoluteString).inserted else { return nil }
+            return url
+        }
+    }
+
+    private func saveLink(_ url: URL) {
+        do {
+            savedLinks[url.absoluteString] = try onSaveLink(url)
+        } catch {
+            inputError = InputError(title: "Couldn't save that link", message: error.localizedDescription)
+        }
+    }
+
+    private func shareLink(_ url: URL) {
+        do {
+            let item = try savedLinks[url.absoluteString] ?? onSaveLink(url)
+            savedLinks[url.absoluteString] = item
+            onShareOutput(item)
+        } catch {
+            inputError = InputError(title: "Couldn't prepare that link", message: error.localizedDescription)
         }
     }
 
