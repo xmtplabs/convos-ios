@@ -96,7 +96,8 @@ struct ConvosApp: App {
         #endif
         let agentKeyset = AgentKeyset(
             endpointURL: AgentKeyset.endpointURL(for: environment),
-            fallbackKey: debugFallbackKey
+            fallbackKey: debugFallbackKey,
+            urlSession: PreviewTokenSession.makeSession(for: environment)
         )
         AgentKeysetStore.instance.configure(agentKeyset)
 

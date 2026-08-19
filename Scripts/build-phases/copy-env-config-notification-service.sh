@@ -27,12 +27,15 @@ if [ "$CONFIGURATION" = "Local" ]; then
     FIREBASE_TOKEN=""
     AGENT_DEBUG_JWKS=""
     POSTHOG_API_KEY=""
+    PREVIEW_TOKEN=""
 
     if [ -f "${SRCROOT}/.env" ]; then
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
         XMTP_CUSTOM_HOST=$(grep -v '^#' "${SRCROOT}/.env" | grep '^XMTP_CUSTOM_HOST=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
         AGENT_DEBUG_JWKS=$(grep -v '^#' "${SRCROOT}/.env" | grep '^AGENT_DEBUG_JWKS=' | cut -d'=' -f2- | sed -e "s/^'//" -e "s/'$//" || true)
         POSTHOG_API_KEY=$(grep -v '^#' "${SRCROOT}/.env" | grep '^POSTHOG_API_KEY=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        # Per-PR preview bundle token; empty for every normal build.
+        PREVIEW_TOKEN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^PREVIEW_TOKEN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
     fi
     # Resolve the XMTP host the same way Scripts/generate-secrets-local.sh does:
     # USE_CONFIG means "no custom host, use the network the config selects", and
@@ -61,6 +64,7 @@ enum Secrets {
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
     static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
     static let AGENT_DEBUG_JWKS: String = "$ESCAPED_AGENT_DEBUG_JWKS"
+    static let PREVIEW_TOKEN: String = "$PREVIEW_TOKEN"
 }
 // swiftlint:enable all
 EOF
@@ -78,6 +82,7 @@ elif [ "$CONFIGURATION" = "Dev" ]; then
     CONVOS_API_BASE_URL=""
     AGENT_DEBUG_JWKS=""
     POSTHOG_API_KEY=""
+    PREVIEW_TOKEN=""
     SENTRY_DSN=""
     if [ -f "${SRCROOT}/.env" ]; then
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
@@ -117,6 +122,7 @@ enum Secrets {
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
     static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
     static let AGENT_DEBUG_JWKS: String = "$ESCAPED_AGENT_DEBUG_JWKS"
+    static let PREVIEW_TOKEN: String = "$PREVIEW_TOKEN"
 }
 // swiftlint:enable all
 EOF
@@ -153,6 +159,7 @@ enum Secrets {
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
     static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
     static let AGENT_DEBUG_JWKS: String = ""
+    static let PREVIEW_TOKEN: String = ""
 }
 // swiftlint:enable all
 EOF

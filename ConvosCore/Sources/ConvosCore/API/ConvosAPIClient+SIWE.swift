@@ -121,7 +121,7 @@ extension ConvosAPIClient {
             request.setValue(jwt, forHTTPHeaderField: "X-Convos-AuthToken")
         }
 
-        let (data, response) = try await Self.siweSession.data(for: request)
+        let (data, response) = try await siweSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
@@ -140,17 +140,6 @@ extension ConvosAPIClient {
 
     // MARK: - Internals
 
-    /// Dedicated URLSession with cookie storage disabled. SIWE's
-    /// `__Host-` nonce cookie must be carried manually as the `Cookie`
-    /// header on `/auth/token` — see `ConvosAPIClient+SIWECookieParsing`.
-    private static let siweSession: URLSession = {
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieStorage = nil
-        config.httpShouldSetCookies = false
-        config.httpCookieAcceptPolicy = .never
-        return URLSession(configuration: config)
-    }()
-
     func requestAuthNonce(appCheckToken: String, retryCount: Int) async throws -> AuthNonceChallenge {
         let url = baseURL.appendingPathComponent("v2/auth/nonce")
         var request = URLRequest(url: url)
@@ -159,7 +148,7 @@ extension ConvosAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data("{}".utf8)
 
-        let (data, response) = try await Self.siweSession.data(for: request)
+        let (data, response) = try await siweSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
@@ -201,7 +190,7 @@ extension ConvosAPIClient {
         )
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, response) = try await Self.siweSession.data(for: request)
+        let (data, response) = try await siweSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }

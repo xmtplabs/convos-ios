@@ -307,6 +307,7 @@ if [ -f ".env" ]; then
         [[ "$key" == "FIREBASE_APP_CHECK_DEBUG_TOKEN" ]] && continue
         [[ "$key" == "GIT_COMMIT_SHA" ]] && continue
         [[ "$key" == "AGENT_DEBUG_JWKS" ]] && continue
+        [[ "$key" == "PREVIEW_TOKEN" ]] && continue
 
         # Validate Swift identifier
         if ! is_valid_swift_identifier "$key"; then

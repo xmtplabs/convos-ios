@@ -102,7 +102,7 @@ public enum AppEnvironment: Sendable {
 
     /// Per-PR preview bundle token, empty for every normal build. Preview
     /// backends refuse any request that arrives without it.
-    var previewToken: String {
+    public var previewToken: String {
         switch self {
         case .local(let config), .dev(let config), .production(let config):
             return config.previewToken

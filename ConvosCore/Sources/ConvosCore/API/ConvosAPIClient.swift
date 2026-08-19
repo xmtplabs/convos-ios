@@ -442,6 +442,8 @@ final class LockedSigningContext: @unchecked Sendable {
 final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     let baseURL: URL
     private let session: URLSession
+    /// Sign-in transport; see `PreviewTokenSession.makeSIWESession`.
+    let siweSession: URLSession
     let environment: AppEnvironment
     let keychainService: any KeychainServiceProtocol = KeychainService()
     private let overrideJWTToken: String?  // Immutable JWT override from APNS payload
@@ -454,6 +456,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
         self.baseURL = apiBaseURL
         self.session = URLSession(configuration: PreviewTokenSession.configuration(for: environment))
+        self.siweSession = PreviewTokenSession.makeSIWESession(for: environment)
         self.environment = environment
         self.overrideJWTToken = overrideJWTToken
     }

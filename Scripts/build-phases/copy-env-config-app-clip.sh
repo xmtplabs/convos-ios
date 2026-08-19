@@ -14,9 +14,12 @@ if [ "$CONFIGURATION" = "Local" ] || [ "$CONFIGURATION" = "Dev" ]; then
     FIREBASE_TOKEN="$(resolve_firebase_debug_token "${SRCROOT}/.env")"
     CONVOS_API_BASE_URL=""
     POSTHOG_API_KEY=""
+    PREVIEW_TOKEN=""
     if [ -f "${SRCROOT}/.env" ]; then
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
         POSTHOG_API_KEY=$(grep -v '^#' "${SRCROOT}/.env" | grep '^POSTHOG_API_KEY=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+        # Per-PR preview bundle token; empty for every normal build.
+        PREVIEW_TOKEN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^PREVIEW_TOKEN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
     fi
 
     if [ -n "$FIREBASE_TOKEN" ]; then
@@ -42,6 +45,7 @@ enum Secrets {
     static let SENTRY_DSN = ""
     static let POSTHOG_API_KEY = "$POSTHOG_API_KEY"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
+    static let PREVIEW_TOKEN: String = "$PREVIEW_TOKEN"
 }
 
 // swiftlint:enable all
@@ -86,6 +90,7 @@ enum Secrets {
     static let SENTRY_DSN = ""
     static let POSTHOG_API_KEY = ""
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
+    static let PREVIEW_TOKEN: String = "$PREVIEW_TOKEN"
 }
 
 // swiftlint:enable all
