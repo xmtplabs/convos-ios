@@ -709,7 +709,18 @@ private extension ConversationView {
     /// from a message in the agent transcript belongs to that lane.
     @ViewBuilder
     func conversationPresentations(_ content: some View) -> some View {
-        messagePresentations(conversationLevelPresentations(content))
+        messagePresentations(conversationLevelPresentations(connectionsBrowserPresentation(content)))
+    }
+
+    /// The Connections browser, raised full-screen by the agent composer's
+    /// powerplug. Its own function so `conversationLevelPresentations` stays
+    /// inside the type-check budget it was already split to respect.
+    @ViewBuilder
+    func connectionsBrowserPresentation(_ content: some View) -> some View {
+        content
+            .fullScreenCover(item: $connectionsBrowserContext) { mode in
+                AbilitiesListScreen(selection: AbilitiesServices.selection, mode: mode)
+            }
     }
 
     /// The sheets the conversation itself raises, as opposed to the ones a
@@ -755,9 +766,6 @@ private extension ConversationView {
             }
             .selfSizingSheet(isPresented: $viewModel.presentingExplodedInviteInfo) {
                 ExplodeInfoView()
-            }
-            .fullScreenCover(item: $connectionsBrowserContext) { mode in
-                AbilitiesListScreen(selection: AbilitiesServices.selection, mode: mode)
             }
     }
 

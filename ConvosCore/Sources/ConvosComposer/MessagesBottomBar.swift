@@ -677,53 +677,82 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         .accessibilityIdentifier(identifier)
     }
 
-    @ViewBuilder
-    private var normalInputView: some View {
-        HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
-            participationBubble
+    /// The voice-memo entry the agent layout puts in an empty composer's
+    /// send slot; the group composer leaves the slot alone. Hoisted to a
+    /// typed property so the solver never has to resolve a conditional
+    /// optional closure inside `MessagesInputView`'s argument list.
+    private var voiceMemoTapWhenEmpty: (() -> Void)? {
+        guard usesAgentComposerLayout else { return nil }
+        return { startVoiceMemoRecording() }
+    }
 
-            MessagesInputView(
-                displayName: $displayName,
-                emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
-                messagePlaceholder: messagePlaceholder,
-                messageText: $messageText,
-                pendingMediaAttachments: pendingMediaAttachments,
-                composerLinkPreview: composerLinkPreview,
-                pendingInviteURL: pendingInviteURL,
-                pendingInviteIsEditable: pendingInviteIsEditable,
-                pendingInviteEmoji: pendingInviteEmoji,
-                pendingInviteConvoName: $pendingInviteConvoName,
-                pendingInviteImage: $pendingInviteImage,
-                pendingInviteExplodeDuration: pendingInviteExplodeDuration,
-                onSetInviteExplodeDuration: onSetInviteExplodeDuration,
-                onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
-                isShowingAgentShareChip: isShowingAgentShareChip,
-                sendButtonEnabled: sendButtonEnabled,
-                focusState: $focusState,
-                messagesTextFieldEnabled: messagesTextFieldEnabled,
-                onSendMessage: onSendMessage,
-                onClearInvite: onClearInvite,
-                onVoiceMemoTapWhenEmpty: usesAgentComposerLayout ? { startVoiceMemoRecording() } : nil,
-                onClearLinkPreview: onClearLinkPreview,
-                onClearMediaAttachment: onClearMediaAttachment,
-                fileAttachmentPreview: fileAttachmentPreview,
-                agentShareChip: agentShareChip,
-                quickActionsAccessory: { quickActionsAccessory },
-                attachmentsButton: { attachmentsGlyph }
-            )
-            .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
+    private var inputCapsuleOpacity: Double {
+        messagesTextFieldEnabled ? 1.0 : 0.4
+    }
+
+    /// The `+` menu's invisible hit target, floated over the inert glyph
+    /// inside the capsule (see `attachmentsControl`).
+    private var attachmentsControlOverlay: some View {
+        attachmentsControl
+            .padding(DesignConstants.Spacing.step2x)
+    }
+
+    /// The input capsule, unstyled. Kept in a property of its own so the
+    /// type-checker never solves this argument list and a modifier chain in
+    /// the same expression.
+    private var inputCapsule: some View {
+        MessagesInputView(
+            displayName: $displayName,
+            emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
+            messagePlaceholder: messagePlaceholder,
+            messageText: $messageText,
+            pendingMediaAttachments: pendingMediaAttachments,
+            composerLinkPreview: composerLinkPreview,
+            pendingInviteURL: pendingInviteURL,
+            pendingInviteIsEditable: pendingInviteIsEditable,
+            pendingInviteEmoji: pendingInviteEmoji,
+            pendingInviteConvoName: $pendingInviteConvoName,
+            pendingInviteImage: $pendingInviteImage,
+            pendingInviteExplodeDuration: pendingInviteExplodeDuration,
+            onSetInviteExplodeDuration: onSetInviteExplodeDuration,
+            onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
+            isShowingAgentShareChip: isShowingAgentShareChip,
+            sendButtonEnabled: sendButtonEnabled,
+            focusState: $focusState,
+            messagesTextFieldEnabled: messagesTextFieldEnabled,
+            onSendMessage: onSendMessage,
+            onClearInvite: onClearInvite,
+            onVoiceMemoTapWhenEmpty: voiceMemoTapWhenEmpty,
+            onClearLinkPreview: onClearLinkPreview,
+            onClearMediaAttachment: onClearMediaAttachment,
+            fileAttachmentPreview: fileAttachmentPreview,
+            agentShareChip: agentShareChip,
+            quickActionsAccessory: { quickActionsAccessory },
+            attachmentsButton: { attachmentsGlyph }
+        )
+    }
+
+    /// The capsule's glass styling, split from both the construction above
+    /// and the animation/overlay below so no one expression carries a long
+    /// chain on top of a large call.
+    private var glassStyledInputCapsule: some View {
+        inputCapsule
+            .opacity(inputCapsuleOpacity)
             .fixedSize(horizontal: false, vertical: true)
             .clipShape(.rect(cornerRadius: 26.0))
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
             .glassEffectID("input", in: namespace)
             .glassEffectTransition(.matchedGeometry)
-            .animation(.easeOut(duration: 0.2), value: isAgentQuickRowVisible)
-            .overlay(alignment: .bottomLeading) {
-                // The `+` menu's invisible hit target, floated over the inert
-                // glyph inside the capsule (see `attachmentsControl`).
-                attachmentsControl
-                    .padding(DesignConstants.Spacing.step2x)
-            }
+    }
+
+    @ViewBuilder
+    private var normalInputView: some View {
+        HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
+            participationBubble
+
+            glassStyledInputCapsule
+                .animation(.easeOut(duration: 0.2), value: isAgentQuickRowVisible)
+                .overlay(alignment: .bottomLeading) { attachmentsControlOverlay }
         }
         .disabled(!messagesTextFieldEnabled)
     }

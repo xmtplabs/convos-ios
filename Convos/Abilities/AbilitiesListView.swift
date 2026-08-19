@@ -60,18 +60,25 @@ struct AbilitiesListScreen: View {
 /// connect/disconnect actions stubbed through `AbilitiesServiceProtocol`.
 ///
 /// Entry points (all flag-gated behind Abilities V2, all via
-/// `AbilitiesListScreen`, which owns the view model):
+/// `AbilitiesListScreen`, which owns the view model and takes the
+/// `ConnectionsBrowserMode` naming the caller):
 /// - App Settings connections row (`AppSettingsView.connectionsDestination`)
-///   pushes it in place of the V1 `ConnectionsListView`; the row is titled
-///   "Abilities" under the flag.
+///   pushes it in place of the V1 `ConnectionsListView`, in mode
+///   `.appSettings`; the row is titled "Abilities" under the flag.
+/// - The agent composer's powerplug (quick icon or `+` menu row) presents it
+///   full-screen from `ConversationView.connectionsBrowserPresentation`, in
+///   mode `.composerModal`; the screen then supplies its own
+///   `NavigationStack` and a Done control.
 ///
 /// A conversation toggle that needs an entitlement no longer deep-links
 /// here: it presents the scoped `AbilityConnectSheet` instead, which reuses
 /// this screen's view model for the connect machinery.
 ///
-/// Entitled rows push `AbilityDetailScreen` (delegations list) inside the
-/// App Settings `NavigationStack`. Available and state-unknown rows stay
-/// non-navigable: delegations only exist against an entitlement.
+/// Entitled rows push `AbilityDetailScreen` (delegations list) inside
+/// whichever stack the mode put the screen in - the App Settings stack when
+/// pushed, the screen's own stack when presented as the modal. Available and
+/// state-unknown rows stay non-navigable: delegations only exist against an
+/// entitlement.
 struct AbilitiesListView: View {
     @Bindable var viewModel: AbilitiesListViewModel
     /// Latched pair handed down to ability detail pushes.
@@ -150,14 +157,16 @@ struct AbilitiesListView: View {
         }
     }
 
+    /// No retry here on purpose: `errorMessage` is set by connect, disconnect
+    /// and delegation failures as well as catalog fetches, and the only retry
+    /// this screen can offer is a catalog refetch - which would report success
+    /// for a failed connect and clear the message without retrying anything.
+    /// The outage banner above is where a refetch is the right action.
     private func errorBanner(_ message: String) -> some View {
         Section {
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                Text(message)
-                    .font(.footnote)
-                    .foregroundStyle(.colorCaution)
-                retryButton
-            }
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.colorCaution)
         }
     }
 
@@ -179,11 +188,11 @@ struct AbilitiesListView: View {
 
     /// The selling-point state for a member with nothing connected yet: a
     /// mosaic of catalog icons over one line of copy, with the available
-    /// list right below. Only when the catalog actually loaded - an outage
-    /// shows its own banner instead.
+    /// list right below. When it shows is the view model's call
+    /// (`showsNothingConnectedHero`), which withholds it during an outage.
     @ViewBuilder
     private var nothingConnectedHeroSection: some View {
-        if showsNothingConnectedHero {
+        if viewModel.showsNothingConnectedHero {
             Section {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
                     heroIconMosaic
@@ -199,13 +208,6 @@ struct AbilitiesListView: View {
             .listRowSeparator(.hidden)
             .listSectionSeparator(.hidden)
         }
-    }
-
-    private var showsNothingConnectedHero: Bool {
-        viewModel.hasLoadedOnce
-            && !viewModel.isSearching
-            && viewModel.entitledAbilities.isEmpty
-            && !viewModel.availableAbilities.isEmpty
     }
 
     private var heroIconMosaic: some View {
@@ -249,7 +251,7 @@ struct AbilitiesListView: View {
                     availableRow(ability)
                 }
             } header: {
-                sectionHeader("Available")
+                sectionHeader("All connections")
             }
         }
     }
@@ -264,7 +266,7 @@ struct AbilitiesListView: View {
                     unknownStateRow(ability)
                 }
             } header: {
-                sectionHeader("Connections")
+                sectionHeader("Status unknown")
             }
         }
     }
