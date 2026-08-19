@@ -58,8 +58,9 @@ steps:
       iCloud-synced keychain backup; an erased simulator satisfies that. If
       the found-device pairing sheet appears instead, the simulator was not
       fully erased. The CTA reads "Come in" and is disabled until a name is
-      entered (the terms toggle defaults on). While the CTA is disabled the
-      sheet cannot be swiped away (interactive dismissal is blocked).
+      entered (the terms toggle defaults on). The sheet is a required step: it
+      can never be swiped away or tapped out of, whether or not the CTA is
+      enabled — "Come in" is the only exit.
 
   - id: first_launch_profile_setup
     name: "Set name via the first-launch sheet"
@@ -104,8 +105,8 @@ steps:
     note: >
       The in-conversation "Add your name and pic" prompt was removed
       entirely — the Nametag sheet is the only profile-setup surface. An
-      unnamed user (CTA enabled then swiped away without saving) simply
-      chats as "Somebody" and the sheet re-presents on the next launch.
+      user who reached the conversation has necessarily completed the
+      first-launch sheet, since that sheet cannot be dismissed any other way.
 
   - id: notification_permission
     name: "Notification permission step shown"

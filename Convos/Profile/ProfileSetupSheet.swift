@@ -99,6 +99,17 @@ struct ProfileSetupSheet: View {
             && !isSaving
     }
 
+    /// First launch is a required step: the sheet can only be completed
+    /// with the CTA, never swiped away or tapped out of. In edit mode it
+    /// stays swipe-away-able, but only once the save gate (a non-empty
+    /// name) is satisfied.
+    private var isInteractiveDismissDisabled: Bool {
+        switch mode {
+        case .firstLaunch: true
+        case .edit: !canSave
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0.0) {
             header
@@ -139,9 +150,7 @@ struct ProfileSetupSheet: View {
         }
         .presentationDetents([.height(contentHeight)])
         .presentationDragIndicator(.hidden)
-        // Until the save gate is satisfied (name entered, terms accepted on
-        // first launch) the sheet can only be completed, not swiped away.
-        .interactiveDismissDisabled(!canSave)
+        .interactiveDismissDisabled(isInteractiveDismissDisabled)
         .presentationBackground(.colorBackgroundRaisedSecondary)
         // Expose the sheet as an accessibility container so its identifier
         // stays on the container node instead of propagating down and
