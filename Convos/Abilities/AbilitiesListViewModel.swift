@@ -137,11 +137,11 @@ final class AbilitiesListViewModel {
         let epoch: UInt64 = accountEpoch.value
         do {
             let fetched: AbilitiesCatalog = try await service.fetchCatalog()
-            guard epoch == accountEpoch.value else { return }
+            guard epoch == accountEpoch.value, epoch == snapshotEpoch else { return }
             commitCatalog(fetched)
             errorMessage = nil
         } catch {
-            guard epoch == accountEpoch.value else { return }
+            guard epoch == accountEpoch.value, epoch == snapshotEpoch else { return }
             errorMessage = error.localizedDescription
         }
         isLoading = false
@@ -188,7 +188,16 @@ final class AbilitiesListViewModel {
                 // opened a backend OAuth round, and failing here would
                 // strand it behind an error message.
                 await refreshCatalogQuietly()
-                if initiation.status == .pendingAuth, let redirectUrl = initiation.redirectUrl {
+                if initiation.status == .pendingAuth {
+                    // A pending entitlement with no redirect URL is a
+                    // malformed response, not an auth-less ability: the
+                    // server just said authorization is outstanding, so
+                    // reporting activation here would assert the opposite.
+                    guard let redirectUrl = initiation.redirectUrl else {
+                        errorMessage = LiveAbilitiesServiceError.missingConnectionRequest(abilityId: ability.id).localizedDescription
+                        busyAbilityIds.remove(ability.id)
+                        return
+                    }
                     if let authorizer {
                         await runBrowserAuthorization(for: ability, redirectUrl: redirectUrl, using: authorizer)
                     } else {
@@ -211,8 +220,14 @@ final class AbilitiesListViewModel {
     /// lifecycle: updates on success, quietly keeps the stale catalog
     /// otherwise (the flow's own completion refresh retries).
     private func refreshCatalogQuietly() async {
+        // Captured before the await, not read after it: the question is
+        // whether this result belongs to the account it is about to be
+        // committed to, and a wipe followed by a fresh refresh can leave
+        // `snapshotEpoch == accountEpoch.value` true again for a result
+        // fetched under the previous account.
+        let epoch: UInt64 = accountEpoch.value
         guard let fetched = try? await service.fetchCatalog() else { return }
-        guard snapshotEpoch == accountEpoch.value else { return }
+        guard epoch == accountEpoch.value, epoch == snapshotEpoch else { return }
         commitCatalog(fetched)
     }
 

@@ -169,6 +169,9 @@ final class ConversationAbilitiesViewModel {
     /// The refresh chain, so every refresh runs after the one before it
     /// (see `refresh(adoptingCatalog:)`).
     private var refreshTask: Task<Void, Never>?
+    /// The mutation in flight, so an auto-enable can wait for it instead
+    /// of being dropped on `extend`'s busy guard.
+    private var mutationTask: Task<Void, Never>?
     /// Monotonic refresh stamp: a result whose stamp is not the latest is
     /// dropped. Belt-and-braces behind the serialization above, and the
     /// gate that also refuses a commit from a superseded account.
@@ -291,26 +294,46 @@ final class ConversationAbilitiesViewModel {
     /// older opt-in response land after a newer one - and a caller's
     /// `await` would not reflect the state the screen ends up with.
     func refresh(adoptingCatalog adopted: AbilitiesCatalog?) async {
+        if let adopted {
+            applyAdoptedCatalog(adopted)
+        }
+        await refreshOptIns(selfFetchesCatalog: adopted == nil)
+    }
+
+    /// Publishes the host's catalog on the spot, before any queued work.
+    /// Deferring this behind an in-flight opt-in refresh would leave the
+    /// rows sectioned by a catalog this view model has not adopted yet -
+    /// long enough for a toggle to stay enabled against an outage the
+    /// screen has already declared.
+    private func applyAdoptedCatalog(_ adopted: AbilitiesCatalog) {
+        invalidateSnapshotIfEpochChanged()
+        catalog = adopted
+        rebuildRows()
+    }
+
+    /// The opt-in half, which is the only part that queues. Runs one at a
+    /// time and in order: the service actor's sequence guard protects its
+    /// own cache commit, not each caller's returned value, so overlapping
+    /// refreshes could otherwise let an older response land after a newer
+    /// one - and a caller's `await` would not reflect the state the
+    /// screen ends up with.
+    private func refreshOptIns(selfFetchesCatalog: Bool) async {
         let previous: Task<Void, Never>? = refreshTask
         let task: Task<Void, Never> = Task { [weak self] in
             _ = await previous?.value
-            await self?.performRefresh(adoptingCatalog: adopted)
+            await self?.performRefresh(selfFetchesCatalog: selfFetchesCatalog)
         }
         refreshTask = task
         await task.value
     }
 
-    private func performRefresh(adoptingCatalog adopted: AbilitiesCatalog?) async {
+    private func performRefresh(selfFetchesCatalog: Bool) async {
         invalidateSnapshotIfEpochChanged()
         refreshGeneration &+= 1
         let generation: UInt64 = refreshGeneration
         let epoch: UInt64 = accountEpoch.value
-        if let adopted {
-            catalog = adopted
-            rebuildRows()
-        }
         do {
-            let fetchedCatalog: AbilitiesCatalog? = try await resolveCatalog(adopting: adopted)
+            let fetchedCatalog: AbilitiesCatalog? = try await resolveCatalog(selfFetches: selfFetchesCatalog)
             let fetchedOptIns: [ConversationAbility] = try await service.conversationAbilities(conversationId: conversationId)
             guard isCurrent(generation: generation, epoch: epoch) else { return }
             if let fetchedCatalog {
@@ -335,9 +358,8 @@ final class ConversationAbilitiesViewModel {
     /// publishes the snapshot that sectioned the rows, and a second fetch
     /// off the same actor at another moment can disagree with it. `nil`
     /// leaves whatever the host last published in place.
-    private func resolveCatalog(adopting adopted: AbilitiesCatalog?) async throws -> AbilitiesCatalog? {
-        if let adopted { return adopted }
-        guard catalogSource == .selfFetching else { return nil }
+    private func resolveCatalog(selfFetches: Bool) async throws -> AbilitiesCatalog? {
+        guard selfFetches, catalogSource == .selfFetching else { return nil }
         return try await service.fetchCatalog()
     }
 
@@ -347,7 +369,8 @@ final class ConversationAbilitiesViewModel {
     /// throughout the session.
     func adoptCatalog(_ adopted: AbilitiesCatalog) {
         guard catalogSource == .hosted else { return }
-        Task { await refresh(adoptingCatalog: adopted) }
+        applyAdoptedCatalog(adopted)
+        Task { await refreshOptIns(selfFetchesCatalog: false) }
     }
 
     private func isCurrent(generation: UInt64, epoch: UInt64) -> Bool {
@@ -491,8 +514,10 @@ final class ConversationAbilitiesViewModel {
         guard snapshotEpoch == accountEpoch.value else { return }
         guard let agent = agents.first else { return }
         let key = ConversationAbilityKey(abilityId: abilityId, agentInboxId: agent.inboxId)
-        let alreadyOptedIn: Bool = optIns.authoritativeValues?.contains { $0.key == key } ?? false
-        guard !alreadyOptedIn, !pendingEnablement.contains(key) else { return }
+        guard !pendingEnablement.contains(key) else { return }
+        // Only a settled read can say "no opt-in here". An unsettled one
+        // is unknown, and `extendAfterConnect` settles it before writing.
+        if optIns.isSettled, isOptedIn(key) { return }
         pendingEnablement.insert(key)
         errorMessage = nil
         rebuildRows()
@@ -500,10 +525,28 @@ final class ConversationAbilitiesViewModel {
     }
 
     private func extendAfterConnect(abilityId: String, agent: ConversationAgentDescriptor, key: ConversationAbilityKey) async {
+        // Never extend over a selection that has not been read. The
+        // three-state opt-in model is a write rule as much as a render
+        // rule: treating a failed or in-flight read as "not opted in"
+        // would PUT manifest defaults over the member's saved bundles.
+        if !optIns.isSettled {
+            await refreshOptIns(selfFetchesCatalog: false)
+        }
+        guard optIns.isSettled else {
+            clearPendingEnablement(key)
+            errorMessage = String(localized: "Couldn't check this convo's connections. Try again.")
+            return
+        }
+        guard !isOptedIn(key) else {
+            clearPendingEnablement(key)
+            return
+        }
+        // An in-flight mutation must not swallow the enablement on
+        // `extend`'s busy guard: wait for it instead of dropping it.
+        _ = await mutationTask?.value
         guard let ability = await entitledAbility(id: abilityId) else {
             clearPendingEnablement(key)
             errorMessage = AbilitiesServiceError.needsEntitlement(abilityId: abilityId).localizedDescription
-            rebuildRows()
             return
         }
         guard !ability.bundles.isEmpty else {
@@ -512,7 +555,6 @@ final class ConversationAbilitiesViewModel {
             // it spins forever.
             clearPendingEnablement(key)
             errorMessage = LiveAbilitiesServiceError.noBundlesSelected(abilityId: abilityId).localizedDescription
-            rebuildRows()
             return
         }
         if ability.bundles.count > 1 {
@@ -529,7 +571,12 @@ final class ConversationAbilitiesViewModel {
         if let published = activeAbility(id: abilityId, in: catalog) {
             return published
         }
+        // Captured before the await: the question is whether this result
+        // belongs to the account it is about to be used under, not
+        // whether some account is current by the time it returns.
+        let epoch: UInt64 = accountEpoch.value
         guard let refetched = try? await service.fetchCatalog() else { return nil }
+        guard epoch == accountEpoch.value, epoch == snapshotEpoch else { return nil }
         return activeAbility(id: abilityId, in: refetched)
     }
 
@@ -538,8 +585,17 @@ final class ConversationAbilitiesViewModel {
         return match.entitlement?.status == .active ? match : nil
     }
 
+    /// Rebuilds on the spot: `Row` is a value type, so a confirmed write
+    /// that only mutates the set would leave the rendered row on-and-busy
+    /// until the trailing refetch returns - the exact spinner the
+    /// settle-on-the-write rule exists to avoid.
     private func clearPendingEnablement(_ key: ConversationAbilityKey) {
-        pendingEnablement.remove(key)
+        guard pendingEnablement.remove(key) != nil else { return }
+        rebuildRows()
+    }
+
+    private func isOptedIn(_ key: ConversationAbilityKey) -> Bool {
+        optIns.authoritativeValues?.contains { $0.key == key } ?? false
     }
 
     // MARK: - Bundle picker
@@ -567,7 +623,6 @@ final class ConversationAbilitiesViewModel {
         isConfirmingBundleSelection = false
         guard !wasConfirming, let key else { return }
         clearPendingEnablement(key)
-        rebuildRows()
     }
 
     // MARK: - Mutations
@@ -581,13 +636,19 @@ final class ConversationAbilitiesViewModel {
             return
         }
         guard !isBusy else {
+            // Auto-enable awaits `mutationTask` before reaching here, so
+            // this is a last resort - but it must still say so rather
+            // than settle the row off with no explanation.
+            let wasPending: Bool = pendingEnablement.contains(key)
             clearPendingEnablement(key)
-            rebuildRows()
+            if wasPending {
+                errorMessage = String(localized: "Another change was still saving. Try turning this on again.")
+            }
             return
         }
         isBusy = true
         errorMessage = nil
-        Task {
+        let task = Task {
             var mutationError: String?
             do {
                 try await service.extendAbility(
@@ -624,6 +685,7 @@ final class ConversationAbilitiesViewModel {
                 errorMessage = mutationError
             }
         }
+        mutationTask = task
     }
 
     /// The selection driving this conversation's rows. The connect sheet
@@ -654,7 +716,7 @@ final class ConversationAbilitiesViewModel {
     private func withdraw(ability: AbilitiesAPI.Ability, agent: ConversationAgentDescriptor) {
         isBusy = true
         errorMessage = nil
-        Task {
+        let task = Task {
             var mutationError: String?
             do {
                 try await service.withdrawAbility(
@@ -671,6 +733,7 @@ final class ConversationAbilitiesViewModel {
                 errorMessage = mutationError
             }
         }
+        mutationTask = task
     }
 
     /// The bundles a plain toggle-on grants: the manifest's

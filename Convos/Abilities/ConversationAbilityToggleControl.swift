@@ -52,11 +52,15 @@ struct ConversationAbilityToggleControl: View {
     }
 
     private func attentionControl(_ status: AbilitiesAPI.EntitlementStatus?) -> some View {
+        // Deliberately never disabled, on either surface: connect and
+        // repair stay available during an outage (they are idempotent
+        // server-side, and the banner already says the state is stale).
+        // Disabling here would also freeze a path the conversation info
+        // view has always offered.
         Button(action: onNeedsAttention) {
             attentionBadge(status)
         }
         .buttonStyle(.plain)
-        .disabled(viewModel.entitlementsUnavailable)
     }
 
     /// A server-owned status renders its badge; an opt-in with no

@@ -121,9 +121,21 @@ enum AbilitiesServices {
     /// is already holding a snapshot (see `AbilitiesAccountEpoch`).
     static func handleAccountDataWiped() {
         catalogCache?.clearAll()
-        Task { @MainActor in AbilitiesAccountEpoch.shared.advance() }
+        advanceAccountEpoch()
         guard let liveService else { return }
         Task { await liveService.handleAccountDataWiped() }
+    }
+
+    /// Synchronous whenever the caller is already on the main actor, which
+    /// every wipe site is. Deferring the bump to a queued task would leave
+    /// a window in which a fetch started under the wiped account can still
+    /// commit, because the view models would not yet know the epoch moved.
+    private static func advanceAccountEpoch() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { AbilitiesAccountEpoch.shared.advance() }
+        } else {
+            Task { @MainActor in AbilitiesAccountEpoch.shared.advance() }
+        }
     }
 
     /// Debug sub-toggle under the Abilities V2 flag: live backend versus

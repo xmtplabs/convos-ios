@@ -484,6 +484,239 @@ final class ConversationAbilitiesBrowserModeTests: XCTestCase {
         XCTAssertEqual(activated, ["youtube"], "released exactly once")
     }
 
+    // MARK: - Codex review regressions
+
+    /// B1. The three-state opt-in model is a write rule as much as a
+    /// render rule: an unsettled read must read as "unknown", never as
+    /// "no opt-in here". Reading it as absent PUTs manifest defaults over
+    /// a bundle selection the member already made.
+    func testAutoEnableNeverOverwritesABundleSelectionItHasNotRead() async throws {
+        let service = ScriptedAbilitiesService()
+        await service.setOptIns([ConversationAbility(abilityId: "youtube", agentInboxId: agent.inboxId, bundleIds: ["youtube.library"])])
+        await service.setConversationAbilitiesFailure(true)
+        let viewModel = makeHostedViewModel(service: service)
+        await service.setEntitlement(abilityId: "youtube", state: .entitled(try activeEntitlement()))
+        await viewModel.refresh(adoptingCatalog: await service.currentCatalog())
+
+        let unsettled = try row("youtube", in: viewModel)
+        XCTAssertFalse(unsettled.hasSettledOptIn, "the read failed, so nothing is known about this chat")
+
+        // The read recovers, and it says the member already opted in with
+        // a custom selection.
+        await service.setConversationAbilitiesFailure(false)
+        viewModel.enableAfterConnect(abilityId: "youtube")
+        try await settle { !viewModel.rows.contains { $0.ability.id == "youtube" && $0.isPendingEnablement } }
+
+        let observedExtendB1 = await service.extendCount
+        XCTAssertEqual(observedExtendB1, 0, "an existing selection is never overwritten with manifest defaults")
+        let optIns = await service.currentOptIns()
+        XCTAssertEqual(optIns.first { $0.abilityId == "youtube" }?.bundleIds, ["youtube.library"])
+    }
+
+    /// B1, second half: a read that stays down must refuse the write and
+    /// say so, rather than guess.
+    func testAutoEnableRefusesWhenTheOptInReadStaysDown() async throws {
+        let service = ScriptedAbilitiesService()
+        await service.setConversationAbilitiesFailure(true)
+        let viewModel = makeHostedViewModel(service: service)
+        await service.setEntitlement(abilityId: "youtube", state: .entitled(try activeEntitlement()))
+        await viewModel.refresh(adoptingCatalog: await service.currentCatalog())
+
+        viewModel.enableAfterConnect(abilityId: "youtube")
+        try await settle { viewModel.errorMessage != nil }
+
+        let observedExtendB1b = await service.extendCount
+        XCTAssertEqual(observedExtendB1b, 0)
+        XCTAssertFalse(try row("youtube", in: viewModel).isPendingEnablement)
+    }
+
+    /// B2. The host's catalog has to land on the spot. Queued behind an
+    /// in-flight opt-in refresh, the rows stay sectioned by a catalog the
+    /// screen has already replaced - long enough to write a grant against
+    /// an outage it has already declared.
+    func testAdoptedCatalogAppliesSynchronously() async throws {
+        let service = ScriptedAbilitiesService()
+        let viewModel = makeHostedViewModel(service: service)
+        let live = await service.currentCatalog()
+        await viewModel.refresh(adoptingCatalog: live)
+        XCTAssertFalse(viewModel.entitlementsUnavailable)
+
+        // A slow opt-in read is in flight when the outage catalog arrives.
+        await service.setConversationAbilitiesDelay(.milliseconds(400))
+        Task { await viewModel.refresh(adoptingCatalog: live) }
+        try await Task.sleep(for: .milliseconds(20))
+
+        let stale = AbilitiesCatalog(
+            catalogVersion: live.catalogVersion,
+            entitlementsUnavailable: true,
+            abilities: live.abilities
+        )
+        viewModel.adoptCatalog(stale)
+
+        XCTAssertTrue(viewModel.entitlementsUnavailable, "the outage is visible immediately, not after the queue drains")
+        for row in viewModel.rows {
+            XCTAssertTrue(viewModel.isToggleDisabled(for: row), "\(row.ability.id) stayed writable during a declared outage")
+        }
+    }
+
+    /// B4. A connect completing while another mutation is in flight must
+    /// not be swallowed by `extend`'s busy guard: Discover's Connect
+    /// buttons stay tappable throughout, so this is reachable.
+    func testAutoEnableWaitsForAnInFlightMutationInsteadOfBeingDropped() async throws {
+        let service = ScriptedAbilitiesService()
+        let viewModel = makeHostedViewModel(service: service)
+        try await service.keepFirstBundleOnly(abilityId: "youtube")
+        // Single-bundle on both sides, so each toggle-on extends straight
+        // through instead of routing via the picker.
+        try await service.keepFirstBundleOnly(abilityId: "googlecalendar")
+        await service.setEntitlement(abilityId: "youtube", state: .entitled(try activeEntitlement()))
+        await viewModel.refresh(adoptingCatalog: await service.currentCatalog())
+
+        // Toggle googlecalendar on; its PUT is still landing.
+        await service.setExtendDelay(.milliseconds(250))
+        viewModel.toggle(try row("googlecalendar", in: viewModel))
+        XCTAssertTrue(viewModel.isBusy)
+
+        viewModel.enableAfterConnect(abilityId: "youtube")
+        try await settle(timeout: .seconds(6)) { await service.extendCount == 2 }
+
+        let optIns = await service.currentOptIns()
+        XCTAssertTrue(optIns.contains { $0.abilityId == "youtube" }, "the auto-enable survived the busy window")
+        XCTAssertTrue(optIns.contains { $0.abilityId == "googlecalendar" })
+    }
+
+    /// B5. `Row` is a value type, so clearing the pending set without
+    /// rebuilding leaves the row on-and-busy until the trailing refetch
+    /// returns - the spinner the settle-on-the-write rule exists to avoid.
+    func testConfirmedWriteSettlesTheRowBeforeTheTrailingRefetchReturns() async throws {
+        let service = ScriptedAbilitiesService()
+        let viewModel = makeHostedViewModel(service: service)
+        try await service.keepFirstBundleOnly(abilityId: "youtube")
+        await service.setEntitlement(abilityId: "youtube", state: .entitled(try activeEntitlement()))
+        await viewModel.refresh(adoptingCatalog: await service.currentCatalog())
+
+        // The write confirms quickly; the opt-in refetch behind it stalls
+        // for far longer than the settle budget below, so a row that waits
+        // for the refetch cannot pass.
+        await service.setConversationAbilitiesDelay(.milliseconds(2000))
+        viewModel.enableAfterConnect(abilityId: "youtube")
+
+        try await settle(timeout: .seconds(4)) { await service.extendCount == 1 }
+        try await settle(timeout: .milliseconds(400)) {
+            !viewModel.rows.contains { $0.ability.id == "youtube" && $0.isPendingEnablement }
+        }
+    }
+
+    /// S2. A `pendingAuth` initiation with no redirect URL is a malformed
+    /// response, not an auth-less ability. Reporting activation there
+    /// asserts the opposite of what the server just said.
+    func testPendingAuthWithoutARedirectUrlReportsNoActivation() async throws {
+        var activated: [String] = []
+        let viewModel = AbilitiesListViewModel(service: MalformedPendingAuthService())
+        viewModel.onEntitlementActivated = { activated.append($0) }
+        await viewModel.refresh()
+
+        let ability = try XCTUnwrap(viewModel.availableAbilities.first)
+        viewModel.connect(ability)
+        try await settle { viewModel.errorMessage != nil }
+
+        XCTAssertTrue(activated.isEmpty, "a pending entitlement never reports activation")
+        XCTAssertNil(viewModel.pendingAuthorization, "and no authorization sheet is armed without a URL")
+    }
+
+    /// B3. The wipe has to land before the next line of the caller runs.
+    /// Bumping it on a queued task leaves a window in which a fetch
+    /// started under the wiped account can still commit.
+    func testAccountWipeAdvancesTheSharedEpochSynchronously() {
+        let before: UInt64 = AbilitiesAccountEpoch.shared.value
+        AbilitiesServices.handleAccountDataWiped()
+        XCTAssertEqual(AbilitiesAccountEpoch.shared.value, before &+ 1, "the epoch moved before this line ran")
+    }
+
+    /// B3, second half: a catalog fetched under the previous account must
+    /// not commit once the epoch has moved on - even after a newer
+    /// refresh has resynced the snapshot, which is what makes a
+    /// "current epoch" check read true again.
+    func testACatalogFetchedUnderAWipedAccountNeverCommits() async throws {
+        let epoch = AbilitiesAccountEpoch()
+        let service = GatedCatalogService()
+        let viewModel = AbilitiesListViewModel(service: service, accountEpoch: epoch)
+        await viewModel.refresh()
+        let connecting = try XCTUnwrap(viewModel.availableAbilities.first)
+        XCTAssertEqual(connecting.id, "account-a")
+
+        // Connect's mid-flow quiet refresh is the fetch that stalls: it is
+        // the one whose epoch guard used to be read after the await.
+        await service.gateNextFetch()
+        viewModel.connect(connecting)
+        try await settle { await service.fetchCount == 2 }
+
+        // The account is wiped, and a newer refresh resyncs the snapshot to
+        // the new epoch - which is exactly what makes an "is the epoch
+        // current now" check read true again for the stalled fetch.
+        epoch.advance()
+        await service.setMarker("account-b")
+        await viewModel.refresh()
+        XCTAssertEqual(viewModel.availableAbilities.first?.id, "account-b")
+
+        // Only now does the pre-wipe fetch return.
+        await service.releaseGate()
+        try await settle { await service.fetchCount >= 3 || !viewModel.isBusy(connecting) }
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(
+            viewModel.availableAbilities.first?.id,
+            "account-b",
+            "a catalog fetched under the wiped account must not overwrite the current one"
+        )
+    }
+
+    /// S1. Repair stays reachable during an outage on both surfaces: the
+    /// spec explicitly refused to disable connect and repair there, and
+    /// the conversation info view has always offered the tap. (The
+    /// control's `.disabled` removal itself is a view-layer change; this
+    /// pins the writer contract behind it.)
+    func testRepairStaysAvailableDuringAnOutage() async throws {
+        let service = ScriptedAbilitiesService()
+        await service.setOptIns([ConversationAbility(abilityId: "coinbase", agentInboxId: agent.inboxId, bundleIds: ["coinbase.prices"])])
+        let viewModel = ConversationAbilitiesViewModel(
+            conversationId: conversationId,
+            agents: [agent],
+            selection: AbilitiesSelection(service: service),
+            accountEpoch: AbilitiesAccountEpoch()
+        )
+        await service.serveEntitlementsUnavailable(true)
+        await viewModel.refresh()
+
+        XCTAssertTrue(viewModel.entitlementsUnavailable)
+        let attention = try row("coinbase", in: viewModel)
+        XCTAssertEqual(attention.lifecycle, .needsAttention(.expired), "an opt-in on a non-active entitlement needs repair")
+
+        viewModel.presentConnect(for: attention)
+        XCTAssertNotNil(viewModel.connectContext, "repair is never withheld by an outage")
+    }
+
+    // MARK: - Wiring
+
+    /// B6. `@State` releases the per-chat view model the moment the modal
+    /// is dismissed, but a connect already in flight still has to write
+    /// its grant. The list view model outlives the dismissal through its
+    /// own mutation task, so the activation callback has to carry the
+    /// per-chat model with it.
+    func testActivationWiringOutlivesTheModalDismissal() async throws {
+        let service = ScriptedAbilitiesService()
+        let listViewModel = AbilitiesListViewModel(service: service)
+        weak var probe: ConversationAbilitiesViewModel?
+
+        do {
+            let conversationViewModel = makeHostedViewModel(service: service)
+            probe = conversationViewModel
+            AbilitiesListScreen.wireActivation(list: listViewModel, conversation: conversationViewModel)
+        }
+
+        XCTAssertNotNil(probe, "dismissing the modal must not strand a connect that has not written its grant")
+    }
+
     // MARK: - Helpers
 
     private func activeEntitlement() throws -> AbilitiesAPI.Entitlement {
@@ -535,6 +768,16 @@ private actor ScriptedAbilitiesService: AbilitiesServiceProtocol {
     private var conversationAbilitiesFails: Bool = false
     private var extendFailure: ExtendFailure?
     private var servesEntitlementsUnavailable: Bool = false
+    private var conversationAbilitiesDelay: Duration = .zero
+    private var extendDelay: Duration = .zero
+
+    func setConversationAbilitiesDelay(_ delay: Duration) {
+        conversationAbilitiesDelay = delay
+    }
+
+    func setExtendDelay(_ delay: Duration) {
+        extendDelay = delay
+    }
 
     func fetchCatalog() async throws -> AbilitiesCatalog {
         catalogFetchCount += 1
@@ -543,6 +786,10 @@ private actor ScriptedAbilitiesService: AbilitiesServiceProtocol {
             entitlementsUnavailable: servesEntitlementsUnavailable,
             abilities: abilities
         )
+    }
+
+    func currentOptIns() -> [ConversationAbility] {
+        optIns
     }
 
     /// The catalog without counting it as a view-model fetch: the tests use
@@ -613,6 +860,9 @@ private actor ScriptedAbilitiesService: AbilitiesServiceProtocol {
     }
 
     func conversationAbilities(conversationId: String) async throws -> [ConversationAbility] {
+        if conversationAbilitiesDelay > .zero {
+            try? await Task.sleep(for: conversationAbilitiesDelay)
+        }
         if conversationAbilitiesFails {
             throw AbilitiesServiceError.accountRequired
         }
@@ -620,6 +870,9 @@ private actor ScriptedAbilitiesService: AbilitiesServiceProtocol {
     }
 
     func extendAbility(conversationId: String, abilityId: String, agentInboxId: String, bundleIds: [String]) async throws {
+        if extendDelay > .zero {
+            try? await Task.sleep(for: extendDelay)
+        }
         switch extendFailure {
         case .transport:
             throw AbilitiesServiceError.accountRequired
@@ -678,5 +931,87 @@ private actor AuthLessAbilitiesService: AbilitiesServiceProtocol {
 
     func extendAbility(conversationId: String, abilityId: String, agentInboxId: String, bundleIds: [String]) async throws {}
 
+    func withdrawAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws {}
+}
+
+/// One ability whose `beginEntitlement` answers `pendingAuth` without a
+/// redirect URL - a malformed response, and the shape that used to fall
+/// into the auth-less branch and report a false activation.
+private actor MalformedPendingAuthService: AbilitiesServiceProtocol {
+    func fetchCatalog() async throws -> AbilitiesCatalog {
+        let ability = try AbilitiesAPI.Ability(
+            id: "gmail",
+            version: 1,
+            displayName: AbilitiesAPI.LocalizedText(en: "Gmail"),
+            subtitle: AbilitiesAPI.LocalizedText(en: "Read and send email"),
+            auth: AbilitiesAPI.AbilityAuth(type: .oauth),
+            bundles: [],
+            entitlementState: .notEntitled
+        )
+        return AbilitiesCatalog(catalogVersion: 1, abilities: [ability])
+    }
+
+    func beginEntitlement(abilityId: String) async throws -> AbilityEntitlementInitiation {
+        AbilityEntitlementInitiation(status: .pendingAuth, redirectUrl: nil)
+    }
+
+    func completeEntitlement(abilityId: String) async throws {}
+    func revokeEntitlement(abilityId: String) async throws {}
+    func conversationAbilities(conversationId: String) async throws -> [ConversationAbility] { [] }
+    func extendAbility(conversationId: String, abilityId: String, agentInboxId: String, bundleIds: [String]) async throws {}
+    func withdrawAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws {}
+}
+
+/// A catalog service whose first fetch can be held open, so a response
+/// captured under one account can be made to return after the account has
+/// been wiped and a newer refresh has already committed.
+private actor GatedCatalogService: AbilitiesServiceProtocol {
+    private(set) var fetchCount: Int = 0
+    private var marker: String = "account-a"
+    private var gatedFetchIndex: Int?
+    private var isGateReleased: Bool = false
+
+    func gateNextFetch() {
+        gatedFetchIndex = fetchCount + 1
+        isGateReleased = false
+    }
+
+    func releaseGate() {
+        isGateReleased = true
+    }
+
+    func setMarker(_ value: String) {
+        marker = value
+    }
+
+    func fetchCatalog() async throws -> AbilitiesCatalog {
+        fetchCount += 1
+        let index: Int = fetchCount
+        let servedMarker: String = marker
+        if index == gatedFetchIndex {
+            while !isGateReleased {
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }
+        let ability = try AbilitiesAPI.Ability(
+            id: servedMarker,
+            version: 1,
+            displayName: AbilitiesAPI.LocalizedText(en: servedMarker),
+            subtitle: AbilitiesAPI.LocalizedText(en: servedMarker),
+            auth: AbilitiesAPI.AbilityAuth(type: .none),
+            bundles: [],
+            entitlementState: .notEntitled
+        )
+        return AbilitiesCatalog(catalogVersion: 1, abilities: [ability])
+    }
+
+    func beginEntitlement(abilityId: String) async throws -> AbilityEntitlementInitiation {
+        AbilityEntitlementInitiation(status: .active)
+    }
+
+    func completeEntitlement(abilityId: String) async throws {}
+    func revokeEntitlement(abilityId: String) async throws {}
+    func conversationAbilities(conversationId: String) async throws -> [ConversationAbility] { [] }
+    func extendAbility(conversationId: String, abilityId: String, agentInboxId: String, bundleIds: [String]) async throws {}
     func withdrawAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws {}
 }

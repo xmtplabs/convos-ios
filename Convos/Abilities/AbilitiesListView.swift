@@ -37,15 +37,33 @@ struct AbilitiesListScreen: View {
         let listViewModel = AbilitiesListViewModel(service: selection.service, authorizer: selection.authorizer)
         let conversationViewModel = Self.makeConversationViewModel(listViewModel, selection: selection, mode: mode)
         if let conversationViewModel {
-            listViewModel.onCatalogCommitted = { [weak conversationViewModel] catalog in
-                conversationViewModel?.adoptCatalog(catalog)
-            }
-            listViewModel.onEntitlementActivated = { [weak conversationViewModel] abilityId in
-                conversationViewModel?.enableAfterConnect(abilityId: abilityId)
-            }
+            Self.wireActivation(list: listViewModel, conversation: conversationViewModel)
         }
         _viewModel = State(initialValue: listViewModel)
         _conversationViewModel = State(initialValue: conversationViewModel)
+    }
+
+    /// Points the list view model's catalog and activation callbacks at
+    /// the per-chat view model.
+    ///
+    /// The captures are **strong on purpose**. `@State` releases the
+    /// per-chat view model the moment the modal is dismissed, but a
+    /// connect already in flight still has to write its grant: dismissing
+    /// before `beginEntitlement` returns would otherwise connect the
+    /// ability app-wide and silently write no per-chat opt-in. The list
+    /// view model outlives the dismissal through its own mutation task,
+    /// so it carries the pipeline. No cycle results: the recovery route
+    /// in the other direction captures the list view model weakly.
+    static func wireActivation(
+        list: AbilitiesListViewModel,
+        conversation: ConversationAbilitiesViewModel
+    ) {
+        list.onCatalogCommitted = { catalog in
+            conversation.adoptCatalog(catalog)
+        }
+        list.onEntitlementActivated = { abilityId in
+            conversation.enableAfterConnect(abilityId: abilityId)
+        }
     }
 
     /// Builds the per-chat view model for `.composerModal` and cross-wires
