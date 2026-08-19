@@ -46,6 +46,8 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
     public func ensureDefaultAgentConversationReady(id conversationId: String) async {
     }
 
+    public func reprovisionDefaultAgent(id conversationId: String) async {}
+
     public func isProvisioningDefaultAgent(id conversationId: String) async -> Bool {
         false
     }

@@ -44,6 +44,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// host that renders one too (the new-convo sheet's close) hides its own
     /// and the bar keeps a single leading button.
     var onHomeBrowsingChanged: ((Bool) -> Void)?
+    /// True when this conversation is the user's Space, which the Space Home
+    /// renders. Handed in rather than derived: the Space is designated by a
+    /// local flag the conversation itself carries no trace of. See
+    /// `PersonalSpaceService`.
+    var isPersonalSpace: Bool = false
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
@@ -453,12 +458,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// `ConversationTab.title(isPersonalSpace:)`.
     private var availableTabs: [ConversationTab] {
         isPersonalSpace ? [.group] : ConversationTab.allCases
-    }
-
-    /// The personal Space, and any other agent DM opened on its own: a locked
-    /// two-member conversation between the user and an agent.
-    private var isPersonalSpace: Bool {
-        viewModel.conversation.isAgentDm
     }
 
     /// The view model behind the transcript the selected tab is showing.

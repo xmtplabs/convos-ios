@@ -121,6 +121,7 @@ struct SpaceHomeView: View {
                     messagesTextFieldEnabled: true,
                     isReadOnly: false,
                     initialAgentDmInboxId: nil,
+                    isPersonalSpace: true,
                     bottomBarContent: { EmptyView() }
                 )
             }

@@ -43,11 +43,12 @@ public protocol ConversationsRepositoryProtocol {
     /// The user's personal Space conversation: their locked, two-member convo
     /// with their own agent.
     ///
-    /// Identified by what it lacks. Every other agent DM is a satellite of the
-    /// group it was started from and records that parent in `agent_dm_origin`;
-    /// the personal Space is started from nothing, so it records no parent. An
-    /// origin-less agent DM is therefore the Space, which means no new marker
-    /// has to be invented, synced, or migrated - the absence is the marker.
+    /// Identified by a local flag, `ConversationLocalState.isPersonalSpace`.
+    /// The synced agent-DM marker was the first answer and a wrong one: it is
+    /// read by the assistant runtime, not just by us, and wearing it made the
+    /// runtime open a separate DM for the agent and walk the agent out of the
+    /// Space. The Space is an ordinary group; only this device knows it is
+    /// special.
     ///
     /// Nil until one has been provisioned. See `PersonalSpaceService`.
     func findPersonalSpace() throws -> Conversation?
@@ -252,27 +253,28 @@ extension Database {
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
             .filter(DBConversation.Columns.isAgentDm == false)
+            // The Space is a perfectly ordinary group - locked, two members,
+            // one of them an agent - so nothing about its own row keeps it out
+            // of the list. It is the screen the list sits on, not a row in it,
+            // so it is excluded here by the local flag that designates it.
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.isPersonalSpace == false))
     }
 
-    /// The origin-less agent DM - the personal Space. See
+    /// The conversation flagged as this user's Space. See
     /// `ConversationsRepositoryProtocol.findPersonalSpace`.
     ///
-    /// Deliberately not built on `baseListConversationsRequest`: that one
-    /// excludes every agent DM, which is exactly the set this is looking in.
-    /// Oldest first, so a duplicate provisioned by a race can never displace
-    /// the Space the user has been living in.
+    /// Deliberately not built on `baseListConversationsRequest`, which now
+    /// excludes exactly this row. Oldest first, so a duplicate left behind by a
+    /// failed provision can never displace the Space the user has been living
+    /// in.
     fileprivate func composePersonalSpace(consent: [Consent]) throws -> Conversation? {
-        let linkedDmIds: [String] = try String.fetchAll(
-            self,
-            DBAgentDmOrigin.select(DBAgentDmOrigin.Columns.conversationId)
-        )
         let details = try DBConversation
-            .filter(DBConversation.Columns.isAgentDm == true)
-            .filter(!linkedDmIds.contains(DBConversation.Columns.id))
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
-            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
+            .joining(required: DBConversation.localState
+                .filter(ConversationLocalState.Columns.wasRemoved == false)
+                .filter(ConversationLocalState.Columns.isPersonalSpace == true))
             .order(DBConversation.Columns.createdAt.asc)
             .detailedConversationQuery()
             .fetchAll(self)

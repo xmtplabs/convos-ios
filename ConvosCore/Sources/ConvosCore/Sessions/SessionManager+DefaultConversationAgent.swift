@@ -116,6 +116,14 @@ extension SessionManager {
         await ensureDefaultAgentInConversation(id: conversationId)
     }
 
+    /// Repair entry point (see `SessionManagerProtocol`). Drops the remembered
+    /// provision so the next ensure does the work instead of returning the
+    /// finished task from the first one.
+    public func reprovisionDefaultAgent(id conversationId: String) async {
+        await defaultAgentCoordinator.clearProvisionTask(for: conversationId)
+        await ensureDefaultAgentInConversation(id: conversationId)
+    }
+
     private func runDefaultAgentProvision(conversationId: String) async {
         do {
             guard try await conversationLacksSecondMember(conversationId) else {

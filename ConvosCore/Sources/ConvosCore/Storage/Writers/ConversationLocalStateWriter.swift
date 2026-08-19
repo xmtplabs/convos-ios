@@ -9,6 +9,9 @@ public protocol ConversationLocalStateWriterProtocol: Sendable {
     func setLeftHostedInviteSession(_ leftHostedInviteSession: Bool, for conversationId: String) async throws
     func setHasSharedInvite(_ hasSharedInvite: Bool, for conversationId: String) async throws
     func setPublishedProfileUpdatedAt(_ publishedProfileUpdatedAt: Date?, for conversationId: String) async throws
+    /// Designates the conversation as this user's Space. Local-only - see
+    /// `ConversationLocalState.isPersonalSpace`.
+    func setPersonalSpace(_ isPersonalSpace: Bool, for conversationId: String) async throws
 }
 
 /// @unchecked Sendable: GRDB's DatabaseWriter provides thread-safe access via write{}
@@ -20,6 +23,13 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
 
     init(databaseWriter: any DatabaseWriter) {
         self.databaseWriter = databaseWriter
+    }
+
+    func setPersonalSpace(_ isPersonalSpace: Bool, for conversationId: String) async throws {
+        try await updateLocalState(for: conversationId) { state in
+            state.with(isPersonalSpace: isPersonalSpace)
+        }
+        QAEvent.emit(.conversation, "personal_space_set", ["id": conversationId])
     }
 
     func setUnread(_ isUnread: Bool, for conversationId: String) async throws {

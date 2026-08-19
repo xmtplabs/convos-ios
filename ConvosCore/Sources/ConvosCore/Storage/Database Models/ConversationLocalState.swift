@@ -19,6 +19,7 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
         static let hasHadOtherMembers: Column = Column(CodingKeys.hasHadOtherMembers)
         static let hasSharedInvite: Column = Column(CodingKeys.hasSharedInvite)
         static let publishedProfileUpdatedAt: Column = Column(CodingKeys.publishedProfileUpdatedAt)
+        static let isPersonalSpace: Column = Column(CodingKeys.isPersonalSpace)
     }
 
     let conversationId: String
@@ -54,6 +55,17 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
     /// rather than fanning out to every conversation. nil means never published
     /// (treated as stale). Local-only; deleted with the conversation.
     let publishedProfileUpdatedAt: Date?
+    /// True for the one conversation that is this user's Space - the locked
+    /// two-member room they share with their own agent, which the Space Home
+    /// renders instead of listing.
+    ///
+    /// Local-only, and deliberately so. The obvious alternative was the synced
+    /// agent-DM marker, which fit perfectly until it turned out not to be a
+    /// label at all: the assistant runtime reads it, and marking the Space with
+    /// it made the runtime open a *separate* DM for the agent and walk the
+    /// agent out of the Space. A flag nothing but this device reads cannot
+    /// provoke anything. Deleted with the conversation.
+    let isPersonalSpace: Bool
 
     init(
         conversationId: String,
@@ -67,7 +79,8 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
         wasRemoved: Bool,
         hasHadOtherMembers: Bool,
         hasSharedInvite: Bool,
-        publishedProfileUpdatedAt: Date? = nil
+        publishedProfileUpdatedAt: Date? = nil,
+        isPersonalSpace: Bool = false
     ) {
         self.conversationId = conversationId
         self.isPinned = isPinned
@@ -81,6 +94,7 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
         self.hasHadOtherMembers = hasHadOtherMembers
         self.hasSharedInvite = hasSharedInvite
         self.publishedProfileUpdatedAt = publishedProfileUpdatedAt
+        self.isPersonalSpace = isPersonalSpace
     }
 
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
@@ -105,7 +119,8 @@ extension ConversationLocalState {
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
             hasSharedInvite: hasSharedInvite,
-            publishedProfileUpdatedAt: publishedProfileUpdatedAt
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt,
+            isPersonalSpace: isPersonalSpace
         )
     }
     func with(isPinned: Bool) -> Self {
@@ -121,7 +136,8 @@ extension ConversationLocalState {
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
             hasSharedInvite: hasSharedInvite,
-            publishedProfileUpdatedAt: publishedProfileUpdatedAt
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt,
+            isPersonalSpace: isPersonalSpace
         )
     }
     func with(isMuted: Bool) -> Self {
@@ -137,7 +153,8 @@ extension ConversationLocalState {
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
             hasSharedInvite: hasSharedInvite,
-            publishedProfileUpdatedAt: publishedProfileUpdatedAt
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt,
+            isPersonalSpace: isPersonalSpace
         )
     }
     func with(pinnedOrder: Int?) -> Self {
@@ -153,7 +170,8 @@ extension ConversationLocalState {
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
             hasSharedInvite: hasSharedInvite,
-            publishedProfileUpdatedAt: publishedProfileUpdatedAt
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt,
+            isPersonalSpace: isPersonalSpace
         )
     }
     func with(hidesInviteCard: Bool) -> Self {
@@ -169,7 +187,8 @@ extension ConversationLocalState {
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
             hasSharedInvite: hasSharedInvite,
-            publishedProfileUpdatedAt: publishedProfileUpdatedAt
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt,
+            isPersonalSpace: isPersonalSpace
         )
     }
     func with(leftHostedInviteSession: Bool) -> Self {
@@ -185,7 +204,8 @@ extension ConversationLocalState {
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
             hasSharedInvite: hasSharedInvite,
-            publishedProfileUpdatedAt: publishedProfileUpdatedAt
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt,
+            isPersonalSpace: isPersonalSpace
         )
     }
     func with(wasRemoved: Bool) -> Self {
@@ -201,7 +221,8 @@ extension ConversationLocalState {
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
             hasSharedInvite: hasSharedInvite,
-            publishedProfileUpdatedAt: publishedProfileUpdatedAt
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt,
+            isPersonalSpace: isPersonalSpace
         )
     }
     func with(hasHadOtherMembers: Bool) -> Self {
@@ -217,7 +238,8 @@ extension ConversationLocalState {
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
             hasSharedInvite: hasSharedInvite,
-            publishedProfileUpdatedAt: publishedProfileUpdatedAt
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt,
+            isPersonalSpace: isPersonalSpace
         )
     }
     func with(hasSharedInvite: Bool) -> Self {
@@ -233,7 +255,8 @@ extension ConversationLocalState {
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
             hasSharedInvite: hasSharedInvite,
-            publishedProfileUpdatedAt: publishedProfileUpdatedAt
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt,
+            isPersonalSpace: isPersonalSpace
         )
     }
     func with(publishedProfileUpdatedAt: Date?) -> Self {
@@ -249,7 +272,28 @@ extension ConversationLocalState {
             wasRemoved: wasRemoved,
             hasHadOtherMembers: hasHadOtherMembers,
             hasSharedInvite: hasSharedInvite,
-            publishedProfileUpdatedAt: publishedProfileUpdatedAt
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt,
+            isPersonalSpace: isPersonalSpace
+        )
+    }
+}
+
+extension ConversationLocalState {
+    func with(isPersonalSpace: Bool) -> Self {
+        .init(
+            conversationId: conversationId,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isUnreadUpdatedAt: isUnreadUpdatedAt,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder,
+            hidesInviteCard: hidesInviteCard,
+            leftHostedInviteSession: leftHostedInviteSession,
+            wasRemoved: wasRemoved,
+            hasHadOtherMembers: hasHadOtherMembers,
+            hasSharedInvite: hasSharedInvite,
+            publishedProfileUpdatedAt: publishedProfileUpdatedAt,
+            isPersonalSpace: isPersonalSpace
         )
     }
 }
