@@ -133,11 +133,22 @@ actor SyncingManager: SyncingManagerProtocol {
     let streamProcessor: any StreamProcessorProtocol
     // Maximum consecutive stream failures before giving up. Prevents FD exhaustion when
     // XMTP service is unavailable (each failed connection attempt can leak file descriptors).
-    private let maxStreamRetries: Int = 10
+    // Injectable so tests can reach the exhausted/`.error` state without sitting through
+    // the full ~2.5 minute backoff ladder.
+    private let maxStreamRetries: Int
 
     private var messageStreamTask: Task<Void, Never>?
     private var conversationStreamTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
+
+    /// The params of the most recent `start`, retained so a session that has
+    /// fallen into `.error` can be restarted from a plain `.resume`.
+    ///
+    /// `.error` carries only the `Error`, so without this the state machine
+    /// had nothing to restart *with* and every recovery trigger the app sends
+    /// (foreground, network reconnect) is a `.resume` that could only be
+    /// dropped. Cleared on `stop` so a stopped session is never resurrected.
+    private var lastClientParams: SyncClientParams?
 
     /// Temporary diagnostic state for the agent-join poll. The task is the
     /// bounded polling loop; the date stamps the last message the stream
@@ -170,6 +181,15 @@ actor SyncingManager: SyncingManagerProtocol {
         if case .ready = _state { return true }
         return false
     }
+
+    /// True once the streams have exhausted their retry budget and the manager
+    /// has fallen into `.error`. Distinct from `!isSyncReady`, which is also
+    /// true for the transient `.starting` state - tests need to tell the
+    /// terminal state apart from the in-flight one.
+    var hasGivenUpOnStreams: Bool {
+        if case .error = _state { return true }
+        return false
+    }
     private var isProcessing: Bool = false
     private var currentTask: Task<Void, Never>?
 
@@ -196,7 +216,9 @@ actor SyncingManager: SyncingManagerProtocol {
          deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
          notificationCenter: any UserNotificationCenterProtocol,
          deviceConnections: DeviceConnectionsBundle = .none,
+         maxStreamRetries: Int = 10,
          coreActions: any CoreActions) {
+        self.maxStreamRetries = maxStreamRetries
         self.identityStore = identityStore
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
@@ -471,6 +493,31 @@ actor SyncingManager: SyncingManagerProtocol {
                 // Recover from error by starting fresh
                 try await handleStart(client: params.client, apiClient: params.apiClient)
 
+            case (.error, .resume):
+                // Every recovery trigger the app has - returning to the
+                // foreground, the network monitor reconnecting - sends
+                // `.resume`, never `.start`. Dropping it here made `.error`
+                // terminal for the life of the process: streams stay
+                // cancelled, so nothing arrives over them and no further
+                // catch-up runs, while the session layer stays `.ready` and
+                // the UI keeps looking healthy. Restart from the retained
+                // params instead. If the underlying failure is still there
+                // the streams simply exhaust again, which makes this state
+                // transient rather than permanent - and the retry ladder
+                // (~2.5 minutes) rate-limits the attempts on its own.
+                guard let params = lastClientParams else {
+                    Log.warning("Sync is in error state with no retained client params - cannot recover")
+                    break
+                }
+                Log.info("Recovering sync from error state")
+                try await handleStart(client: params.client, apiClient: params.apiClient)
+
+            case (.error, .pause):
+                // Streams were already cancelled on the way into `.error`,
+                // so there is nothing to pause. Backgrounding a errored
+                // session is expected, not an invalid transition.
+                Log.debug("Pause requested while in error state - nothing to pause")
+
             case (.ready, .pause):
                 try await handlePause()
 
@@ -525,6 +572,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private func handleStart(client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) async throws {
         let params = SyncClientParams(client: client, apiClient: apiClient)
+        lastClientParams = params
         emitStateChange(.starting(params, pauseOnComplete: false))
 
         // Setup notifications if not already done
@@ -934,6 +982,8 @@ actor SyncingManager: SyncingManagerProtocol {
 
         await cancelAndAwaitTasks()
         activeConversationId = nil
+        // A stopped session must not be revivable by a stray `.resume`.
+        lastClientParams = nil
 
         for observer in notificationObservers {
             NotificationCenter.default.removeObserver(observer)
