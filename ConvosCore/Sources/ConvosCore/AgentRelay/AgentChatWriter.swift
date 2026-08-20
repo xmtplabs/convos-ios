@@ -20,17 +20,89 @@ public final class AgentChatWriter: AgentChatWriterProtocol {
         self.database = database
     }
 
-    public func insertPending(_ turn: AgentTurn) throws {}
+    public func insertPending(_ turn: AgentTurn) throws {
+        try database.pool.write { db in
+            try turn.insert(db)
+        }
+    }
 
-    public func markCompleted(requestId: String, result: AgentRelayTurnResult, provider: ExternalAgentProvider) throws {}
+    public func markCompleted(requestId: String, result: AgentRelayTurnResult, provider: ExternalAgentProvider) throws {
+        try database.pool.write { db in
+            guard var turn = try AgentTurn.fetchOne(db, key: requestId) else {
+                let completedTurn = AgentTurn(
+                    requestId: requestId,
+                    provider: provider,
+                    status: .completed,
+                    prompt: Constant.collectedElsewherePrompt,
+                    resultMessage: result.message,
+                    resultLinks: result.links,
+                    createdAt: result.completedAt,
+                    expiresAt: result.completedAt,
+                    completedAt: result.completedAt
+                )
+                try completedTurn.insert(db)
+                return
+            }
+            guard turn.status == .pending else { return }
 
-    public func markFailed(requestId: String, errorCode: String) throws {}
+            // Existing rows keep their stored provider; this argument is only used when inserting.
+            turn.status = .completed
+            turn.resultMessage = result.message
+            turn.resultLinks = result.links
+            turn.errorCode = nil
+            turn.completedAt = result.completedAt
+            try turn.update(db)
+        }
+    }
 
-    public func markExpired(requestId: String) throws {}
+    public func markFailed(requestId: String, errorCode: String) throws {
+        try updateExisting(requestId: requestId) { turn in
+            guard turn.status == .pending else { return }
+            turn.status = .failed
+            turn.errorCode = errorCode
+        }
+    }
 
-    public func markCollectedElsewhere(requestId: String) throws {}
+    public func markExpired(requestId: String) throws {
+        try updateExisting(requestId: requestId) { turn in
+            guard turn.status == .pending else { return }
+            turn.status = .expired
+            turn.errorCode = nil
+        }
+    }
 
-    public func markAcked(requestId: String) throws {}
+    public func markCollectedElsewhere(requestId: String) throws {
+        try updateExisting(requestId: requestId) { turn in
+            guard turn.status == .pending else { return }
+            turn.status = .collectedElsewhere
+            turn.errorCode = nil
+        }
+    }
 
-    public func deleteAll() throws {}
+    public func markAcked(requestId: String) throws {
+        try updateExisting(requestId: requestId) { turn in
+            turn.ackedAt = Date()
+        }
+    }
+
+    public func deleteAll() throws {
+        try database.pool.write { db in
+            _ = try AgentTurn.deleteAll(db)
+        }
+    }
+
+    private func updateExisting(requestId: String, changes: (inout AgentTurn) -> Void) throws {
+        try database.pool.write { db in
+            guard var turn = try AgentTurn.fetchOne(db, key: requestId) else {
+                Log.warning("Agent turn update ignored for missing request \(requestId.prefix(12))")
+                return
+            }
+            changes(&turn)
+            try turn.update(db)
+        }
+    }
+
+    private enum Constant {
+        static let collectedElsewherePrompt: String = "(completed on another device)"
+    }
 }
