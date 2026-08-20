@@ -36,7 +36,7 @@ public enum AgentParticipationLevel: String, CaseIterable, Identifiable, Sendabl
         switch self {
         case .speakFreely: "Chime in any time"
         case .mentionsOnly: "Only speaks if you @mention or say name"
-        case .paused: "Go offline, use no credits"
+        case .paused: "Won't see messages sent while paused, even later"
         }
     }
 
