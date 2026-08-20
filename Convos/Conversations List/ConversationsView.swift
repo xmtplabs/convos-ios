@@ -178,10 +178,10 @@ struct ConversationsView: View {
     /// status bar now that the screen runs to the top edge - the same pair the
     /// pushed conversation above uses.
     ///
-    /// `onClose` routes the close (X) through the flow's tear-down and hides
-    /// the back button with it: the conversation is minted on the way in, so
-    /// there is no earlier step of the flow to go back to, and the one way out
-    /// both leaves the screen and cleans up after it.
+    /// No `onClose`: on this stack the flow uses the system back button, so it
+    /// matches a conversation opened from the list. The pop writes `nil`
+    /// through `newConversationBinding`, whose `didSet` runs the flow's
+    /// tear-down, so backing out both leaves the screen and cleans up after it.
     ///
     /// The tab bar is hidden for the same reason the pushed contact-card
     /// conversation hides it - the shell only hides it for a selected
@@ -192,7 +192,6 @@ struct ConversationsView: View {
             viewModel: newConvoViewModel,
             profileSettingsViewModel: profileSettingsViewModel,
             embedsNavigationStack: false,
-            onClose: { viewModel.newConversationViewModel = nil },
             insetsTopSafeArea: true
         )
         .background(.colorBackgroundSurfaceless)
