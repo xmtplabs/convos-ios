@@ -188,6 +188,16 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         databaseReader: databaseReader
     )
 
+    /// Resolves identity from the backend for inboxes the local rows do not
+    /// cover. Shares the session's API client, so it only ever runs for a
+    /// signed-in inbox.
+    private lazy var remoteProfileResolver: RemoteProfileResolver = RemoteProfileResolver(
+        databaseWriter: databaseWriter,
+        apiClientProvider: { [sessionStateManager] in
+            (try? await sessionStateManager.waitForInboxReadyResult())?.apiClient
+        }
+    )
+
     private lazy var sharedProfilesRepository: ProfilesRepository = ProfilesRepository(
         profileStore: profileStore,
         selfProfileStore: selfProfileStore,
@@ -196,7 +206,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         conversationLocalStateWriter: ConversationLocalStateWriter(databaseWriter: databaseWriter),
         selfInboxIdProvider: { [sessionStateManager] in
             (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
-        }
+        },
+        remoteResolver: remoteProfileResolver
     )
 
     /// Canonical identity source. Inbound writes land here directly via
@@ -258,7 +269,11 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     func conversationStateManager(
         initialMemberInboxIds: [String]
     ) -> any ConversationStateManagerProtocol {
-        ConversationStateManager(
+        // Setting up a conversation is the moment we learn which identities it
+        // will render, so it is the moment to ask the backend for the ones we
+        // do not have. Fire-and-forget: nothing here waits on it.
+        sharedProfilesRepository.resolveProfiles(inboxIds: initialMemberInboxIds)
+        return ConversationStateManager(
             sessionStateManager: sessionStateManager,
             identityStore: identityStore,
             databaseReader: databaseReader,

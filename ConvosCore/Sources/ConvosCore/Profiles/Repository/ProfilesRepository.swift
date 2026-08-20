@@ -17,6 +17,10 @@ public actor ProfilesRepository {
     private let conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
     private let selfInboxIdProvider: @Sendable () async -> String?
     private let publisher: ProfilePublisher
+    /// Fills identity in from the backend for inboxes we do not know or have
+    /// not checked lately. Optional so mocks and previews can leave it out and
+    /// simply render whatever is local.
+    private let remoteResolver: RemoteProfileResolver?
 
     private var identities: [String: DBProfile] = [:]
     private var avatarsByInbox: [String: [String: DBProfileAvatar]] = [:]
@@ -44,8 +48,10 @@ public actor ProfilesRepository {
         publishStore: any ProfilePublishStoreProtocol,
         databaseReader: any DatabaseReader,
         conversationLocalStateWriter: any ConversationLocalStateWriterProtocol,
-        selfInboxIdProvider: @escaping @Sendable () async -> String?
+        selfInboxIdProvider: @escaping @Sendable () async -> String?,
+        remoteResolver: RemoteProfileResolver? = nil
     ) {
+        self.remoteResolver = remoteResolver
         self.profileStore = profileStore
         self.selfProfileStore = selfProfileStore
         self.databaseReader = databaseReader
@@ -375,6 +381,16 @@ public actor ProfilesRepository {
     /// dependent state (e.g. a cloud connection grant).
     public func publishMyProfileMetadata(_ metadata: ProfileMetadata?, toConversation conversationId: String) async throws {
         try await publisher.publishScopedMetadata(metadata, conversationId: conversationId)
+    }
+
+    /// Asks the backend for anything we do not know about these inboxes.
+    ///
+    /// Fire-and-forget by design: callers are rendering a member list and
+    /// already have something to draw, so this returns immediately and the
+    /// reactive reads pick up whatever lands.
+    public nonisolated func resolveProfiles(inboxIds: [String]) {
+        guard let remoteResolver else { return }
+        Task { await remoteResolver.resolve(inboxIds: inboxIds) }
     }
 
     /// Drops a conversation's avatar slots from every person's cache and the
