@@ -1,0 +1,14 @@
+{
+  "aps": {
+    "alert": {
+      "title": "Town",
+      "body": "Your routine replied"
+    },
+    "sound": "default",
+    "mutable-content": 1
+  },
+  "notificationType": "AgentRelay",
+  "requestId": "request_kJ83exampleexampleexample",
+  "provider": "town",
+  "apiJWT": "eyJhbGciOiJIUzI1NiJ9.eyJhZ2VudFJlbGF5UmVxdWVzdElkIjoicmVxdWVzdF9rSjgzZXhhbXBsZWV4YW1wbGVleGFtcGxlIn0.fake-signature"
+}
