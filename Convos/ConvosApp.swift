@@ -275,11 +275,12 @@ struct ConvosApp: App {
     }
 
     /// Routes cache-time default-agent joins to the same variant as every other
-    /// agent call. Read live at join time; hops to the main actor because
-    /// FeatureFlags is main-actor-isolated.
+    /// agent call: the conversation's own binding first, the global selector
+    /// only as a fallback. Read live at join time; hops to the main actor
+    /// because the resolution is main-actor-isolated.
     private static func wireDefaultAgentVariantProvider() {
-        SessionManager.defaultAgentVariantIdProvider = {
-            await MainActor.run { FeatureFlags.shared.effectiveAgentVariantSlug }
+        SessionManager.defaultAgentVariantIdProvider = { conversationId in
+            await MainActor.run { AgentVariantResolution.slug(for: conversationId) }
         }
     }
 
