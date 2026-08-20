@@ -282,6 +282,12 @@ struct ConvosApp: App {
         SessionManager.defaultAgentVariantIdProvider = { conversationId in
             await MainActor.run { AgentVariantResolution.slug(for: conversationId) }
         }
+        // With the selector on, a conversation's agent has to wait for the pick
+        // that conversation was created under; the warm cache would otherwise
+        // build it before the picker is even on screen.
+        SessionManager.deferCacheTimeDefaultAgent = {
+            await MainActor.run { FeatureFlags.shared.isAgentVariantSelectorEnabled }
+        }
     }
 
     var body: some Scene {
