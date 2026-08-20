@@ -18,24 +18,32 @@ extension DBMemberProfile {
 }
 
 extension Profile {
-    /// Builds a conversation-scoped `Profile` from the canonical per-inbox
-    /// `DBProfile` row and the per-(inbox, conversation) `DBProfileAvatar`
-    /// slot. `imageSourceContentDigest` is always nil here because the new
-    /// tables do not persist it (see ADR 014 for the deferred digest work).
+    /// Builds a `Profile` from the canonical per-inbox `DBProfile` row.
+    ///
+    /// The avatar is the backend's plain CDN URL when this inbox has been
+    /// resolved, and the legacy per-conversation encrypted slot only until then.
+    /// That fallback is what keeps faces on screen for people who have not
+    /// upgraded yet; it goes when the encrypted read path is retired, and with
+    /// it the last reason this type carries a conversation at all.
+    ///
+    /// `imageSourceContentDigest` is always nil here because the new tables do
+    /// not persist it (see ADR 014 for the deferred digest work).
     static func from(
         profile: DBProfile?,
         avatar: DBProfileAvatar?,
         inboxId: String,
         conversationId: String
     ) -> Profile {
-        Profile(
+        let remoteAvatarUrl: String? = profile?.avatarUrl
+        let legacyAvatar: DBProfileAvatar? = remoteAvatarUrl == nil ? avatar : nil
+        return Profile(
             inboxId: inboxId,
             conversationId: conversationId,
             name: profile?.name,
-            avatar: avatar?.url,
-            avatarSalt: avatar?.salt,
-            avatarNonce: avatar?.nonce,
-            avatarKey: avatar?.encryptionKey,
+            avatar: remoteAvatarUrl ?? legacyAvatar?.url,
+            avatarSalt: legacyAvatar?.salt,
+            avatarNonce: legacyAvatar?.nonce,
+            avatarKey: legacyAvatar?.encryptionKey,
             isAgent: profile?.memberKind?.isAgent ?? false,
             imageSourceContentDigest: nil,
             metadata: profile?.metadata

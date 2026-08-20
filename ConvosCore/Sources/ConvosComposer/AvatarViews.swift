@@ -63,8 +63,17 @@ public struct AvatarView: View {
     }
 }
 
+/// Draws a person or agent: their photo when there is one, else an emoji or a
+/// monogram.
+///
+/// Takes anything renderable rather than a specific profile type, so the same
+/// view serves the conversation-scoped `Profile` and the per-inbox
+/// `UnifiedProfile` while both exist - the cutover becomes a change of argument
+/// rather than a second view to keep in step.
 public struct ProfileAvatarView: View {
-    let profile: Profile
+    let profile: any AvatarRenderable
+    /// An image to show instead of fetching, for the one case that needs it:
+    /// the photo a user just picked, before it has been uploaded anywhere.
     let profileImage: UIImage?
     let useSystemPlaceholder: Bool
     var agentVerification: AgentVerification = .unverified
@@ -73,8 +82,8 @@ public struct ProfileAvatarView: View {
     var size: CGFloat?
 
     public init(
-        profile: Profile,
-        profileImage: UIImage?,
+        profile: any AvatarRenderable,
+        profileImage: UIImage? = nil,
         useSystemPlaceholder: Bool,
         agentVerification: AgentVerification = .unverified,
         size: CGFloat? = nil

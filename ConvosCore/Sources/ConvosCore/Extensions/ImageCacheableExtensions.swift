@@ -122,3 +122,5 @@ extension Conversation: ImageCacheable {
         }
     }
 }
+
+extension Profile: AvatarRenderable {}

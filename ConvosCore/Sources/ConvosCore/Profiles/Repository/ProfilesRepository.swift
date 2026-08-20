@@ -17,6 +17,10 @@ public actor ProfilesRepository {
     private let conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
     private let selfInboxIdProvider: @Sendable () async -> String?
     private let publisher: ProfilePublisher
+    /// Fills identity in from the backend for inboxes we do not know or have
+    /// not checked lately. Optional so mocks and previews can leave it out and
+    /// simply render whatever is local.
+    private let remoteResolver: RemoteProfileResolver?
 
     private var identities: [String: DBProfile] = [:]
     private var avatarsByInbox: [String: [String: DBProfileAvatar]] = [:]
@@ -44,8 +48,10 @@ public actor ProfilesRepository {
         publishStore: any ProfilePublishStoreProtocol,
         databaseReader: any DatabaseReader,
         conversationLocalStateWriter: any ConversationLocalStateWriterProtocol,
-        selfInboxIdProvider: @escaping @Sendable () async -> String?
+        selfInboxIdProvider: @escaping @Sendable () async -> String?,
+        remoteResolver: RemoteProfileResolver? = nil
     ) {
+        self.remoteResolver = remoteResolver
         self.profileStore = profileStore
         self.selfProfileStore = selfProfileStore
         self.databaseReader = databaseReader
@@ -126,8 +132,7 @@ public actor ProfilesRepository {
 
     static func fetchProfile(_ db: Database, inboxId: String) throws -> UnifiedProfile {
         let identity = try DBProfile.fetchOne(db, inboxId: inboxId)
-        let avatars = try DBProfileAvatar.fetchAll(db, inboxId: inboxId)
-        return UnifiedProfile.hydrate(identity: identity, avatarRows: avatars, inboxId: inboxId)
+        return UnifiedProfile.hydrate(identity: identity, inboxId: inboxId)
     }
 
     static func fetchSelfProfile(_ db: Database, inboxId: String) throws -> UnifiedProfile? {
@@ -137,13 +142,14 @@ public actor ProfilesRepository {
         guard let selfRow = try DBMyProfile
             .filter(DBMyProfile.Columns.inboxId == inboxId)
             .fetchOne(db) else { return nil }
-        let avatars = try DBProfileAvatar.fetchAll(db, inboxId: selfRow.inboxId)
+        // Self identity is authored locally, so it carries no backend row yet;
+        // the avatar follows once the user's own profile is published.
         return UnifiedProfile(
             inboxId: selfRow.inboxId,
             name: selfRow.name,
             memberKind: nil,
             metadata: selfRow.metadata,
-            avatars: UnifiedProfile.avatarMap(from: avatars),
+            avatarUrl: nil,
             updatedAt: selfRow.updatedAt
         )
     }
@@ -175,8 +181,7 @@ public actor ProfilesRepository {
     // MARK: - Reads
 
     func profile(inboxId: String) -> UnifiedProfile {
-        let rows = avatarsByInbox[inboxId].map { Array($0.values) } ?? []
-        return UnifiedProfile.hydrate(identity: identities[inboxId], avatarRows: rows, inboxId: inboxId)
+        UnifiedProfile.hydrate(identity: identities[inboxId], inboxId: inboxId)
     }
 
     func profiles(inboxIds: [String]) -> [String: UnifiedProfile] {
@@ -189,13 +194,12 @@ public actor ProfilesRepository {
 
     func selfProfile() -> UnifiedProfile? {
         guard let cachedSelf else { return nil }
-        let rows = avatarsByInbox[cachedSelf.inboxId].map { Array($0.values) } ?? []
         return UnifiedProfile(
             inboxId: cachedSelf.inboxId,
             name: cachedSelf.name,
             memberKind: nil,
             metadata: cachedSelf.metadata,
-            avatars: UnifiedProfile.avatarMap(from: rows),
+            avatarUrl: nil,
             updatedAt: cachedSelf.updatedAt
         )
     }
@@ -377,6 +381,16 @@ public actor ProfilesRepository {
     /// dependent state (e.g. a cloud connection grant).
     public func publishMyProfileMetadata(_ metadata: ProfileMetadata?, toConversation conversationId: String) async throws {
         try await publisher.publishScopedMetadata(metadata, conversationId: conversationId)
+    }
+
+    /// Asks the backend for anything we do not know about these inboxes.
+    ///
+    /// Fire-and-forget by design: callers are rendering a member list and
+    /// already have something to draw, so this returns immediately and the
+    /// reactive reads pick up whatever lands.
+    public nonisolated func resolveProfiles(inboxIds: [String]) {
+        guard let remoteResolver else { return }
+        Task { await remoteResolver.resolve(inboxIds: inboxIds) }
     }
 
     /// Drops a conversation's avatar slots from every person's cache and the

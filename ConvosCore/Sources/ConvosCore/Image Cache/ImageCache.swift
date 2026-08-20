@@ -1071,3 +1071,17 @@ public extension View {
 }
 
 #endif
+
+/// What an avatar needs to draw somebody: the image, and the fallbacks for when
+/// there isn't one.
+///
+/// Both profile types conform, so one avatar view serves both while the
+/// conversation-scoped `Profile` is still around. When it goes, this collapses
+/// to the per-inbox type and the protocol can go with it.
+public protocol AvatarRenderable: ImageCacheable {
+    /// Name to show, already resolved to a placeholder when there isn't one.
+    var displayName: String { get }
+    /// An emoji some agents publish in place of a picture.
+    var profileEmoji: String? { get }
+    var isAgent: Bool { get }
+}
