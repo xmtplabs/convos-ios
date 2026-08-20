@@ -1,0 +1,4 @@
+prototypeId: "a-small-test-agent-variant-that-pins-deepseek-v4-flash-across-th"
+side: "app"
+requestedLifetime: "2026-08-27T15:30:03.623Z"
+whatToTest: "A small test agent variant that pins DeepSeek V4 Flash across three model vectors (main model, cron model, delegation model) to verify the variant machinery is actually propagating config changes into the runtime, rather than the shared dev worker's defaults."
