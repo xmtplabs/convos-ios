@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct GrokBotConnectionSetupView: View {
     let onConnected: () -> Void
@@ -11,6 +12,7 @@ struct GrokBotConnectionSetupView: View {
     @State private var showsAdvancedSetup: Bool = false
     @State private var isWorking: Bool = false
     @State private var isWaitingForComputer: Bool = false
+    @State private var copiedPairingToken: Bool = false
     @State private var connectionError: String?
 
     private let client: GrokBotBridgeClient = .init()
@@ -117,20 +119,46 @@ struct GrokBotConnectionSetupView: View {
                     Text(isWaitingForComputer ? "Waiting for your Grok Bot computer" : "Looking for your Grokbots")
                         .font(.headline)
                         .foregroundStyle(.colorTextPrimary)
-                    Text("Keep the Grok Bot relay running on your computer. Once it checks in, every available agent will appear here by name.")
+                    Text("Copy this connection's pairing token and paste it into your Grok Bot relay. Once the relay checks in, every available agent will appear here by name.")
                         .font(.footnote)
                         .foregroundStyle(.colorTextSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
-            Label("No webhook or inbound port is used.", systemImage: "arrow.up.right.circle.fill")
+            Button(action: copyPairingToken) {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    Image(systemName: copiedPairingToken ? "checkmark" : "doc.on.doc")
+                    Text(copiedPairingToken ? "Pairing token copied" : "Copy pairing token")
+                    Spacer(minLength: DesignConstants.Spacing.step2x)
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.colorTextPrimary)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+                .frame(minHeight: 52)
+                .background(.colorFillMinimal, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("grokbot-copy-pairing-token-button")
+
+            Label("Treat this token like a password. No webhook or inbound port is used.", systemImage: "lock.fill")
                 .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(DesignConstants.Spacing.step4x)
         .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
         .accessibilityIdentifier("grokbot-waiting-for-computer")
+    }
+
+    private func copyPairingToken() {
+        guard let token = configuration?.sessionToken else { return }
+        UIPasteboard.general.string = token
+        copiedPairingToken = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            copiedPairingToken = false
+        }
     }
 
     private var agentPicker: some View {

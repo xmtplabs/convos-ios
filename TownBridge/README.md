@@ -21,7 +21,7 @@ Grok Bot uses the same result mailbox without a webhook. Convos creates one sess
 
 Relay flow:
 
-1. `POST /v1/grokbot/sessions` creates a session and returns its bearer capability.
+1. `POST /v1/grokbot/sessions` creates a session and returns its bearer capability. Convos stores it in Keychain and exposes an explicit Copy pairing token action while waiting so the user can hand it to the computer relay.
 2. The computer calls `GET /v1/grokbot/pull?token=…`. Its first command is `list_agents`.
 3. The computer reports its agents to `POST /v1/grokbot/report` with `{ sessionToken, agents }`.
 4. Convos registers a one-hour result mailbox and calls `POST /v1/grokbot/enqueue` with the chosen `agentId`.
