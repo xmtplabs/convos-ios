@@ -822,6 +822,10 @@ struct YourSpaceInputSheet: View {
         agentName == ExternalAgentProvider.town.displayName
     }
 
+    private var isTaskletSelected: Bool {
+        agentName == ExternalAgentProvider.tasklet.displayName
+    }
+
     private var initialAssistantMessage: String {
         if isCodexSelected, codexConfiguration != nil {
             let contextCount = codexSnapshot?.items.count ?? 0
@@ -832,6 +836,9 @@ struct YourSpaceInputSheet: View {
         }
         if isTownSelected, onAskAgent != nil {
             return "Town is connected to Convos. Ask your Town agent to use its memory and tools, and I’ll bring the finished result back here to save or share."
+        }
+        if isTaskletSelected, onAskAgent != nil {
+            return "Tasklet is connected to Convos. Ask your agent to use its memory, connections, and tools, and I’ll bring the finished result back here to save or share."
         }
         return briefing.headline
     }
@@ -851,6 +858,13 @@ struct YourSpaceInputSheet: View {
                 "Make something I can share with this context",
             ]
         }
+        if isTaskletSelected {
+            return [
+                "Use my Tasklet connections to move this forward",
+                "Turn this context into something useful",
+                "Make something I can save and share",
+            ]
+        }
         return ["What needs me?", "What's new?", "Who is active?"]
     }
 
@@ -867,6 +881,12 @@ struct YourSpaceInputSheet: View {
         }
         if isTownSelected {
             return "This question goes to your Town routine without Your Space context."
+        }
+        if isTaskletSelected, TaskletConnectionStore.configuration()?.sharesYourSpaceContext == true {
+            return "This question and a bounded snapshot of the Your Space context you approved go to your Tasklet agent."
+        }
+        if isTaskletSelected {
+            return "This question goes to your Tasklet agent without Your Space context."
         }
         return "Answers use private context already on this device."
     }

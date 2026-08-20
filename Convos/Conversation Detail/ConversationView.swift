@@ -453,31 +453,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
             }
     }
 
-    /// The prototype always exposes the three lanes from the brief. A matching
-    /// real agent replaces its demo row, so Space Abilities keeps its actual
-    /// transcript when present. Any additional live agents follow them.
+    /// Only agents that actually exist appear here: verified XMTP agents in
+    /// this group plus external providers the user has completed setup for.
+    /// The old Flight Tracker and Shane's Agent sample lanes intentionally do
+    /// not enter the selector.
     private var agentChatLanes: [AgentChatLane] {
         guard showsAgentChatPrototype else { return liveAgentChatLanes }
-        var remainingLive: [AgentChatLane] = liveAgentChatLanes
-        var result: [AgentChatLane] = []
-
-        for prototype in AgentChatLane.PrototypeAgent.allCases {
-            if let index = remainingLive.firstIndex(where: {
-                $0.name.compare(
-                    prototype.displayName,
-                    options: [.caseInsensitive, .diacriticInsensitive]
-                ) == .orderedSame
-            }) {
-                result.append(remainingLive.remove(at: index))
-            } else {
-                result.append(.prototype(prototype))
-            }
-        }
-
-        result.append(contentsOf: remainingLive)
-        result.append(contentsOf: agentChatPrototypeState.connectedExternalProviders.map(AgentChatLane.external))
-        result.append(.ghost)
-        return result
+        return AgentChatLane.available(
+            live: liveAgentChatLanes,
+            connectedExternalProviders: agentChatPrototypeState.connectedExternalProviders
+        )
     }
 
     private var selectedAgentChatLane: AgentChatLane? {

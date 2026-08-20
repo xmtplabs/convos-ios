@@ -4,6 +4,7 @@ import SwiftUI
 enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
     case codex
     case town
+    case tasklet
     case claudeCode
     case hermes
     case openClaw
@@ -15,6 +16,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .codex: "Codex"
         case .town: "Town"
+        case .tasklet: "Tasklet"
         case .claudeCode: "Claude Code"
         case .hermes: "Hermes"
         case .openClaw: "OpenClaw"
@@ -26,10 +28,11 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .codex: "OpenAI coding agent"
         case .town: "Your Town agent and routines"
+        case .tasklet: "Your always-on cloud agent"
         case .claudeCode: "Anthropic coding agent"
         case .hermes: "Your self-hosted Hermes agent"
         case .openClaw: "Your OpenClaw gateway"
-        case .grokBot: "Grok Bot app connection demo"
+        case .grokBot: "Coming soon"
         }
     }
 
@@ -37,10 +40,11 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .codex: "Connected to your Mac · Private desktop collaborator"
         case .town: "Live · Your Town routine"
+        case .tasklet: "Live · Your Tasklet agent"
         case .claudeCode: "Connected demo · Private desktop collaborator"
         case .hermes: "Paired gateway demo · Scoped to this convo"
         case .openClaw: "Paired gateway demo · Scoped to this convo"
-        case .grokBot: "Connection demo · Scoped to this convo"
+        case .grokBot: "Coming soon"
         }
     }
 
@@ -48,6 +52,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .codex: "chevron.left.forwardslash.chevron.right"
         case .town: "building.2.crop.circle.fill"
+        case .tasklet: "checkmark.square.fill"
         case .claudeCode: "terminal.fill"
         case .hermes: "h.circle.fill"
         case .openClaw: "antenna.radiowaves.left.and.right"
@@ -59,6 +64,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .codex: Color(red: 0.08, green: 0.08, blue: 0.09)
         case .town: Color(red: 0.10, green: 0.37, blue: 0.28)
+        case .tasklet: Color(red: 0.30, green: 0.23, blue: 0.76)
         case .claudeCode: Color(red: 0.72, green: 0.36, blue: 0.20)
         case .hermes: Color(red: 0.23, green: 0.38, blue: 0.74)
         case .openClaw: Color(red: 0.77, green: 0.17, blue: 0.13)
@@ -70,10 +76,11 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .codex: "Pair Codex from your desktop"
         case .town: "Connect your Town agent"
+        case .tasklet: "Connect your Tasklet agent"
         case .claudeCode: "Pair Claude Code from your desktop"
         case .hermes: "Connect your Hermes gateway"
         case .openClaw: "Connect your OpenClaw gateway"
-        case .grokBot: "Connect the Grok Bot app"
+        case .grokBot: "Grok Bot is coming soon"
         }
     }
 
@@ -83,6 +90,9 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
             "Convos connects to Codex app-server on your Mac. Your existing ChatGPT sign-in, Codex history, tools, and workspace stay on the computer."
         case .town:
             "Convos calls your Town routine through its authenticated webhook. Town returns the finished message and links through a one-request MCP capability."
+        case .tasklet:
+            "Convos sends work to your Tasklet agent through a private webhook. " +
+                "Tasklet uses its approved memory, connections, and tools, then returns the finished message and links through a one-request MCP capability."
         case .claudeCode:
             "Convos would pair with Claude Code on your computer after you authenticate with Anthropic, Claude Pro or Max, Bedrock, or Vertex AI."
         case .hermes:
@@ -90,7 +100,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .openClaw:
             "Convos would become an approved OpenClaw device, connecting to its WebSocket gateway with a token and explicit operator scopes."
         case .grokBot:
-            "Grok Bot is a separate macOS and iOS app. This local prototype shows what a future scoped connection could feel like, but it does not exchange live data."
+            "Grok Bot is not live in Convos yet. It will appear here when a supported connection can exchange data with the app safely."
         }
     }
 
@@ -107,6 +117,12 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
                 .init(symbol: "bolt.horizontal.circle.fill", title: "Routine webhook", detail: "The HTTPS URL and bearer secret from the Town routine you want in Convos."),
                 .init(symbol: "point.3.connected.trianglepath.dotted", title: "Convos return MCP", detail: "A narrow tool Town uses to return one finished result to its waiting request."),
                 .init(symbol: "lock.fill", title: "Private context choice", detail: "Send Your Space context only when you enable it; saving and sharing remain your choice."),
+            ]
+        case .tasklet:
+            [
+                .init(symbol: "bolt.horizontal.circle.fill", title: "Webhook automation", detail: "A private Tasklet webhook starts work inside the agent you choose."),
+                .init(symbol: "point.3.connected.trianglepath.dotted", title: "Convos return MCP", detail: "A narrow tool returns one finished result and useful links to the waiting request."),
+                .init(symbol: "checkmark.shield.fill", title: "Tasklet permissions", detail: "The agent keeps the memory, connections, tools, and approval rules you configured in Tasklet."),
             ]
         case .claudeCode:
             [
@@ -139,12 +155,36 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .codex: "I’m connected to Codex on your Mac. Point me at Your Space context or describe what you want to build, and I’ll keep the work inside the workspace you chose."
         case .town: "Your Town routine is live in Convos. Ask me to work with your Town memory and tools; my result comes back here for you to save or share."
+        case .tasklet: "Your Tasklet agent is live in Convos. Ask me to use its memory, connections, and tools; the finished result comes back here for you to save or share."
         case .claudeCode: "Claude Code is paired for this demo. I can help shape or implement a Home update from the workspace you approve."
         case .hermes: "Your Hermes gateway is paired for this demo. Its memory and tools remain yours; Convos only sends this lane’s approved context."
         case .openClaw: "Your OpenClaw gateway is paired for this demo. I’ll use only the device and operator scopes shown in Agent access."
-        case .grokBot: "Grok Bot is shown as a local connection demo. No live data leaves Convos in this build."
+        case .grokBot: "Grok Bot is coming soon. No data leaves Convos through this provider in this build."
         }
     }
+
+    var connectionAvailability: ExternalAgentConnectionAvailability {
+        switch self {
+        case .codex, .town, .tasklet: .live
+        case .grokBot: .comingSoon
+        case .claudeCode, .hermes, .openClaw: .preview
+        }
+    }
+
+    var hasStoredConnection: Bool {
+        switch self {
+        case .codex: CodexConnectionStore.configuration() != nil
+        case .town: TownConnectionStore.configuration() != nil
+        case .tasklet: TaskletConnectionStore.configuration() != nil
+        case .claudeCode, .hermes, .openClaw, .grokBot: false
+        }
+    }
+}
+
+enum ExternalAgentConnectionAvailability: Equatable {
+    case live
+    case preview
+    case comingSoon
 }
 
 struct ExternalAgentConnectionRequirement: Identifiable {
@@ -173,7 +213,6 @@ struct ExternalAgentOnboardingView: View {
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var selectedProvider: ExternalAgentProvider?
-    @State private var connectingProvider: ExternalAgentProvider?
 
     var body: some View {
         NavigationStack {
@@ -254,8 +293,8 @@ struct ExternalAgentOnboardingView: View {
                                 .foregroundStyle(.colorTextSecondary)
                         }
                         Spacer(minLength: DesignConstants.Spacing.step2x)
-                        if prototypeState.connectedExternalProviders.contains(provider) {
-                            Text("Added")
+                        if let status = providerStatus(provider) {
+                            Text(status)
                                 .font(.footnote.weight(.semibold))
                                 .foregroundStyle(.colorTextSecondary)
                         } else {
@@ -278,7 +317,7 @@ struct ExternalAgentOnboardingView: View {
 
     private var privacyNote: some View {
         Label {
-            Text("Codex and Town use revocable credentials stored in the iPhone Keychain. The other providers remain connection demos and never ask for a secret.")
+            Text("Codex, Town, and Tasklet keep their connection credentials in the iPhone Keychain. Preview providers never ask for a secret, and Grok Bot is clearly marked Coming soon.")
         } icon: {
             Image(systemName: "lock.fill")
         }
@@ -296,6 +335,10 @@ struct ExternalAgentOnboardingView: View {
         } else if provider == .town {
             TownConnectionSetupView {
                 onConnected(.town)
+            }
+        } else if provider == .tasklet {
+            TaskletConnectionSetupView {
+                onConnected(.tasklet)
             }
         } else {
             demoConnectionView(provider)
@@ -340,7 +383,12 @@ struct ExternalAgentOnboardingView: View {
                     }
                 }
 
-                Label("Clickable prototype — no account or secret is used", systemImage: "sparkles")
+                Label(
+                    provider.connectionAvailability == .comingSoon
+                        ? "Coming soon — this provider cannot be added yet"
+                        : "Connection preview — no account or secret is used",
+                    systemImage: provider.connectionAvailability == .comingSoon ? "clock.fill" : "sparkles"
+                )
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.colorTextSecondary)
             }
@@ -351,23 +399,11 @@ struct ExternalAgentOnboardingView: View {
         .background(.colorBackgroundSurfaceless)
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
-            Button {
-                connectDemo(provider)
-            } label: {
-                HStack(spacing: DesignConstants.Spacing.step2x) {
-                    if connectingProvider == provider {
-                        ProgressView()
-                            .tint(.colorTextPrimaryInverted)
-                    }
-                    Text(connectButtonTitle(provider))
-                        .font(.body.weight(.semibold))
-                }
-                .foregroundStyle(.colorTextPrimaryInverted)
+            Text(provider.connectionAvailability == .comingSoon ? "Coming soon" : "Preview only")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.colorTextSecondary)
                 .frame(maxWidth: .infinity, minHeight: 56)
-                .background(.colorFillPrimary, in: .rect(cornerRadius: 16))
-            }
-            .buttonStyle(.plain)
-            .disabled(connectingProvider != nil)
+                .background(.colorFillMinimal, in: .rect(cornerRadius: 16))
             .padding(.horizontal, DesignConstants.Spacing.step5x)
             .padding(.vertical, DesignConstants.Spacing.step3x)
             .background(.colorBackgroundSurfaceless)
@@ -390,22 +426,22 @@ struct ExternalAgentOnboardingView: View {
             .init(width: 68, height: 54),
             .init(width: 108, height: -28),
             .init(width: 0, height: 72),
+            .init(width: -110, height: 24),
         ]
         return offsets[index]
     }
 
-    private func connectButtonTitle(_ provider: ExternalAgentProvider) -> String {
-        if connectingProvider == provider { return "Pairing demo…" }
-        if prototypeState.connectedExternalProviders.contains(provider) { return "Open \(provider.displayName)" }
-        return "Connect demo"
-    }
-
-    private func connectDemo(_ provider: ExternalAgentProvider) {
-        connectingProvider = provider
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(700))
-            connectingProvider = nil
-            onConnected(provider)
+    private func providerStatus(_ provider: ExternalAgentProvider) -> String? {
+        if prototypeState.connectedExternalProviders.contains(provider) {
+            return "Added"
+        }
+        switch provider.connectionAvailability {
+        case .live:
+            return nil
+        case .preview:
+            return "Preview"
+        case .comingSoon:
+            return "Coming soon"
         }
     }
 }

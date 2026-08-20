@@ -114,6 +114,20 @@ struct AgentChatLane: Identifiable {
         )
     }
 
+    static func available(
+        live: [AgentChatLane],
+        connectedExternalProviders: [ExternalAgentProvider]
+    ) -> [AgentChatLane] {
+        var seenProviderIds: Set<String> = []
+        let external = connectedExternalProviders
+            .filter { provider in
+                provider.connectionAvailability == .live
+                    && seenProviderIds.insert(provider.id).inserted
+            }
+            .map(AgentChatLane.external)
+        return live + external + [.ghost]
+    }
+
     static let ghost: AgentChatLane = AgentChatLane(
         id: "prototype:ghost",
         name: "Ghost Mode",
@@ -155,6 +169,12 @@ final class AgentChatPrototypeState {
     private(set) var connectedExternalProviders: [ExternalAgentProvider] = []
     private(set) var externalAccessByProvider: [ExternalAgentProvider: ExternalAgentAccess] = [:]
 
+    init(restoresConnectedExternalProviders: Bool = true) {
+        if restoresConnectedExternalProviders {
+            restoreExternalConnections()
+        }
+    }
+
     var hasApprovedPersonalContext: Bool {
         !approvedPersonalContextItemIds.isEmpty
     }
@@ -172,11 +192,26 @@ final class AgentChatPrototypeState {
     }
 
     func connect(_ provider: ExternalAgentProvider) {
+        guard provider.connectionAvailability == .live else { return }
         if !connectedExternalProviders.contains(provider) {
             connectedExternalProviders.append(provider)
+            connectedExternalProviders.sort { lhs, rhs in
+                guard let lhsIndex = ExternalAgentProvider.allCases.firstIndex(of: lhs),
+                      let rhsIndex = ExternalAgentProvider.allCases.firstIndex(of: rhs) else {
+                    return lhs.rawValue < rhs.rawValue
+                }
+                return lhsIndex < rhsIndex
+            }
         }
         if externalAccessByProvider[provider] == nil {
             externalAccessByProvider[provider] = .privateDesktop
+        }
+    }
+
+    func restoreExternalConnections() {
+        for provider in ExternalAgentProvider.allCases
+            where provider.connectionAvailability == .live && provider.hasStoredConnection {
+            connect(provider)
         }
     }
 
@@ -237,6 +272,10 @@ final class AgentChatPrototypeState {
             sendToTown(text, in: lane)
             return
         }
+        if case .external(.tasklet) = lane.kind {
+            sendToTasklet(text, in: lane)
+            return
+        }
 
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(850))
@@ -270,6 +309,35 @@ final class AgentChatPrototypeState {
                     AgentChatPrototypeMessage(
                         sender: .agent,
                         text: "I couldn't finish that Town request. \(error.localizedDescription)"
+                    )
+                )
+            }
+            workingLaneIds.remove(lane.id)
+        }
+    }
+
+    private func sendToTasklet(_ text: String, in lane: AgentChatLane) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                guard let configuration = TaskletConnectionStore.configuration() else {
+                    throw TaskletConnectionError.notConnected
+                }
+                let result = try await TaskletBridgeClient().send(
+                    text,
+                    configuration: configuration,
+                    yourSpaceSnapshot: nil
+                )
+                messagesByLane[lane.id, default: []].append(
+                    AgentChatPrototypeMessage(sender: .agent, text: result.shareText)
+                )
+            } catch is CancellationError {
+                // The lane may be dismissed while Tasklet is still working.
+            } catch {
+                messagesByLane[lane.id, default: []].append(
+                    AgentChatPrototypeMessage(
+                        sender: .agent,
+                        text: "I couldn't finish that Tasklet request. \(error.localizedDescription)"
                     )
                 )
             }
@@ -543,7 +611,7 @@ struct AgentSwitcherSheet: View {
                                 Text("Add an external agent")
                                     .font(.body.weight(.semibold))
                                     .foregroundStyle(.colorTextPrimary)
-                                Text("Bring Codex, Town, Claude Code, Hermes, OpenClaw, or Grok")
+                                Text("Connect Codex, Town, or Tasklet · Preview more providers")
                                     .font(.footnote)
                                     .foregroundStyle(.colorTextSecondary)
                                     .lineLimit(2)
@@ -579,6 +647,7 @@ struct AgentSwitcherSheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .onAppear {
+            prototypeState.restoreExternalConnections()
             prototypeState.restorePersonalContext(
                 itemIds: PersonalContextPrototypeStore.approvedItemIds(for: conversationId)
             )

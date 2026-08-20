@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class AgentChatPrototypeStateTests: XCTestCase {
     func testDraftsStayWithTheirAgentLane() {
-        let state = AgentChatPrototypeState()
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
         let flightTracker = AgentChatLane.prototype(.flightTracker)
         let shanesAgent = AgentChatLane.prototype(.shanesAgent)
 
@@ -17,7 +17,7 @@ final class AgentChatPrototypeStateTests: XCTestCase {
     }
 
     func testAgentWorkContinuesAfterSwitchingLanes() async throws {
-        let state = AgentChatPrototypeState()
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
         let flightTracker = AgentChatLane.prototype(.flightTracker)
         let shanesAgent = AgentChatLane.prototype(.shanesAgent)
 
@@ -37,7 +37,7 @@ final class AgentChatPrototypeStateTests: XCTestCase {
     }
 
     func testGhostShareCopiesOnlyTheSelectedMessage() {
-        let state = AgentChatPrototypeState()
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
         let destination = AgentChatLane.prototype(.spaceAbilities)
         let destinationMessageCount = state.messages(for: destination).count
         let selectedMessage = AgentChatPrototypeMessage(sender: .agent, text: "Share this exact result")
@@ -50,7 +50,7 @@ final class AgentChatPrototypeStateTests: XCTestCase {
     }
 
     func testGhostShareDoesNotClaimARealAgentReceivedPrototypeContent() {
-        let state = AgentChatPrototypeState()
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
         let message = AgentChatPrototypeMessage(sender: .agent, text: "Private result")
         let liveAgent = AgentChatLane(
             id: "live:space",
@@ -71,7 +71,7 @@ final class AgentChatPrototypeStateTests: XCTestCase {
     }
 
     func testExternalAgentConnectionIsDeduplicatedAndKeepsPrivateDefaults() {
-        let state = AgentChatPrototypeState()
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
 
         state.connect(.codex)
         state.connect(.codex)
@@ -81,7 +81,7 @@ final class AgentChatPrototypeStateTests: XCTestCase {
     }
 
     func testExternalAgentAccessStaysScopedToProvider() {
-        let state = AgentChatPrototypeState()
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
         state.connect(.codex)
         state.connect(.openClaw)
 
@@ -97,7 +97,7 @@ final class AgentChatPrototypeStateTests: XCTestCase {
     }
 
     func testExternalAgentUsesItsOwnLaneState() {
-        let state = AgentChatPrototypeState()
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
         let codex = AgentChatLane.external(.codex)
         let claude = AgentChatLane.external(.claudeCode)
 
@@ -109,18 +109,21 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         XCTAssertNotEqual(state.messages(for: codex).first?.text, state.messages(for: claude).first?.text)
     }
 
-    func testGrokBotRemainsASeparateAppConnectionDemo() {
+    func testGrokBotIsComingSoonAndCannotBeConnected() {
         let provider = ExternalAgentProvider.grokBot
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
 
         XCTAssertEqual(provider.displayName, "Grok Bot")
-        XCTAssertTrue(provider.connectionExplanation.contains("separate macOS and iOS app"))
-        XCTAssertFalse(provider.connectionExplanation.contains("xAI"))
-        XCTAssertFalse(provider.requirements.contains { $0.title.localizedCaseInsensitiveContains("key") })
-        XCTAssertTrue(provider.welcomeMessage.contains("No live data leaves Convos"))
+        XCTAssertEqual(provider.shortDescription, "Coming soon")
+        XCTAssertEqual(provider.connectionAvailability, .comingSoon)
+
+        state.connect(provider)
+
+        XCTAssertFalse(state.connectedExternalProviders.contains(provider))
     }
 
     func testPersonalContextApprovalSharesOnlyTheSuggestedItems() {
-        let state = AgentChatPrototypeState()
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
         let bundle = PersonalContextBundle.suggestedForCurrentConvo
 
         state.approvePersonalContext(bundle)
@@ -134,7 +137,7 @@ final class AgentChatPrototypeStateTests: XCTestCase {
     }
 
     func testRemovingPersonalContextRevokesTheWholeGroupGrant() {
-        let state = AgentChatPrototypeState()
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
         state.approvePersonalContext(.suggestedForCurrentConvo)
 
         state.removePersonalContextAccess()
@@ -144,7 +147,7 @@ final class AgentChatPrototypeStateTests: XCTestCase {
     }
 
     func testPersonalContextRestoreDoesNotCreateAnotherAgentLane() {
-        let state = AgentChatPrototypeState()
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
         let itemIds = Set(PersonalContextBundle.suggestedForCurrentConvo.items.prefix(2).map(\.id))
 
         state.restorePersonalContext(itemIds: itemIds)

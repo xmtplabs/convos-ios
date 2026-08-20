@@ -124,9 +124,17 @@ struct YourSpaceView: View {
     }
 
     private var activeAgentRequest: ((String) async throws -> String)? {
-        guard activePersonalAgent == .town else { return nil }
-        return { prompt in
-            try await askTownAgent(prompt)
+        switch activePersonalAgent {
+        case .town:
+            return { prompt in
+                try await askTownAgent(prompt)
+            }
+        case .tasklet:
+            return { prompt in
+                try await askTaskletAgent(prompt)
+            }
+        default:
+            return nil
         }
     }
 
@@ -278,6 +286,9 @@ struct YourSpaceView: View {
                 }
                 if ProcessInfo.processInfo.environment["YOUR_SPACE_CONTEXT_BROWSER_FIXTURE"] == "1" {
                     browsingContextKind = .address
+                }
+                if ProcessInfo.processInfo.environment["YOUR_SPACE_EXTERNAL_AGENT_FIXTURE"] == "1" {
+                    presentingPersonalAgentOnboarding = true
                 }
 #endif
                 guard !usesVisualFixture else { return }
@@ -1020,7 +1031,17 @@ private extension YourSpaceView {
                 ? "Reconnect Codex to your Mac"
                 : "Connected to your Mac · Your Space context"
         }
-        return "Connected demo · Your Space context"
+        if activePersonalAgent == .town {
+            return TownConnectionStore.configuration() == nil
+                ? "Reconnect your Town routine"
+                : "Live · Town memory and tools"
+        }
+        if activePersonalAgent == .tasklet {
+            return TaskletConnectionStore.configuration() == nil
+                ? "Reconnect your Tasklet agent"
+                : "Live · Tasklet memory and tools"
+        }
+        return "Connection preview"
     }
 
     private var chatButton: some View {
@@ -1108,8 +1129,17 @@ private extension YourSpaceView {
     }
 
     private func restorePersonalAgentIfNeeded() {
-        guard let provider = activePersonalAgent else { return }
-        personalAgentState.connect(provider)
+        personalAgentState.restoreExternalConnections()
+        if let provider = activePersonalAgent,
+           personalAgentState.connectedExternalProviders.contains(provider) {
+            personalAgentState.connect(provider)
+            return
+        }
+        if let firstConnected = personalAgentState.connectedExternalProviders.first {
+            personalAgentProviderRawValue = firstConnected.rawValue
+        } else {
+            personalAgentProviderRawValue = ""
+        }
     }
 
     private func saveAgentOutput(_ output: String) throws -> YourSpaceContextItem {
@@ -1136,6 +1166,23 @@ private extension YourSpaceView {
             senderName: senderName
         )
         return try await TownBridgeClient().send(
+            prompt,
+            configuration: configuration,
+            yourSpaceSnapshot: snapshot
+        ).shareText
+    }
+
+    private func askTaskletAgent(_ prompt: String) async throws -> String {
+        guard let configuration = TaskletConnectionStore.configuration() else {
+            throw TaskletConnectionError.notConnected
+        }
+        let snapshot = TaskletYourSpaceSnapshot(
+            briefing: briefing,
+            contextItems: allContextItems,
+            conversationTitle: conversationTitle,
+            senderName: senderName
+        )
+        return try await TaskletBridgeClient().send(
             prompt,
             configuration: configuration,
             yourSpaceSnapshot: snapshot
