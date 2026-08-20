@@ -6,12 +6,11 @@ import SwiftUI
 /// conversation's agent, rendered behind the conversation sheet. The DM is a
 /// real 2-member conversation (see docs/plans/agent-dms.md).
 ///
-/// The DM's lifecycle lives in `AgentDmSession`, owned by `ConversationView`
-/// and shared with the sheet's `AgentComposerBar`: once the DM exists this
-/// view renders the same `MessagesView` the group chat uses (composer
-/// excluded - the sheet hosts it), so list layout, filtering, and
-/// interactions behave identically. Before the agent-created DM syncs in it
-/// shows the disclosure empty state while the sheet's composer sits
+/// The DM's lifecycle lives in `AgentDmSession`, owned by `ConversationView`:
+/// once the DM exists this view renders the same `MessagesView` the group chat
+/// uses, composer included, so list layout, filtering, and interactions behave
+/// identically. Before the agent-created DM syncs in it shows the disclosure
+/// empty state while the composer sits
 /// disabled.
 struct AgentDmPageView: View {
     let session: AgentDmSession
@@ -22,6 +21,10 @@ struct AgentDmPageView: View {
     /// Owned by ConversationView, which keeps it fed with the sheet's
     /// measured height.
     let extraBottomInset: CGFloat
+    /// Host gate for the composer `+` menu's Connections row.
+    var connectionsEnabled: Bool = false
+    /// Presents the host's Connections browser, scoped to this DM.
+    var onConnectionsTap: (() -> Void)?
     /// Mirrors ConversationView's effectiveReadOnly: a removed or stale
     /// device must not be able to send into agent DMs.
     let isReadOnly: Bool
@@ -31,20 +34,11 @@ struct AgentDmPageView: View {
     /// ConversationView's tab-change handler, through the focus
     /// coordinators.)
     let isActiveTab: Bool
-    /// True while the conversation sheet rests collapsed, which puts this
-    /// transcript behind the chrome.
-    ///
-    /// The read state keys off it, not off `isActiveTab` alone: nothing here has
-    /// been read while it is true, so the lane must not be marked read nor claim
-    /// to be the lane being read. Otherwise a bind landing while the sheet is
-    /// down - the reconciler creating the DM as the user waits - would quietly
-    /// clear the unread state its own arrival should have set.
-    var isSheetCollapsed: Bool = false
-    /// Owned by ConversationView so the sheet can hide while the DM's
-    /// long-press context menu is presented.
+    /// Owned by ConversationView, which renders the DM's long-press context
+    /// menu at its own root.
     @Bindable var contextMenuState: MessageContextMenuState
-    /// Focus shared with the sheet's agent composer; deliberately not the
-    /// group composer's focus state, which stays mounted alongside this tab.
+    /// Focus shared with the agent composer; deliberately not the group
+    /// composer's focus state, which stays mounted alongside this tab.
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
     /// Offered every link tapped in this transcript before the in-app browser
@@ -59,17 +53,6 @@ struct AgentDmPageView: View {
     /// Surfaces this transcript's content height, which caps how far the sheet
     /// opens on the Agent tab.
     var onContentHeightChanged: ((CGFloat) -> Void)?
-
-    /// How much of this page's top the sheet is clipping away.
-    ///
-    /// The sheet hands its transcripts one constant, full-height frame at
-    /// every detent, bottom-aligned, and clips whatever overflows its top
-    /// edge (see `ConversationSheetContent.transcript`). The transcript wants
-    /// that overflow - it scrolls content up through it - but the empty
-    /// states below want it padded back out: centering in the full frame puts
-    /// them in the band above the sheet, so at anything short of `full` they
-    /// are clipped away entirely and the tab reads as blank.
-    @Environment(\.transcriptClippedTopOverflow) private var clippedTopOverflow: CGFloat
 
     /// Fill of the preparing bar. Creeps while the agent is on its way; it
     /// tracks elapsed time, not real progress, since nothing reports any.
@@ -97,7 +80,7 @@ struct AgentDmPageView: View {
         // already active, so no isActiveTab change fires; handle the initial
         // activation (mark read, register the push-suppression lane) here.
         .onAppear {
-            if isActiveTab, !isSheetCollapsed {
+            if isActiveTab {
                 handleActiveTabChange(true)
             }
         }
@@ -117,7 +100,7 @@ struct AgentDmPageView: View {
         // before the view model existed, so mark it read and register the
         // lane now.
         .onChange(of: session.dmViewModel?.conversation.id) { _, dmId in
-            guard dmId != nil, isActiveTab, !isSheetCollapsed else { return }
+            guard dmId != nil, isActiveTab else { return }
             session.markDmAsRead()
             session.updateActiveDmLane(isActive: true)
         }
@@ -143,15 +126,11 @@ struct AgentDmPageView: View {
             session.dmViewModel?.replyingToMessage = nil
             // The user just had the DM on screen: anything that arrived
             // while they watched is read, so it doesn't badge the tab they
-            // left. Unless the sheet was collapsed over it, where nothing was
-            // on screen to have been read.
-            if !isSheetCollapsed {
-                session.markDmAsRead()
-            }
+            // left.
+            session.markDmAsRead()
             session.updateActiveDmLane(isActive: false)
             return
         }
-        guard !isSheetCollapsed else { return }
         session.markDmAsRead()
         session.updateActiveDmLane(isActive: true)
     }
@@ -186,8 +165,7 @@ struct AgentDmPageView: View {
     }
 
     /// Offered when the conversation has no agent at all (Figma 7488:14502).
-    /// Centered in the sheet's visible band rather than in the full-height
-    /// frame the sheet hands its transcripts - see `clippedTopOverflow`.
+    /// Centered in the band the reader can see, below the floating top chrome.
     private var addAgentState: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
             Button(action: session.requestAgentJoin) {
@@ -205,12 +183,11 @@ struct AgentDmPageView: View {
                 .foregroundStyle(.colorLava)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Inset to the band the sheet is showing - the clipped overflow off
-        // the top, the chrome's clearance off the bottom - so this centers in
-        // what the reader can see and follows the sheet's edge as it resizes.
-        // The background sits outside both, so the dark surface still fills
-        // the clipped region.
-        .padding(.top, clippedTopOverflow)
+        // Inset past the floating top chrome so this centers in what the
+        // reader can see rather than behind the segmented control. The
+        // background sits outside the inset, so the dark surface still fills
+        // the whole page.
+        .padding(.top, ConversationChromeMetrics.contentClearance)
         .padding(.bottom, extraBottomInset)
         .background(.colorBackgroundSurfaceless)
     }
@@ -227,12 +204,11 @@ struct AgentDmPageView: View {
             progressBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Inset to the band the sheet is showing - the clipped overflow off
-        // the top, the chrome's clearance off the bottom - so this centers in
-        // what the reader can see and follows the sheet's edge as it resizes.
-        // The background sits outside both, so the dark surface still fills
-        // the clipped region.
-        .padding(.top, clippedTopOverflow)
+        // Inset past the floating top chrome so this centers in what the
+        // reader can see rather than behind the segmented control. The
+        // background sits outside the inset, so the dark surface still fills
+        // the whole page.
+        .padding(.top, ConversationChromeMetrics.contentClearance)
         .padding(.bottom, extraBottomInset)
         .background(.colorBackgroundSurfaceless)
         .task(id: isPreparing) {
@@ -408,7 +384,16 @@ struct AgentDmPageView: View {
             voiceMemoRecorder: dmVm.voiceMemoRecorder,
             onSendVoiceMemo: { dmVm.sendVoiceMemo() },
             extraBottomInset: extraBottomInset,
-            hostsBottomBar: false,
+            // Clearance for the conversation's floating top chrome.
+            topContentInset: ConversationChromeMetrics.controlClearance,
+            // Same reason as the group transcript: the controller only adjusts
+            // for safe area and tracks the keyboard when it owns its bottom bar.
+            hostsBottomBar: true,
+            // The DM's composer is the agent-style one: its `+` menu carries
+            // the Connections row.
+            usesAgentComposerLayout: true,
+            connectionsEnabled: connectionsEnabled,
+            onConnectionsTap: onConnectionsTap,
             hostRendersContextMenu: true,
             onContentHeightChanged: onContentHeightChanged,
             onScrollToBottomAvailable: onScrollToBottomAvailable,

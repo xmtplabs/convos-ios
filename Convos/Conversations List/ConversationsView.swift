@@ -155,10 +155,11 @@ struct ConversationsView: View {
             appIndicatorContext: nil,
             sharedIndicatorNamespace: appIndicatorContext.sharedIndicatorNamespace,
             rendersConversationIndicator: false
-        ) { _, coordinator in
+        ) { focusBinding, coordinator in
             ConversationView(
                 viewModel: convoVM,
                 profileSettingsViewModel: profileSettingsViewModel,
+                focusState: focusBinding,
                 focusCoordinator: coordinator,
                 onScanInviteCode: {},
                 onDeleteConversation: {},

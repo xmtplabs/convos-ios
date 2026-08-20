@@ -86,9 +86,14 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                 case .messages(let group):
                     MessagesListItemTypeCell.messagesGroupContent(group: group, config: config)
 
-                case .noComments:
-                    NoCommentsCellContent()
-
+                case .invite(let invite):
+                    // The QR alone. The `NewConvoIdentityView` that used to sit
+                    // under it - the copy-link / convo-code row - is gone;
+                    // adding people is the top bar's invite button now.
+                    // Whether the card belongs here at all is decided upstream,
+                    // where the conversation is in scope - see the insertion in
+                    // `MessagesViewController.processUpdates`.
+                    InviteView(invite: invite)
                 case .conversationInfo(let conversation):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
                         ConversationInfoPreview(
@@ -253,20 +258,6 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 /// derived from the placeholder per-conversation profile.
 /// The empty transcript's stand-in, styled like a conversation update so it reads
 /// as something the room is telling you rather than a message someone sent.
-///
-/// Its height is fixed at `NoCommentsCellContent.height`, which the layout
-/// delegate returns verbatim: the sheet sizes itself to the transcript, and a
-/// self-sizing empty state would make the sheet's ceiling depend on how the text
-/// happened to wrap.
-struct NoCommentsCellContent: View {
-    static let height: CGFloat = 120.0
-
-    var body: some View {
-        TextTitleContentView(title: "No comments yet", profile: nil)
-            .frame(height: Self.height)
-            .frame(maxWidth: .infinity)
-    }
-}
 
 private struct UpdateCellContent: View {
     let update: ConversationUpdate

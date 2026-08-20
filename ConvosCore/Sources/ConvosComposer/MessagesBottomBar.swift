@@ -287,9 +287,13 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 }
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
-            // No vertical insets: the conversation sheet's card padding and
-            // its 12pt content gap place the input row directly (Figma
-            // 7156:13775); slot content above supplies its own spacing.
+            // The bar sits directly on the keyboard when one is up, so it
+            // carries its own vertical insets rather than resting flush
+            // against it. These are the values the bar shipped with before
+            // the conversation sheet briefly supplied them from its card
+            // padding instead.
+            .padding(.top, DesignConstants.Spacing.step2x)
+            .padding(.bottom, DesignConstants.Spacing.step4x)
         }
     }
 
