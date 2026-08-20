@@ -4,6 +4,12 @@ import ConvosCoreiOS
 import ConvosMetrics
 import SwiftUI
 
+private struct AgentShareDraft: Identifiable {
+    let id: UUID = UUID()
+    let text: String
+    let conversations: [Conversation]
+}
+
 struct ConversationView<MessagesBottomBar: View>: View {
     @Bindable var viewModel: ConversationViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
@@ -51,6 +57,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// host that renders one too (the new-convo sheet's close) hides its own
     /// and the bar keeps a single leading button.
     var onHomeBrowsingChanged: ((Bool) -> Void)?
+    /// Lets a host replace this pushed Convo with another one while keeping an
+    /// agent result as an editable group draft. Nil in standalone creation
+    /// flows, where the picker keeps the current Convo as its destination.
+    var onStageTextInConversation: ((String, Conversation) -> Void)?
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
@@ -127,6 +137,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// The source message for the destination-only agent picker opened from a
     /// group message's long-press menu.
     @State private var messageToSendToAgent: AnyMessage?
+    /// An agent response waiting for a destination Convo. The sheet owns only
+    /// selection; the group composer remains the confirmation boundary.
+    @State private var agentShareDraft: AgentShareDraft?
     /// The agent DM transcript's own context-menu state; the DM stays mounted
     /// alongside the group transcript, so they cannot share one.
     @State private var agentContextMenuState: MessageContextMenuState = .init()
@@ -823,10 +836,20 @@ private extension ConversationView {
                     lanes: agentChatLanes,
                     prototypeState: agentChatPrototypeState,
                     onSelect: { lane in
-                        sendGroupMessage(message, to: lane)
+                        openGroupMessage(message, in: lane)
                     }
                 )
-                .environment(\.colorScheme, .dark)
+                .preferredColorScheme(.dark)
+                .presentationBackground(.colorBackgroundSurfaceless)
+            }
+            .sheet(item: $agentShareDraft) { draft in
+                AgentShareToConvoSheet(
+                    conversations: draft.conversations,
+                    currentConversationId: viewModel.conversation.id,
+                    onSelect: { conversation in
+                        stageAgentResult(draft.text, in: conversation)
+                    }
+                )
             }
             .debugConnectionInjectorSheet(
                 isPresented: debugInjectorBinding,
@@ -877,6 +900,12 @@ private extension ConversationView {
                 ReactionsDrawerView(message: message) { reaction in
                     viewModel.removeReaction(reaction, from: message)
                 }
+            }
+            .selfSizingSheet(item: presentedAgentReceiptBinding) { receipt in
+                AgentReceiptDrawer(
+                    receipt: receipt,
+                    lane: agentChatLanes.first(where: { $0.id == receipt.agentId })
+                )
             }
             .selfSizingSheet(item: $viewModel.presentingReadByForGroup) { group in
                 ReadByDrawerView(
@@ -1005,7 +1034,23 @@ private extension ConversationView {
         }
     }
 
-    private func sendGroupMessage(_ message: AnyMessage, to lane: AgentChatLane) {
+    private var presentedAgentReceiptBinding: Binding<MessageAgentReceipt?> {
+        Binding(
+            get: { messageAgentReceiptStore.presentedReceipt },
+            set: { receipt in
+                if let receipt {
+                    messageAgentReceiptStore.present(receipt)
+                } else {
+                    messageAgentReceiptStore.dismissPresentedReceipt()
+                }
+            }
+        )
+    }
+
+    /// Opens the selected private agent lane with an editable draft. Selection
+    /// itself never dispatches the message; the destination composer remains
+    /// the confirmation boundary.
+    private func openGroupMessage(_ message: AnyMessage, in lane: AgentChatLane) {
         guard let text = agentHandoffText(for: message) else { return }
         let receipt = lane.receipt(
             conversationId: viewModel.conversation.id,
@@ -1018,25 +1063,57 @@ private extension ConversationView {
         if let liveInboxId = lane.liveInboxId {
             let session = agentDmSession ?? AgentDmSession(originViewModel: viewModel)
             if agentDmSession == nil { agentDmSession = session }
-            Task {
-                let wasSent = await session.sendTextInBackground(text, to: liveInboxId)
-                withAnimation(.snappy(duration: 0.24)) {
-                    messageAgentReceiptStore.updateStatus(
-                        wasSent ? .sent : .failed,
-                        receiptId: receipt.id
-                    )
-                }
-            }
-            return
+            session.stageDraft(text, to: liveInboxId)
+        } else {
+            agentChatPrototypeState.stageDraft(text, in: lane)
         }
 
-        let wasQueued = agentChatPrototypeState.send(text: text, in: lane)
-        withAnimation(.snappy(duration: 0.24)) {
-            messageAgentReceiptStore.updateStatus(
-                wasQueued ? .sent : .failed,
-                receiptId: receipt.id
-            )
+        selectTab(.agent)
+        withAnimation(.snappy(duration: 0.35)) {
+            sheetDetent = .full
         }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            agentFocusCoordinator.moveFocus(to: .message)
+        }
+    }
+
+    private func prepareAgentResultForSharing(_ text: String) {
+        var conversations = ((try? viewModel.session
+            .conversationsRepository(for: [.allowed, .unknown])
+            .fetchAll()) ?? [])
+            .filter { !$0.isAgentDm }
+        if !conversations.contains(where: { $0.id == viewModel.conversation.id }) {
+            conversations.append(viewModel.conversation)
+        }
+        let destinations = onStageTextInConversation == nil
+            ? conversations.filter { $0.id == viewModel.conversation.id }
+            : conversations
+        agentShareDraft = AgentShareDraft(text: text, conversations: destinations)
+    }
+
+    private func stageAgentResult(_ text: String, in conversation: Conversation) {
+        if conversation.id != viewModel.conversation.id {
+            onStageTextInConversation?(text, conversation)
+            return
+        }
+        viewModel.messageText = mergingComposerDraft(viewModel.messageText, with: text)
+        selectTab(.group)
+        withAnimation(.snappy(duration: 0.35)) {
+            sheetDetent = .full
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            focusCoordinator.moveFocus(to: .message)
+        }
+    }
+
+    private func mergingComposerDraft(_ current: String, with addition: String) -> String {
+        let existing = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        let incoming = addition.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !existing.isEmpty else { return incoming }
+        guard !incoming.isEmpty else { return existing }
+        return "\(existing)\n\n\(incoming)"
     }
 
     /// The selected row is the complete privacy boundary: no surrounding
@@ -1769,7 +1846,8 @@ private extension ConversationView {
                     },
                     prototypeState: showsAgentChatPrototype ? agentChatPrototypeState : nil,
                     selectedLane: showsAgentChatPrototype ? selectedAgentChatLane : nil,
-                    lanes: showsAgentChatPrototype ? agentChatLanes : []
+                    lanes: showsAgentChatPrototype ? agentChatLanes : [],
+                    onShareToConvo: prepareAgentResultForSharing(_:)
                 )
                 .opacity(selectedTab == .agent ? 1 : 0)
                 .allowsHitTesting(selectedTab == .agent)

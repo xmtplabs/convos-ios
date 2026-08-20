@@ -98,10 +98,11 @@ components:
     typography: "{typography.body}"
     minimumRowHeight: "{spacing.step-11x}"
   agent-handoff-receipt:
-    backgroundColor: "system glass"
+    backgroundColor: "transparent"
     textColor: "{colors.text-primary}"
-    iconSize: "28pt"
-    minimumTapTarget: "{spacing.step-11x}"
+    iconSize: "22pt"
+    height: "36pt"
+    borderColor: "{colors.border-subtle}"
   sheet-primary-action:
     backgroundColor: "{colors.attention-surface}"
     textColor: "{colors.text-on-attention}"

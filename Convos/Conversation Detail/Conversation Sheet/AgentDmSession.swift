@@ -37,6 +37,10 @@ final class AgentDmSession {
     /// The in-flight read mark, held so it can be abandoned if the lane stops
     /// being read first. See `cancelPendingReadMark`.
     private var markReadTask: Task<Void, Never>?
+    /// Drafts can arrive before the agent-created DM has synced. Keep one per
+    /// agent and apply it the moment that DM binds instead of sending it or
+    /// dropping the user's requested edit step.
+    private var pendingDraftByAgentInboxId: [String: String] = [:]
 
     init(originViewModel: ConversationViewModel) {
         self.originViewModel = originViewModel
@@ -178,11 +182,40 @@ final class AgentDmSession {
             messagingService: originViewModel.session.messagingServiceSync(),
             coreActions: originViewModel.coreActions
         )
+        applyPendingDraft(for: agentInboxId)
         // On screen from the moment it binds, whichever tab is selected: the lane
         // is part of the conversation the user is looking at, so its pushes must
         // not raise a banner. Separate from `updateActiveDmLane`, which is only
         // true while the lane is the one being read.
         updateDmOnScreen(isOnScreen: true)
+    }
+
+    /// Selects the real agent DM and stages editable text in its composer.
+    /// Existing composer text is preserved above the newly opened message.
+    func stageDraft(_ rawText: String, to inboxId: String) {
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        setAgent(inboxId: inboxId)
+        bindIfNeeded()
+        if let dmViewModel {
+            dmViewModel.messageText = Self.mergingDraft(dmViewModel.messageText, with: text)
+        } else {
+            pendingDraftByAgentInboxId[inboxId] = Self.mergingDraft(
+                pendingDraftByAgentInboxId[inboxId, default: ""],
+                with: text
+            )
+        }
+    }
+
+    private func applyPendingDraft(for inboxId: String) {
+        guard let pending = pendingDraftByAgentInboxId.removeValue(forKey: inboxId),
+              let dmViewModel else { return }
+        dmViewModel.messageText = Self.mergingDraft(dmViewModel.messageText, with: pending)
+    }
+
+    private static func mergingDraft(_ current: String, with addition: String) -> String {
+        let existing = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        return existing.isEmpty ? addition : "\(existing)\n\n\(addition)"
     }
 
     /// The eager reconciler (or another device) can create the DM while the

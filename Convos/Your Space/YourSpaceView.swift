@@ -1309,9 +1309,18 @@ private extension YourSpaceView {
                     viewModel.selectedConversationId = nil
                 },
                 initialAgentDmInboxId: viewModel.selectedInitialAgentDmInboxId,
+                onStageTextInConversation: stageAgentText(_:in:),
                 bottomBarContent: { EmptyView() }
             )
         }
+    }
+
+    private func stageAgentText(_ text: String, in conversation: Conversation) {
+        selectConversation(conversation)
+        guard let composer = viewModel.selectedConversationViewModel else { return }
+        let current = composer.messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let incoming = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        composer.messageText = current.isEmpty ? incoming : "\(current)\n\n\(incoming)"
     }
 
     private func selectConversation(_ conversation: Conversation) {

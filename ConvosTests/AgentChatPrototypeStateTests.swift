@@ -50,17 +50,20 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         XCTAssertEqual(state.selectedLaneId, shanesAgent.id)
     }
 
-    func testMessageHandoffQueuesWithoutTakingOverTheAgentDraft() {
+    func testMessageHandoffSelectsAgentAndStagesEditableDraftWithoutSending() {
         let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
         let lane = AgentChatLane.ghost
         state.draftBinding(for: lane).wrappedValue = "Keep my unfinished thought"
+        let initialMessageCount = state.messages(for: lane).count
 
-        let wasQueued = state.send(text: "Priya shared in this Convo:\nShip the prototype", in: lane)
+        state.stageDraft("Priya shared in this Convo:\nShip the prototype", in: lane)
 
-        XCTAssertTrue(wasQueued)
-        XCTAssertEqual(state.draftBinding(for: lane).wrappedValue, "Keep my unfinished thought")
-        XCTAssertEqual(state.messages(for: lane).last?.sender, .user)
-        XCTAssertEqual(state.messages(for: lane).last?.text, "Priya shared in this Convo:\nShip the prototype")
+        XCTAssertEqual(state.selectedLaneId, lane.id)
+        XCTAssertEqual(
+            state.draftBinding(for: lane).wrappedValue,
+            "Keep my unfinished thought\n\nPriya shared in this Convo:\nShip the prototype"
+        )
+        XCTAssertEqual(state.messages(for: lane).count, initialMessageCount)
     }
 
     func testForwardedAgentTranscriptRestoresFromDeviceKeychain() {
@@ -83,7 +86,7 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         XCTAssertEqual(restoredState.messages(for: lane).last?.sender, .user)
     }
 
-    func testAgentReceiptTracksPrivateDeliveryStatus() {
+    func testAgentReceiptTracksPrivateOpenedStateAndPresentation() {
         let store = MessageAgentReceiptStore()
         let receipt = AgentChatLane.external(.tasklet).receipt(
             conversationId: "convo-123",
@@ -91,14 +94,17 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         )
 
         store.upsert(receipt)
-        store.updateStatus(.sent, receiptId: receipt.id)
+        store.present(receipt)
 
         let storedReceipt = store.receipts(
             conversationId: "convo-123",
             messageId: "message-456"
         ).first
         XCTAssertEqual(storedReceipt?.agentName, "Tasklet")
-        XCTAssertEqual(storedReceipt?.status, .sent)
+        XCTAssertEqual(storedReceipt?.status, .opened)
+        XCTAssertEqual(store.presentedReceipt?.id, receipt.id)
+        store.dismissPresentedReceipt()
+        XCTAssertNil(store.presentedReceipt)
     }
 
     func testGhostShareCopiesOnlyTheSelectedMessage() {

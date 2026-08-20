@@ -60,6 +60,7 @@ struct AgentDmPageView: View {
     var prototypeState: AgentChatPrototypeState?
     var selectedLane: AgentChatLane?
     var lanes: [AgentChatLane] = []
+    var onShareToConvo: ((String) -> Void)?
 
     /// Fill of the preparing bar. Creeps while the agent is on its way; it
     /// tracks elapsed time, not real progress, since nothing reports any.
@@ -75,7 +76,8 @@ struct AgentDmPageView: View {
                     lanes: lanes,
                     prototypeState: prototypeState,
                     extraBottomInset: extraBottomInset,
-                    onContentHeightChanged: onContentHeightChanged
+                    onContentHeightChanged: onContentHeightChanged,
+                    onShareToConvo: onShareToConvo
                 )
             } else {
                 switch phase {

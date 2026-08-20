@@ -129,9 +129,18 @@ struct ConversationsView: View {
                     viewModel.selectedConversationId = nil
                 },
                 initialAgentDmInboxId: viewModel.selectedInitialAgentDmInboxId,
+                onStageTextInConversation: stageAgentText(_:in:),
                 bottomBarContent: { EmptyView() }
             )
         }
+    }
+
+    private func stageAgentText(_ text: String, in conversation: Conversation) {
+        viewModel.select(conversation)
+        guard let composer = viewModel.selectedConversationViewModel else { return }
+        let current = composer.messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let incoming = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        composer.messageText = current.isEmpty ? incoming : "\(current)\n\n\(incoming)"
     }
 
     var filteredEmptyStateView: some View {

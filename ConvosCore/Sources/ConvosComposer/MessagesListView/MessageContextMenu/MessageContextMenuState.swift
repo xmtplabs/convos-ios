@@ -94,9 +94,7 @@ public class MessageContextMenuState: @unchecked Sendable {
 /// not see which personal agent the current user chose.
 public struct MessageAgentReceipt: Identifiable, Equatable, Sendable {
     public enum Status: Equatable, Sendable {
-        case sending
-        case sent
-        case failed
+        case opened
     }
 
     public struct Appearance: Equatable, Sendable {
@@ -141,7 +139,7 @@ public struct MessageAgentReceipt: Identifiable, Equatable, Sendable {
         agentId: String,
         agentName: String,
         appearance: Appearance,
-        status: Status = .sending
+        status: Status = .opened
     ) {
         self.id = "\(conversationId):\(messageId):\(agentId)"
         self.conversationId = conversationId
@@ -161,6 +159,7 @@ public final class MessageAgentReceiptStore: @unchecked Sendable {
     public init() {}
 
     public private(set) var receiptsByMessageId: [String: [MessageAgentReceipt]] = [:]
+    public private(set) var presentedReceipt: MessageAgentReceipt?
 
     public func receipts(conversationId: String, messageId: String) -> [MessageAgentReceipt] {
         receiptsByMessageId[messageId, default: []]
@@ -177,14 +176,12 @@ public final class MessageAgentReceiptStore: @unchecked Sendable {
         receiptsByMessageId[receipt.messageId] = receipts
     }
 
-    public func updateStatus(_ status: MessageAgentReceipt.Status, receiptId: String) {
-        for messageId in Array(receiptsByMessageId.keys) {
-            guard let index = receiptsByMessageId[messageId]?.firstIndex(where: { $0.id == receiptId }) else {
-                continue
-            }
-            receiptsByMessageId[messageId]?[index].status = status
-            return
-        }
+    public func present(_ receipt: MessageAgentReceipt) {
+        presentedReceipt = receipt
+    }
+
+    public func dismissPresentedReceipt() {
+        presentedReceipt = nil
     }
 }
 

@@ -350,6 +350,18 @@ final class AgentChatPrototypeState {
         )
     }
 
+    /// Selects a private lane and places text in its composer for review. An
+    /// existing unfinished draft is preserved above the new handoff so opening
+    /// a group message can never silently erase the user's work.
+    func stageDraft(_ rawText: String, in lane: AgentChatLane) {
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        select(lane)
+        let current = draftsByLane[lane.id, default: ""]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        draftsByLane[lane.id] = current.isEmpty ? text : "\(current)\n\n\(text)"
+    }
+
     func isWorking(_ lane: AgentChatLane) -> Bool {
         workingLaneIds.contains(lane.id)
     }
@@ -360,8 +372,8 @@ final class AgentChatPrototypeState {
         draftsByLane[lane.id] = ""
     }
 
-    /// Queues explicit text without taking over the visible composer. This is
-    /// the path used by a group message's "Send to agent" action.
+    /// Queues explicit text after a composer confirms it. Group-message
+    /// handoffs use `stageDraft(_:in:)` so selection never sends on its own.
     @discardableResult
     func send(text rawText: String, in lane: AgentChatLane) -> Bool {
         prepare(lane)
@@ -966,6 +978,7 @@ struct AgentMessageDestinationSheet: View {
     let onSelect: (AgentChatLane) -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.openURL) private var openURL: OpenURLAction
     @State private var reconnectProvider: ExternalAgentProvider?
     @State private var isExternalOnboardingPresented: Bool = false
 
@@ -988,6 +1001,11 @@ struct AgentMessageDestinationSheet: View {
                         }
                     }
                 }
+                Section("Open in external app") {
+                    ForEach(ExternalAppDestination.allCases) { destination in
+                        externalAppButton(destination)
+                    }
+                }
                 if let ghost {
                     Section {
                         laneButton(ghost)
@@ -996,6 +1014,8 @@ struct AgentMessageDestinationSheet: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(.colorBackgroundSurfaceless)
             .navigationTitle("Send to agent")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1004,6 +1024,9 @@ struct AgentMessageDestinationSheet: View {
                 }
             }
         }
+        .background(.colorBackgroundSurfaceless)
+        .preferredColorScheme(.dark)
+        .presentationBackground(.colorBackgroundSurfaceless)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .fullScreenCover(isPresented: $isExternalOnboardingPresented) {
@@ -1023,10 +1046,11 @@ struct AgentMessageDestinationSheet: View {
                     reconnectProvider = nil
                     isExternalOnboardingPresented = false
                     if let connectedLane {
-                        onSelect(connectedLane)
                         Task { @MainActor in
                             try? await Task.sleep(for: .milliseconds(250))
                             dismiss()
+                            try? await Task.sleep(for: .milliseconds(250))
+                            onSelect(connectedLane)
                         }
                     }
                 }
@@ -1041,8 +1065,11 @@ struct AgentMessageDestinationSheet: View {
                 isExternalOnboardingPresented = true
                 return
             }
-            onSelect(lane)
             dismiss()
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(250))
+                onSelect(lane)
+            }
         } label: {
             HStack(spacing: DesignConstants.Spacing.step3x) {
                 AgentChatLaneAvatar(lane: lane)
@@ -1061,7 +1088,7 @@ struct AgentMessageDestinationSheet: View {
                         .controlSize(.small)
                         .accessibilityHidden(true)
                 } else {
-                    Image(systemName: "arrow.up.right.circle.fill")
+                    Image(systemName: "square.and.pencil.circle.fill")
                         .font(.title3)
                         .foregroundStyle(.colorLava)
                         .accessibilityHidden(true)
@@ -1070,9 +1097,39 @@ struct AgentMessageDestinationSheet: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .disabled(prototypeState.isWorking(lane))
-        .accessibilityLabel("Send message to \(lane.name)")
-        .accessibilityHint(lane.isGhost ? "Sends only this message privately" : "Sends in the background")
+        .accessibilityLabel("Open message in \(lane.name)")
+        .accessibilityHint("Opens an editable draft in this private agent chat")
+    }
+
+    private func externalAppButton(_ destination: ExternalAppDestination) -> some View {
+        Button {
+            guard let url = URL(string: destination.urlString) else { return }
+            openURL(url)
+        } label: {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                Image(systemName: destination.symbolName)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(destination.tint, in: .circle)
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                    Text(destination.displayName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                    Text("Opens the app when installed, otherwise the website")
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                Spacer(minLength: DesignConstants.Spacing.step2x)
+                Image(systemName: "arrow.up.forward.app.fill")
+                    .font(.title3)
+                    .foregroundStyle(.colorTextSecondary)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open in \(destination.displayName)")
     }
 
     private func subtitle(for lane: AgentChatLane) -> String {
@@ -1083,12 +1140,189 @@ struct AgentMessageDestinationSheet: View {
     }
 }
 
+private enum ExternalAppDestination: String, CaseIterable, Identifiable {
+    case chatGPT
+    case claude
+    case gemini
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .chatGPT: "ChatGPT"
+        case .claude: "Claude"
+        case .gemini: "Gemini"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .chatGPT: "circle.hexagongrid.fill"
+        case .claude: "sun.max.fill"
+        case .gemini: "sparkles"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .chatGPT: Color(red: 0.06, green: 0.65, blue: 0.53)
+        case .claude: Color(red: 0.82, green: 0.43, blue: 0.27)
+        case .gemini: Color(red: 0.35, green: 0.38, blue: 0.90)
+        }
+    }
+
+    var urlString: String {
+        switch self {
+        case .chatGPT: "https://chatgpt.com/"
+        case .claude: "https://claude.ai/new"
+        case .gemini: "https://gemini.google.com/app"
+        }
+    }
+}
+
+/// Bottom drawer for the private, reaction-sized marker under a group
+/// message. It mirrors the Reactions drawer's hierarchy while being explicit
+/// that this state is device-local and invisible to the Convo.
+struct AgentReceiptDrawer: View {
+    let receipt: MessageAgentReceipt
+    let lane: AgentChatLane?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+            Text("Sent to Agent")
+                .font(.system(.largeTitle))
+                .fontWeight(.bold)
+                .padding(.bottom, DesignConstants.Spacing.step2x)
+
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                if let lane {
+                    AgentChatLaneAvatar(lane: lane, size: 48)
+                } else {
+                    fallbackAvatar
+                }
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                    Text(receipt.agentName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                    Text("Only you can see this was sent to an agent")
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Opened in \(receipt.agentName). Only you can see this.")
+        }
+        .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .padding(.bottom, DesignConstants.Spacing.step5x)
+    }
+
+    private var fallbackAvatar: some View {
+        Image(systemName: receipt.appearance.symbolName)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(
+                Color(
+                    red: receipt.appearance.foregroundRed,
+                    green: receipt.appearance.foregroundGreen,
+                    blue: receipt.appearance.foregroundBlue
+                )
+            )
+            .frame(width: 48, height: 48)
+            .background(
+                Color(
+                    red: receipt.appearance.backgroundRed,
+                    green: receipt.appearance.backgroundGreen,
+                    blue: receipt.appearance.backgroundBlue
+                ),
+                in: .circle
+            )
+    }
+}
+
+/// Picks a Convo for an agent response. The origin Convo is pinned first and
+/// every selection stages an editable group draft rather than sending.
+struct AgentShareToConvoSheet: View {
+    let conversations: [Conversation]
+    let currentConversationId: String
+    let onSelect: (Conversation) -> Void
+
+    @Environment(\.dismiss) private var dismiss: DismissAction
+    @State private var searchText: String = ""
+
+    private var visibleConversations: [Conversation] {
+        let sorted = conversations.sorted { lhs, rhs in
+            if lhs.id == currentConversationId { return true }
+            if rhs.id == currentConversationId { return false }
+            return (lhs.lastMessage?.createdAt ?? lhs.createdAt) >
+                (rhs.lastMessage?.createdAt ?? rhs.createdAt)
+        }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return sorted }
+        return sorted.filter { $0.displayName.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(visibleConversations) { conversation in
+                Button {
+                    dismiss()
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(250))
+                        onSelect(conversation)
+                    }
+                } label: {
+                    HStack(spacing: DesignConstants.Spacing.step3x) {
+                        ConversationAvatarView(
+                            conversation: conversation,
+                            conversationImage: nil,
+                            size: 44
+                        )
+                        .frame(width: 44, height: 44)
+                        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                            Text(conversation.displayName)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.colorTextPrimary)
+                                .lineLimit(1)
+                            Text(conversation.id == currentConversationId ? "Current Convo · Edit before sending" : "Edit before sending")
+                                .font(.footnote)
+                                .foregroundStyle(.colorTextSecondary)
+                        }
+                        Spacer(minLength: DesignConstants.Spacing.step2x)
+                        Image(systemName: "square.and.pencil")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.colorLava)
+                            .accessibilityHidden(true)
+                    }
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+            }
+            .scrollContentBackground(.hidden)
+            .background(.colorBackgroundSurfaceless)
+            .navigationTitle("Share to a convo")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $searchText, prompt: "Search Convos")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+        .presentationBackground(.colorBackgroundSurfaceless)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
 struct AgentChatDemoTranscript: View {
     let lane: AgentChatLane
     let lanes: [AgentChatLane]
     let prototypeState: AgentChatPrototypeState
     let extraBottomInset: CGFloat
     var onContentHeightChanged: ((CGFloat) -> Void)?
+    var onShareToConvo: ((String) -> Void)?
 
     @State private var messageToShare: AgentChatPrototypeMessage?
     @State private var isShareDialogPresented: Bool = false
@@ -1225,38 +1459,59 @@ struct AgentChatDemoTranscript: View {
     }
 
     private func messageRow(_ message: AgentChatPrototypeMessage) -> some View {
-        HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
-            if message.sender == .user { Spacer(minLength: 52) }
-            if message.sender == .agent {
-                AgentChatLaneAvatar(lane: lane, size: 30)
-            }
-            Text(message.text)
-                .font(.body)
-                .foregroundStyle(message.sender == .user ? Color.black : Color.colorTextPrimary)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-                .padding(.vertical, DesignConstants.Spacing.step3x)
-                .background(
-                    message.sender == .user ? Color.white : Color.colorBackgroundRaisedSecondary,
-                    in: .rect(cornerRadius: 18)
-                )
-                .fixedSize(horizontal: false, vertical: true)
-            if lane.isGhost {
-                Button {
-                    messageToShare = message
-                    isShareDialogPresented = true
-                } label: {
-                    Image(systemName: "arrowshape.turn.up.right.fill")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.colorTextPrimary)
-                        .frame(width: 44, height: 44)
-                        .background(.colorFillSubtle, in: .circle)
+        VStack(alignment: message.sender == .user ? .trailing : .leading, spacing: DesignConstants.Spacing.step2x) {
+            HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
+                if message.sender == .user { Spacer(minLength: 52) }
+                if message.sender == .agent {
+                    AgentChatLaneAvatar(lane: lane, size: 30)
                 }
-                .accessibilityLabel("Share this message")
-                .accessibilityHint("Opens destinations. Only this message will be shared")
+                Text(message.text)
+                    .font(.body)
+                    .foregroundStyle(message.sender == .user ? Color.black : Color.colorTextPrimary)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    .padding(.vertical, DesignConstants.Spacing.step3x)
+                    .background(
+                        message.sender == .user ? Color.white : Color.colorBackgroundRaisedSecondary,
+                        in: .rect(cornerRadius: 18)
+                    )
+                    .fixedSize(horizontal: false, vertical: true)
+                if lane.isGhost {
+                    ghostShareButton(for: message)
+                }
+                if message.sender == .agent { Spacer(minLength: lane.isGhost ? 0 : 52) }
             }
-            if message.sender == .agent { Spacer(minLength: lane.isGhost ? 0 : 52) }
+            if message.sender == .agent, lane.externalProvider != nil {
+                Button {
+                    onShareToConvo?(message.text)
+                } label: {
+                    Label("Share to a convo", systemImage: "arrowshape.turn.up.right.fill")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                        .padding(.horizontal, DesignConstants.Spacing.step3x)
+                        .frame(minHeight: 44)
+                        .background(.colorFillSubtle, in: .capsule)
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 38)
+                .accessibilityHint("Choose a Convo and edit the message before sending")
+            }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: message.sender == .user ? .trailing : .leading)
+    }
+
+    private func ghostShareButton(for message: AgentChatPrototypeMessage) -> some View {
+        Button {
+            messageToShare = message
+            isShareDialogPresented = true
+        } label: {
+            Image(systemName: "arrowshape.turn.up.right.fill")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.colorTextPrimary)
+                .frame(width: 44, height: 44)
+                .background(.colorFillSubtle, in: .circle)
+        }
+        .accessibilityLabel("Share this message")
+        .accessibilityHint("Opens destinations. Only this message will be shared")
     }
 
     private var workingRow: some View {
