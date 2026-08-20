@@ -23,6 +23,30 @@ final class ConnectionsBrowserModeTests: XCTestCase {
         XCTAssertEqual(mode.agentDisplayName, "Caley")
     }
 
+    /// The chat-scoped browser names the agent it is turning connections on
+    /// for; the account-level one keeps its own copy byte for byte.
+    func testHeaderSubtitleNamesTheAgentOnlyInTheModal() {
+        let modal: ConnectionsBrowserMode = .composerModal(
+            conversationId: "dm-1",
+            agentInboxId: "agent-1",
+            agentDisplayName: "Caley"
+        )
+        XCTAssertEqual(modal.headerSubtitle, "Choose what Caley can use in this chat")
+        XCTAssertEqual(ConnectionsBrowserMode.appSettings.headerSubtitle, "Give agents new powers in your convos")
+    }
+
+    /// A name that has not resolved yet must never leave a gap mid-sentence.
+    func testHeaderSubtitleFallsBackWhenTheAgentHasNoUsableName() {
+        for name in ["", "   "] {
+            let mode: ConnectionsBrowserMode = .composerModal(
+                conversationId: "dm-1",
+                agentInboxId: "agent-1",
+                agentDisplayName: name
+            )
+            XCTAssertEqual(mode.headerSubtitle, "Choose what your agent can use in this chat")
+        }
+    }
+
     func testModeIdentitiesAreDistinct() {
         let settings: ConnectionsBrowserMode = .appSettings
         let modal: ConnectionsBrowserMode = .composerModal(
