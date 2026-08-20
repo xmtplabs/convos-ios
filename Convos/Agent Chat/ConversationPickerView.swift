@@ -81,6 +81,7 @@ struct ConversationPickerView: View {
                 name: .conversationNotificationTapped,
                 object: nil,
                 userInfo: [
+                    // inboxId is a sentinel marker here; routing uses conversationId alone.
                     "inboxId": "composer-draft",
                     "conversationId": conversation.id,
                 ]

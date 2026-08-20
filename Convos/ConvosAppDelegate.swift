@@ -29,7 +29,9 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
             actions: [],
             intentIdentifiers: []
         )
-        UNUserNotificationCenter.current().setNotificationCategories([agentRelayCategory])
+        var notificationCategories: Set<UNNotificationCategory> = []
+        notificationCategories.formUnion([agentRelayCategory])
+        UNUserNotificationCenter.current().setNotificationCategories(notificationCategories)
         application.registerForRemoteNotifications()
         leftConversationObserver = NotificationCenter.default.addObserver(
             forName: .leftConversationNotification, object: nil, queue: .main

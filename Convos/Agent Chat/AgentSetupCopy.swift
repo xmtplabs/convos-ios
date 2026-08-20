@@ -192,12 +192,14 @@ struct AgentSetupCopyButton: View {
     @State private var copied: Bool = false
 
     var body: some View {
+        let labelText: String = copied ? "Copied" : title
+        let labelSystemImage: String = copied ? "checkmark" : "doc.on.doc"
         let action = {
             UIPasteboard.general.string = text
             copied = true
         }
         Button(action: action) {
-            Label(copied ? "Copied" : title, systemImage: copied ? "checkmark" : "doc.on.doc")
+            Label(labelText, systemImage: labelSystemImage)
         }
         .tint(copied ? .green : .primary)
         .accessibilityValue(copied ? "Copied" : "")
