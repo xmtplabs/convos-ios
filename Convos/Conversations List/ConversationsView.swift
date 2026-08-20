@@ -101,6 +101,20 @@ struct ConversationsView: View {
         )
     }
 
+    /// Bridges the compose flow's view model to a `navigationDestination(item:)`
+    /// so a conversation the user starts is pushed onto this stack, arriving
+    /// the same way one selected from the list does.
+    ///
+    /// Writing `nil` back is the whole tear-down: the view model's own `didSet`
+    /// runs its cleanup, so the pop and the tear-down are one event no matter
+    /// which of them started it.
+    private var newConversationBinding: Binding<NewConversationViewModel?> {
+        Binding(
+            get: { viewModel.newConversationViewModel },
+            set: { viewModel.newConversationViewModel = $0 }
+        )
+    }
+
     /// The home most likely to be opened next: the one already selected, or
     /// the first in the list that has a home at all.
     ///
@@ -156,6 +170,33 @@ struct ConversationsView: View {
                 bottomBarContent: { EmptyView() }
             )
         }
+    }
+
+    /// The compose flow as a pushed screen. `embedsNavigationStack: false`
+    /// keeps it on this stack instead of nesting a second one inside it, and
+    /// `insetsTopSafeArea: true` keeps the conversation indicator clear of the
+    /// status bar now that the screen runs to the top edge - the same pair the
+    /// pushed conversation above uses.
+    ///
+    /// `onClose` routes the close (X) through the flow's tear-down and hides
+    /// the back button with it: the conversation is minted on the way in, so
+    /// there is no earlier step of the flow to go back to, and the one way out
+    /// both leaves the screen and cleans up after it.
+    ///
+    /// The tab bar is hidden for the same reason the pushed contact-card
+    /// conversation hides it - the shell only hides it for a selected
+    /// conversation, and left up it overlaps the composer.
+    @ViewBuilder
+    private func pushedNewConversationDestination(_ newConvoViewModel: NewConversationViewModel) -> some View {
+        NewConversationView(
+            viewModel: newConvoViewModel,
+            profileSettingsViewModel: profileSettingsViewModel,
+            embedsNavigationStack: false,
+            onClose: { viewModel.newConversationViewModel = nil },
+            insetsTopSafeArea: true
+        )
+        .background(.colorBackgroundSurfaceless)
+        .toolbarVisibility(.hidden, for: .tabBar)
     }
 
     var filteredEmptyStateView: some View {
@@ -258,6 +299,9 @@ struct ConversationsView: View {
             }
             .navigationDestination(item: chatsDetailBinding) { vm in
                 pushedConversationDestination(viewModel: vm)
+            }
+            .navigationDestination(item: newConversationBinding) { newConvoViewModel in
+                pushedNewConversationDestination(newConvoViewModel)
             }
             // The home's page starts loading while the list is still on screen,
             // rather than when the pushed screen builds its web surface. Waiting

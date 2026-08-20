@@ -145,6 +145,23 @@ struct MainTabView: View {
         activeTab == .contacts && !contactsPath.isEmpty
     }
 
+    /// `true` while the compose flow is pushed onto the Chats tab's stack.
+    /// That screen carries its own conversation indicator, so the shell's
+    /// leading pill stands down for it the same way it does for a pushed
+    /// contact detail.
+    private var isNewConversationPushed: Bool {
+        conversationsViewModel.newConversationViewModel != nil
+    }
+
+    /// The compose flow is a push on the Chats tab's stack, so anything that
+    /// starts it from elsewhere - a scanned code or an invite link opened
+    /// while Contacts is frontmost - has to bring Chats forward, or the
+    /// pushed screen lands on a stack the user cannot see.
+    private func handleNewConversationPushed(_ isPushed: Bool) {
+        guard isPushed else { return }
+        activeTab = .chats
+    }
+
     /// Tapping a message notification selects the conversation in
     /// `ConversationsViewModel`, but that conversation only lives under the
     /// Chats tab. Switch to Chats and dismiss any shell-level modal first so
@@ -287,7 +304,6 @@ struct MainTabView: View {
             Button("Compose", systemImage: "plus") {
                 conversationsViewModel.onStartConvo()
             }
-            .matchedTransitionSource(id: Constant.composerTransitionId, in: namespace)
             .accessibilityIdentifier("compose-button")
             .disabled(conversationsViewModel.staleDeviceObserver.isDeviceRemoved)
         }
@@ -310,13 +326,14 @@ struct MainTabView: View {
         VStack(spacing: 0) {
             if let activeConvoVM = activeConvoVM {
                 centeredConversationIndicator(for: activeConvoVM)
-            } else if !isContactDetailPushed {
+            } else if !isContactDetailPushed && !isNewConversationPushed {
                 leadingAppIndicatorPill
             }
             Spacer()
         }
         .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: activeConvoVM != nil)
         .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: isContactDetailPushed)
+        .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: isNewConversationPushed)
         .ignoresSafeArea()
         .allowsHitTesting(true)
         .zIndex(1000)
@@ -454,7 +471,6 @@ struct MainTabView: View {
 
     private enum Constant {
         static let appSettingsTransitionId: String = "app-settings-transition-source"
-        static let composerTransitionId: String = "composer-transition-source"
         /// Leading inset on the app-indicator pill when the iPad app is
         /// in a windowed (non-fullscreen) state. iPadOS 26 renders
         /// window chrome ("traffic lights": close / minimize /
@@ -619,17 +635,6 @@ struct MainTabSheetsModifier: ViewModifier {
                         .padding(.top, DesignConstants.Spacing.step5x)
                 }
             )
-            .sheet(item: $conversationsViewModel.newConversationViewModel) { newConvoViewModel in
-                NewConversationView(
-                    viewModel: newConvoViewModel,
-                    profileSettingsViewModel: profileSettingsViewModel
-                )
-                .background(.colorBackgroundSurfaceless)
-                .presentationSizing(.page)
-                .navigationTransition(
-                    .zoom(sourceID: "composer-transition-source", in: namespace)
-                )
-            }
             // Scanning is its own screen, presented as its own sheet. It reads
             // someone else's code, so it needs no conversation behind it.
             .sheet(isPresented: $conversationsViewModel.presentingScanner) {
@@ -671,6 +676,9 @@ extension MainTabView {
         }
         .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { _ in
             handleConversationNotificationTapped()
+        }
+        .onChange(of: isNewConversationPushed) { _, isPushed in
+            handleNewConversationPushed(isPushed)
         }
         .modifier(mainTabSheetsModifier)
     }
