@@ -10,7 +10,9 @@ import Foundation
 struct HomeBridgeNavigation {
     var showShareSheet: @MainActor @Sendable () -> Void = {}
     var showScan: @MainActor @Sendable () -> Void = {}
-    var showInviteCode: @MainActor @Sendable () -> Void = {}
+    var showInviteCode: @MainActor @Sendable () -> Void = {
+        Log.warning("HomeBridgeNavigation.showInviteCode invoked on the default (unwired) navigation - the web view showing this page was not given a conversation-scoped bridgeNavigation")
+    }
     var showInvitePicker: @MainActor @Sendable () -> Void = {}
     var showMembersList: @MainActor @Sendable () -> Void = {}
 }
@@ -71,7 +73,7 @@ enum HomeBridgePlugins {
 
 private final class HomeEventsPlugin: EventsPlugin, Sendable {
     func trackEvent(name: String) {
-        Log.debug("bridge trackEvent: \(name)")
+        Log.info("bridge trackEvent: \(name)")
     }
 }
 
@@ -84,6 +86,7 @@ private final class HomeAppPlugin: AppPlugin, Sendable {
 
     func markReady() {
         let host = host
+        Log.info("bridge app.markReady received")
         Task { @MainActor in host.onMarkReady() }
     }
 }
@@ -107,6 +110,7 @@ private final class HomeInvitePlugin: InvitePlugin, Sendable {
 
     func showInviteCode() {
         let host = host
+        Log.info("bridge invite.showInviteCode received; hopping to main actor to invoke navigation")
         Task { @MainActor in host.navigation.showInviteCode() }
     }
 

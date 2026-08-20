@@ -77,6 +77,9 @@ struct HomeWebView: UIViewRepresentable {
         // second before it can even start a navigation. See `HomeWebViewPool`.
         let adoption = HomeWebViewPool.shared.adoption(for: url)
         let webView = HomeWebViewPool.shared.acquire()
+        // Temporary: allow Safari Web Inspector to attach to the home/space and
+        // browser sub-page web views while debugging the window.convos bridge.
+        webView.isInspectable = true
         let coordinator = context.coordinator
         HomeWebViewPool.shared.paintReporter(of: webView)?.onPaint = { source in
             MainActor.assumeIsolated { coordinator.reportPaint(source) }
@@ -113,7 +116,8 @@ struct HomeWebView: UIViewRepresentable {
         host.navigation = bridgeNavigation
         host.onMarkReady = onMarkReady
         let bridge = ConvosWebBridge(plugins: HomeBridgePlugins.dispatchers(host: host))
-        bridge.onReady = { Log.debug("HomeWebView: convos.js reported ready") }
+        bridge.onReady = { Log.info("HomeWebView: convos.js reported ready (url=\(url?.absoluteString ?? "placeholder"))") }
+        Log.info("HomeWebView.makeUIView attaching bridge (url=\(url?.absoluteString ?? "placeholder"))")
         bridge.attach(to: webView)
         context.coordinator.bridge = bridge
         context.coordinator.bridgeHost = host

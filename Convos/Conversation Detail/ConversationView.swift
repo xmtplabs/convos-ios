@@ -1446,7 +1446,8 @@ private extension ConversationView {
             entry: entry,
             onNavigationRequest: { url in
                 pushHomeBrowserPage(for: url)
-            }
+            },
+            bridgeNavigation: homeBridgeNavigation
         )
     }
 
@@ -1499,7 +1500,10 @@ private extension ConversationView {
                 }
             },
             showScan: { onScanInviteCode() },
-            showInviteCode: { viewModel.showInviteCode() },
+            showInviteCode: {
+                Log.info("HomeBridgeNavigation wired showInviteCode closure invoked; forwarding to viewModel")
+                viewModel.showInviteCode()
+            },
             showInvitePicker: { presentingAddFromContactsPicker = true },
             showMembersList: { viewModel.presentingConversationSettings = true }
         )
