@@ -185,6 +185,12 @@ class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
     func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
         URLRequest(url: URL(string: "https://example.com/\(path)") ?? URL(string: "https://example.com")!)
     }
+    func authorizedRequest(for endpoint: String, method: String, queryParameters: [String: String]?) async throws -> URLRequest {
+        var request = try request(for: endpoint, method: method, queryParameters: queryParameters)
+        request.httpMethod = method
+        request.setValue("test-jwt-token", forHTTPHeaderField: "X-Convos-AuthToken")
+        return request
+    }
     func registerDevice(deviceId: String, pushToken: String?) async throws {}
     func authenticate(appCheckToken: String, retryCount: Int) async throws -> String { "" }
     func authenticateWithSIWE(appCheckToken: String, signing: BackendAuthSigningContext) async throws -> String { "" }

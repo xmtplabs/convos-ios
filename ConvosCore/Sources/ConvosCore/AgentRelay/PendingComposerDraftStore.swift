@@ -20,16 +20,37 @@ public protocol PendingComposerDraftStoring: Sendable {
     func take(for conversationId: String) -> PendingComposerDraft?
 }
 
-public final class PendingComposerDraftStore: PendingComposerDraftStoring {
-    private let environment: AppEnvironment
+public final class PendingComposerDraftStore: PendingComposerDraftStoring, @unchecked Sendable {
+    private let defaults: UserDefaults
 
     public init(environment: AppEnvironment) {
-        self.environment = environment
+        defaults = UserDefaults(suiteName: environment.appGroupIdentifier) ?? .standard
     }
 
-    public func stage(_ draft: PendingComposerDraft) {}
+    public func stage(_ draft: PendingComposerDraft) {
+        guard let data = try? JSONEncoder().encode(draft) else { return }
+        defaults.set(data, forKey: Constant.draftKey)
+    }
 
     public func take(for conversationId: String) -> PendingComposerDraft? {
-        nil
+        guard let data = defaults.data(forKey: Constant.draftKey),
+              let draft = try? JSONDecoder().decode(PendingComposerDraft.self, from: data) else {
+            defaults.removeObject(forKey: Constant.draftKey)
+            return nil
+        }
+        guard draft.conversationId == conversationId else { return nil }
+
+        defaults.removeObject(forKey: Constant.draftKey)
+        guard Date().timeIntervalSince(draft.stagedAt) < Constant.maximumAge else { return nil }
+        return draft
+    }
+
+    func clear() {
+        defaults.removeObject(forKey: Constant.draftKey)
+    }
+
+    private enum Constant {
+        static let draftKey: String = "agentRelay.pendingComposerDraft"
+        static let maximumAge: TimeInterval = 600
     }
 }
