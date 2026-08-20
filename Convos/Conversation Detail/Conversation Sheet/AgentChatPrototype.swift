@@ -134,6 +134,11 @@ struct AgentChatLane: Identifiable {
         )
     }
 
+    /// Every Convo owns one group-local agent lane. A verified live member
+    /// replaces this preview as soon as it is available, but personal agents
+    /// must never become the first/default lane while that member is syncing.
+    static let groupAgentFallback: AgentChatLane = .prototype(.spaceAbilities)
+
     static func available(
         live: [AgentChatLane],
         connectedExternalProviders: [ExternalAgentProvider],
@@ -150,7 +155,8 @@ struct AgentChatLane: Identifiable {
                     ? grokBotAgents.map(AgentChatLane.grokBot)
                     : [AgentChatLane.external(provider)]
             }
-        return live + external + [.ghost]
+        let groupAgent: AgentChatLane = live.first ?? groupAgentFallback
+        return [groupAgent] + Array(live.dropFirst()) + external + [.ghost]
     }
 
     static let ghost: AgentChatLane = AgentChatLane(

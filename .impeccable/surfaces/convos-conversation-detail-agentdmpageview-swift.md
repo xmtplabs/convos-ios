@@ -14,7 +14,8 @@ The agent side of a conversation is a private, controllable workspace. The activ
 ## Interaction contract
 
 - A 44-point circular avatar sits immediately left of the agent composer. It always identifies the active lane.
-- Tapping the avatar opens a native selector with verified agents available in the current group, external agents the user has actually added, and Ghost Mode. Sample personas such as Flight Tracker and Shane's Agent never appear as real choices.
+- The orange group-local Convos agent is always the first and initially selected lane. Its verified live member replaces the fallback when available; a syncing or missing member never lets a personal agent silently become the group default.
+- Tapping the avatar opens a native selector with that single group agent first, external agents the user has actually added after it, and Ghost Mode last. Sample personas such as Flight Tracker and Shane's Agent never appear as real choices.
 - **Connect an agent from another convo** sits immediately above **Add an external agent**. It presents an owner-scoped agent list and a full-screen review of the portable agent layer.
 - Linking creates one two-way shared memory and makes all of the agent's abilities, connections, and installed skills available in both convos. Raw transcripts, Ghost Mode, private DMs, member lists, and unsaved files never cross.
 - Confirmation warns that people in either convo can influence future saved memory. The linked lane's settings show the full shared layer and allow the owner to disconnect it from the current convo without deleting the original agent.
@@ -46,7 +47,7 @@ Ghost sharing completes inside local prototype lanes. A real agent destination m
 2. Confirm **Desktop / Group / Agent** remains fixed at the bottom, then move between all three without losing the current surface state.
 3. On Desktop and Group, confirm Back is top left, group settings is centered, and Invite is top right. On Agent, confirm only Back remains.
 4. Use Back from Group or Agent and confirm it returns directly to the Home hierarchy. From a pushed Desktop browser page, confirm Back pops the page before leaving the Convo.
-5. Reopen, tap **Agent**, open Talk to, and confirm only verified/current-group agents, added external providers, and Ghost appear.
+5. Reopen, tap **Agent**, and confirm the orange group-local agent is selected before opening Talk to. Confirm that same group agent remains first, added external providers follow it, and Ghost appears last.
 6. Disconnect an added live provider and confirm its row remains and routes to reconnect.
 7. Inspect Add an external agent: Tasklet follows Town; Grok Bot is Coming soon; Connect MCP is the final Coming soon row.
 8. Enter text in two real/connected lanes and confirm drafts stay separate.

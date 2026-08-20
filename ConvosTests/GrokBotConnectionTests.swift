@@ -75,11 +75,11 @@ final class GrokBotConnectionTests: XCTestCase {
 
         XCTAssertEqual(
             lanes.map(\.name),
-            ["Town", "Grok Bot · Hamilton", "Grok Bot · CTO", "Ghost Mode"]
+            ["Space Abilities", "Town", "Grok Bot · Hamilton", "Grok Bot · CTO", "Ghost Mode"]
         )
-        XCTAssertEqual(lanes[1].grokBotAgent, hamilton)
-        XCTAssertEqual(lanes[2].grokBotAgent, cto)
-        XCTAssertNotEqual(lanes[1].id, lanes[2].id)
+        XCTAssertEqual(lanes[2].grokBotAgent, hamilton)
+        XCTAssertEqual(lanes[3].grokBotAgent, cto)
+        XCTAssertNotEqual(lanes[2].id, lanes[3].id)
     }
 }
 

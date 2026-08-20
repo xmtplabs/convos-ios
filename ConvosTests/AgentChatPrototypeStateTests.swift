@@ -4,6 +4,19 @@ import XCTest
 
 @MainActor
 final class AgentChatPrototypeStateTests: XCTestCase {
+    func testGroupAgentStaysFirstWhenPersonalAgentsAreConnected() {
+        let lanes = AgentChatLane.available(
+            live: [],
+            connectedExternalProviders: [.town, .tasklet]
+        )
+
+        XCTAssertEqual(lanes.map(\.name), ["Space Abilities", "Town", "Tasklet", "Ghost Mode"])
+        guard let firstLane = lanes.first,
+              case .prototype(.spaceAbilities) = firstLane.kind else {
+            return XCTFail("The orange group agent must remain the first/default lane")
+        }
+    }
+
     func testDraftsStayWithTheirAgentLane() {
         let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
         let flightTracker = AgentChatLane.prototype(.flightTracker)

@@ -452,10 +452,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             }
     }
 
-    /// Only agents that actually exist appear here: verified XMTP agents in
-    /// this group plus external providers the user has completed setup for.
-    /// The old Flight Tracker and Shane's Agent sample lanes intentionally do
-    /// not enter the selector.
+    /// The group-local Convos agent is always first: its verified XMTP lane
+    /// when available, or the orange preview while that member is syncing.
+    /// Personal agents the user connected follow it. The old Flight Tracker
+    /// and Shane's Agent sample lanes intentionally do not enter the selector.
     private var agentChatLanes: [AgentChatLane] {
         guard showsAgentChatPrototype else { return liveAgentChatLanes }
         return AgentChatLane.available(
