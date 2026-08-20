@@ -13,6 +13,7 @@ final class AgentChatViewModel {
 
     private let dependencies: AgentRelayDependencies
     @ObservationIgnored private var observationTask: Task<Void, Never>?
+    @ObservationIgnored private var submissionTask: Task<Void, Never>?
 
     init(
         provider: ExternalAgentProvider,
@@ -94,8 +95,10 @@ final class AgentChatViewModel {
     private func perform(prompt: String) {
         errorMessage = nil
         isSubmitting = true
-        Task {
-            defer { isSubmitting = false }
+        let dependencies = dependencies
+        let provider = provider
+        submissionTask = Task { [weak self] in
+            defer { self?.isSubmitting = false }
             do {
                 guard let connection = try dependencies.connectionStore.load(provider: provider) else {
                     throw AgentRelayError.notConnected
@@ -105,9 +108,9 @@ final class AgentChatViewModel {
                     provider: provider,
                     connection: connection
                 )
-                apply(outcome)
+                self?.apply(outcome)
             } catch {
-                errorMessage = AgentSetupCopy.errorMessage(error, provider: provider)
+                self?.errorMessage = AgentSetupCopy.errorMessage(error, provider: provider)
             }
         }
     }
@@ -169,6 +172,7 @@ final class AgentChatViewModel {
 
     deinit {
         observationTask?.cancel()
+        submissionTask?.cancel()
     }
 
     private enum Constant {

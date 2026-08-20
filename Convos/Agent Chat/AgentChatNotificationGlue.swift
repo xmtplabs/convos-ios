@@ -42,6 +42,27 @@ final class AgentRelayDependencies {
         self.mcpURL = try Self.makeMCPURL(environment: environment)
     }
 
+    init(
+        database: AgentChatDatabase,
+        connectionStore: AgentConnectionStore,
+        client: AgentRelayClient,
+        mcpURL: URL
+    ) {
+        let repository = AgentChatRepository(database: database)
+        let writer = AgentChatWriter(database: database)
+        self.database = database
+        self.repository = repository
+        self.writer = writer
+        self.connectionStore = connectionStore
+        self.client = client
+        self.recoveryCoordinator = AgentRelayRecoveryCoordinator(
+            client: client,
+            repository: repository,
+            writer: writer
+        )
+        self.mcpURL = mcpURL
+    }
+
     func collectForegroundPush(_ payload: AgentRelayPushPayload.Parsed) async {
         do {
             let result = try await client.collect(requestId: payload.requestId, provider: payload.provider)
