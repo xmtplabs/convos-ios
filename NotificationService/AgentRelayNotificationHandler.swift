@@ -30,7 +30,7 @@ struct AgentRelayNotificationHandler {
     private func collect(_ payload: AgentRelayPushPayload.Parsed) async throws -> AgentRelayTurnResult? {
         let environment = try NotificationExtensionEnvironment.getEnvironment()
         ConvosLog.configure(environment: environment)
-        let database = try AgentChatDatabase(environment: environment)
+        let database = try AgentChatDatabase(environment: environment, maximumReaderCount: 1)
         let repository = AgentChatRepository(database: database)
         let writer = AgentChatWriter(database: database)
         let apiClient = ConvosAPIClientFactory.client(
