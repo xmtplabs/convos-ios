@@ -60,7 +60,7 @@ final class AbilitiesListViewModel {
     /// keeps rendering the previous account's connections.
     private var snapshotEpoch: UInt64
 
-    private(set) var usageByAbilityId: [String: ConnectionUsage] = [:]
+    private(set) var usageSnapshot: ConnectionUsageSnapshot = .empty
 
     init(
         service: any AbilitiesServiceProtocol,
@@ -209,7 +209,7 @@ final class AbilitiesListViewModel {
     /// would list them. Zero until the usage read lands, which is why the
     /// row falls back to the server subtitle rather than to "0 convos".
     func conversationCount(forAbilityId abilityId: String) -> Int {
-        usageByAbilityId[abilityId]?.conversations.count ?? 0
+        usageSnapshot.usage(forAbilityId: abilityId).conversations.count
     }
 
     /// Re-reads usage outside the catalog refresh. The per-chat toggle
@@ -220,9 +220,9 @@ final class AbilitiesListViewModel {
     }
 
     private func refreshUsage(epoch: UInt64) async {
-        let usage: [String: ConnectionUsage] = await usageSource.usageByAbilityId()
+        let snapshot: ConnectionUsageSnapshot = await usageSource.usageSnapshot()
         guard epoch == accountEpoch.value, epoch == snapshotEpoch else { return }
-        usageByAbilityId = usage
+        usageSnapshot = snapshot
     }
 
     /// The one place `catalog` is published, so every host holding a
@@ -245,7 +245,7 @@ final class AbilitiesListViewModel {
         // ability ids repeat across accounts, so a surviving cache renders
         // the previous account's counts under the new account's rows for
         // as long as the read takes - forever, if it never completes.
-        usageByAbilityId = [:]
+        usageSnapshot = .empty
         busyAbilityIds = []
         pendingAuthorization = nil
         parkedActivations = []

@@ -81,15 +81,20 @@ struct AbilityDetailView: View {
                     AbilityStatusBadge(status: entitlement.status)
                 }
             }
+            // One element, read in the order it is laid out: as three
+            // separate texts the status landed between the name and the
+            // subtitle.
+            .accessibilityElement(children: .combine)
         }
         .listRowBackground(Color.colorBackgroundRaised)
+        .listSectionMargins(.top, DesignConstants.Spacing.step3x)
     }
 
     @ViewBuilder
     private var agentsSection: some View {
         Section {
             if viewModel.agents.isEmpty {
-                emptyRow("No agents are using this yet", identifier: "connection-detail-agents-empty")
+                emptyRow(agentsEmptyTitle, identifier: "connection-detail-agents-empty")
             } else {
                 ForEach(viewModel.agents) { agent in
                     usageRow(agent.displayName, identifier: "connection-detail-agent-\(agent.inboxId)")
@@ -118,7 +123,7 @@ struct AbilityDetailView: View {
     private var conversationsSection: some View {
         Section {
             if viewModel.conversations.isEmpty {
-                emptyRow("Not turned on in any convo yet", identifier: "connection-detail-convos-empty")
+                emptyRow(conversationsEmptyTitle, identifier: "connection-detail-convos-empty")
             } else {
                 ForEach(viewModel.conversations) { conversation in
                     usageRow(
@@ -131,6 +136,18 @@ struct AbilityDetailView: View {
             sectionHeader("Convos")
         }
         .listRowBackground(Color.colorBackgroundRaised)
+    }
+
+    // MARK: - Copy
+
+    /// A read that reached no conversation cannot claim the connection is
+    /// unused: it says what it knows, which is nothing.
+    private var agentsEmptyTitle: String {
+        viewModel.isUnavailable ? Constant.unavailableTitle : "No agents are using this yet"
+    }
+
+    private var conversationsEmptyTitle: String {
+        viewModel.isUnavailable ? Constant.unavailableTitle : "Not turned on in any convo yet"
     }
 
     // MARK: - Rows
@@ -160,6 +177,10 @@ struct AbilityDetailView: View {
         if viewModel.isLoading, !viewModel.hasLoadedOnce {
             ProgressView()
         }
+    }
+
+    private enum Constant {
+        static let unavailableTitle: String = "Can't check this right now"
     }
 }
 

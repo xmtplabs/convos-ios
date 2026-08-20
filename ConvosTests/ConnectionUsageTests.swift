@@ -224,7 +224,7 @@ final class ConnectionUsageTests: XCTestCase {
 
 /// Records which conversations were actually read, and can fail chosen
 /// ones. Only `conversationAbilities` is exercised; the rest forwards.
-private actor RecordingAbilitiesService: AbilitiesServiceProtocol {
+fileprivate actor RecordingAbilitiesService: AbilitiesServiceProtocol {
     private let underlying: MockAbilitiesService
     private let failingConversationIds: Set<String>
     private(set) var readConversationIds: [String] = []
@@ -366,5 +366,114 @@ final class ConnectionUsageCacheTests: XCTestCase {
             if predicate() { return }
             try await Task.sleep(for: .milliseconds(10))
         }
+    }
+}
+
+/// "Nothing uses this" and "we could not find out" are different answers,
+/// and the second one must never be rendered as the first.
+final class ConnectionUsageAvailabilityTests: XCTestCase {
+    func testEveryReadFailingIsReportedAsUnavailableRatherThanUnused() async {
+        let service = AlwaysFailingAbilitiesService()
+        let conversations: [Conversation] = [Self.agentConversation(id: "mock-conversation-1")]
+        let source = ConversationConnectionUsageSource(service: service, conversations: { conversations })
+
+        let snapshot = await source.usageSnapshot()
+
+        XCTAssertTrue(snapshot.isUnavailable)
+        XCTAssertTrue(snapshot.usage(forAbilityId: "googlecalendar").isEmpty)
+    }
+
+    /// One conversation answering is enough to report a fact: the surfaces
+    /// show what landed instead of refusing to say anything.
+    func testAPartialReadIsStillAnAnswer() async {
+        let service = RecordingAbilitiesService(
+            underlying: MockAbilitiesService(artificialDelay: .zero),
+            failingConversationIds: ["mock-conversation-1"]
+        )
+        let conversations: [Conversation] = [
+            Self.agentConversation(id: "mock-conversation-1"),
+            Self.agentConversation(id: "mock-conversation-2"),
+        ]
+        let source = ConversationConnectionUsageSource(service: service, conversations: { conversations })
+
+        let snapshot = await source.usageSnapshot()
+
+        XCTAssertFalse(snapshot.isUnavailable)
+        XCTAssertEqual(snapshot.usage(forAbilityId: "googlecalendar").conversations.count, 1)
+    }
+
+    /// An account with no conversation worth asking is a fact, not an
+    /// outage: the sections say the connection is unused.
+    func testNothingToReadIsNotAnOutage() async {
+        let service = AlwaysFailingAbilitiesService()
+        let source = ConversationConnectionUsageSource(service: service, conversations: { [] })
+
+        let snapshot = await source.usageSnapshot()
+
+        XCTAssertFalse(snapshot.isUnavailable)
+    }
+
+    @MainActor
+    func testTheDetailScreenCarriesTheUnavailableFlag() async {
+        let ability = MockAbilitiesService.standardCatalog().first { $0.id == "googlecalendar" }
+        guard let ability else { return XCTFail("fixture guard: the standard catalog holds this ability") }
+        let conversations: [Conversation] = [Self.agentConversation(id: "mock-conversation-1")]
+        let source = ConversationConnectionUsageSource(
+            service: AlwaysFailingAbilitiesService(),
+            conversations: { conversations }
+        )
+        let viewModel = AbilityDetailViewModel(ability: ability, usageSource: source)
+
+        await viewModel.refresh()
+
+        XCTAssertTrue(viewModel.isUnavailable)
+        XCTAssertTrue(viewModel.agents.isEmpty)
+        XCTAssertEqual(viewModel.people.map(\.displayName), ["You"], "the owner row is local truth, not a read")
+    }
+
+    private static func agentConversation(id: String) -> Conversation {
+        let members: [ConversationMember] = [
+            .mock(isCurrentUser: true),
+            ConversationMember(
+                profile: .mock(inboxId: "mock-agent-inbox-1", conversationId: id, name: "Caley"),
+                role: .member,
+                isCurrentUser: false,
+                isAgent: true
+            ),
+        ]
+        return .mock(id: id, name: "Convo \(id)", members: members)
+    }
+}
+
+/// Every conversation read refuses.
+private actor AlwaysFailingAbilitiesService: AbilitiesServiceProtocol {
+    private let underlying: MockAbilitiesService = MockAbilitiesService(artificialDelay: .zero)
+
+    func fetchCatalog() async throws -> AbilitiesCatalog {
+        try await underlying.fetchCatalog()
+    }
+
+    func beginEntitlement(abilityId: String) async throws -> AbilityEntitlementInitiation {
+        try await underlying.beginEntitlement(abilityId: abilityId)
+    }
+
+    func completeEntitlement(abilityId: String) async throws {
+        try await underlying.completeEntitlement(abilityId: abilityId)
+    }
+
+    func revokeEntitlement(abilityId: String) async throws {
+        try await underlying.revokeEntitlement(abilityId: abilityId)
+    }
+
+    func conversationAbilities(conversationId: String) async throws -> [ConversationAbility] {
+        throw AbilitiesServiceError.accountRequired
+    }
+
+    func extendAbility(conversationId: String, abilityId: String, agentInboxId: String, bundleIds: [String]) async throws {
+        throw AbilitiesServiceError.accountRequired
+    }
+
+    func withdrawAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws {
+        throw AbilitiesServiceError.accountRequired
     }
 }

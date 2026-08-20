@@ -16,6 +16,10 @@ final class AbilityDetailViewModel {
     let ability: AbilitiesAPI.Ability
 
     private(set) var usage: ConnectionUsage = .empty
+    /// True when the read could not reach a single conversation. The
+    /// sections then say they could not check rather than reporting that
+    /// nothing uses the connection.
+    private(set) var isUnavailable: Bool = false
     private(set) var isLoading: Bool = false
     private(set) var hasLoadedOnce: Bool = false
 
@@ -34,7 +38,9 @@ final class AbilityDetailViewModel {
 
     func refresh() async {
         isLoading = true
-        usage = await usageSource.usage(forAbilityId: ability.id)
+        let snapshot: ConnectionUsageSnapshot = await usageSource.usageSnapshot()
+        usage = snapshot.usage(forAbilityId: ability.id)
+        isUnavailable = snapshot.isUnavailable
         isLoading = false
         hasLoadedOnce = true
     }

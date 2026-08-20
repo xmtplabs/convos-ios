@@ -65,6 +65,25 @@ struct ConnectionUsage: Equatable, Sendable {
     }
 }
 
+/// One read of where every connection is in use.
+///
+/// `isUnavailable` is the difference between "nothing uses this" and "we
+/// could not find out": with every conversation read failing, an empty map
+/// is not a fact about the account. The surfaces render the two
+/// differently -- silence about a connection the agent may well be using
+/// is the misleading kind of empty.
+struct ConnectionUsageSnapshot: Equatable, Sendable {
+    var usageByAbilityId: [String: ConnectionUsage]
+    var isUnavailable: Bool
+
+    static let empty: ConnectionUsageSnapshot = ConnectionUsageSnapshot(usageByAbilityId: [:], isUnavailable: false)
+    static let unavailable: ConnectionUsageSnapshot = ConnectionUsageSnapshot(usageByAbilityId: [:], isUnavailable: true)
+
+    func usage(forAbilityId abilityId: String) -> ConnectionUsage {
+        usageByAbilityId[abilityId] ?? .empty
+    }
+}
+
 /// Resolves where connections are in use. The seam exists so the browser
 /// and the detail screen can be driven from a session-backed source in the
 /// app, a fixture in previews, and a stub in tests.
@@ -76,20 +95,20 @@ struct ConnectionUsage: Equatable, Sendable {
 /// server-side `extensionCount` instead is what let the subtitle claim a
 /// conversation the list could not show.
 protocol ConnectionUsageSourcing: Sendable {
-    func usageByAbilityId() async -> [String: ConnectionUsage]
+    func usageSnapshot() async -> ConnectionUsageSnapshot
 }
 
 extension ConnectionUsageSourcing {
     func usage(forAbilityId abilityId: String) async -> ConnectionUsage {
-        await usageByAbilityId()[abilityId] ?? .empty
+        await usageSnapshot().usage(forAbilityId: abilityId)
     }
 }
 
 /// Serves nothing. Previews and any surface reached before
 /// `AbilitiesServices.configure` render zero states rather than stale rows.
 struct EmptyConnectionUsageSource: ConnectionUsageSourcing {
-    func usageByAbilityId() async -> [String: ConnectionUsage] {
-        [:]
+    func usageSnapshot() async -> ConnectionUsageSnapshot {
+        .empty
     }
 }
 
@@ -106,8 +125,8 @@ struct PreviewConnectionUsageSource: ConnectionUsageSourcing {
         )
     }
 
-    func usageByAbilityId() async -> [String: ConnectionUsage] {
-        await underlying.usageByAbilityId()
+    func usageSnapshot() async -> ConnectionUsageSnapshot {
+        await underlying.usageSnapshot()
     }
 
     /// Named after `MockAbilitiesService.standardExtensions()`'s ids so the
@@ -153,10 +172,14 @@ struct ConversationConnectionUsageSource: ConnectionUsageSourcing {
     let service: any AbilitiesServiceProtocol
     let conversations: @Sendable () async -> [Conversation]
 
-    func usageByAbilityId() async -> [String: ConnectionUsage] {
+    func usageSnapshot() async -> ConnectionUsageSnapshot {
         let candidates: [Conversation] = await conversations().filter(Self.mayHoldAbilities)
-        guard !candidates.isEmpty else { return [:] }
+        guard !candidates.isEmpty else { return .empty }
         let reads: [Read] = await readAll(candidates)
+        // Every conversation refused: an empty map here is ignorance, not
+        // an answer, and the surfaces must say so rather than report that
+        // nothing uses the connection.
+        guard !reads.isEmpty else { return .unavailable }
         var usage: [String: ConnectionUsage] = [:]
         for abilityId in Self.abilityIds(in: reads) {
             let matches: [Match] = Self.matches(forAbilityId: abilityId, in: reads)
@@ -166,7 +189,7 @@ struct ConversationConnectionUsageSource: ConnectionUsageSourcing {
                 conversations: Self.conversations(from: matches)
             )
         }
-        return usage
+        return ConnectionUsageSnapshot(usageByAbilityId: usage, isUnavailable: false)
     }
 
     /// One conversation's opt-ins, as read.

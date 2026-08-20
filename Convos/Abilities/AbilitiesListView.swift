@@ -201,6 +201,7 @@ struct AbilitiesListView: View {
     /// The per-chat toggle state for `.composerModal`; nil renders the
     /// account-level accessory instead.
     var conversationViewModel: ConversationAbilitiesViewModel?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
     /// Handed to the detail push; see `AbilitiesListScreen.usageSource`.
     var usageSource: any ConnectionUsageSourcing = EmptyConnectionUsageSource()
     /// The Connected row the member tapped through to, in
@@ -463,6 +464,10 @@ struct AbilitiesListView: View {
         .accessibilityIdentifier("ability-row-\(ability.id)")
     }
 
+    /// Carries the whole disclosure for assistive technology: its children
+    /// combine into one element, and the chevron beside it is hidden. Two
+    /// buttons running the same action would otherwise be announced twice,
+    /// the second of them unnamed.
     private func scopedRowLabelButton(
         _ ability: AbilitiesAPI.Ability,
         action: @escaping () -> Void
@@ -476,9 +481,17 @@ struct AbilitiesListView: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens connection details")
         .accessibilityIdentifier("ability-open-\(ability.id)")
     }
 
+    /// A second tap target for the same action, and a decorative one for
+    /// assistive technology: the label button beside it is the announced
+    /// element (see `scopedRowLabelButton`). Hidden rather than merged
+    /// because the toggle sits between them, so no container can combine
+    /// the two without reordering the row.
     private func scopedRowDisclosureButton(
         _ ability: AbilitiesAPI.Ability,
         action: @escaping () -> Void
@@ -490,6 +503,7 @@ struct AbilitiesListView: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .accessibilityHidden(true)
         .accessibilityIdentifier("ability-disclosure-\(ability.id)")
     }
 
@@ -505,29 +519,49 @@ struct AbilitiesListView: View {
         }
     }
 
+    /// Side by side at reading sizes; stacked at accessibility ones, where
+    /// a status capsule and a Connect button on the same line leave the
+    /// title a measure narrow enough to hyphenate mid-word.
+    @ViewBuilder
     private func abilityRowContent(
         _ ability: AbilitiesAPI.Ability,
         subtitle: String,
         @ViewBuilder accessory: () -> some View
     ) -> some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            AbilityIconView(ability: ability)
-            abilityRowTitles(ability, subtitle: subtitle)
-            Spacer()
-            accessory()
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    AbilityIconView(ability: ability)
+                    abilityRowTitles(ability, subtitle: subtitle)
+                    Spacer(minLength: 0.0)
+                }
+                accessory()
+            }
+            .accessibilityIdentifier("ability-row-\(ability.id)")
+        } else {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                AbilityIconView(ability: ability)
+                abilityRowTitles(ability, subtitle: subtitle)
+                Spacer()
+                accessory()
+            }
+            .accessibilityIdentifier("ability-row-\(ability.id)")
         }
-        .accessibilityIdentifier("ability-row-\(ability.id)")
     }
 
     private func abilityRowTitles(_ ability: AbilitiesAPI.Ability, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+        // One line is right at reading sizes and loses the whole fact at
+        // accessibility ones, where "Used in 1 convo" truncated to "Used
+        // in 1...".
+        let subtitleLineLimit: Int = dynamicTypeSize.isAccessibilitySize ? 3 : 1
+        return VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
             Text(ability.displayName.resolved())
                 .font(.body)
                 .foregroundStyle(.colorTextPrimary)
             Text(subtitle)
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
-                .lineLimit(1)
+                .lineLimit(subtitleLineLimit)
         }
     }
 
@@ -636,6 +670,10 @@ struct AbilitiesListView: View {
                 Text("Connect")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
+                    // Same rule as the status capsule: the action keeps its
+                    // word whole and the title column absorbs the growth.
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                     .padding(.horizontal, DesignConstants.Spacing.step3x)
                     .padding(.vertical, DesignConstants.Spacing.stepX)
                     .background(Capsule().fill(Color.colorFillMinimal))
