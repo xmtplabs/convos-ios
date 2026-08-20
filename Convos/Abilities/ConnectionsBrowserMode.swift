@@ -52,6 +52,24 @@ enum ConnectionsBrowserMode: Hashable, Identifiable {
         return nil
     }
 
+    /// The browser's header subtitle. The account-level list sells the
+    /// feature; the chat-scoped one names the agent the connections are
+    /// being turned on for.
+    ///
+    /// A blank name falls back to a generic phrasing rather than leaving a
+    /// gap mid-sentence. Empty is a real value here, not a defensive
+    /// hypothetical: the display name is whatever the profile had resolved
+    /// to when the modal was presented, and `AbilitiesListScreen` already
+    /// builds its agent descriptor with `mode.agentDisplayName ?? ""`.
+    var headerSubtitle: String {
+        guard case .composerModal(_, _, let agentDisplayName) = self else {
+            return "Give agents new powers in your convos"
+        }
+        let trimmedName: String = agentDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name: String = trimmedName.isEmpty ? "your agent" : trimmedName
+        return "Choose what \(name) can use in this chat"
+    }
+
     /// Deliberately excludes `agentDisplayName`: the modal is presented
     /// with `fullScreenCover(item:)`, so folding a renameable value into
     /// identity would tear the modal down and re-present it the moment the

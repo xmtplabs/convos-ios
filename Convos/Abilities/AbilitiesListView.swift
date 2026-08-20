@@ -219,7 +219,7 @@ struct AbilitiesListView: View {
                     .font(.convosTitle)
                     .tracking(Font.convosTitleTracking)
                     .foregroundStyle(.colorTextPrimary)
-                Text("Give agents new powers in your convos")
+                Text(mode.headerSubtitle)
                     .font(.subheadline)
                     .foregroundStyle(.colorTextPrimary)
             }
