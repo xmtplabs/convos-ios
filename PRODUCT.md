@@ -25,7 +25,7 @@ The home screen is not a replacement inbox. It is a private, continuously growin
 - The user lands in “Your Space” every time they open the app.
 - The title control at the top opens every conversation in a panel that drops from directly beneath the header, keeps Your Space first, and places search above the convo list.
 - A top-right add control starts a new conversation or joins one by scanning a QR code.
-- The profile image at top left opens Me & My Stuff. A separate gear opens app settings.
+- The profile image at top left opens Me & My Stuff. App settings is available from the gear inside that profile section, not from Home.
 - A native overflow menu exposes connections, private file upload, stored files, home customization, and the conversations contributing to the private space.
 - The bottom dock keeps a visible personal-agent command bar as the primary action, with More on the left and chat on the right. When an external harness is connected in the prototype, the bar names it and exposes a native harness switcher.
 - Contacts are selected in the invite flow for a conversation rather than occupying a permanent bottom-level destination.

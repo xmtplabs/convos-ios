@@ -2,7 +2,7 @@
  THESIS: Your Space is a private context home with three fast routes back into recent Convos, a personal library, and personal agents that remain separate from every group.
  OWN-WORLD: Native Convos neutrals, circular identity, glass reserved for persistent controls, and open editorial spacing between flat lists and one expressive Me card.
  STORY: On launch the user learns what changed, jumps into a recent Convo, sees what they own, and works privately with an agent before choosing what to save or share.
- FIRST VIEWPORT: Profile, anchored Your Space switcher, and settings/add controls sit above the briefing, three recent Convos, and the beginning of Me & My Stuff.
+ FIRST VIEWPORT: Profile, anchored Your Space switcher, and the add control sit above the briefing, three recent Convos, and the beginning of Me & My Stuff.
  FORM: A living cross-conversation digest using the pinned shell recorded as YS-SHELL-2026-08-18; no generated concept seed was used.
  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
  */
@@ -383,7 +383,6 @@ private extension YourSpaceView {
         HStack(spacing: DesignConstants.Spacing.step3x) {
             profileButton
             spaceSwitcherButton
-            settingsButton
             addMenu
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -451,21 +450,6 @@ private extension YourSpaceView {
         .contentShape(.circle)
         .accessibilityLabel("Open Me & My Stuff")
         .accessibilityIdentifier("your-space-profile-button")
-    }
-
-    private var settingsButton: some View {
-        Button(action: onOpenSettings) {
-            Image(systemName: "gearshape")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.colorTextPrimary)
-                .frame(width: 44, height: 44)
-                .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .circle)
-        .matchedTransitionSource(id: "app-settings-transition-source", in: transitionNamespace)
-        .accessibilityLabel("Open settings")
-        .accessibilityIdentifier("your-space-settings-button")
     }
 
     private var spaceSwitcherButton: some View {

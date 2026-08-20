@@ -109,7 +109,7 @@ Convos is a quiet personal briefing room, not an inbox dashboard. Its visual wor
 
 The briefing voice is expressive, while every control around it remains unmistakably native iOS. System components, semantic colors, Dynamic Type, and familiar sheet and list behavior keep the interface calm and trustworthy; privacy is communicated through visible provenance and deliberate boundaries rather than decorative security theater.
 
-The authenticated shell evolves `YS-SHELL-2026-08-18`: profile at top left opens Me & My Stuff, the centered space switcher remains anchored, settings and add sit at top right, and a More–agent command–chat tray remains at the bottom. The switcher expands downward from the header rather than rising from the bottom.
+The authenticated shell evolves `YS-SHELL-2026-08-18`: profile at top left opens Me & My Stuff, the centered space switcher remains anchored, add sits at top right, and a More–agent command–chat tray remains at the bottom. Settings is nested inside Me & My Stuff. The switcher expands downward from the header rather than rising from the bottom.
 
 **Key Characteristics:**
 
@@ -166,7 +166,7 @@ The palette is an adaptive black-to-white neutral system whose meaning survives 
 
 ## Layout
 
-The shell is based on `YS-SHELL-2026-08-18`. Its top safe-area bar places circular profile identity, a flexible centered switcher, and circular settings/add controls on one line. The main briefing scrolls independently beneath it, and a fixed More–agent command–chat tray occupies the bottom safe area when reading size permits. The flexible command bar names its purpose in text instead of relying on an isolated waveform symbol.
+The shell is based on `YS-SHELL-2026-08-18`. Its top safe-area bar places circular profile identity, a flexible centered switcher, and a circular add control on one line. Settings lives inside Me & My Stuff so the home chrome stays focused. The main briefing scrolls independently beneath it, and a fixed More–agent command–chat tray occupies the bottom safe area when reading size permits. The flexible command bar names its purpose in text instead of relying on an isolated waveform symbol.
 
 The home scroll view owns the visible viewport. Temporary chrome such as the anchored convo switcher is an overlay on that viewport and must never wrap, expand, or replace the scroll container's layout bounds.
 
@@ -174,7 +174,7 @@ Content follows the existing `DesignConstants.Spacing` four-point rhythm. The ma
 
 At accessibility Dynamic Type sizes, the bottom controls leave the safe-area overlay and reappear as full-width, `52pt`-minimum actions inside the scrolling content. The compact top chrome caps at the largest standard Dynamic Type size so profile, switcher, and add remain one usable row while the briefing continues to scale through the accessibility sizes. Text wraps vertically, update details retain conversation provenance, and controls preserve at least a `44pt` target without squeezing the briefing.
 
-**The Pinned Shell Rule.** Preserve the profile–switcher–settings/add top line and More–agent command–chat bottom line. The complete conversation index belongs in the anchored searchable panel; Home may show exactly three recent shortcuts, never an unbounded replacement inbox.
+**The Pinned Shell Rule.** Preserve the profile–switcher–add top line and More–agent command–chat bottom line. Keep settings inside the profile section. The complete conversation index belongs in the anchored searchable panel; Home may show exactly three recent shortcuts, never an unbounded replacement inbox.
 
 **The Accessibility Reflow Rule.** When text reaches an accessibility size, move persistent bottom actions into the content flow rather than forcing them to compete with enlarged text.
 
@@ -198,7 +198,7 @@ Identity is circular: profile and conversation avatars, people, unread dots, and
 
 - **Profile:** A circular `40pt` avatar inside a `44pt` target with a subtle semantic border; it opens Me & My Stuff and does not use glass.
 - **Switcher:** A flexible `44pt`-minimum capsule with a semibold body label and secondary chevron. It opens a right-aligned panel directly below the header, approximately 74% of the available content height. The panel keeps Your Space first, then search, then the complete recency-sorted convo list with unread state in `68pt`-minimum rows.
-- **Settings:** A circular interactive-glass gear that opens the existing app settings surface.
+- **Settings:** A gear inside Me & My Stuff opens the existing app settings surface without adding another Home control.
 - **Add:** A circular interactive-glass control exposing exactly start and QR-join actions.
 - **More:** A circular interactive-glass `Menu` whose native popup opens Bring your own agent, Connections, Upload files, Files, Add a widget, and Connected convos directly—without an intermediate tools sheet.
 - **Voice:** A centered `56pt` Lava circle with a waveform symbol; it opens on-device recording and transcription into the private briefing assistant.
