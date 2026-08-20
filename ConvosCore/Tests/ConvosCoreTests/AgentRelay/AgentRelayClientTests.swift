@@ -159,6 +159,55 @@ struct AgentRelayClientTests {
         #expect(api.fetchWaitMilliseconds == [5_000, 0])
     }
 
+    @Test("watch retries transient fetch failures and completes")
+    func watchRetriesTransientFailures() async throws {
+        let database = try AgentChatDatabase.inMemoryForTests()
+        let writer = AgentChatWriter(database: database)
+        let repository = AgentChatRepository(database: database)
+        let result = makeAgentRelayResult(message: "Recovered after retries")
+        let api = ScriptedAgentRelayAPI(fetchOutcomes: [.completed(result)])
+        api.failNextFetches(with: [AgentRelayError.relayUnreachable, AgentRelayError.relayUnreachable])
+        let client = AgentRelayClient(
+            api: api,
+            webhook: ScriptedWebhookTransport(),
+            store: writer,
+            history: StubAgentHistoryBuilder(),
+            sleep: { _ in }
+        )
+
+        let outcome = try await client.send(prompt: "Prompt", connection: makeAgentConnection())
+        let turn = try repository.turn(requestId: "request_test")
+
+        #expect(outcome == .completed(result))
+        #expect(api.fetchCount == 3)
+        #expect(turn?.status == .completed)
+        #expect(turn?.ackedAt != nil)
+    }
+
+    @Test("watch stops retrying transient failures at its deadline")
+    func watchStopsRetryingAtDeadline() async throws {
+        let database = try AgentChatDatabase.inMemoryForTests()
+        let writer = AgentChatWriter(database: database)
+        let clock = MutableAgentRelayClock(now: Date(timeIntervalSince1970: 1_000))
+        try writer.insertPending(makeAgentTurn(requestId: "request_deadline"))
+        let api = ScriptedAgentRelayAPI()
+        api.failEveryFetch(with: AgentRelayError.relayUnreachable)
+        let client = AgentRelayClient(
+            api: api,
+            webhook: ScriptedWebhookTransport(),
+            store: writer,
+            history: StubAgentHistoryBuilder(),
+            sleep: { delay in clock.advance(by: delay) },
+            now: { clock.current }
+        )
+
+        let outcome = try await client.watch(requestId: "request_deadline")
+
+        #expect(outcome == .stillWorking)
+        #expect(api.fetchCount > 1)
+        #expect(clock.current.timeIntervalSince1970 == 1_600)
+    }
+
     @Test("watch completes a Tasklet turn with its journaled provider")
     func watchUsesJournaledTaskletProvider() async throws {
         let recorder = AgentRelayCallRecorder()
@@ -453,5 +502,26 @@ struct AgentRelayClientTests {
         #expect(collected == nil)
         #expect(try repository.turn(requestId: "request_collect_elsewhere")?.status == .collectedElsewhere)
         #expect(api.ackCount == 0)
+    }
+
+    @Test("not found fetch marks a past-expiry pending row expired")
+    func notFoundFetchMarksPastExpiryTurnExpired() async throws {
+        let database = try AgentChatDatabase.inMemoryForTests()
+        let writer = AgentChatWriter(database: database)
+        let repository = AgentChatRepository(database: database)
+        try writer.insertPending(makeAgentTurn(
+            requestId: "request_past_expiry",
+            expiresAt: Date().addingTimeInterval(-60)
+        ))
+        let client = AgentRelayClient(
+            api: ScriptedAgentRelayAPI(fetchOutcomes: [.notFound]),
+            webhook: ScriptedWebhookTransport(),
+            store: writer,
+            history: StubAgentHistoryBuilder()
+        )
+
+        _ = try await client.watch(requestId: "request_past_expiry")
+
+        #expect(try repository.turn(requestId: "request_past_expiry")?.status == .expired)
     }
 }

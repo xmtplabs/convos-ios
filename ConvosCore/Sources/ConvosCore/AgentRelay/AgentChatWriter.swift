@@ -84,7 +84,7 @@ public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderRe
     public func markCollectedElsewhere(requestId: String) throws {
         try updateExisting(requestId: requestId) { turn in
             guard turn.status == .pending else { return }
-            turn.status = .collectedElsewhere
+            turn.status = turn.expiresAt < Date() ? .expired : .collectedElsewhere
             turn.errorCode = nil
         }
     }

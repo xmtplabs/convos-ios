@@ -20,10 +20,31 @@ final class AgentRelayCallRecorder: @unchecked Sendable {
     }
 }
 
+final class MutableAgentRelayClock: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var storedNow: Date
+
+    init(now: Date) {
+        storedNow = now
+    }
+
+    var current: Date {
+        lock.withLock { storedNow }
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.withLock {
+            storedNow = storedNow.addingTimeInterval(interval)
+        }
+    }
+}
+
 final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
     private struct State {
         var fetchOutcomes: [AgentRelayFetchOutcome]
         var mintProviders: [ExternalAgentProvider] = []
+        var fetchErrors: [Error] = []
+        var repeatedFetchError: Error?
         var fetchCount: Int = 0
         var fetchWaitMilliseconds: [Int] = []
         var ackCount: Int = 0
@@ -74,6 +95,18 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
         lock.withLock { state.ackCount }
     }
 
+    func failNextFetches(with errors: [Error]) {
+        lock.withLock {
+            state.fetchErrors = errors
+        }
+    }
+
+    func failEveryFetch(with error: Error) {
+        lock.withLock {
+            state.repeatedFetchError = error
+        }
+    }
+
     func mint(provider: ExternalAgentProvider) async throws -> AgentRelayMint {
         lock.withLock {
             state.mintProviders.append(provider)
@@ -92,10 +125,17 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
         if blocksFetch {
             try await Task.sleep(nanoseconds: 60_000_000_000)
         }
-        return lock.withLock {
-            guard !state.fetchOutcomes.isEmpty else { return .notFound }
-            return state.fetchOutcomes.removeFirst()
+        let result: Result<AgentRelayFetchOutcome, Error> = lock.withLock {
+            if !state.fetchErrors.isEmpty {
+                return .failure(state.fetchErrors.removeFirst())
+            }
+            if let repeatedFetchError = state.repeatedFetchError {
+                return .failure(repeatedFetchError)
+            }
+            guard !state.fetchOutcomes.isEmpty else { return .success(.notFound) }
+            return .success(state.fetchOutcomes.removeFirst())
         }
+        return try result.get()
     }
 
     func ack(requestId: String) async throws {
