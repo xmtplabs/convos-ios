@@ -46,53 +46,40 @@ struct ConversationAbilitiesSection: View {
     @ViewBuilder
     private func abilityRow(_ row: ConversationAbilitiesViewModel.Row) -> some View {
         switch row.lifecycle {
-        case .needsAttention(let status):
-            needsAttentionRow(row, status: status)
+        case .needsAttention:
+            needsAttentionRow(row)
         case .ready, .needsEntitlement, .unknown:
             toggleRow(row)
         }
     }
 
     private func toggleRow(_ row: ConversationAbilitiesViewModel.Row) -> some View {
-        let binding: Binding<Bool> = Binding(
-            get: { row.isOn },
-            set: { _ in viewModel.toggle(row) }
-        )
-        let isDisabled: Bool = viewModel.isBusy || row.lifecycle == .unknown
-        return featureRow(row) {
-            Toggle("", isOn: binding)
-                .labelsHidden()
-                .disabled(isDisabled)
+        featureRow(row) {
+            toggleControl(row)
         }
     }
 
     /// An opt-in whose entitlement is no longer active: no usable toggle,
     /// a badge, and the whole row opens the inline connect sheet to
-    /// reconnect.
-    private func needsAttentionRow(
-        _ row: ConversationAbilitiesViewModel.Row,
-        status: AbilitiesAPI.EntitlementStatus?
-    ) -> some View {
+    /// reconnect. The badge itself carries the same action (the shared
+    /// control owns it, so the browser's badge is tappable too).
+    private func needsAttentionRow(_ row: ConversationAbilitiesViewModel.Row) -> some View {
         let reconnectAction = { viewModel.presentConnect(for: row) }
         return Button(action: reconnectAction) {
             featureRow(row) {
-                attentionBadge(status: status)
+                toggleControl(row)
             }
         }
         .buttonStyle(.plain)
     }
 
-    /// A server-owned status renders its badge; an opt-in with no
-    /// entitlement at all (authoritative null) gets a neutral "Not
-    /// connected" badge -- the server never said "revoked", so the UI
-    /// must not either.
-    @ViewBuilder
-    private func attentionBadge(status: AbilitiesAPI.EntitlementStatus?) -> some View {
-        if let status {
-            AbilityStatusBadge(status: status)
-        } else {
-            AbilityNeutralBadge(label: "Not connected")
-        }
+    private func toggleControl(_ row: ConversationAbilitiesViewModel.Row) -> ConversationAbilityToggleControl {
+        let reconnectAction = { viewModel.presentConnect(for: row) }
+        return ConversationAbilityToggleControl(
+            row: row,
+            viewModel: viewModel,
+            onNeedsAttention: reconnectAction
+        )
     }
 
     private func featureRow(
@@ -170,7 +157,7 @@ private struct ConversationAbilitiesActiveSheetsModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(item: $viewModel.bundleSelection) { context in
+            .sheet(item: $viewModel.bundleSelection, onDismiss: handleBundleSelectionDismissed) { context in
                 bundleSelectionSheet(context)
             }
             .selfSizingSheet(item: $viewModel.connectContext, onDismiss: handleConnectSheetDismissed) { context in
@@ -180,8 +167,15 @@ private struct ConversationAbilitiesActiveSheetsModifier: ViewModifier {
 
     private func bundleSelectionSheet(_ context: AbilityBundleSelectionContext) -> some View {
         AbilityBundleSelectionSheet(context: context) { bundleIds in
-            viewModel.extend(ability: context.ability, agent: context.agent, bundleIds: bundleIds)
+            viewModel.confirmBundleSelection(context, bundleIds: bundleIds)
         }
+    }
+
+    /// Fires for every dismissal of the picker -- confirm, Cancel tap and
+    /// swipe-away alike -- so a cancelled auto-enable settles its row off
+    /// instead of hanging on a spinner.
+    private func handleBundleSelectionDismissed() {
+        viewModel.handleBundleSelectionDismissed()
     }
 
     /// The no-entitlement path: an inline connect flow for the tapped

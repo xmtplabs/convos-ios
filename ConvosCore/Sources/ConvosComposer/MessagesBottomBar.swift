@@ -105,14 +105,12 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     /// App-provided chip for a staged agent-share link, forwarded to
     /// `MessagesInputView`.
     @ViewBuilder let agentShareChip: () -> AgentChip
-    /// Agent-style composer: the same `+` menu as the group composer plus a
-    /// trailing curated quick-action row (default state only), and an empty
+    /// Agent-style composer: the `+` menu gains `.connections`, and an empty
     /// composer's send slot becomes the voice-memo entry.
     var usesAgentComposerLayout: Bool = false
-    /// Host gate for the `.connections` option, quick icon and menu row
-    /// alike. The composer package cannot read the app's feature flags, so
-    /// the host passes the capability - both offered lists feed from it
-    /// through one predicate (see `ComposerAttachmentAction`).
+    /// Host gate for the `+` menu's `.connections` row. The composer package
+    /// cannot read the app's feature flags, so the host passes the
+    /// capability (see `ComposerAttachmentAction`).
     var connectionsEnabled: Bool = false
     /// Presents the host's Connections browser. The browser lives outside
     /// this package, so the composer only emits the tap.
@@ -590,9 +588,9 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         .equatable()
     }
 
-    /// Runs the picked row, from the `+` menu or the quick row alike. The
-    /// menu has already dismissed by the time the action fires, so a picker
-    /// can present right away.
+    /// Runs the row picked from the `+` menu. The menu has already
+    /// dismissed by the time the action fires, so a picker can present
+    /// right away.
     private func handleAttachmentSelected(_ action: ComposerAttachmentAction) {
         switch action.dispatch {
         case .photoPicker: isPhotoPickerPresented = true
@@ -602,79 +600,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         case .hostConnections: onConnectionsTap?()
         case .debugInjector: onDebugAttachmentTap?()
         }
-    }
-
-    /// The agent composer's trailing quick-action row: the curated subset of
-    /// the `+` menu as always-visible filled buttons between the text and the
-    /// voice button. Shares the menu's availability rules
-    /// (`disabledAttachmentActions`) and dispatch (`handleAttachmentSelected`).
-    private var agentQuickRow: some View {
-        let actions: [ComposerAttachmentAction] = ComposerAttachmentAction.agentQuickRow(connectionsEnabled: connectionsEnabled)
-        return HStack(spacing: 0) {
-            ForEach(actions) { action in
-                inlineMediaButton(
-                    symbol: action.filledIconSystemName,
-                    action: action,
-                    label: action.title,
-                    identifier: quickRowIdentifier(for: action)
-                )
-            }
-        }
-    }
-
-    /// Stable accessibility ids: the media pair keeps the ids the old leading
-    /// strip carried (QA flows reference them); new options derive from the
-    /// action's own id.
-    private func quickRowIdentifier(for action: ComposerAttachmentAction) -> String {
-        switch action {
-        case .photos: "photo-picker-button"
-        case .files: "file-picker-button"
-        default: "quick-\(action.rawValue)-button"
-        }
-    }
-
-    /// The quick row shows in the default state only: it collapses while the
-    /// member writes, leaving `+` and the voice button.
-    private var isAgentQuickRowVisible: Bool {
-        usesAgentComposerLayout && AgentComposerQuickRow.isVisible(
-            isMessageFieldFocused: focusState == .message,
-            messageText: messageText
-        )
-    }
-
-    /// The input field's trailing accessory slot: the quick row while the
-    /// agent composer rests in its default state, nothing otherwise (the
-    /// group composer never fills the slot).
-    @ViewBuilder
-    private var quickActionsAccessory: some View {
-        if isAgentQuickRowVisible {
-            agentQuickRow
-                .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .trailing)))
-        }
-    }
-
-    private func inlineMediaButton(
-        symbol: String,
-        action: ComposerAttachmentAction,
-        label: String,
-        identifier: String
-    ) -> some View {
-        let isDisabled: Bool = disabledAttachmentActions.contains(action)
-        return Button {
-            handleAttachmentSelected(action)
-        } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 18.0, weight: .medium))
-                .foregroundStyle(Color.colorTextPrimary.opacity(isDisabled ? 0.3 : 1.0))
-                .frame(width: 32, height: 32)
-                .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .hoverEffect(.lift)
-        .hoverEffectDisabled(isDisabled)
-        .accessibilityLabel(label)
-        .accessibilityIdentifier(identifier)
     }
 
     /// The voice-memo entry the agent layout puts in an empty composer's
@@ -727,7 +652,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             onClearMediaAttachment: onClearMediaAttachment,
             fileAttachmentPreview: fileAttachmentPreview,
             agentShareChip: agentShareChip,
-            quickActionsAccessory: { quickActionsAccessory },
             attachmentsButton: { attachmentsGlyph }
         )
     }
@@ -751,7 +675,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             participationBubble
 
             glassStyledInputCapsule
-                .animation(.easeOut(duration: 0.2), value: isAgentQuickRowVisible)
                 .overlay(alignment: .bottomLeading) { attachmentsControlOverlay }
         }
         .disabled(!messagesTextFieldEnabled)

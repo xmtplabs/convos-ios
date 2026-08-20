@@ -24,9 +24,9 @@ struct ConversationComposerBar<ExtraBarContent: View>: View {
     /// Scrolls the paired transcript to the bottom; invoked on send.
     var scrollToBottom: (() -> Void)?
     var onDebugAttachmentTap: (() -> Void)?
-    /// Agent-style composer: the group `+` menu plus the trailing curated
-    /// quick-action row, and a voice-memo entry in the empty composer's send
-    /// slot (see MessagesBottomBar).
+    /// Agent-style composer: the group `+` menu plus `.connections`, and a
+    /// voice-memo entry in the empty composer's send slot (see
+    /// MessagesBottomBar).
     var usesAgentComposerLayout: Bool = false
     /// Host-passed capability gating the `.connections` option; the bar
     /// never reads feature flags itself (see MessagesBottomBar).

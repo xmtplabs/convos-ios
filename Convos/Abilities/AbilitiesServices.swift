@@ -115,10 +115,27 @@ enum AbilitiesServices {
     /// invalidates the service's in-flight fetches and re-clears, so a
     /// catalog refresh that was already on the network can neither commit
     /// nor recreate the wiped files when it resumes.
+    ///
+    /// Advancing `AbilitiesAccountEpoch` is the view-model half of the same
+    /// fence: clearing the actor and the disk says nothing to a screen that
+    /// is already holding a snapshot (see `AbilitiesAccountEpoch`).
     static func handleAccountDataWiped() {
         catalogCache?.clearAll()
+        advanceAccountEpoch()
         guard let liveService else { return }
         Task { await liveService.handleAccountDataWiped() }
+    }
+
+    /// Synchronous whenever the caller is already on the main actor, which
+    /// every wipe site is. Deferring the bump to a queued task would leave
+    /// a window in which a fetch started under the wiped account can still
+    /// commit, because the view models would not yet know the epoch moved.
+    private static func advanceAccountEpoch() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { AbilitiesAccountEpoch.shared.advance() }
+        } else {
+            Task { @MainActor in AbilitiesAccountEpoch.shared.advance() }
+        }
     }
 
     /// Debug sub-toggle under the Abilities V2 flag: live backend versus

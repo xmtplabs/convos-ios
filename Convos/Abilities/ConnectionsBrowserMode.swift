@@ -11,18 +11,19 @@ import Foundation
 ///   (`AppSettingsView.connectionsDestination`) pushes the screen inside
 ///   the settings `NavigationStack`. No chrome of its own - the stack
 ///   supplies the back button.
-/// - **`.composerModal(...)`**: the agent composer's powerplug (quick icon
-///   or `+` menu row) presents the screen full-screen from
+/// - **`.composerModal(...)`**: the agent composer's `+` menu powerplug
+///   row presents the screen full-screen from
 ///   `ConversationView`. The screen wraps itself in its own
 ///   `NavigationStack` with a Done dismiss control; ability detail pushes
-///   run inside that stack. Carries the launching DM's context for future
-///   scoped affordances; the content itself stays account-level.
+///   run inside that stack. Carries the launching DM's context: the
+///   Connected section scopes its per-chat toggles to that conversation
+///   and agent.
 ///
 /// Both modes render the same sections from the same view model; only the
 /// wrapper differs.
 enum ConnectionsBrowserMode: Hashable, Identifiable {
     case appSettings
-    case composerModal(conversationId: String, agentInboxId: String)
+    case composerModal(conversationId: String, agentInboxId: String, agentDisplayName: String)
 
     /// The modal presentation wraps the list in its own `NavigationStack`
     /// and shows the Done dismiss control; the settings push rides the
@@ -34,21 +35,32 @@ enum ConnectionsBrowserMode: Hashable, Identifiable {
 
     /// The agent DM the modal was launched from; nil for the settings push.
     var conversationId: String? {
-        if case .composerModal(let conversationId, _) = self { return conversationId }
+        if case .composerModal(let conversationId, _, _) = self { return conversationId }
         return nil
     }
 
     /// The agent whose composer launched the modal; nil for the settings push.
     var agentInboxId: String? {
-        if case .composerModal(_, let agentInboxId) = self { return agentInboxId }
+        if case .composerModal(_, let agentInboxId, _) = self { return agentInboxId }
         return nil
     }
 
+    /// The agent whose composer launched the modal, for the toggle rows
+    /// that scope to it; nil for the settings push.
+    var agentDisplayName: String? {
+        if case .composerModal(_, _, let agentDisplayName) = self { return agentDisplayName }
+        return nil
+    }
+
+    /// Deliberately excludes `agentDisplayName`: the modal is presented
+    /// with `fullScreenCover(item:)`, so folding a renameable value into
+    /// identity would tear the modal down and re-present it the moment the
+    /// agent renames mid-session.
     var id: String {
         switch self {
         case .appSettings:
             "appSettings"
-        case let .composerModal(conversationId, agentInboxId):
+        case let .composerModal(conversationId, agentInboxId, _):
             "composerModal-\(conversationId)-\(agentInboxId)"
         }
     }
