@@ -288,6 +288,13 @@ struct ConvosApp: App {
         SessionManager.deferCacheTimeDefaultAgent = {
             await MainActor.run { FeatureFlags.shared.isAgentVariantSelectorEnabled }
         }
+        // Records the pick against the conversation the claim actually handed
+        // back, while that conversation's agent is still unprovisioned.
+        SessionManager.claimedConversationVariantBinder = { conversationId, slug in
+            await MainActor.run {
+                AgentVariantAssignmentStore.shared.assign(slug: slug, to: conversationId)
+            }
+        }
     }
 
     var body: some Scene {

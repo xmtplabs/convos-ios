@@ -77,7 +77,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// instead abandon the row, it should call `discardClaimedConversation`
     /// (which deletes the row) or, if the row should be kept on disk but
     /// the cache claim dropped, `releaseClaimedConversation`.
-    func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?)
+    func prepareNewConversation(variantSlug: String?) async -> (service: AnyMessagingService, conversationId: String?)
 
     /// The id `prepareNewConversation` is expected to hand out next, or nil
     /// when nothing is pooled. Readable synchronously so a new-conversation
