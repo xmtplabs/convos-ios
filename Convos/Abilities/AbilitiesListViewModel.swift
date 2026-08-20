@@ -50,19 +50,27 @@ final class AbilitiesListViewModel {
     /// Browser-session authorizer for the live transport. Nil (mock mode)
     /// keeps the stub authorization sheet as the approval step.
     private let authorizer: (any AbilityAuthorizing)?
+    /// Where a Connected row's "Used in N convos" comes from. The same
+    /// source the detail screen lists, so the count and the list are the
+    /// same rows -- see `ConnectionUsageSourcing`.
+    private let usageSource: any ConnectionUsageSourcing
     private let accountEpoch: AbilitiesAccountEpoch
     /// The account generation the published catalog belongs to. A wipe
     /// notifies no view model, so without this a screen open across one
     /// keeps rendering the previous account's connections.
     private var snapshotEpoch: UInt64
 
+    private(set) var usageByAbilityId: [String: ConnectionUsage] = [:]
+
     init(
         service: any AbilitiesServiceProtocol,
         authorizer: (any AbilityAuthorizing)? = nil,
-        accountEpoch: AbilitiesAccountEpoch = .shared
+        accountEpoch: AbilitiesAccountEpoch = .shared,
+        usageSource: any ConnectionUsageSourcing = EmptyConnectionUsageSource()
     ) {
         self.service = service
         self.authorizer = authorizer
+        self.usageSource = usageSource
         self.accountEpoch = accountEpoch
         self.snapshotEpoch = accountEpoch.value
     }
@@ -194,6 +202,20 @@ final class AbilitiesListViewModel {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+        await refreshUsage(epoch: epoch)
+    }
+
+    /// The conversations this ability is enabled in, as the detail screen
+    /// would list them. Zero until the usage read lands, which is why the
+    /// row falls back to the server subtitle rather than to "0 convos".
+    func conversationCount(forAbilityId abilityId: String) -> Int {
+        usageByAbilityId[abilityId]?.conversations.count ?? 0
+    }
+
+    private func refreshUsage(epoch: UInt64) async {
+        let usage: [String: ConnectionUsage] = await usageSource.usageByAbilityId()
+        guard epoch == accountEpoch.value, epoch == snapshotEpoch else { return }
+        usageByAbilityId = usage
     }
 
     /// The one place `catalog` is published, so every host holding a

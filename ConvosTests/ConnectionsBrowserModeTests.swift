@@ -23,28 +23,32 @@ final class ConnectionsBrowserModeTests: XCTestCase {
         XCTAssertEqual(mode.agentDisplayName, "Caley")
     }
 
-    /// The chat-scoped browser names the agent it is turning connections on
-    /// for; the account-level one keeps its own copy byte for byte.
-    func testHeaderSubtitleNamesTheAgentOnlyInTheModal() {
-        let modal: ConnectionsBrowserMode = .composerModal(
-            conversationId: "dm-1",
-            agentInboxId: "agent-1",
-            agentDisplayName: "Caley"
-        )
-        XCTAssertEqual(modal.headerSubtitle, "Choose what Caley can use in this chat")
-        XCTAssertEqual(ConnectionsBrowserMode.appSettings.headerSubtitle, "Give agents new powers in your convos")
-    }
-
-    /// A name that has not resolved yet must never leave a gap mid-sentence.
-    func testHeaderSubtitleFallsBackWhenTheAgentHasNoUsableName() {
-        for name in ["", "   "] {
+    /// The chat-scoped copy is fixed: it names no agent, so a name that has
+    /// not resolved (or has just changed) cannot move it. The account-level
+    /// one keeps its own copy byte for byte.
+    func testHeaderSubtitleIsConstantInTheModalWhateverTheAgentIsCalled() {
+        for name in ["Caley", "", "   "] {
             let mode: ConnectionsBrowserMode = .composerModal(
                 conversationId: "dm-1",
                 agentInboxId: "agent-1",
                 agentDisplayName: name
             )
-            XCTAssertEqual(mode.headerSubtitle, "Choose what your agent can use in this chat")
+            XCTAssertEqual(mode.headerSubtitle, "Choose your agent's capabilities in this convo")
         }
+        XCTAssertEqual(ConnectionsBrowserMode.appSettings.headerSubtitle, "Give agents new powers in your convos")
+    }
+
+    /// The app-wide entitlement status is the account list's business; the
+    /// chat-scoped browser withholds the tag and lets the toggle and the
+    /// detail push carry the row.
+    func testOnlyTheAccountLevelListShowsTheConnectedStatusTag() {
+        let modal: ConnectionsBrowserMode = .composerModal(
+            conversationId: "dm-1",
+            agentInboxId: "agent-1",
+            agentDisplayName: "Caley"
+        )
+        XCTAssertTrue(ConnectionsBrowserMode.appSettings.showsConnectedStatusTag)
+        XCTAssertFalse(modal.showsConnectedStatusTag)
     }
 
     func testModeIdentitiesAreDistinct() {

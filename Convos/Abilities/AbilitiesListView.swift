@@ -26,15 +26,28 @@ struct AbilitiesListScreen: View {
     /// `ConnectionsBrowserMode`). Membership predicates are the same in
     /// both modes.
     private let mode: ConnectionsBrowserMode
+    /// Where the detail push reads its Agents/Convos sections from.
+    /// Supplied by the entry point so previews and tests can serve
+    /// fixtures without reaching for the process-wide accessor.
+    private let usageSource: any ConnectionUsageSourcing
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     /// Takes the whole selection so the service and its authorizer are
     /// latched together for the screen's lifetime -- the halves must never
     /// be resolved at different times (see `AbilitiesSelection`).
-    init(selection: AbilitiesSelection, mode: ConnectionsBrowserMode) {
+    init(
+        selection: AbilitiesSelection,
+        mode: ConnectionsBrowserMode,
+        usageSource: any ConnectionUsageSourcing
+    ) {
         self.selection = selection
         self.mode = mode
-        let listViewModel = AbilitiesListViewModel(service: selection.service, authorizer: selection.authorizer)
+        self.usageSource = usageSource
+        let listViewModel = AbilitiesListViewModel(
+            service: selection.service,
+            authorizer: selection.authorizer,
+            usageSource: usageSource
+        )
         let conversationViewModel = Self.makeConversationViewModel(listViewModel, selection: selection, mode: mode)
         if let conversationViewModel {
             Self.wireActivation(list: listViewModel, conversation: conversationViewModel)
@@ -122,7 +135,8 @@ struct AbilitiesListScreen: View {
             viewModel: viewModel,
             selection: selection,
             mode: mode,
-            conversationViewModel: conversationViewModel
+            conversationViewModel: conversationViewModel,
+            usageSource: usageSource
         )
         .modifier(ConversationAbilitiesSheetsModifier(viewModel: conversationViewModel))
     }
@@ -166,10 +180,11 @@ struct AbilitiesListScreen: View {
 /// here: it presents the scoped `AbilityConnectSheet` instead, which reuses
 /// this screen's view model for the connect machinery.
 ///
-/// Entitled rows push `AbilityDetailScreen` (delegations list) in
-/// `.appSettings` only. Available, state-unknown, and `.composerModal`
-/// Connected rows stay non-navigable - the last because a `Toggle` inside
-/// a `NavigationLink` fights the row's tap target.
+/// Connected rows push `AbilityDetailScreen` (where the connection is in
+/// use) in both modes: `.appSettings` through a plain `NavigationLink`,
+/// `.composerModal` through the row's own disclosure, because a `Toggle`
+/// inside a `NavigationLink` fights the row's tap target. Available and
+/// state-unknown rows stay non-navigable.
 struct AbilitiesListView: View {
     @Bindable var viewModel: AbilitiesListViewModel
     /// Latched pair handed down to ability detail pushes.
@@ -179,6 +194,13 @@ struct AbilitiesListView: View {
     /// The per-chat toggle state for `.composerModal`; nil renders the
     /// account-level accessory instead.
     var conversationViewModel: ConversationAbilitiesViewModel?
+    /// Handed to the detail push; see `AbilitiesListScreen.usageSource`.
+    var usageSource: any ConnectionUsageSourcing = EmptyConnectionUsageSource()
+    /// The Connected row the member tapped through to, in
+    /// `.composerModal`. The row cannot be a `NavigationLink` there (its
+    /// toggle would fight the link's tap target), so the disclosure drives
+    /// this instead.
+    @State private var detailAbility: AbilitiesAPI.Ability?
 
     var body: some View {
         catalogList
@@ -188,6 +210,9 @@ struct AbilitiesListView: View {
             .refreshable { await viewModel.refresh() }
             .selfSizingSheet(item: $viewModel.pendingAuthorization, onDismiss: handleAuthorizationDismissed) { context in
                 authorizationSheet(context)
+            }
+            .navigationDestination(item: $detailAbility) { ability in
+                AbilityDetailScreen(ability: ability, usageSource: usageSource)
             }
     }
 
@@ -395,7 +420,7 @@ struct AbilitiesListView: View {
 
     private func navigableEntitledRow(_ ability: AbilitiesAPI.Ability) -> some View {
         NavigationLink {
-            AbilityDetailScreen(ability: ability, selection: selection)
+            AbilityDetailScreen(ability: ability, usageSource: usageSource)
         } label: {
             abilityRowContent(ability, subtitle: entitledSubtitle(for: ability)) {
                 entitledAccessory(ability)
@@ -403,18 +428,58 @@ struct AbilitiesListView: View {
         }
     }
 
-    /// Chat-scoped Connected row: status badge plus the shared per-chat
-    /// toggle, and nothing else. No `ellipsis` menu (Disconnect is
-    /// app-wide, and this surface only extends and withdraws grants) and
-    /// no detail push - the toggle needs the row's tap target, and the
-    /// push is where a disconnect would sneak back in.
+    /// Chat-scoped Connected row: the shared per-chat toggle plus a
+    /// disclosure into the connection's detail. No `ellipsis` menu
+    /// (Disconnect is app-wide, and this surface only extends and withdraws
+    /// grants) and no app-wide status tag (see
+    /// `ConnectionsBrowserMode.showsConnectedStatusTag`).
+    ///
+    /// The row is deliberately not a `NavigationLink`: a `Toggle` inside one
+    /// fights the link's tap target. The label and the chevron are their own
+    /// buttons, the toggle sits between them, and each keeps its own hit
+    /// area - tapping the row pushes the detail, tapping the toggle writes
+    /// the grant.
     private func scopedEntitledRow(
         _ ability: AbilitiesAPI.Ability,
         conversationViewModel: ConversationAbilitiesViewModel
     ) -> some View {
-        abilityRowContent(ability, subtitle: entitledSubtitle(for: ability)) {
+        let disclosureAction: () -> Void = { detailAbility = ability }
+        return HStack(spacing: DesignConstants.Spacing.step2x) {
+            scopedRowLabelButton(ability, action: disclosureAction)
             scopedEntitledAccessory(ability, conversationViewModel: conversationViewModel)
+            scopedRowDisclosureButton(ability, action: disclosureAction)
         }
+        .accessibilityIdentifier("ability-row-\(ability.id)")
+    }
+
+    private func scopedRowLabelButton(
+        _ ability: AbilitiesAPI.Ability,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                AbilityIconView(ability: ability)
+                abilityRowTitles(ability, subtitle: entitledSubtitle(for: ability))
+                Spacer()
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("ability-open-\(ability.id)")
+    }
+
+    private func scopedRowDisclosureButton(
+        _ ability: AbilitiesAPI.Ability,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.colorTextTertiary)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("ability-disclosure-\(ability.id)")
     }
 
     private func availableRow(_ ability: AbilitiesAPI.Ability) -> some View {
@@ -436,25 +501,35 @@ struct AbilitiesListView: View {
     ) -> some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
             AbilityIconView(ability: ability)
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                Text(ability.displayName.resolved())
-                    .font(.body)
-                    .foregroundStyle(.colorTextPrimary)
-                Text(subtitle)
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
-                    .lineLimit(1)
-            }
+            abilityRowTitles(ability, subtitle: subtitle)
             Spacer()
             accessory()
         }
         .accessibilityIdentifier("ability-row-\(ability.id)")
     }
 
+    private func abilityRowTitles(_ ability: AbilitiesAPI.Ability, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+            Text(ability.displayName.resolved())
+                .font(.body)
+                .foregroundStyle(.colorTextPrimary)
+            Text(subtitle)
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .lineLimit(1)
+        }
+    }
+
     /// The entitled row's second line: how broadly the entitlement is in
     /// use, falling back to the server subtitle when unextended.
+    ///
+    /// The count comes from the same read the detail screen lists, never
+    /// from the entitlement's `extensionCount`: the server counts every
+    /// conversation holding an extension, including ones this client cannot
+    /// show, so the subtitle used to claim convos the detail screen then
+    /// could not name.
     private func entitledSubtitle(for ability: AbilitiesAPI.Ability) -> String {
-        let count: Int = ability.entitlement?.extensionCount ?? 0
+        let count: Int = viewModel.conversationCount(forAbilityId: ability.id)
         switch count {
         case 0: return ability.subtitle.resolved()
         case 1: return "Used in 1 convo"
@@ -476,8 +551,9 @@ struct AbilitiesListView: View {
         }
     }
 
-    /// The badge still reports the app-wide entitlement status; the toggle
-    /// beside it reports this chat. Two different facts, so both render.
+    /// The app-wide status tag is withheld here: this surface answers "is
+    /// it on in this convo", which the toggle already says, and the row now
+    /// leads somewhere the app-wide status is spelled out.
     @ViewBuilder
     private func scopedEntitledAccessory(
         _ ability: AbilitiesAPI.Ability,
@@ -487,7 +563,7 @@ struct AbilitiesListView: View {
             ProgressView()
         } else {
             HStack(spacing: DesignConstants.Spacing.step2x) {
-                if let entitlement = ability.entitlement {
+                if mode.showsConnectedStatusTag, let entitlement = ability.entitlement {
                     AbilityStatusBadge(status: entitlement.status)
                 }
                 scopedToggle(ability, conversationViewModel: conversationViewModel)
@@ -580,31 +656,48 @@ struct AbilitiesListView: View {
 
 #Preview("Standard") {
     NavigationStack {
-        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService()), mode: .appSettings)
+        AbilitiesListScreen(
+            selection: AbilitiesSelection(service: MockAbilitiesService()),
+            mode: .appSettings,
+            usageSource: PreviewConnectionUsageSource()
+        )
     }
 }
 
 #Preview("Composer modal") {
     AbilitiesListScreen(
         selection: AbilitiesSelection(service: MockAbilitiesService()),
-        mode: .composerModal(conversationId: "mock-conversation-1", agentInboxId: "mock-agent-inbox-1", agentDisplayName: "Caley")
+        mode: .composerModal(conversationId: "mock-conversation-1", agentInboxId: "mock-agent-inbox-1", agentDisplayName: "Caley"),
+        usageSource: PreviewConnectionUsageSource()
     )
 }
 
 #Preview("Entitlements unavailable") {
     NavigationStack {
-        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailable)), mode: .appSettings)
+        AbilitiesListScreen(
+            selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailable)),
+            mode: .appSettings,
+            usageSource: PreviewConnectionUsageSource()
+        )
     }
 }
 
 #Preview("Cold-start outage") {
     NavigationStack {
-        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart)), mode: .appSettings)
+        AbilitiesListScreen(
+            selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .entitlementsUnavailableColdStart)),
+            mode: .appSettings,
+            usageSource: PreviewConnectionUsageSource()
+        )
     }
 }
 
 #Preview("Device only") {
     NavigationStack {
-        AbilitiesListScreen(selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .deviceOnly)), mode: .appSettings)
+        AbilitiesListScreen(
+            selection: AbilitiesSelection(service: MockAbilitiesService(scenario: .deviceOnly)),
+            mode: .appSettings,
+            usageSource: PreviewConnectionUsageSource()
+        )
     }
 }

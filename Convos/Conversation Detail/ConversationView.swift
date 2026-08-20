@@ -721,7 +721,11 @@ private extension ConversationView {
     func connectionsBrowserPresentation(_ content: some View) -> some View {
         content
             .fullScreenCover(item: $connectionsBrowserContext) { mode in
-                AbilitiesListScreen(selection: AbilitiesServices.selection, mode: mode)
+                AbilitiesListScreen(
+                    selection: AbilitiesServices.selection,
+                    mode: mode,
+                    usageSource: AbilitiesServices.connectionUsageSource
+                )
             }
     }
 

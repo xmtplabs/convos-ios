@@ -1,19 +1,19 @@
 import ConvosCore
 import SwiftUI
 
-/// Owns the ability detail view model via `@State`, so it is created once
-/// per navigation push and survives re-evaluation of the presenting
+/// Owns the connection detail view model via `@State`, so it is created
+/// once per navigation push and survives re-evaluation of the presenting
 /// builder. Entry points must push this wrapper: constructing
 /// `AbilityDetailViewModel` inline in a navigation destination would hand
 /// `AbilityDetailView` a fresh model on every parent invalidation,
-/// silently dropping loaded delegations (and the list's `.task`, keyed to
-/// view identity, would not re-fire for the replacement). Same rationale
-/// as `AbilitiesListScreen`.
+/// silently dropping loaded usage (and the list's `.task`, keyed to view
+/// identity, would not re-fire for the replacement). Same rationale as
+/// `AbilitiesListScreen`.
 struct AbilityDetailScreen: View {
     @State private var viewModel: AbilityDetailViewModel
 
-    init(ability: AbilitiesAPI.Ability, selection: AbilitiesSelection) {
-        _viewModel = State(initialValue: AbilityDetailViewModel(ability: ability, selection: selection))
+    init(ability: AbilitiesAPI.Ability, usageSource: any ConnectionUsageSourcing) {
+        _viewModel = State(initialValue: AbilityDetailViewModel(ability: ability, usageSource: usageSource))
     }
 
     var body: some View {
@@ -21,30 +21,42 @@ struct AbilityDetailScreen: View {
     }
 }
 
-/// One ability's detail: identity header plus every delegation granted
-/// against it, split into active and earlier, with owner-initiated
-/// revocation on active rows.
+/// One connection's detail: identity header plus where the connection is in
+/// use, in three sections -- the agents holding it, the people it has been
+/// delegated to, and the conversations it is enabled in.
 ///
-/// Reachable only from `AbilitiesListView`'s entitled rows, which are
-/// themselves only reachable from surfaces already gated by the Abilities
-/// V2 flag -- no extra flag check needed here.
+/// Entry points (both push it inside a `NavigationStack` the caller already
+/// supplies, and both render the identical screen -- there is no per-surface
+/// variant here, so no mode enum of its own):
+/// - the app-wide Connections list (`ConnectionsBrowserMode.appSettings`),
+///   from `AbilitiesListView.navigableEntitledRow`;
+/// - the per-convo Connections browser
+///   (`ConnectionsBrowserMode.composerModal`), from the Connected row's
+///   disclosure, which is a separate tap target from the row's toggle.
+///
+/// People always leads with the owner's own row ("You") and holds nothing
+/// else yet: delegation to other members arrives with the Entitlement Actor
+/// Model, and its rows append below the owner when they do.
+///
+/// Rows carry an explicit `colorBackgroundRaised` surface over the screen's
+/// `colorBackgroundRaisedSecondary`, the same pairing conversation member
+/// rows use. Without it the rows inherit the system grouped-row material,
+/// which reads as a card in light mode and as nothing at all in dark.
 struct AbilityDetailView: View {
     @Bindable var viewModel: AbilityDetailViewModel
 
     var body: some View {
         List {
             headerSection
-            if let errorMessage = viewModel.errorMessage {
-                errorBanner(errorMessage)
-            }
-            delegationsSection
-            earlierSection
+            agentsSection
+            peopleSection
+            conversationsSection
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
         .navigationTitle(viewModel.ability.displayName.resolved())
         .navigationBarTitleDisplayMode(.inline)
-        .overlay { emptyStateOverlay }
+        .overlay { loadingOverlay }
         .task { await viewModel.refresh() }
         .accessibilityIdentifier("ability-detail-\(viewModel.ability.id)")
     }
@@ -70,33 +82,58 @@ struct AbilityDetailView: View {
                 }
             }
         }
+        .listRowBackground(Color.colorBackgroundRaised)
     }
 
     @ViewBuilder
-    private var delegationsSection: some View {
-        if !viewModel.activeDelegations.isEmpty {
-            Section {
-                ForEach(viewModel.activeDelegations) { delegation in
-                    activeDelegationRow(delegation)
+    private var agentsSection: some View {
+        Section {
+            if viewModel.agents.isEmpty {
+                emptyRow("No agents are using this yet", identifier: "connection-detail-agents-empty")
+            } else {
+                ForEach(viewModel.agents) { agent in
+                    usageRow(agent.displayName, identifier: "connection-detail-agent-\(agent.inboxId)")
                 }
-            } header: {
-                sectionHeader("Delegations")
             }
+        } header: {
+            sectionHeader("Agents")
         }
+        .listRowBackground(Color.colorBackgroundRaised)
+    }
+
+    /// Never empty: the owner's own row always leads it. Delegated people
+    /// append below once anything writes them.
+    private var peopleSection: some View {
+        Section {
+            ForEach(viewModel.people) { person in
+                usageRow(person.displayName, identifier: "connection-detail-person-\(person.inboxId)")
+            }
+        } header: {
+            sectionHeader("People")
+        }
+        .listRowBackground(Color.colorBackgroundRaised)
     }
 
     @ViewBuilder
-    private var earlierSection: some View {
-        if !viewModel.pastDelegations.isEmpty {
-            Section {
-                ForEach(viewModel.pastDelegations) { delegation in
-                    delegationRow(delegation)
+    private var conversationsSection: some View {
+        Section {
+            if viewModel.conversations.isEmpty {
+                emptyRow("Not turned on in any convo yet", identifier: "connection-detail-convos-empty")
+            } else {
+                ForEach(viewModel.conversations) { conversation in
+                    usageRow(
+                        conversation.displayName,
+                        identifier: "connection-detail-convo-\(conversation.conversationId)"
+                    )
                 }
-            } header: {
-                sectionHeader("Earlier")
             }
+        } header: {
+            sectionHeader("Convos")
         }
+        .listRowBackground(Color.colorBackgroundRaised)
     }
+
+    // MARK: - Rows
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
@@ -104,72 +141,24 @@ struct AbilityDetailView: View {
             .foregroundStyle(.colorTextSecondary)
     }
 
-    private func errorBanner(_ message: String) -> some View {
-        Section {
-            Text(message)
-                .font(.footnote)
-                .foregroundStyle(.colorCaution)
-        }
+    private func usageRow(_ title: String, identifier: String) -> some View {
+        Text(title)
+            .font(.body)
+            .foregroundStyle(.colorTextPrimary)
+            .accessibilityIdentifier(identifier)
+    }
+
+    private func emptyRow(_ title: String, identifier: String) -> some View {
+        Text(title)
+            .font(.footnote)
+            .foregroundStyle(.colorTextSecondary)
+            .accessibilityIdentifier(identifier)
     }
 
     @ViewBuilder
-    private var emptyStateOverlay: some View {
-        if viewModel.delegations.isEmpty, !viewModel.isLoading {
-            ContentUnavailableView(
-                "No delegations",
-                systemImage: "person.badge.key",
-                description: Text("When an agent asks to use \(viewModel.ability.displayName.resolved()), what you allow shows up here.")
-            )
-        }
-    }
-
-    // MARK: - Rows
-
-    /// Active rows carry the revoke affordances (swipe + context menu);
-    /// past rows are inert.
-    private func activeDelegationRow(_ delegation: AbilityDelegation) -> some View {
-        let revokeAction = { viewModel.revoke(delegation) }
-        return delegationRow(delegation)
-            .swipeActions(edge: .trailing) {
-                Button("Revoke", role: .destructive, action: revokeAction)
-                    .accessibilityIdentifier("delegation-revoke-\(delegation.id)")
-            }
-            .contextMenu {
-                Button("Revoke", role: .destructive, action: revokeAction)
-            }
-    }
-
-    private func delegationRow(_ delegation: AbilityDelegation) -> some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            delegationRowTitles(delegation)
-            Spacer()
-            AbilityDelegationStateChip(state: delegation.effectiveState())
-        }
-        .accessibilityIdentifier("delegation-row-\(delegation.id)")
-    }
-
-    private func delegationRowTitles(_ delegation: AbilityDelegation) -> some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-            Text(delegation.conversationName)
-                .font(.body)
-                .foregroundStyle(.colorTextPrimary)
-            Text("\(delegation.agentDisplayName) - \(viewModel.bundlesSummary(for: delegation))")
-                .font(.footnote)
-                .foregroundStyle(.colorTextSecondary)
-                .lineLimit(1)
-            Text(scopeLine(delegation))
-                .font(.footnote)
-                .foregroundStyle(.colorTextTertiary)
-        }
-    }
-
-    private func scopeLine(_ delegation: AbilityDelegation) -> String {
-        switch delegation.scope {
-        case .oneShot:
-            return "Just once"
-        case .expiring(let expiry):
-            let formatted: String = expiry.formatted(date: .abbreviated, time: .omitted)
-            return "Until \(formatted)"
+    private var loadingOverlay: some View {
+        if viewModel.isLoading, !viewModel.hasLoadedOnce {
+            ProgressView()
         }
     }
 }
@@ -180,13 +169,7 @@ struct AbilityDetailView: View {
     let gcal = MockAbilitiesService.standardCatalog().first { $0.id == "googlecalendar" }
     if let gcal {
         NavigationStack {
-            AbilityDetailScreen(
-                ability: gcal,
-                selection: AbilitiesSelection(
-                    service: MockAbilitiesService(),
-                    escalation: MockAbilityEscalationService(scenario: .populated)
-                )
-            )
+            AbilityDetailScreen(ability: gcal, usageSource: PreviewConnectionUsageSource())
         }
     }
 }
@@ -195,13 +178,7 @@ struct AbilityDetailView: View {
     let youtube = MockAbilitiesService.standardCatalog().first { $0.id == "youtube" }
     if let youtube {
         NavigationStack {
-            AbilityDetailScreen(
-                ability: youtube,
-                selection: AbilitiesSelection(
-                    service: MockAbilitiesService(),
-                    escalation: MockAbilityEscalationService(scenario: .quiet)
-                )
-            )
+            AbilityDetailScreen(ability: youtube, usageSource: PreviewConnectionUsageSource())
         }
     }
 }
