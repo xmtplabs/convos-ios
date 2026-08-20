@@ -21,12 +21,29 @@ message MetadataValue {
 // The sender's inbox ID is implicit from the XMTP message — only the
 // sender can author their own profile update, preventing spoofing.
 //
-// Sending a ProfileUpdate with no name and no encrypted_image clears the profile.
+// v2 (convos.org/profile_update:2.0) carries the values the backend now
+// stores: a plain avatar URL and the backend's version. Clients host-validate
+// avatar_url against the CDN before honoring it, because the sender chooses
+// the string and every recipient would fetch it.
+//
+// Field 2 (encrypted_image) is what v1 used, when each recipient decrypted a
+// per-conversation ciphertext. It stays declared so v1 messages keep decoding.
+// A v1 message carrying no encrypted_image meant "avatar cleared", which is why
+// v2 is a major version bump rather than added fields: an old client reading a
+// v2-shaped message would blank the sender's avatar, whereas an unknown content
+// type it simply ignores.
 message ProfileUpdate {
     optional string name = 1;
+    // Read-only now: v2 writers never set this, but v1 messages already on the
+    // wire still carry it and must keep decoding until the v1 read path is
+    // retired. Removing it here would blank the avatar of anyone who has not
+    // upgraded, which is the opposite of what the transition needs.
     optional EncryptedProfileImageRef encrypted_image = 2;
     MemberKind member_kind = 3;
     map<string, MetadataValue> metadata = 4;
+    optional string avatar_url = 5;
+    // The backend's Profile.version, so a recipient holding it can skip a fetch.
+    optional uint64 version = 6;
 }
 
 // ProfileSnapshot is sent by the member who adds new members to a group.

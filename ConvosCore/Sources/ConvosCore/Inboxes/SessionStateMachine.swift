@@ -1337,6 +1337,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
                 InviteJoinErrorCodec(),
                 InviteJoinHandledCodec(),
                 ProfileUpdateCodec(),
+                // Registered so a member still on an older build resolves at
+                // all: without it their update arrives as an unknown type and
+                // is dropped before anything can read it.
+                ProfileUpdateV1Codec(),
                 ProfileSnapshotCodec(),
                 JoinRequestCodec(),
                 AgentJoinRequestCodec(),

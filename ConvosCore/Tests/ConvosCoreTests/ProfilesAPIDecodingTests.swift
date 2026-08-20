@@ -59,3 +59,37 @@ struct ProfilesAPIDecodingTests {
         #expect(ProfilesAPI.batchLimit == 100)
     }
 }
+
+/// The write body distinguishes "leave this alone" from "clear this". Getting
+/// it wrong is silent: an omitted name that encodes as null wipes the name the
+/// user still has.
+struct ProfilesAPIEncodingTests {
+    private func encoded(_ body: ProfilesAPI.UpdateBody) throws -> [String: Any] {
+        let data = try JSONEncoder().encode(body)
+        let object = try JSONSerialization.jsonObject(with: data)
+        return object as? [String: Any] ?? [:]
+    }
+
+    @Test("omitting a field leaves it out of the body entirely")
+    func omittedFieldsAreAbsent() throws {
+        let json = try encoded(.init(inboxId: "abc", name: nil, avatarUrl: nil))
+        #expect(json["inboxId"] as? String == "abc")
+        #expect(json.keys.contains("name") == false)
+        #expect(json.keys.contains("avatarUrl") == false)
+    }
+
+    @Test("an explicit clear sends null, which is what the backend acts on")
+    func explicitClearSendsNull() throws {
+        let json = try encoded(.init(inboxId: "abc", name: .some(nil), avatarUrl: .some(nil)))
+        #expect(json.keys.contains("name"))
+        #expect(json["name"] is NSNull)
+        #expect(json["avatarUrl"] is NSNull)
+    }
+
+    @Test("a value is sent as itself")
+    func valuesRoundTrip() throws {
+        let json = try encoded(.init(inboxId: "abc", name: "Ada", avatarUrl: "https://cdn/x.jpg"))
+        #expect(json["name"] as? String == "Ada")
+        #expect(json["avatarUrl"] as? String == "https://cdn/x.jpg")
+    }
+}

@@ -106,27 +106,41 @@ public struct MetadataValue: Sendable {
 /// The sender's inbox ID is implicit from the XMTP message — only the
 /// sender can author their own profile update, preventing spoofing.
 ///
-/// Sending a ProfileUpdate with no name and no encrypted_image clears the profile.
+/// v2 (convos.org/profile_update:2.0) carries the values the backend now
+/// stores: a plain avatar URL and the backend's version. Clients host-validate
+/// avatar_url against the CDN before honoring it, because the sender chooses
+/// the string and every recipient would fetch it.
+///
+/// Field 2 (encrypted_image) is what v1 used, when each recipient decrypted a
+/// per-conversation ciphertext. It stays declared so v1 messages keep decoding.
+/// A v1 message carrying no encrypted_image meant "avatar cleared", which is why
+/// v2 is a major version bump rather than added fields: an old client reading a
+/// v2-shaped message would blank the sender's avatar, whereas an unknown content
+/// type it simply ignores.
 public struct ProfileUpdate: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var name: String {
-    get {_name ?? String()}
+    get {return _name ?? String()}
     set {_name = newValue}
   }
   /// Returns true if `name` has been explicitly set.
-  public var hasName: Bool {self._name != nil}
+  public var hasName: Bool {return self._name != nil}
   /// Clears the value of `name`. Subsequent reads from it will return its default value.
   public mutating func clearName() {self._name = nil}
 
+  /// Read-only now: v2 writers never set this, but v1 messages already on the
+  /// wire still carry it and must keep decoding until the v1 read path is
+  /// retired. Removing it here would blank the avatar of anyone who has not
+  /// upgraded, which is the opposite of what the transition needs.
   public var encryptedImage: EncryptedProfileImageRef {
-    get {_encryptedImage ?? EncryptedProfileImageRef()}
+    get {return _encryptedImage ?? EncryptedProfileImageRef()}
     set {_encryptedImage = newValue}
   }
   /// Returns true if `encryptedImage` has been explicitly set.
-  public var hasEncryptedImage: Bool {self._encryptedImage != nil}
+  public var hasEncryptedImage: Bool {return self._encryptedImage != nil}
   /// Clears the value of `encryptedImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedImage() {self._encryptedImage = nil}
 
@@ -134,12 +148,33 @@ public struct ProfileUpdate: Sendable {
 
   public var metadata: Dictionary<String,MetadataValue> = [:]
 
+  public var avatarURL: String {
+    get {return _avatarURL ?? String()}
+    set {_avatarURL = newValue}
+  }
+  /// Returns true if `avatarURL` has been explicitly set.
+  public var hasAvatarURL: Bool {return self._avatarURL != nil}
+  /// Clears the value of `avatarURL`. Subsequent reads from it will return its default value.
+  public mutating func clearAvatarURL() {self._avatarURL = nil}
+
+  /// The backend's Profile.version, so a recipient holding it can skip a fetch.
+  public var version: UInt64 {
+    get {return _version ?? 0}
+    set {_version = newValue}
+  }
+  /// Returns true if `version` has been explicitly set.
+  public var hasVersion: Bool {return self._version != nil}
+  /// Clears the value of `version`. Subsequent reads from it will return its default value.
+  public mutating func clearVersion() {self._version = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _name: String? = nil
   fileprivate var _encryptedImage: EncryptedProfileImageRef? = nil
+  fileprivate var _avatarURL: String? = nil
+  fileprivate var _version: UInt64? = nil
 }
 
 /// ProfileSnapshot is sent by the member who adds new members to a group.
@@ -171,20 +206,20 @@ public struct MemberProfile: Sendable {
   public var inboxID: Data = Data()
 
   public var name: String {
-    get {_name ?? String()}
+    get {return _name ?? String()}
     set {_name = newValue}
   }
   /// Returns true if `name` has been explicitly set.
-  public var hasName: Bool {self._name != nil}
+  public var hasName: Bool {return self._name != nil}
   /// Clears the value of `name`. Subsequent reads from it will return its default value.
   public mutating func clearName() {self._name = nil}
 
   public var encryptedImage: EncryptedProfileImageRef {
-    get {_encryptedImage ?? EncryptedProfileImageRef()}
+    get {return _encryptedImage ?? EncryptedProfileImageRef()}
     set {_encryptedImage = newValue}
   }
   /// Returns true if `encryptedImage` has been explicitly set.
-  public var hasEncryptedImage: Bool {self._encryptedImage != nil}
+  public var hasEncryptedImage: Bool {return self._encryptedImage != nil}
   /// Clears the value of `encryptedImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedImage() {self._encryptedImage = nil}
 
@@ -298,7 +333,7 @@ extension MetadataValue: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
 
 extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ProfileUpdate"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{3}encrypted_image\0\u{3}member_kind\0\u{1}metadata\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{3}encrypted_image\0\u{3}member_kind\0\u{1}metadata\0\u{3}avatar_url\0\u{1}version\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -310,6 +345,8 @@ extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
       case 2: try { try decoder.decodeSingularMessageField(value: &self._encryptedImage) }()
       case 3: try { try decoder.decodeSingularEnumField(value: &self.memberKind) }()
       case 4: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,MetadataValue>.self, value: &self.metadata) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self._avatarURL) }()
+      case 6: try { try decoder.decodeSingularUInt64Field(value: &self._version) }()
       default: break
       }
     }
@@ -332,6 +369,12 @@ extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if !self.metadata.isEmpty {
       try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,MetadataValue>.self, value: self.metadata, fieldNumber: 4)
     }
+    try { if let v = self._avatarURL {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 5)
+    } }()
+    try { if let v = self._version {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 6)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -340,6 +383,8 @@ extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if lhs._encryptedImage != rhs._encryptedImage {return false}
     if lhs.memberKind != rhs.memberKind {return false}
     if lhs.metadata != rhs.metadata {return false}
+    if lhs._avatarURL != rhs._avatarURL {return false}
+    if lhs._version != rhs._version {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
