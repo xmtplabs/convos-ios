@@ -41,4 +41,19 @@ final class ConversationSheetGeometry {
         guard containerHeight > 0 else { return covered }
         return min(covered, max(containerHeight, restingHeight))
     }
+
+    /// The same clearance, minus the part a surface has already reserved by
+    /// padding its own viewport down to the resting height.
+    ///
+    /// The browsed pages pushed over the Home cannot take the whole clearance
+    /// as viewport padding the way `homeBottomClearance` is taken as an inset:
+    /// resizing a `WKWebView` reflows the page, so a drag would reflow it every
+    /// frame. They pad by the resting height instead - fixed, so it never
+    /// reflows - and take what the sheet covers *beyond* resting as a scroll
+    /// inset, which costs nothing to change. Padding plus inset comes to
+    /// `homeBottomClearance` exactly, so a pushed page scrolls clear of the
+    /// sheet at the same point the Home behind it does.
+    var clearanceBeyondResting: CGFloat {
+        max(homeBottomClearance - restingHeight, 0)
+    }
 }
