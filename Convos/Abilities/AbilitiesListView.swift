@@ -444,10 +444,14 @@ struct AbilitiesListView: View {
         conversationViewModel: ConversationAbilitiesViewModel
     ) -> some View {
         let disclosureAction: () -> Void = { detailAbility = ability }
+        // Twice the row's own spacing, so the chevron reads as its own tap
+        // target rather than as part of the toggle.
+        let disclosureGap: CGFloat = DesignConstants.Spacing.step2x
         return HStack(spacing: DesignConstants.Spacing.step2x) {
             scopedRowLabelButton(ability, action: disclosureAction)
             scopedEntitledAccessory(ability, conversationViewModel: conversationViewModel)
             scopedRowDisclosureButton(ability, action: disclosureAction)
+                .padding(.leading, disclosureGap)
         }
         .accessibilityIdentifier("ability-row-\(ability.id)")
     }
