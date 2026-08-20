@@ -254,6 +254,6 @@ struct ParticipationModeSyncTests {
             ]
         )
 
-        #expect(update.summary == "Shane paused the agents. They won't see messages sent while paused, even later")
+        #expect(update.summary == "Shane paused the agents. They'll never see messages sent while paused")
     }
 }
