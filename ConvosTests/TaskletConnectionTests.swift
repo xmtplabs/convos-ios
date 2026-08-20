@@ -79,7 +79,7 @@ final class TaskletConnectionTests: XCTestCase {
         })
     }
 
-    func testTaskletSitsBelowTownAndGrokBotIsComingSoon() throws {
+    func testTaskletSitsBelowTownAndComingSoonProvidersStayAtTheBottom() throws {
         let townIndex = try XCTUnwrap(ExternalAgentProvider.allCases.firstIndex(of: .town))
         let taskletIndex = try XCTUnwrap(ExternalAgentProvider.allCases.firstIndex(of: .tasklet))
 
@@ -87,6 +87,20 @@ final class TaskletConnectionTests: XCTestCase {
         XCTAssertEqual(ExternalAgentProvider.tasklet.connectionAvailability, .live)
         XCTAssertEqual(ExternalAgentProvider.grokBot.connectionAvailability, .comingSoon)
         XCTAssertEqual(ExternalAgentProvider.grokBot.shortDescription, "Coming soon")
+        XCTAssertEqual(ExternalAgentProvider.allCases.last, .connectMCP)
+        XCTAssertEqual(ExternalAgentProvider.connectMCP.connectionAvailability, .comingSoon)
+        XCTAssertEqual(ExternalAgentProvider.connectMCP.shortDescription, "Coming soon")
+    }
+
+    func testAddedProviderStoreKeepsDisconnectedAgentsAvailableForReconnect() throws {
+        let suiteName = "AddedExternalAgentStoreTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        AddedExternalAgentStore.remember(.tasklet, defaults: defaults)
+        AddedExternalAgentStore.remember(.grokBot, defaults: defaults)
+
+        XCTAssertEqual(AddedExternalAgentStore.providers(defaults: defaults), [.tasklet])
     }
 }
 

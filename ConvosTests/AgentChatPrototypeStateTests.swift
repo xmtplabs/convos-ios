@@ -122,6 +122,18 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         XCTAssertFalse(state.connectedExternalProviders.contains(provider))
     }
 
+    func testConnectMCPIsComingSoonAndCannotBeConnected() {
+        let provider = ExternalAgentProvider.connectMCP
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
+
+        XCTAssertEqual(provider.displayName, "Connect MCP")
+        XCTAssertEqual(provider.connectionAvailability, .comingSoon)
+
+        state.connect(provider)
+
+        XCTAssertFalse(state.connectedExternalProviders.contains(provider))
+    }
+
     func testPersonalContextApprovalSharesOnlyTheSuggestedItems() {
         let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
         let bundle = PersonalContextBundle.suggestedForCurrentConvo

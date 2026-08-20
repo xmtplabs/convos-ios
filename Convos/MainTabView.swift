@@ -400,7 +400,25 @@ struct MainTabView: View {
             : nil
         let pendingAgentIdentity: PendingAgentAvatarIdentity? = convoVM.pendingAgentPresentation?.avatarIdentity
         let isReadOnly: Bool = conversationsViewModel.staleDeviceObserver.isDeviceRemoved || convoVM.conversation.wasRemoved
-        HStack {
+        ZStack {
+            HStack {
+                Button {
+                    conversationsViewModel.endHostedInviteSessionOnPop()
+                    conversationsViewModel.selectedConversationId = nil
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                        .frame(width: 44, height: 44)
+                        .background(.regularMaterial, in: .circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back to Your Space")
+                .accessibilityIdentifier("conversation-back-to-your-space")
+
+                Spacer(minLength: 0)
+            }
+
             ConversationIndicatorWrapper(
                 viewModel: convoVM,
                 placeholderOverride: nil,
@@ -409,15 +427,15 @@ struct MainTabView: View {
                 focusState: $liftedIndicatorFocus,
                 focusCoordinator: liftedIndicatorFocusCoordinator
             )
-            .environment(\.forcedAgentVerification, pendingAgentOverride)
-            .environment(\.pendingAgentIdentity, pendingAgentIdentity)
-            .hoverEffect(.lift)
-            .disabled(isReadOnly)
-            .matchedGeometryEffect(
-                id: AdaptiveAppIndicatorConstant.indicatorShellId,
-                in: sharedIndicatorNamespace,
-                properties: .position
-            )
+                .environment(\.forcedAgentVerification, pendingAgentOverride)
+                .environment(\.pendingAgentIdentity, pendingAgentIdentity)
+                .hoverEffect(.lift)
+                .disabled(isReadOnly)
+                .matchedGeometryEffect(
+                    id: AdaptiveAppIndicatorConstant.indicatorShellId,
+                    in: sharedIndicatorNamespace,
+                    properties: .position
+                )
         }
         .frame(maxWidth: .infinity)
         .padding(.top, safeAreaInsets.top)

@@ -86,6 +86,8 @@ struct YourSpaceConversationSwitcher: View {
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.colorTextTertiary)
+                            .frame(width: 44, height: 44)
+                            .contentShape(.circle)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Clear search")
@@ -184,6 +186,7 @@ struct YourSpaceConversationSwitcher: View {
                     .foregroundStyle(.colorTextTertiary)
                     .accessibilityHidden(true)
             }
+            .frame(minHeight: 68)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

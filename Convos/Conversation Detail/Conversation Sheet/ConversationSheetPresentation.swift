@@ -25,6 +25,10 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
     /// While a programmatic move is in flight, the only size offered. See
     /// `ConversationView.moveSheet`.
     var forcedDetent: ConversationSheetDetent?
+    /// A focused navigation path can keep the transcript at the system's large
+    /// detent, removing the half-sheet interaction while retaining the mature
+    /// transcript/composer presentation stack.
+    var locksToFullScreen: Bool = false
     @ViewBuilder let sheetContent: () -> SheetContent
 
     @State private var isPresented: Bool = false
@@ -34,9 +38,12 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
     private var presentationSelection: Binding<PresentationDetent> {
         Binding(
             get: {
-                detent.presentationDetent(heights: heights)
+                locksToFullScreen
+                    ? ConversationSheetDetent.full.presentationDetent(heights: heights)
+                    : detent.presentationDetent(heights: heights)
             },
             set: { newValue in
+                guard !locksToFullScreen else { return }
                 // Only when these measurements describe it. A detent in flight can
                 // outlive the heights that produced it, and writing a guess back
                 // here is an instruction to the sheet, not a reading of it - see
@@ -68,7 +75,7 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
                     .presentationDetents(
                         ConversationSheetDetent.presentationDetents(
                             heights: heights,
-                            forcing: forcedDetent
+                            forcing: locksToFullScreen ? .full : forcedDetent
                         ),
                         selection: presentationSelection
                     )
@@ -77,7 +84,7 @@ struct ConversationSheetPresentation<SheetContent: View>: ViewModifier {
                     // Setting presentationCornerRadius overrides that with one
                     // flat radius on all four corners.
                     .presentationBackground(.colorBackgroundRaised)
-                    .presentationDragIndicator(.visible)
+                    .presentationDragIndicator(locksToFullScreen ? .hidden : .visible)
                     // At every size, not up through one of them. This is the
                     // conversation's chrome, not a modal: there is never a point
                     // at which touching the screen behind it should be swallowed
@@ -109,6 +116,7 @@ extension View {
         detent: Binding<ConversationSheetDetent>,
         heights: ConversationSheetHeights,
         forcedDetent: ConversationSheetDetent? = nil,
+        locksToFullScreen: Bool = false,
         @ViewBuilder content: @escaping () -> SheetContent
     ) -> some View {
         modifier(
@@ -116,6 +124,7 @@ extension View {
                 detent: detent,
                 heights: heights,
                 forcedDetent: forcedDetent,
+                locksToFullScreen: locksToFullScreen,
                 sheetContent: content
             )
         )

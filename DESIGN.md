@@ -105,11 +105,11 @@ components:
 
 **Creative North Star: "The Private Signal Desk"**
 
-Convos is a quiet personal briefing room, not an inbox dashboard. Its visual world is restrained and editorial: open space, adaptive neutral surfaces, circular identity, and a single decisive inverted surface that tells the user where attention is useful.
+Convos is a quiet personal briefing room, not an inbox dashboard. Its visual world is restrained and editorial: open space, adaptive neutral surfaces, circular identity, a bounded recent-Convos list, and one expressive personal-library card.
 
 The briefing voice is expressive, while every control around it remains unmistakably native iOS. System components, semantic colors, Dynamic Type, and familiar sheet and list behavior keep the interface calm and trustworthy; privacy is communicated through visible provenance and deliberate boundaries rather than decorative security theater.
 
-The authenticated shell follows the pinned topology `YS-SHELL-2026-08-18`: profile at top left, the centered space switcher, add at top right, private content between them, and a More–agent command–chat tray at the bottom. The switcher expands downward from the header rather than rising from the bottom. The topology is durable; the content within the private space can grow as the product's evidence improves.
+The authenticated shell evolves `YS-SHELL-2026-08-18`: profile at top left opens Me & My Stuff, the centered space switcher remains anchored, settings and add sit at top right, and a More–agent command–chat tray remains at the bottom. The switcher expands downward from the header rather than rising from the bottom.
 
 **Key Characteristics:**
 
@@ -166,7 +166,7 @@ The palette is an adaptive black-to-white neutral system whose meaning survives 
 
 ## Layout
 
-The shell is pinned to `YS-SHELL-2026-08-18`. Its top safe-area bar places circular profile identity, a flexible centered switcher, and a circular add menu on one line. The main briefing scrolls independently beneath it, and a fixed More–agent command–chat tray occupies the bottom safe area when reading size permits. The flexible command bar names its purpose in text instead of relying on an isolated waveform symbol.
+The shell is based on `YS-SHELL-2026-08-18`. Its top safe-area bar places circular profile identity, a flexible centered switcher, and circular settings/add controls on one line. The main briefing scrolls independently beneath it, and a fixed More–agent command–chat tray occupies the bottom safe area when reading size permits. The flexible command bar names its purpose in text instead of relying on an isolated waveform symbol.
 
 The home scroll view owns the visible viewport. Temporary chrome such as the anchored convo switcher is an overlay on that viewport and must never wrap, expand, or replace the scroll container's layout bounds.
 
@@ -174,7 +174,7 @@ Content follows the existing `DesignConstants.Spacing` four-point rhythm. The ma
 
 At accessibility Dynamic Type sizes, the bottom controls leave the safe-area overlay and reappear as full-width, `52pt`-minimum actions inside the scrolling content. The compact top chrome caps at the largest standard Dynamic Type size so profile, switcher, and add remain one usable row while the briefing continues to scale through the accessibility sizes. Text wraps vertically, update details retain conversation provenance, and controls preserve at least a `44pt` target without squeezing the briefing.
 
-**The Pinned Shell Rule.** Preserve the profile–switcher–add top line and More–agent command–chat bottom line; conversations belong in a searchable panel anchored directly beneath the header, not in a large home-screen list or bottom sheet.
+**The Pinned Shell Rule.** Preserve the profile–switcher–settings/add top line and More–agent command–chat bottom line. The complete conversation index belongs in the anchored searchable panel; Home may show exactly three recent shortcuts, never an unbounded replacement inbox.
 
 **The Accessibility Reflow Rule.** When text reaches an accessibility size, move persistent bottom actions into the content flow rather than forcing them to compete with enlarged text.
 
@@ -196,8 +196,9 @@ Identity is circular: profile and conversation avatars, people, unread dots, and
 
 ### Persistent Shell Controls
 
-- **Profile:** A circular `40pt` avatar inside a `44pt` target with a subtle semantic border; it opens settings and does not use glass.
-- **Switcher:** A flexible `44pt`-minimum capsule with a semibold body label and secondary chevron. It opens a right-aligned panel directly below the header, approximately 74% of the available content height. The panel keeps Your Space first, then search, then the complete recency-sorted convo list with unread state.
+- **Profile:** A circular `40pt` avatar inside a `44pt` target with a subtle semantic border; it opens Me & My Stuff and does not use glass.
+- **Switcher:** A flexible `44pt`-minimum capsule with a semibold body label and secondary chevron. It opens a right-aligned panel directly below the header, approximately 74% of the available content height. The panel keeps Your Space first, then search, then the complete recency-sorted convo list with unread state in `68pt`-minimum rows.
+- **Settings:** A circular interactive-glass gear that opens the existing app settings surface.
 - **Add:** A circular interactive-glass control exposing exactly start and QR-join actions.
 - **More:** A circular interactive-glass `Menu` whose native popup opens Bring your own agent, Connections, Upload files, Files, Add a widget, and Connected convos directly—without an intermediate tools sheet.
 - **Voice:** A centered `56pt` Lava circle with a waveform symbol; it opens on-device recording and transcription into the private briefing assistant.
@@ -207,17 +208,17 @@ Identity is circular: profile and conversation avatars, people, unread dots, and
 
 The large system-serif sentence is the signature component. It describes what needs attention, or explicitly says nothing does, and follows with a system-body source summary so every claim remains attributable to connected convos.
 
-### Attention Action
+### Recent Convos
 
-One full-width inverted surface uses the medium corner, a `44pt` circular icon well, a headline, and a one-line destination. The complete surface is one button and opens the first conversation requiring attention.
+Exactly the three most recent real conversations appear under the narrative when at least three exist. Rows stay flat on the canvas, use `48pt` circular avatars inside `72pt`-minimum targets, one-line previews, native dividers, explicit unread language, and a small Lava signal. Tapping pushes the conversation into a full-height transcript focus. The top overlay keeps a `44pt` Back to Your Space control; no group-home screen sits between Home and chat.
 
-### My Context and Connections
+### Me & My Stuff
 
-The main library begins with an editable personal contact card, followed by a single search entry, a balanced category grid, compact full-width Useful details filter rows, recent assets, and one inverted “See all context” action. The home rows are Addresses, Phone numbers, Email, and All useful details; they show automatic counts and open the matching filter in All Context instead of repeating detail cards on the home. The contact card's Remember section accepts bounded custom title-and-info fields categorized as addresses, phone numbers, email, website, or other; every field is editable and has its own explicit Share action before Recent context. Useful details remain a separate automatic index of addresses, phone numbers, and emails detected in messages. Inside All Context, useful-detail results always occupy the full sheet width and keep the extracted fact, full source message, sender, convo, relative time, source-convo link, sender DM action, and Share action together. Search matches the fact, source message, type, person, and convo. Other assets retain the adaptive preview grid. Every item preserves source-convo and sender provenance when the data is available; private local items are labeled as such.
+Home carries one generous navigational summary card with profile identity, counts for photos, links, files, and connections, a useful-details count, and a View all affordance. It never opens directly into edit mode. Its pushed destination begins with the personal card, followed by search, the category grid, compact Useful details filters, recent assets, and See all context. A distinct Edit toolbar action opens the contact-card editor, including bounded remembered fields and neutral recent-context suggestions. Every item preserves source-convo and sender provenance when available; private local items are labeled as such.
 
-The optional Agents across your convos widget uses native rows with agent identity, source convo, and a direct private-lane affordance. It is off by default and removable from the same widget picker as People pulse and Space footprint.
+Agents across your convos uses native rows with agent identity, source convo, and a direct private-lane affordance. It renders three rows initially and See all expands the existing bounded list inline.
 
-A dismissible inverted Bring your own agent callout uses a compact constellation of the provider marks already defined by the external-agent prototype. The same connection flow is reachable from More. Codex uses one-command Mac pairing and a revocable capability token; Town uses its MCP connection; Tasklet appears directly below Town and combines the same one-use MCP return bridge with a Tasklet webhook automation. Sensitive connection fields stay in Keychain and manual network fields stay behind an advanced disclosure. The persistent command bar names the active provider and offers a native switcher. Agent results render returned web links as explicit actions; the whole result or an individual link may be saved privately to Your Space and shared through the existing staged-composer boundary. The Talk to selector lists only verified agents available in the convo, external agents the user has actually connected, and Ghost. Claude Code, Hermes, and OpenClaw remain clearly labeled previews, while Grok Bot is Coming soon.
+Bring personal agents to Convos is a permanent raised-neutral section immediately after Me. Its boundary copy states that the lane belongs only to the user, is not connected to a group, and cannot be messaged by group members. The same connection flow is reachable from More. Codex uses Mac pairing and a revocable capability token; Town uses its MCP connection; Tasklet appears directly below Town and combines the one-use MCP return bridge with a Tasklet webhook automation. Sensitive connection fields stay in Keychain. The persistent command bar names the active provider and offers a native switcher. Added provider identities persist independently of credentials; a disconnected row routes into provider-specific reconnect. Agent results render returned web links as explicit actions; the whole result or an individual link may be saved privately and staged for sharing. Talk to lists verified agents available in the convo, external agents the user has added, and Ghost. Claude Code, Hermes, and OpenClaw remain previews; Grok Bot and Connect MCP are Coming soon.
 
 Context-card preview wells show content rather than file-type glyphs: photos and videos use decrypted thumbnails, documents use Quick Look thumbnails, notes use excerpts, voice notes use a waveform and duration, addresses and map links use a map snapshot, and links use cached or safely hydrated rich-link artwork. Loading is scoped to visible cards and results are cached so the library remains responsive.
 
@@ -259,6 +260,6 @@ Voice transcription, grounded chat answers, imported files, personal-card notes,
 - **Don't** use the serif voice for controls, row content, settings, or sheet titles.
 - **Don't** scatter inverted cards, bright accents, glass content cards, gradients, or custom shadows through the briefing.
 - **Don't** hand-build glass, modal chrome, list rows, search fields, or platform transitions.
-- **Don't** turn the home into a large conversation list, present the switcher from the bottom, or add a permanent contacts destination to this shell.
+- **Don't** grow the three-row recent section into a replacement inbox, present the switcher from the bottom, or add a permanent contacts destination to this shell.
 - **Don't** infer a person's identity from message text, imply server-side synthesis, or suggest that home context was uploaded or sent automatically.
 - **Don't** keep bottom overlay actions in place when accessibility Dynamic Type makes them compete with content.

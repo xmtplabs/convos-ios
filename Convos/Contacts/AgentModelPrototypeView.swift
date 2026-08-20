@@ -10,7 +10,7 @@ struct AgentModelPrototypeView: View {
     let coreActions: any CoreActions
     private let subscriptionService: any SubscriptionServiceProtocol
 
-    @State private var selectedModel: AgentModelOption = .gpt56Sol
+    @State private var selectedModel: AgentModelOption = .chatGPT
     @State private var pendingModel: AgentModelOption?
     @State private var hasPlusSubscription: Bool
     @State private var presentingPicker: Bool = false
@@ -30,7 +30,7 @@ struct AgentModelPrototypeView: View {
         )
         _pendingModel = State(
             initialValue: prototypeState.map { ["upgrade", "paywall"].contains($0) } == true
-                ? .claudeFable
+                ? .claude
                 : nil
         )
         _presentingPicker = State(initialValue: prototypeState == "picker")
@@ -63,7 +63,7 @@ struct AgentModelPrototypeView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Reset") {
-                        selectedModel = .gpt56Sol
+                        selectedModel = .chatGPT
                         pendingModel = nil
                     }
                 }

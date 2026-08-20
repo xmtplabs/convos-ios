@@ -18,6 +18,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     let messagesTopBarTrailingItemEnabled: Bool
     let messagesTextFieldEnabled: Bool
     var isReadOnly: Bool = false
+    /// Your Space opens a Convo as a focused, full-height transcript. Other
+    /// entry points retain the existing Home-backed detent behavior.
+    var opensInFullScreenChat: Bool = false
     /// Hide the trailing toolbar item (the "+" add menu / scan button)
     /// without removing the rest of the toolbar. Used by the Agent
     /// Builder to keep the bar clean during the draft phase, then bring
@@ -107,6 +110,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Owns the Firebase-only switcher, lane drafts, demo messages, and
     /// in-flight prototype replies. Production never renders it.
     @State private var agentChatPrototypeState: AgentChatPrototypeState = .init()
+    @AppStorage("your-space-personal-agent-provider") private var personalAgentProviderRawValue: String = ""
     /// Tracks keyboard visibility so tab switches can transfer composer
     /// focus between the group and agent composers.
     @State private var isKeyboardVisible: Bool = false
@@ -364,10 +368,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
         didSeedInitialTab = true
         let agentDmRequested: Bool = initialAgentDmInboxId != nil
             && agentChatLanes.contains { $0.liveInboxId == initialAgentDmInboxId }
-        sheetDetent = ConversationSheetDetent.initial(
-            hasUnread: hasUnreadToRead,
-            agentDmRequested: agentDmRequested
-        )
+        sheetDetent = opensInFullScreenChat
+            ? .full
+            : ConversationSheetDetent.initial(
+                hasUnread: hasUnreadToRead,
+                agentDmRequested: agentDmRequested
+            )
         let tab: ConversationTab = ConversationTab.initial(
             available: availableTabs,
             agentDmRequested: agentDmRequested,
@@ -461,8 +467,24 @@ struct ConversationView<MessagesBottomBar: View>: View {
         guard showsAgentChatPrototype else { return liveAgentChatLanes }
         return AgentChatLane.available(
             live: liveAgentChatLanes,
-            connectedExternalProviders: agentChatPrototypeState.connectedExternalProviders
+            connectedExternalProviders: personalAgentProvidersForSelector
         )
+    }
+
+    private var personalAgentProvidersForSelector: [ExternalAgentProvider] {
+        var providers = agentChatPrototypeState.connectedExternalProviders
+        for provider in AddedExternalAgentStore.providers() where !providers.contains(provider) {
+            providers.append(provider)
+        }
+        if let remembered = ExternalAgentProvider(rawValue: personalAgentProviderRawValue),
+           remembered.connectionAvailability == .live,
+           !providers.contains(remembered) {
+            providers.append(remembered)
+        }
+        return providers.sorted { lhs, rhs in
+            (ExternalAgentProvider.allCases.firstIndex(of: lhs) ?? .max)
+                < (ExternalAgentProvider.allCases.firstIndex(of: rhs) ?? .max)
+        }
     }
 
     private var selectedAgentChatLane: AgentChatLane? {
@@ -1190,6 +1212,10 @@ private extension ConversationView {
     /// detents and one bottom-aligned child - so this is the platform's behaviour
     /// rather than something the conversation is doing to itself.
     private func moveSheet(to target: ConversationSheetDetent) {
+        guard !opensInFullScreenChat else {
+            sheetDetent = .full
+            return
+        }
         forcedSheetDetent = target
         sheetDetent = target
         Task { @MainActor in
@@ -1517,7 +1543,8 @@ private extension ConversationView {
         .conversationSheetPresentation(
             detent: $sheetDetent,
             heights: sheetHeights,
-            forcedDetent: forcedSheetDetent
+            forcedDetent: forcedSheetDetent,
+            locksToFullScreen: opensInFullScreenChat
         ) {
             // Focus is declared inside the sheet, because that is the only
             // place a `@FocusState` can reach the composers. See
@@ -1585,7 +1612,7 @@ private extension ConversationView {
                     extraBottomInset: sheetChromeHeight,
                     isReadOnly: effectiveReadOnly,
                     isActiveTab: selectedTab == .agent,
-                    isSheetCollapsed: sheetDetent == .collapsed,
+                    isSheetCollapsed: !opensInFullScreenChat && sheetDetent == .collapsed,
                     contextMenuState: agentContextMenuState,
                     focusState: agentFocus,
                     focusCoordinator: agentFocusCoordinator,
@@ -1610,7 +1637,7 @@ private extension ConversationView {
         agentFocus: FocusState<MessagesViewInputFocus?>.Binding
     ) -> some View {
         ConversationSheetContent(
-            detent: sheetDetent,
+            detent: opensInFullScreenChat ? .full : sheetDetent,
             transcriptHeight: presentationContainerHeight,
             onChromeBarsHeightChanged: { height in
                 sheetChromeBarsHeight = height

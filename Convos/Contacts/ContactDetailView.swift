@@ -164,7 +164,7 @@ struct ContactDetailView: View {
         let hasPlusSubscription: Bool = SubscriptionServices.shared.currentSubscription != nil
         _selectedAgentModel = State(
             initialValue: storedModel.requiresPlus && !hasPlusSubscription
-                ? .gpt56Sol
+                ? .chatGPT
                 : storedModel
         )
         _pendingAgentModel = State(
@@ -192,7 +192,7 @@ struct ContactDetailView: View {
                     activateAgentModel(pendingAgentModel)
                 } else if subscription == nil, selectedAgentModel.requiresPlus {
                     pendingAgentModel = selectedAgentModel
-                    selectedAgentModel = .gpt56Sol
+                    selectedAgentModel = .chatGPT
                 }
             }
             .onAppear {

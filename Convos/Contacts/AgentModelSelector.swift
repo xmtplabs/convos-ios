@@ -5,56 +5,61 @@ import SwiftUI
 /// multipliers came from the UX brief; the production catalog should arrive
 /// from the agent runtime with stable ids, plan requirements, and live cost.
 enum AgentModelOption: String, CaseIterable, Identifiable, Sendable {
-    case gpt56Sol = "gpt-5.6-sol"
-    case claudeOpus = "claude-opus"
-    case claudeFable = "claude-fable"
-    case droc46 = "droc-4.6"
+    case chatGPT = "chatgpt"
+    case claude
+    case grok
+    case gemini
+    case deepSeek = "deepseek"
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .gpt56Sol: return "GPT-5.6 Sol"
-        case .claudeOpus: return "Claude Opus"
-        case .claudeFable: return "Claude Fable"
-        case .droc46: return "DROC 4.6"
+        case .chatGPT: return "ChatGPT"
+        case .claude: return "Claude"
+        case .grok: return "Grok"
+        case .gemini: return "Gemini"
+        case .deepSeek: return "DeepSeek"
         }
     }
 
     var providerName: String {
         switch self {
-        case .gpt56Sol: return "OpenAI"
-        case .claudeOpus, .claudeFable: return "Anthropic"
-        case .droc46: return "DROC"
+        case .chatGPT: return "OpenAI"
+        case .claude: return "Anthropic"
+        case .grok: return "xAI"
+        case .gemini: return "Google"
+        case .deepSeek: return "DeepSeek"
         }
     }
 
     var systemImage: String {
         switch self {
-        case .gpt56Sol: return "sparkles"
-        case .claudeOpus: return "brain.head.profile"
-        case .claudeFable: return "book.closed.fill"
-        case .droc46: return "bolt.fill"
+        case .chatGPT: return "sparkles"
+        case .claude: return "brain.head.profile"
+        case .grok: return "bolt.fill"
+        case .gemini: return "diamond.fill"
+        case .deepSeek: return "wave.3.right.circle.fill"
         }
     }
 
     var creditMultiplier: Int {
         switch self {
-        case .gpt56Sol: return 1
-        case .claudeOpus: return 2
-        case .claudeFable: return 4
-        case .droc46: return 3
+        case .chatGPT: return 1
+        case .claude, .grok, .gemini: return 2
+        case .deepSeek: return 1
         }
     }
 
-    var requiresPlus: Bool { self != .gpt56Sol }
+    var requiresPlus: Bool { self != .chatGPT && self != .deepSeek }
 
     var capabilitySummary: String {
         switch self {
-        case .gpt56Sol: return "Fast, capable, and included"
-        case .claudeOpus: return "Deep reasoning for complex work"
-        case .claudeFable: return "Highest-power creative reasoning"
-        case .droc46: return "Fast research and live synthesis"
+        case .chatGPT: return "Versatile everyday reasoning"
+        case .claude: return "Deep reasoning for complex work"
+        case .grok: return "Fast research and live synthesis"
+        case .gemini: return "Multimodal reasoning and research"
+        case .deepSeek: return "Efficient technical reasoning"
         }
     }
 
@@ -81,7 +86,7 @@ struct AgentModelPreferenceStore: @unchecked Sendable {
     func selection(for agentId: String) -> AgentModelOption {
         guard let rawValue = defaults.string(forKey: key(for: agentId)),
               let model = AgentModelOption(rawValue: rawValue) else {
-            return .gpt56Sol
+            return .chatGPT
         }
         return model
     }
@@ -332,7 +337,7 @@ struct AgentModelPickerSheet: View {
 
 #Preview("Model selector — active") {
     AgentModelSelectorSection(
-        model: .gpt56Sol,
+        model: .chatGPT,
         needsUpgrade: false,
         onChooseModel: {},
         onUpgrade: {}
@@ -343,7 +348,7 @@ struct AgentModelPickerSheet: View {
 
 #Preview("Model selector — upgrade") {
     AgentModelSelectorSection(
-        model: .claudeFable,
+        model: .claude,
         needsUpgrade: true,
         onChooseModel: {},
         onUpgrade: {}

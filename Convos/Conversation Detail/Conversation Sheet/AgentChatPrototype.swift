@@ -556,6 +556,7 @@ struct AgentSwitcherSheet: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var isPersonalContextPresented: Bool = false
     @State private var isExternalOnboardingPresented: Bool = false
+    @State private var reconnectProvider: ExternalAgentProvider?
 
     var body: some View {
         NavigationStack {
@@ -599,6 +600,7 @@ struct AgentSwitcherSheet: View {
 
                 Section {
                     Button {
+                        reconnectProvider = nil
                         isExternalOnboardingPresented = true
                     } label: {
                         HStack(spacing: DesignConstants.Spacing.step3x) {
@@ -678,9 +680,12 @@ struct AgentSwitcherSheet: View {
         .fullScreenCover(isPresented: $isExternalOnboardingPresented) {
             ExternalAgentOnboardingView(
                 prototypeState: prototypeState,
+                initialProvider: reconnectProvider,
                 onConnected: { provider in
                     let lane: AgentChatLane = .external(provider)
                     prototypeState.connect(provider)
+                    AddedExternalAgentStore.remember(provider)
+                    reconnectProvider = nil
                     onSelect(lane)
                     isExternalOnboardingPresented = false
                     Task { @MainActor in
@@ -694,6 +699,11 @@ struct AgentSwitcherSheet: View {
 
     private func laneButton(_ lane: AgentChatLane) -> some View {
         Button {
+            if let provider = lane.externalProvider, !provider.hasStoredConnection {
+                reconnectProvider = provider
+                isExternalOnboardingPresented = true
+                return
+            }
             onSelect(lane)
             dismiss()
         } label: {
@@ -728,7 +738,10 @@ struct AgentSwitcherSheet: View {
     }
 
     private func rowSubtitle(for lane: AgentChatLane) -> String {
-        prototypeState.isWorking(lane) ? "Working…" : lane.subtitle
+        if let provider = lane.externalProvider, !provider.hasStoredConnection {
+            return "Disconnected · Tap to reconnect"
+        }
+        return prototypeState.isWorking(lane) ? "Working…" : lane.subtitle
     }
 
     private var personalContextSubtitle: String {

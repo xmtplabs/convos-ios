@@ -113,10 +113,10 @@ struct YourSpaceContextSection: View {
     private var sectionHeader: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                Text("My context and connections")
+                Text("Me & My Stuff")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.colorTextPrimary)
-                Text("Everything you make and find across your convos.")
+                Text("Photos, links, files, connections, and useful details—all private until you share them.")
                     .font(.subheadline)
                     .foregroundStyle(.colorTextSecondary)
             }
@@ -159,7 +159,7 @@ struct YourSpaceContextSection: View {
                             Text(profile.displayName)
                                 .font(.headline)
                                 .foregroundStyle(.colorTextPrimary)
-                            Text("My contact card")
+                            Text("My personal card")
                                 .font(.caption)
                                 .foregroundStyle(.colorTextSecondary)
                         }
@@ -349,6 +349,134 @@ struct YourSpaceContextSection: View {
             return item.isMine ? "You · \(title)" : title
         }
         return "Private in Your Space"
+    }
+}
+
+/// Home's read-first doorway into the personal library. The entire surface is
+/// navigational; editing remains a separate action on the destination screen.
+struct YourSpaceMeSummaryCard: View {
+    let profile: Profile
+    let profileImage: UIImage?
+    let items: [YourSpaceContextItem]
+    let connectionCount: Int
+    let onOpen: () -> Void
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
+
+    var body: some View {
+        Button(action: onOpen) {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
+                HStack(alignment: .center, spacing: DesignConstants.Spacing.step4x) {
+                    ProfileAvatarView(
+                        profile: profile,
+                        profileImage: profileImage,
+                        useSystemPlaceholder: true,
+                        size: 68
+                    )
+                    .frame(width: 68, height: 68)
+                    .overlay {
+                        Circle().stroke(Color.colorBorderSubtle, lineWidth: 0.5)
+                    }
+
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                        Text("Me & My Stuff")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.colorTextPrimary)
+                        Text(profile.displayName)
+                            .font(.subheadline)
+                            .foregroundStyle(.colorTextSecondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: DesignConstants.Spacing.step2x)
+
+                    Image(systemName: "arrow.up.right")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                        .frame(width: 44, height: 44)
+                        .background(.colorFillMinimal, in: .circle)
+                        .accessibilityHidden(true)
+                }
+
+                Text("Your photos, links, files, connections, and the useful details Convos helps you keep close.")
+                    .font(.body)
+                    .foregroundStyle(.colorTextSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if dynamicTypeSize.isAccessibilitySize {
+                    Text(accessibilitySummary)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.colorTextPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    HStack(spacing: 0) {
+                        metric(count(.photo), title: "Photos", symbol: "photo.fill")
+                        Divider().frame(height: 38)
+                        metric(count(.link), title: "Links", symbol: "link")
+                        Divider().frame(height: 38)
+                        metric(fileCount, title: "Files", symbol: "folder.fill")
+                        Divider().frame(height: 38)
+                        metric(connectionCount, title: "Connections", symbol: "point.3.connected.trianglepath.dotted")
+                    }
+                }
+
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    Image(systemName: "sparkles")
+                    Text(usefulDetailCount == 1 ? "1 useful detail saved" : "\(usefulDetailCount) useful details saved")
+                    Spacer(minLength: 0)
+                    Text("View all")
+                        .fontWeight(.semibold)
+                }
+                .font(.subheadline)
+                .foregroundStyle(.colorTextPrimary)
+            }
+            .padding(DesignConstants.Spacing.step5x)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
+            .overlay {
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large)
+                    .stroke(Color.colorBorderSubtle, lineWidth: 0.5)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Me & My Stuff, \(accessibilitySummary), \(usefulDetailCount) useful details")
+        .accessibilityHint("Opens your private personal library")
+        .accessibilityIdentifier("your-space-me-and-my-stuff")
+    }
+
+    private var fileCount: Int {
+        items.count { [.file, .video, .voice, .note].contains($0.kind) }
+    }
+
+    private var usefulDetailCount: Int {
+        items.count { $0.isAutomaticallyIndexedUsefulDetail }
+    }
+
+    private var accessibilitySummary: String {
+        "\(count(.photo)) photos, \(count(.link)) links, \(fileCount) files, and \(connectionCount) connections"
+    }
+
+    private func count(_ kind: YourSpaceContextKind) -> Int {
+        items.count { $0.kind == kind }
+    }
+
+    private func metric(_ value: Int, title: String, symbol: String) -> some View {
+        VStack(spacing: DesignConstants.Spacing.stepX) {
+            Image(systemName: symbol)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.colorTextSecondary)
+            Text("\(value)")
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(.colorTextPrimary)
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.colorTextSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -816,7 +944,7 @@ struct YourSpacePersonalCardEditor: View {
                     }
                 }
             }
-            .navigationTitle("My contact card")
+            .navigationTitle("Edit Me & My Stuff")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

@@ -1,4 +1,5 @@
 import ConvosComposer
+import Foundation
 import SwiftUI
 
 enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
@@ -9,6 +10,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
     case hermes
     case openClaw
     case grokBot
+    case connectMCP
 
     var id: String { rawValue }
 
@@ -21,6 +23,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .hermes: "Hermes"
         case .openClaw: "OpenClaw"
         case .grokBot: "Grok Bot"
+        case .connectMCP: "Connect MCP"
         }
     }
 
@@ -33,6 +36,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .hermes: "Your self-hosted Hermes agent"
         case .openClaw: "Your OpenClaw gateway"
         case .grokBot: "Coming soon"
+        case .connectMCP: "Coming soon"
         }
     }
 
@@ -45,6 +49,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .hermes: "Paired gateway demo · Scoped to this convo"
         case .openClaw: "Paired gateway demo · Scoped to this convo"
         case .grokBot: "Coming soon"
+        case .connectMCP: "Coming soon · Bring any compatible agent"
         }
     }
 
@@ -57,6 +62,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .hermes: "h.circle.fill"
         case .openClaw: "antenna.radiowaves.left.and.right"
         case .grokBot: "desktopcomputer"
+        case .connectMCP: "point.3.connected.trianglepath.dotted"
         }
     }
 
@@ -69,6 +75,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .hermes: Color(red: 0.23, green: 0.38, blue: 0.74)
         case .openClaw: Color(red: 0.77, green: 0.17, blue: 0.13)
         case .grokBot: Color(red: 0.12, green: 0.12, blue: 0.14)
+        case .connectMCP: Color(red: 0.24, green: 0.27, blue: 0.31)
         }
     }
 
@@ -81,6 +88,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .hermes: "Connect your Hermes gateway"
         case .openClaw: "Connect your OpenClaw gateway"
         case .grokBot: "Grok Bot is coming soon"
+        case .connectMCP: "Connect MCP is coming soon"
         }
     }
 
@@ -101,6 +109,8 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
             "Convos would become an approved OpenClaw device, connecting to its WebSocket gateway with a token and explicit operator scopes."
         case .grokBot:
             "Grok Bot is not live in Convos yet. It will appear here when a supported connection can exchange data with the app safely."
+        case .connectMCP:
+            "Connect MCP will let you bring an MCP-compatible personal agent to Convos with an explicit private context boundary."
         }
     }
 
@@ -148,6 +158,12 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
                 .init(symbol: "point.3.connected.trianglepath.dotted", title: "Supported connector", detail: "A provider-supported connection is required before Convos can exchange data."),
                 .init(symbol: "checkmark.shield.fill", title: "Convo scope", detail: "Only the messages and Home objects you approve are sent."),
             ]
+        case .connectMCP:
+            [
+                .init(symbol: "network", title: "Remote MCP server", detail: "A secure MCP endpoint for the personal agent you already use."),
+                .init(symbol: "key.fill", title: "Private authorization", detail: "A revocable credential stored securely on this device."),
+                .init(symbol: "checkmark.shield.fill", title: "Explicit context", detail: "You choose what the agent can read and what comes back to a convo."),
+            ]
         }
     }
 
@@ -160,13 +176,14 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .hermes: "Your Hermes gateway is paired for this demo. Its memory and tools remain yours; Convos only sends this lane’s approved context."
         case .openClaw: "Your OpenClaw gateway is paired for this demo. I’ll use only the device and operator scopes shown in Agent access."
         case .grokBot: "Grok Bot is coming soon. No data leaves Convos through this provider in this build."
+        case .connectMCP: "Connect MCP is coming soon. No server or personal context is connected in this build."
         }
     }
 
     var connectionAvailability: ExternalAgentConnectionAvailability {
         switch self {
         case .codex, .town, .tasklet: .live
-        case .grokBot: .comingSoon
+        case .grokBot, .connectMCP: .comingSoon
         case .claudeCode, .hermes, .openClaw: .preview
         }
     }
@@ -176,7 +193,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .codex: CodexConnectionStore.configuration() != nil
         case .town: TownConnectionStore.configuration() != nil
         case .tasklet: TaskletConnectionStore.configuration() != nil
-        case .claudeCode, .hermes, .openClaw, .grokBot: false
+        case .claudeCode, .hermes, .openClaw, .grokBot, .connectMCP: false
         }
     }
 }
@@ -185,6 +202,27 @@ enum ExternalAgentConnectionAvailability: Equatable {
     case live
     case preview
     case comingSoon
+}
+
+/// Remembers providers the user has deliberately added independently of their
+/// current credential state, so a disconnected agent stays in native pickers
+/// and routes back through setup instead of silently disappearing.
+enum AddedExternalAgentStore {
+    private static let key: String = "external-agents.added-providers"
+
+    static func providers(defaults: UserDefaults = .standard) -> [ExternalAgentProvider] {
+        let remembered = Set(defaults.stringArray(forKey: key) ?? [])
+        return ExternalAgentProvider.allCases.filter {
+            $0.connectionAvailability == .live && remembered.contains($0.rawValue)
+        }
+    }
+
+    static func remember(_ provider: ExternalAgentProvider, defaults: UserDefaults = .standard) {
+        guard provider.connectionAvailability == .live else { return }
+        var values = Set(defaults.stringArray(forKey: key) ?? [])
+        values.insert(provider.rawValue)
+        defaults.set(Array(values).sorted(), forKey: key)
+    }
 }
 
 struct ExternalAgentConnectionRequirement: Identifiable {
@@ -213,6 +251,16 @@ struct ExternalAgentOnboardingView: View {
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var selectedProvider: ExternalAgentProvider?
+
+    init(
+        prototypeState: AgentChatPrototypeState,
+        initialProvider: ExternalAgentProvider? = nil,
+        onConnected: @escaping (ExternalAgentProvider) -> Void
+    ) {
+        self.prototypeState = prototypeState
+        self.onConnected = onConnected
+        _selectedProvider = State(initialValue: initialProvider)
+    }
 
     var body: some View {
         NavigationStack {
@@ -245,11 +293,11 @@ struct ExternalAgentOnboardingView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, DesignConstants.Spacing.step2x)
             Text("Bring any agent to Convos")
-                .font(.system(size: 38, weight: .bold))
+                .font(.largeTitle.bold())
                 .tracking(-1.0)
                 .foregroundStyle(.colorTextPrimary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Keep the agent you already trust. Give it one private lane, one clear context boundary, and exactly the places it may show up.")
+            Text("Keep the agent you already trust. Your personal lane stays private; you decide what context it gets and what, if anything, goes back to a group.")
                 .font(.title3)
                 .foregroundStyle(.colorTextSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -317,7 +365,7 @@ struct ExternalAgentOnboardingView: View {
 
     private var privacyNote: some View {
         Label {
-            Text("Codex, Town, and Tasklet keep their connection credentials in the iPhone Keychain. Preview providers never ask for a secret, and Grok Bot is clearly marked Coming soon.")
+            Text("Codex, Town, and Tasklet keep their connection credentials in the iPhone Keychain. Grok Bot and Connect MCP are clearly marked Coming soon.")
         } icon: {
             Image(systemName: "lock.fill")
         }
@@ -427,6 +475,7 @@ struct ExternalAgentOnboardingView: View {
             .init(width: 108, height: -28),
             .init(width: 0, height: 72),
             .init(width: -110, height: 24),
+            .init(width: 110, height: 24),
         ]
         return offsets[index]
     }

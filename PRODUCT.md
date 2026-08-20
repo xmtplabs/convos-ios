@@ -18,22 +18,24 @@ Success means opening Convos immediately answers “what is new and what deserve
 
 ## Positioning
 
-The home screen is not an inbox. It is a private, continuously growing layer of personal context assembled from the user's Convos. It can help the user remember people, notice changes across groups, and selectively bring personal context back into a specific conversation without making that context public by default.
+The home screen is not a replacement inbox. It is a private, continuously growing layer of personal context assembled from the user's Convos, with three bounded recent-conversation shortcuts so ordinary messaging never becomes harder. It can help the user remember people, notice changes across groups, and selectively bring personal context back into a specific conversation without making that context public by default.
 
 ## Operating Context
 
 - The user lands in “Your Space” every time they open the app.
 - The title control at the top opens every conversation in a panel that drops from directly beneath the header, keeps Your Space first, and places search above the convo list.
 - A top-right add control starts a new conversation or joins one by scanning a QR code.
-- The profile image at top left opens app settings.
+- The profile image at top left opens Me & My Stuff. A separate gear opens app settings.
 - A native overflow menu exposes connections, private file upload, stored files, home customization, and the conversations contributing to the private space.
 - The bottom dock keeps a visible personal-agent command bar as the primary action, with More on the left and chat on the right. When an external harness is connected in the prototype, the bar names it and exposes a native harness switcher.
 - Contacts are selected in the invite flow for a conversation rather than occupying a permanent bottom-level destination.
-- The “My context and connections” library organizes the user's editable contact card, locally added context, automatically detected useful message details, and supported assets from loaded convos by type and provenance.
-- Useful details are not contact-card fields: the home shows compact Addresses, Phone numbers, Email, and All useful details filter rows, while the All Context sheet renders every indexed fact as a searchable full-width card with its source message, sender, convo, time, source-convo link, sender-message action, and share action.
-- Optional widgets include an “Agents across your convos” list. Each row identifies the agent and source convo and opens that agent's private lane; widgets remain removable from the native widget picker.
-- A dismissible “Bring your own agent” callout and the More menu both open the external-agent connection flow. Codex can pair with the user's authenticated Mac app-server through a revocable capability token. Town connects through its MCP server, while Tasklet uses the same one-use MCP return bridge plus a Tasklet webhook automation. Claude Code, Hermes, and OpenClaw remain labeled previews; Grok Bot is labeled Coming soon. Results and individual returned links can be saved into Your Space and explicitly staged into a chosen convo.
-- The Talk to selector contains verified agents available in the current convo, external agents the user has actually connected, and Ghost. It never promotes prototype personas such as Shane's Agent or Flight Tracker as if they were real agents. A connected external agent is restored across Your Space and every group selector on that device.
+- Directly beneath the briefing, Home shows the three most recent real Convos as flat rows. Opening one pushes a full-height conversation focus with an explicit Back to Your Space control; the group Home is not an intermediate stop.
+- The Me & My Stuff Home card opens a dedicated personal library for the editable contact card, photos, links, files, connections, automatically detected useful message details, and supported assets from loaded convos by type and provenance. Edit is a distinct action on that destination.
+- Useful details are not contact-card fields: Me & My Stuff shows compact Addresses, Phone numbers, Email, and All useful details filter rows, while the All Context sheet renders every indexed fact as a searchable full-width card with its source message, sender, convo, time, source-convo link, sender-message action, and share action.
+- “Agents across your convos” always starts with the three most recent rows and expands inline with See all. Each row identifies the agent and source convo and opens that agent's private lane.
+- An always-present “Bring personal agents to Convos” section and the More menu open the external-agent connection flow. It explicitly states that the agent is private to the user, is not connected to a group, and cannot be messaged by group members. Codex can pair with the user's authenticated Mac app-server through a revocable capability token. Town connects through its MCP server, while Tasklet uses the same one-use MCP return bridge plus a Tasklet webhook automation. Claude Code, Hermes, and OpenClaw remain labeled previews; Grok Bot and Connect MCP are labeled Coming soon. Results and individual returned links can be saved into Your Space and explicitly staged into a chosen convo.
+- The Talk to selector contains verified agents available in the current convo, external agents the user has actually added, and Ghost. It never promotes prototype personas such as Shane's Agent or Flight Tracker as if they were real agents. An added external agent is restored across Your Space and every group selector on that device; if its credential disappears, the row remains and opens the provider-specific reconnect flow.
+- The group-agent model picker offers ChatGPT, Claude, Grok, Gemini, and DeepSeek as the current prototype catalog.
 - Any context item may be shared only by explicitly choosing a destination; the app opens that convo with the item staged in its composer for review and never auto-sends it.
 
 ## Capabilities and Constraints
