@@ -1644,7 +1644,7 @@ private extension ConversationView {
 
     func copyToAgentAction(
         state: MessageContextMenuState,
-        lane: ConversationViewModel
+        lane _: ConversationViewModel
     ) -> ((String) -> Void)? {
         guard let dependencies = agentRelayDependencies,
               let provider = dependencies.connectionStore.activeProvider,
@@ -1652,12 +1652,8 @@ private extension ConversationView {
             return nil
         }
         return { text in
-            guard let message = state.presentedMessage else { return }
-            let sender: String = message.sender.profile.displayName
-            let title: String = lane.conversation.computedDisplayName
-            let date: String = message.date.formatted(date: .abbreviated, time: .shortened)
-            let attribution: String = "From \(sender) in \(title), \(date)."
-            agentChatDraft = AgentChatDraft(provider: provider, text: "\(text)\n\n\(attribution)")
+            guard state.presentedMessage != nil else { return }
+            agentChatDraft = AgentChatDraft(provider: provider, text: text)
         }
     }
 
