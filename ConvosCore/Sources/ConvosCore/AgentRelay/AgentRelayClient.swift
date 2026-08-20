@@ -89,7 +89,10 @@ public final class AgentRelayClient: Sendable {
         case .expired:
             try store.markExpired(requestId: requestId)
             return nil
-        case .notFound, .pending:
+        case .notFound:
+            try store.markCollectedElsewhere(requestId: requestId)
+            return nil
+        case .pending:
             return nil
         }
     }

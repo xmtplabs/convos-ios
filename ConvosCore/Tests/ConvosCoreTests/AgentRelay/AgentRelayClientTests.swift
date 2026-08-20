@@ -159,6 +159,24 @@ struct AgentRelayClientTests {
         #expect(api.fetchWaitMilliseconds == [5_000, 0])
     }
 
+    @Test("watch completes a Tasklet turn with its journaled provider")
+    func watchUsesJournaledTaskletProvider() async throws {
+        let recorder = AgentRelayCallRecorder()
+        let writer = RecordingAgentChatWriter(recorder: recorder, provider: .tasklet)
+        let result = makeAgentRelayResult(message: "Tasklet result")
+        let client = AgentRelayClient(
+            api: ScriptedAgentRelayAPI(fetchOutcomes: [.completed(result)]),
+            webhook: ScriptedWebhookTransport(),
+            store: writer,
+            history: StubAgentHistoryBuilder()
+        )
+
+        let outcome = try await client.watch(requestId: "request_tasklet")
+
+        #expect(outcome == .completed(result))
+        #expect(writer.completedProviders == [.tasklet])
+    }
+
     @Test("expired fetch marks a pending row expired")
     func expiredFetchMarksTurnExpired() async throws {
         let database = try AgentChatDatabase.inMemoryForTests()
@@ -413,6 +431,27 @@ struct AgentRelayClientTests {
 
         #expect(collected == nil)
         #expect(try repository.turns(limit: 10).isEmpty)
+        #expect(api.ackCount == 0)
+    }
+
+    @Test("collect on not found marks a local pending row collected elsewhere")
+    func collectNotFoundMarksPendingRowCollectedElsewhere() async throws {
+        let database = try AgentChatDatabase.inMemoryForTests()
+        let writer = AgentChatWriter(database: database)
+        let repository = AgentChatRepository(database: database)
+        try writer.insertPending(makeAgentTurn(requestId: "request_collect_elsewhere", provider: .tasklet))
+        let api = ScriptedAgentRelayAPI(fetchOutcomes: [.notFound])
+        let client = AgentRelayClient(
+            api: api,
+            webhook: ScriptedWebhookTransport(),
+            store: writer,
+            history: StubAgentHistoryBuilder()
+        )
+
+        let collected = try await client.collect(requestId: "request_collect_elsewhere", provider: .tasklet)
+
+        #expect(collected == nil)
+        #expect(try repository.turn(requestId: "request_collect_elsewhere")?.status == .collectedElsewhere)
         #expect(api.ackCount == 0)
     }
 }

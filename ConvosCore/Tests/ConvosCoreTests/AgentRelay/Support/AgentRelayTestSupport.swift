@@ -321,6 +321,7 @@ func makeAgentRelayResult(message: String = "Done", completedAt: Date = Date()) 
 
 func makeAgentTurn(
     requestId: String,
+    provider: ExternalAgentProvider = .town,
     status: AgentTurnStatus = .pending,
     prompt: String = "Prompt",
     createdAt: Date = Date(),
@@ -331,7 +332,7 @@ func makeAgentTurn(
 ) -> AgentTurn {
     AgentTurn(
         requestId: requestId,
-        provider: .town,
+        provider: provider,
         status: status,
         prompt: prompt,
         resultMessage: resultMessage,
