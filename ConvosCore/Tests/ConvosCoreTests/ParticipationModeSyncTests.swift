@@ -238,4 +238,22 @@ struct ParticipationModeSyncTests {
 
         #expect(update.summary == "Shane set the participation mode to \"Listen mode\"")
     }
+
+    @Test("a paused update warns that messages will not be seen later")
+    func pausedUpdateExplainsDroppedMessages() throws {
+        let update = ConversationUpdate(
+            creator: .mock(isCurrentUser: false, name: "Shane"),
+            addedMembers: [],
+            removedMembers: [],
+            metadataChanges: [
+                .init(
+                    field: .participationMode,
+                    oldValue: ConversationParticipationMode.speakFreely.rawValue,
+                    newValue: ConversationParticipationMode.paused.rawValue
+                )
+            ]
+        )
+
+        #expect(update.summary == "Shane paused the agents. They won't see messages sent while paused, even later")
+    }
 }
