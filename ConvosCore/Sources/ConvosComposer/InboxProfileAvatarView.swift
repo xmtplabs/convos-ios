@@ -72,19 +72,19 @@ public struct InboxProfileAvatarView: View {
         guard let repository else { return }
         let stream = repository.profilePublisher(inboxId: subscribedInboxId).values
         for await unified in stream {
-            let avatar: Avatar? = unified.displayAvatar(for: nil)
-            let profile = Profile(
+            // The avatar is the backend's plain URL now, so nothing crypto
+            // travels with it.
+            renderedProfile = Profile(
                 inboxId: unified.inboxId,
                 conversationId: "",
                 name: unified.name,
-                avatar: avatar?.url,
-                avatarSalt: avatar?.salt,
-                avatarNonce: avatar?.nonce,
-                avatarKey: avatar?.key,
+                avatar: unified.avatarUrl?.absoluteString,
+                avatarSalt: nil,
+                avatarNonce: nil,
+                avatarKey: nil,
                 isAgent: unified.isAgent,
                 metadata: unified.metadata
             )
-            renderedProfile = profile
         }
     }
 }
