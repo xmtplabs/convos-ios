@@ -1304,6 +1304,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
         startOnboarding()
         registerInlineAttachmentRecovery()
+        applyPendingComposerDraft()
 
         // The initial assignment of `conversation` does not run its
         // `didSet`, so a conversation that already has other members must
@@ -1382,6 +1383,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
+        applyPendingComposerDraft()
         observeAgentBuilderSummary()
 
         self.editingConversationName = conversation.name ?? ""

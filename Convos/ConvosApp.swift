@@ -14,6 +14,7 @@ struct ConvosApp: App {
     let metricsDelegate: PostHogCollector
     let coreActions: any CoreActions
     let conversationsViewModel: ConversationsViewModel
+    let agentRelayDependencies: AgentRelayDependencies?
     let profileSettingsViewModel: ProfileSettingsViewModel = .shared
     /// Guards the opportunistic agent-timezone republish to once per foreground
     /// session, so background-foregrounding the app repeatedly does not re-run
@@ -139,7 +140,15 @@ struct ConvosApp: App {
         }
         self.coreActions = coreMetrics.actions
         self.conversationsViewModel = .init(session: convos.session, coreActions: coreMetrics.actions)
+        let relayDependencies = try? AgentRelayDependencies(environment: environment)
+        self.agentRelayDependencies = relayDependencies
         appDelegate.session = convos.session
+        appDelegate.agentRelayPushCollector = { payload in
+            await relayDependencies?.collectForegroundPush(payload)
+        }
+        Task {
+            await relayDependencies?.recoverOnLaunch()
+        }
         // Runs when a share-extension upload wakes the app in the background:
         // publish whatever the extension staged but never got to send.
         let drainWriter = convos.databaseWriter
@@ -306,6 +315,11 @@ struct ConvosApp: App {
             )
             .additionalTopSafeArea(DesignConstants.Spacing.stepX)
             .withSafeAreaEnvironment()
+            .environment(\.agentRelayDependencies, agentRelayDependencies)
+            .agentRelayNotificationPresentation(
+                dependencies: agentRelayDependencies,
+                session: convos.session
+            )
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
                 case .active:
@@ -322,6 +336,9 @@ struct ConvosApp: App {
     }
 
     private func handleScenePhaseActive() {
+        Task {
+            await agentRelayDependencies?.recoverOnForeground()
+        }
         // Foreground refresh — TTL-debounced inside both services, so this is a
         // cheap no-op if we were just active. Catches the case where credits
         // changed server-side while the app was backgrounded (agent runtime

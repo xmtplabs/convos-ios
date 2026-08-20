@@ -10,6 +10,7 @@ import UserNotifications
 @MainActor
 class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate {
     var session: (any SessionManagerProtocol)?
+    var agentRelayPushCollector: ((AgentRelayPushPayload.Parsed) async -> Void)?
     /// Republishes staged-but-unpublished outgoing messages; injected by
     /// ConvosApp so the delegate can run it when a share-extension upload
     /// wakes the app in the background.
@@ -23,6 +24,12 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         PostHogConfiguration.configure()
         UNUserNotificationCenter.current().delegate = self
+        let agentRelayCategory = UNNotificationCategory(
+            identifier: AgentRelayPushPayload.notificationType,
+            actions: [],
+            intentIdentifiers: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([agentRelayCategory])
         application.registerForRemoteNotifications()
         leftConversationObserver = NotificationCenter.default.addObserver(
             forName: .leftConversationNotification, object: nil, queue: .main
@@ -138,6 +145,10 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
 
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        if let payload = AgentRelayPushPayload.parse(notification.request.content.userInfo) {
+            await agentRelayPushCollector?(payload)
+            return AgentChatVisibility.isVisible ? [] : [.banner, .sound]
+        }
         let conversationId = notification.request.content.threadIdentifier
 
         if !conversationId.isEmpty, let session = session {
@@ -169,6 +180,18 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
         Log.debug("Notification tapped")
+
+        let userInfo = response.notification.request.content.userInfo
+        if userInfo["notificationType"] as? String == AgentRelayPushPayload.notificationType {
+            let requestId: String = userInfo["requestId"] as? String ?? response.notification.request.identifier
+            Self.removeDeliveredAgentRelayNotification(requestId: requestId)
+            NotificationCenter.default.post(
+                name: .agentRelayNotificationTapped,
+                object: nil,
+                userInfo: userInfo
+            )
+            return
+        }
 
         let conversationId = response.notification.request.content.threadIdentifier
 
@@ -228,5 +251,9 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         guard !toRemove.isEmpty else { return }
         center.removeDeliveredNotifications(withIdentifiers: toRemove)
         Log.info("Cleared \(toRemove.count) notifications for conversation \(conversationId)")
+    }
+
+    static func removeDeliveredAgentRelayNotification(requestId: String) {
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [requestId])
     }
 }

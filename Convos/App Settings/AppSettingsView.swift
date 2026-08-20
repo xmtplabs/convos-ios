@@ -63,6 +63,7 @@ struct AppSettingsView: View {
     @State private var showingDeleteAllDataConfirmation: Bool = false
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.agentRelayDependencies) private var agentRelayDependencies: AgentRelayDependencies?
     @State private var navState: AppSettingsNavigatorImpl = .init()
     @State private var navigator: AppSettingsCollector?
     @State private var versionTapCount: Int = 0
@@ -95,6 +96,9 @@ struct AppSettingsView: View {
                 myInfoSection
                 subscriptionSection
                 connectionsSection
+                if FeatureFlags.shared.agentRelayEnabled {
+                    agentsSection
+                }
                 devicesSection
                 customizeSection
                 linksSection
@@ -247,6 +251,26 @@ struct AppSettingsView: View {
             .accessibilityIdentifier("connections-row")
         } footer: {
             Text("Apps and info agents can use")
+        }
+    }
+
+    @ViewBuilder
+    private var agentsSection: some View {
+        Section {
+            if let agentRelayDependencies {
+                NavigationLink {
+                    AgentProvidersView(dependencies: agentRelayDependencies, session: session)
+                } label: {
+                    Label("Agents", systemImage: "sparkles")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                .accessibilityIdentifier("agents-row")
+            } else {
+                Label("Agents unavailable", systemImage: "sparkles")
+                    .foregroundStyle(.colorTextSecondary)
+            }
+        } footer: {
+            Text("Chat privately with an agent you already use")
         }
     }
 

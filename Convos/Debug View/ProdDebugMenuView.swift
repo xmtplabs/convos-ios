@@ -189,6 +189,7 @@ struct ProdDebugMenuView: View {
             Toggle("Abilities v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
             Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
             Toggle("Web inspector (space/browser web views)", isOn: Bindable(FeatureFlags.shared).isWebInspectorEnabled)
+            Toggle("Agent relay", isOn: Bindable(FeatureFlags.shared).agentRelayEnabled)
         }
     }
 

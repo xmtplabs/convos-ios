@@ -127,6 +127,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var navState: ConversationNavigatorImpl = .init()
     @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.agentRelayDependencies) private var agentRelayDependencies: AgentRelayDependencies?
+    @State private var agentChatDraft: AgentChatDraft?
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -545,6 +547,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear {
             ensureNavigator()
+            viewModel.applyPendingComposerDraft()
             navState.markScreenAppeared()
             updateGroupOnScreen(isOnScreen: true)
             // Seed before the viewed check: a DM-notification open lands
@@ -566,6 +569,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
             handleSelectAgentDmPageRequest(note)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { notification in
+            let conversationId: String? = notification.userInfo?["conversationId"] as? String
+            if conversationId == viewModel.conversation.id {
+                viewModel.applyPendingComposerDraft()
+            }
         }
         .onDisappear {
             viewModel.onConversationDisappeared()
@@ -614,7 +623,26 @@ private extension ConversationView {
     /// type-check budget and the body-length limit.
     @ViewBuilder
     func conversationPresentations(_ content: some View) -> some View {
-        messagePresentations(conversationLevelPresentations(connectionsBrowserPresentation(content)))
+        let connectionContent = connectionsBrowserPresentation(content)
+        let conversationContent = conversationLevelPresentations(connectionContent)
+        let messageContent = messagePresentations(conversationContent)
+        agentChatPresentation(messageContent)
+    }
+
+    @ViewBuilder
+    func agentChatPresentation(_ content: some View) -> some View {
+        content.sheet(item: $agentChatDraft) { draft in
+            if let agentRelayDependencies {
+                NavigationStack {
+                    AgentChatView(
+                        provider: draft.provider,
+                        dependencies: agentRelayDependencies,
+                        session: viewModel.session,
+                        initialText: draft.text
+                    )
+                }
+            }
+        }
     }
 
     /// The Connections browser, raised full-screen by the agent composer's
@@ -1602,7 +1630,8 @@ private extension ConversationView {
             onReply: handleContextMenuReply(_:),
             onCopy: { text in
                 UIPasteboard.general.string = text
-            }
+            },
+            onCopyToAgent: copyToAgentAction(state: state, lane: lane)
         )
         .environment(\.agentShareResolver, lane.agentShareResolver)
         .environment(\.inviteMembershipResolver, lane.inviteMembershipResolver)
@@ -1611,6 +1640,25 @@ private extension ConversationView {
         // routes where the bubble's own tap routes only because of this.
         .environment(\.messageLinkRouter, routeSpaceLink(_:))
         .environment(\.conversationSpaceURL, viewModel.conversation.spaceURL)
+    }
+
+    func copyToAgentAction(
+        state: MessageContextMenuState,
+        lane: ConversationViewModel
+    ) -> ((String) -> Void)? {
+        guard let dependencies = agentRelayDependencies,
+              let provider = dependencies.connectionStore.activeProvider,
+              (try? dependencies.connectionStore.load(provider: provider)) != nil else {
+            return nil
+        }
+        return { text in
+            guard let message = state.presentedMessage else { return }
+            let sender: String = message.sender.profile.displayName
+            let title: String = lane.conversation.computedDisplayName
+            let date: String = message.date.formatted(date: .abbreviated, time: .shortened)
+            let attribution: String = "From \(sender) in \(title), \(date)."
+            agentChatDraft = AgentChatDraft(provider: provider, text: "\(text)\n\n\(attribution)")
+        }
     }
 
     /// Extra rows above the group composer: the injected bottom-bar slot plus

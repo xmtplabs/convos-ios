@@ -685,6 +685,10 @@ extension MainTabView {
         .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { _ in
             handleConversationNotificationTapped()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .agentRelayNotificationTapped)) { _ in
+            activeTab = .chats
+            presentingAppSettings = false
+        }
         .onChange(of: isNewConversationPushed) { _, isPushed in
             handleNewConversationPushed(isPushed)
         }
