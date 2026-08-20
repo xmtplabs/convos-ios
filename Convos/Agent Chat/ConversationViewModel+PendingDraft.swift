@@ -5,6 +5,14 @@ extension ConversationViewModel {
         let environment: AppEnvironment = ConfigManager.shared.currentEnvironment
         let store = PendingComposerDraftStore(environment: environment)
         guard let draft = store.take(for: conversation.id) else { return }
-        messageText = draft.text
+        guard !messageText.isEmpty else {
+            messageText = draft.text
+            return
+        }
+        var existingText: String = messageText
+        while existingText.last?.isWhitespace == true {
+            existingText.removeLast()
+        }
+        messageText = "\(existingText)\n\n\(draft.text)"
     }
 }
