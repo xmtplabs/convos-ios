@@ -17,9 +17,12 @@ struct HomeBrowserEntry: Identifiable, Hashable {
 /// scrolls clear of both.
 struct HomeBrowserPageView: View {
     let entry: HomeBrowserEntry
-    /// The sheet's live geometry, whose resting height becomes this page's
-    /// bottom viewport padding. Read here rather than handed in as a number -
-    /// see `ConversationSheetGeometry`.
+    /// The sheet's live geometry, which this page clears at its bottom in two
+    /// parts: the resting height as viewport padding, and whatever the sheet
+    /// covers beyond that as a scroll inset. Read here rather than handed in as
+    /// a number - the read is what keeps a pushed page tracking a sheet that
+    /// moves after it was pushed, which nothing else refreshes it for. See
+    /// `ConversationSheetGeometry`.
     var sheetGeometry: ConversationSheetGeometry = ConversationSheetGeometry()
     /// Fired when this page requests navigation away from its own URL; the
     /// host pushes another page for it.
@@ -30,6 +33,12 @@ struct HomeBrowserPageView: View {
             HomeWebView(
                 url: entry.url,
                 topContentInset: proxy.safeAreaInsets.top,
+                // What the sheet covers past its resting height, which the
+                // padding below has already cleared. A page is pushed with the
+                // sheet at compact as often as at collapsed - a Space link
+                // settles it there - and the padding alone would leave that
+                // half of the page covered with nowhere to scroll it out to.
+                bottomContentInset: sheetGeometry.clearanceBeyondResting,
                 onNavigationRequest: onNavigationRequest
             )
             // Pad the viewport itself rather than relying on the scroll
@@ -38,8 +47,9 @@ struct HomeBrowserPageView: View {
             // reaches their content and the sheet covers the page bottom.
             // The raised background shows through the strip like a footer.
             // Resting height, not live coverage: resizing a WKWebView reflows
-            // the page, so tracking every drag frame would jank — the padding
-            // clears the collapsed sheet and an expanded sheet simply covers.
+            // the page, so tracking every drag frame would jank. The rest of
+            // the sheet's coverage rides on the scroll inset above, which
+            // changes without reflowing anything.
             .padding(.bottom, sheetGeometry.restingHeight)
             .ignoresSafeArea(edges: .vertical)
         }
