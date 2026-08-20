@@ -96,6 +96,13 @@ extension SessionManager {
     /// variant is bound.
     public nonisolated(unsafe) static var deferCacheTimeDefaultAgent: (@Sendable () async -> Bool)?
 
+    /// Hook the app layer installs to record which variant a freshly claimed
+    /// conversation was created under. Called with the claimed conversation and
+    /// the caller's pick — nil meaning "no variant", which clears — before the
+    /// claim-time provision reads it. Nil hook (no app layer, e.g. tests) keeps
+    /// conversations unbound.
+    public nonisolated(unsafe) static var claimedConversationVariantBinder: (@Sendable (String, String?) async -> Void)?
+
     /// Wires the warm cache so every conversation it finishes preparing gets
     /// the default agent provisioned into it, best-effort, in the background —
     /// unless the app layer is holding that provision for a variant pick.

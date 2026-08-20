@@ -523,18 +523,6 @@ final class ConversationsViewModel {
     /// `onStartConvo` so the variant picker can run ahead of it and then
     /// continue into the same flow.
     func startNewConversation(agentVariantSlug: String? = nil) {
-        // Bind the pick to the conversation this flow is about to adopt,
-        // before the flow starts. The warm cache hands out a conversation it
-        // prepared earlier, and that conversation's default agent is
-        // provisioned the moment it is adopted — concurrently with the
-        // `.ready` handler that would otherwise write this binding. Writing it
-        // here means the assignment is already on disk whenever the
-        // provisioner resolves, so a pick can't lose that race and land its
-        // agent on the default runtime. `.ready` still binds as the backstop
-        // for a cold create, where no prepared conversation exists yet.
-        if let agentVariantSlug, let prepared = session.peekPreparedConversationId() {
-            AgentVariantAssignmentStore.shared.assignIfUnset(slug: agentVariantSlug, to: prepared)
-        }
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation,

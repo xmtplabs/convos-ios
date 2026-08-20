@@ -549,12 +549,23 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         unusedConversationCache.peekPreparedConversationId()
     }
 
-    public func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?) {
+    public func prepareNewConversation(
+        variantSlug: String? = nil
+    ) async -> (service: AnyMessagingService, conversationId: String?) {
         let service = loadOrCreateService()
         let conversationId = await unusedConversationCache.consumeUnusedConversationId(
             databaseWriter: databaseWriter
         )
         if let conversationId {
+            // State the caller's variant for the conversation actually
+            // claimed, before the provision below can read it. The claim
+            // selects an eligible row on its own terms, so the id a caller
+            // guessed beforehand is not necessarily this one — binding here is
+            // what makes the pick land on the conversation the flow received.
+            // Writes unconditionally: a nil slug clears whatever an abandoned
+            // flow left on this row, so a reused conversation can't build its
+            // agent under a variant the user has since dropped.
+            await Self.claimedConversationVariantBinder?(conversationId, variantSlug)
             // Claim-time backstop: cache-time provisioning is best-effort, so
             // re-ensure the default agent on the way out. Fire-and-forget; the
             // ready signal sent at commit awaits the shared provision task.

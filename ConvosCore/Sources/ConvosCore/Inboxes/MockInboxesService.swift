@@ -21,7 +21,7 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
     public private(set) var discardedConversationIds: [String] = []
     public private(set) var discardedIfUnengagedConversationIds: [String] = []
 
-    public func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?) {
+    public func prepareNewConversation(variantSlug: String?) async -> (service: AnyMessagingService, conversationId: String?) {
         (service: mockMessagingService, conversationId: nil)
     }
 

@@ -217,7 +217,7 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         self.customMessagingService = messagingService
     }
 
-    func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?) {
+    func prepareNewConversation(variantSlug: String?) async -> (service: AnyMessagingService, conversationId: String?) {
         (service: customMessagingService, conversationId: nil)
     }
 

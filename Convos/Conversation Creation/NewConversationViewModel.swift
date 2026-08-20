@@ -524,7 +524,7 @@ class NewConversationViewModel: Identifiable, Hashable {
 
             switch mode {
             case .newConversation, .newAgent, .newConversationWithTemplate:
-                let (messagingService, existingConversationId) = await session.prepareNewConversation()
+                let (messagingService, existingConversationId) = await session.prepareNewConversation(variantSlug: agentVariantSlug)
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
                 Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
@@ -554,7 +554,7 @@ class NewConversationViewModel: Identifiable, Hashable {
                 )
 
             case .newConversationWithMembers(let initialMemberInboxIds, _):
-                let (messagingService, existingConversationId) = await session.prepareNewConversation()
+                let (messagingService, existingConversationId) = await session.prepareNewConversation(variantSlug: agentVariantSlug)
                 guard !Task.isCancelled else { return }
                 let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
                 Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
