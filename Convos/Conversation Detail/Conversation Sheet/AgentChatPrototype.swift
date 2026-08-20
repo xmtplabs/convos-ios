@@ -12,6 +12,7 @@ struct AgentChatLane: Identifiable {
         case live(inboxId: String)
         case prototype(PrototypeAgent)
         case external(ExternalAgentProvider)
+        case grokBot(GrokBotAgent)
         case ghost
     }
 
@@ -67,7 +68,7 @@ struct AgentChatLane: Identifiable {
 
     var isLocalPrototype: Bool {
         switch kind {
-        case .prototype, .external, .ghost: true
+        case .prototype, .external, .grokBot, .ghost: true
         case .live: false
         }
     }
@@ -77,8 +78,16 @@ struct AgentChatLane: Identifiable {
     }
 
     var externalProvider: ExternalAgentProvider? {
-        guard case .external(let provider) = kind else { return nil }
-        return provider
+        switch kind {
+        case .external(let provider): provider
+        case .grokBot: .grokBot
+        default: nil
+        }
+    }
+
+    var grokBotAgent: GrokBotAgent? {
+        guard case .grokBot(let agent) = kind else { return nil }
+        return agent
     }
 
     static func live(profile: Profile, verification: AgentVerification) -> AgentChatLane {
@@ -114,9 +123,21 @@ struct AgentChatLane: Identifiable {
         )
     }
 
+    static func grokBot(_ agent: GrokBotAgent) -> AgentChatLane {
+        AgentChatLane(
+            id: "prototype:external:grokbot:\(agent.id)",
+            name: agent.harnessName,
+            subtitle: agent.detail ?? "Live · Private agent on your computer",
+            kind: .grokBot(agent),
+            profile: nil,
+            agentVerification: .unverified
+        )
+    }
+
     static func available(
         live: [AgentChatLane],
-        connectedExternalProviders: [ExternalAgentProvider]
+        connectedExternalProviders: [ExternalAgentProvider],
+        grokBotAgents: [GrokBotAgent] = []
     ) -> [AgentChatLane] {
         var seenProviderIds: Set<String> = []
         let external = connectedExternalProviders
@@ -124,7 +145,11 @@ struct AgentChatLane: Identifiable {
                 provider.connectionAvailability == .live
                     && seenProviderIds.insert(provider.id).inserted
             }
-            .map(AgentChatLane.external)
+            .flatMap { provider in
+                provider == .grokBot
+                    ? grokBotAgents.map(AgentChatLane.grokBot)
+                    : [AgentChatLane.external(provider)]
+            }
         return live + external + [.ghost]
     }
 
@@ -276,6 +301,10 @@ final class AgentChatPrototypeState {
             sendToTasklet(text, in: lane)
             return
         }
+        if case .grokBot(let agent) = lane.kind {
+            sendToGrokBot(text, agent: agent, in: lane)
+            return
+        }
 
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(850))
@@ -338,6 +367,36 @@ final class AgentChatPrototypeState {
                     AgentChatPrototypeMessage(
                         sender: .agent,
                         text: "I couldn't finish that Tasklet request. \(error.localizedDescription)"
+                    )
+                )
+            }
+            workingLaneIds.remove(lane.id)
+        }
+    }
+
+    private func sendToGrokBot(_ text: String, agent: GrokBotAgent, in lane: AgentChatLane) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                guard let configuration = GrokBotConnectionStore.configuration() else {
+                    throw GrokBotConnectionError.notConnected
+                }
+                let result = try await GrokBotBridgeClient().send(
+                    text,
+                    to: agent,
+                    configuration: configuration,
+                    yourSpaceSnapshot: nil
+                )
+                messagesByLane[lane.id, default: []].append(
+                    AgentChatPrototypeMessage(sender: .agent, text: result.shareText)
+                )
+            } catch is CancellationError {
+                // The lane may be dismissed while Grok Bot is still working.
+            } catch {
+                messagesByLane[lane.id, default: []].append(
+                    AgentChatPrototypeMessage(
+                        sender: .agent,
+                        text: "I couldn't finish that \(agent.name) request. \(error.localizedDescription)"
                     )
                 )
             }
@@ -431,6 +490,13 @@ final class AgentChatPrototypeState {
                     text: provider.welcomeMessage
                 ),
             ]
+        case .grokBot(let agent):
+            [
+                AgentChatPrototypeMessage(
+                    sender: .agent,
+                    text: "\(agent.name) is live in your private Convos lane. Ask me to work, then choose whether to save or share the result."
+                ),
+            ]
         case .ghost:
             [
                 AgentChatPrototypeMessage(
@@ -453,6 +519,8 @@ final class AgentChatPrototypeState {
             "I can work with that privately here, then update Home or ping the right member once you approve it."
         case .external(let provider):
             "Demo connection active. \(provider.displayName) would work on “\(userText)” with only the access you approved for this convo."
+        case .grokBot(let agent):
+            "\(agent.name) would work on “\(userText)” through your private Grok Bot computer connection."
         case .ghost:
             "Here’s a private first pass: keep the core idea, remove anything identifying, and share only the sentence you want another agent to act on."
         case .live:
@@ -496,6 +564,12 @@ struct AgentChatLaneAvatar: View {
                 .foregroundStyle(Color.white)
                 .frame(width: size, height: size)
                 .background(provider.tint, in: .circle)
+        case .grokBot:
+            Image(systemName: ExternalAgentProvider.grokBot.symbolName)
+                .font(.system(size: size * 0.38, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .frame(width: size, height: size)
+                .background(ExternalAgentProvider.grokBot.tint, in: .circle)
         case .ghost:
             GhostGlyph()
                 .frame(width: size * 0.48, height: size * 0.52)
@@ -613,7 +687,7 @@ struct AgentSwitcherSheet: View {
                                 Text("Add an external agent")
                                     .font(.body.weight(.semibold))
                                     .foregroundStyle(.colorTextPrimary)
-                                Text("Connect Codex, Town, or Tasklet · Preview more providers")
+                                Text("Connect Codex, Town, Tasklet, or Grok Bot · Preview more providers")
                                     .font(.footnote)
                                     .foregroundStyle(.colorTextSecondary)
                                     .lineLimit(2)
@@ -682,11 +756,18 @@ struct AgentSwitcherSheet: View {
                 prototypeState: prototypeState,
                 initialProvider: reconnectProvider,
                 onConnected: { provider in
-                    let lane: AgentChatLane = .external(provider)
                     prototypeState.connect(provider)
                     AddedExternalAgentStore.remember(provider)
+                    let lane: AgentChatLane?
+                    if provider == .grokBot {
+                        lane = GrokBotConnectionStore.configuration()?.enabledAgents.first.map(AgentChatLane.grokBot)
+                    } else {
+                        lane = .external(provider)
+                    }
                     reconnectProvider = nil
-                    onSelect(lane)
+                    if let lane {
+                        onSelect(lane)
+                    }
                     isExternalOnboardingPresented = false
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(250))

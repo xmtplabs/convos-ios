@@ -460,7 +460,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
         guard showsAgentChatPrototype else { return liveAgentChatLanes }
         return AgentChatLane.available(
             live: liveAgentChatLanes,
-            connectedExternalProviders: personalAgentProvidersForSelector
+            connectedExternalProviders: personalAgentProvidersForSelector,
+            grokBotAgents: GrokBotConnectionStore.configuration()?.enabledAgents ?? []
         )
     }
 

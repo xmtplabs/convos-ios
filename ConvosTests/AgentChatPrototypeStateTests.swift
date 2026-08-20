@@ -109,17 +109,17 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         XCTAssertNotEqual(state.messages(for: codex).first?.text, state.messages(for: claude).first?.text)
     }
 
-    func testGrokBotIsComingSoonAndCannotBeConnected() {
+    func testGrokBotIsLiveAndCanBeConnected() {
         let provider = ExternalAgentProvider.grokBot
         let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
 
         XCTAssertEqual(provider.displayName, "Grok Bot")
-        XCTAssertEqual(provider.shortDescription, "Coming soon")
-        XCTAssertEqual(provider.connectionAvailability, .comingSoon)
+        XCTAssertTrue(provider.shortDescription.contains("Multiple"))
+        XCTAssertEqual(provider.connectionAvailability, .live)
 
         state.connect(provider)
 
-        XCTAssertFalse(state.connectedExternalProviders.contains(provider))
+        XCTAssertTrue(state.connectedExternalProviders.contains(provider))
     }
 
     func testConnectMCPIsComingSoonAndCannotBeConnected() {

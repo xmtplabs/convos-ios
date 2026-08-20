@@ -829,6 +829,10 @@ struct YourSpaceInputSheet: View {
         agentName == ExternalAgentProvider.tasklet.displayName
     }
 
+    private var isGrokBotSelected: Bool {
+        agentName?.hasPrefix("Grok Bot · ") == true
+    }
+
     private var initialAssistantMessage: String {
         if isCodexSelected, codexConfiguration != nil {
             let contextCount = codexSnapshot?.items.count ?? 0
@@ -842,6 +846,9 @@ struct YourSpaceInputSheet: View {
         }
         if isTaskletSelected, onAskAgent != nil {
             return "Tasklet is connected to Convos. Ask your agent to use its memory, connections, and tools, and I’ll bring the finished result back here to save or share."
+        }
+        if isGrokBotSelected, onAskAgent != nil {
+            return "\(agentName ?? "Your Grokbot") is connected through your computer. Work here privately, then choose what you want to save or share."
         }
         return briefing.headline
     }
@@ -868,6 +875,13 @@ struct YourSpaceInputSheet: View {
                 "Make something I can save and share",
             ]
         }
+        if isGrokBotSelected {
+            return [
+                "What’s the five?",
+                "Use this context to move something forward",
+                "Make something useful I can save or share",
+            ]
+        }
         return ["What needs me?", "What's new?", "Who is active?"]
     }
 
@@ -890,6 +904,12 @@ struct YourSpaceInputSheet: View {
         }
         if isTaskletSelected {
             return "This question goes to your Tasklet agent without Your Space context."
+        }
+        if isGrokBotSelected, GrokBotConnectionStore.configuration()?.sharesYourSpaceContext == true {
+            return "This question and a bounded snapshot of the Your Space context you approved go to \(agentName ?? "your Grokbot")."
+        }
+        if isGrokBotSelected {
+            return "This question goes to \(agentName ?? "your Grokbot") without Your Space context."
         }
         return "Answers use private context already on this device."
     }

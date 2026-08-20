@@ -6,10 +6,10 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
     case codex
     case town
     case tasklet
+    case grokBot
     case claudeCode
     case hermes
     case openClaw
-    case grokBot
     case connectMCP
 
     var id: String { rawValue }
@@ -35,7 +35,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .claudeCode: "Anthropic coding agent"
         case .hermes: "Your self-hosted Hermes agent"
         case .openClaw: "Your OpenClaw gateway"
-        case .grokBot: "Coming soon"
+        case .grokBot: "Multiple agents from your Grok Bot computer"
         case .connectMCP: "Coming soon"
         }
     }
@@ -48,7 +48,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .claudeCode: "Connected demo · Private desktop collaborator"
         case .hermes: "Paired gateway demo · Scoped to this convo"
         case .openClaw: "Paired gateway demo · Scoped to this convo"
-        case .grokBot: "Coming soon"
+        case .grokBot: "Live · Private agent on your computer"
         case .connectMCP: "Coming soon · Bring any compatible agent"
         }
     }
@@ -87,7 +87,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .claudeCode: "Pair Claude Code from your desktop"
         case .hermes: "Connect your Hermes gateway"
         case .openClaw: "Connect your OpenClaw gateway"
-        case .grokBot: "Grok Bot is coming soon"
+        case .grokBot: "Connect your Grok Bot agents"
         case .connectMCP: "Connect MCP is coming soon"
         }
     }
@@ -108,7 +108,7 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .openClaw:
             "Convos would become an approved OpenClaw device, connecting to its WebSocket gateway with a token and explicit operator scopes."
         case .grokBot:
-            "Grok Bot is not live in Convos yet. It will appear here when a supported connection can exchange data with the app safely."
+            "Connect your Grok Bot computer once, then choose as many named agents as you want. Each selected agent becomes its own private harness in Convos."
         case .connectMCP:
             "Connect MCP will let you bring an MCP-compatible personal agent to Convos with an explicit private context boundary."
         }
@@ -154,9 +154,9 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
             ]
         case .grokBot:
             [
-                .init(symbol: "macbook.and.iphone", title: "Grok Bot app", detail: "The separate Grok Bot app installed on your iPhone or Mac."),
-                .init(symbol: "point.3.connected.trianglepath.dotted", title: "Supported connector", detail: "A provider-supported connection is required before Convos can exchange data."),
-                .init(symbol: "checkmark.shield.fill", title: "Convo scope", detail: "Only the messages and Home objects you approve are sent."),
+                .init(symbol: "desktopcomputer", title: "One computer relay", detail: "Your Grok Bot computer reaches out to Convos without opening an inbound port."),
+                .init(symbol: "person.2.fill", title: "Named Grokbots", detail: "Hamilton, CTO, Travel Planner, and every enabled agent stay independently selectable."),
+                .init(symbol: "checkmark.shield.fill", title: "Private context choice", detail: "Only the prompt and optional Your Space snapshot you approve are sent."),
             ]
         case .connectMCP:
             [
@@ -175,15 +175,15 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .claudeCode: "Claude Code is paired for this demo. I can help shape or implement a Home update from the workspace you approve."
         case .hermes: "Your Hermes gateway is paired for this demo. Its memory and tools remain yours; Convos only sends this lane’s approved context."
         case .openClaw: "Your OpenClaw gateway is paired for this demo. I’ll use only the device and operator scopes shown in Agent access."
-        case .grokBot: "Grok Bot is coming soon. No data leaves Convos through this provider in this build."
+        case .grokBot: "This Grok Bot is live in your private Convos lane. Ask it to work, then choose whether to save or share the result."
         case .connectMCP: "Connect MCP is coming soon. No server or personal context is connected in this build."
         }
     }
 
     var connectionAvailability: ExternalAgentConnectionAvailability {
         switch self {
-        case .codex, .town, .tasklet: .live
-        case .grokBot, .connectMCP: .comingSoon
+        case .codex, .town, .tasklet, .grokBot: .live
+        case .connectMCP: .comingSoon
         case .claudeCode, .hermes, .openClaw: .preview
         }
     }
@@ -193,7 +193,8 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         case .codex: CodexConnectionStore.configuration() != nil
         case .town: TownConnectionStore.configuration() != nil
         case .tasklet: TaskletConnectionStore.configuration() != nil
-        case .claudeCode, .hermes, .openClaw, .grokBot, .connectMCP: false
+        case .grokBot: GrokBotConnectionStore.configuration() != nil
+        case .claudeCode, .hermes, .openClaw, .connectMCP: false
         }
     }
 }
@@ -365,7 +366,7 @@ struct ExternalAgentOnboardingView: View {
 
     private var privacyNote: some View {
         Label {
-            Text("Codex, Town, and Tasklet keep their connection credentials in the iPhone Keychain. Grok Bot and Connect MCP are clearly marked Coming soon.")
+            Text("Codex, Town, Tasklet, and Grok Bot keep their connection credentials in the iPhone Keychain. Connect MCP is clearly marked Coming soon.")
         } icon: {
             Image(systemName: "lock.fill")
         }
@@ -387,6 +388,10 @@ struct ExternalAgentOnboardingView: View {
         } else if provider == .tasklet {
             TaskletConnectionSetupView {
                 onConnected(.tasklet)
+            }
+        } else if provider == .grokBot {
+            GrokBotConnectionSetupView {
+                onConnected(.grokBot)
             }
         } else {
             demoConnectionView(provider)
@@ -481,6 +486,11 @@ struct ExternalAgentOnboardingView: View {
     }
 
     private func providerStatus(_ provider: ExternalAgentProvider) -> String? {
+        if provider == .grokBot,
+           let configuration = GrokBotConnectionStore.configuration() {
+            let count = configuration.enabledAgents.count
+            return count == 0 ? "Connected" : "\(count) added"
+        }
         if prototypeState.connectedExternalProviders.contains(provider) {
             return "Added"
         }

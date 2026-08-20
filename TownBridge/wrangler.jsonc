@@ -14,6 +14,10 @@
       {
         "name": "RESULT_MAILBOX",
         "class_name": "ResultMailbox"
+      },
+      {
+        "name": "GROKBOT_SESSIONS",
+        "class_name": "GrokBotSession"
       }
     ]
   },
@@ -21,6 +25,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["ResultMailbox"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["GrokBotSession"]
     }
   ]
 }

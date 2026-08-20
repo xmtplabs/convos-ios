@@ -12,6 +12,22 @@ import ConvosComposer
 import ConvosCore
 import SwiftUI
 
+private struct PersonalAgentHarness: Identifiable {
+    let provider: ExternalAgentProvider
+    let grokBotAgent: GrokBotAgent?
+
+    var id: String {
+        if let grokBotAgent {
+            return "grokbot:\(grokBotAgent.id)"
+        }
+        return "provider:\(provider.rawValue)"
+    }
+
+    var name: String {
+        grokBotAgent?.harnessName ?? provider.displayName
+    }
+}
+
 struct YourSpaceView: View {
     @Bindable var viewModel: ConversationsViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
@@ -48,6 +64,7 @@ struct YourSpaceView: View {
     @AppStorage("your-space-footprint-widget") private var showsFootprintWidget: Bool = false
     @AppStorage("your-space-agents-widget") private var showsAgentsWidget: Bool = false
     @AppStorage("your-space-personal-agent-provider") private var personalAgentProviderRawValue: String = ""
+    @AppStorage("your-space-grokbot-agent-id") private var personalGrokBotAgentId: String = ""
 
     private var conversations: [Conversation] {
 #if DEBUG
@@ -110,6 +127,16 @@ struct YourSpaceView: View {
         ExternalAgentProvider(rawValue: personalAgentProviderRawValue)
     }
 
+    private var activeGrokBotAgent: GrokBotAgent? {
+        guard activePersonalAgent == .grokBot else { return nil }
+        let enabledAgents = GrokBotConnectionStore.configuration()?.enabledAgents ?? []
+        return enabledAgents.first(where: { $0.id == personalGrokBotAgentId }) ?? enabledAgents.first
+    }
+
+    private var activePersonalAgentName: String? {
+        activeGrokBotAgent?.harnessName ?? activePersonalAgent?.displayName
+    }
+
     private var codexConnectionConfiguration: CodexConnectionConfiguration? {
         guard activePersonalAgent == .codex else { return nil }
         return CodexConnectionStore.configuration()
@@ -134,6 +161,11 @@ struct YourSpaceView: View {
         case .tasklet:
             return { prompt in
                 try await askTaskletAgent(prompt)
+            }
+        case .grokBot:
+            guard let activeGrokBotAgent else { return nil }
+            return { prompt in
+                try await askGrokBotAgent(prompt, agent: activeGrokBotAgent)
             }
         default:
             return nil
@@ -194,7 +226,7 @@ struct YourSpaceView: View {
                     mode: mode,
                     briefing: briefing,
                     contextItems: allContextItems,
-                    agentName: activePersonalAgent?.displayName,
+                    agentName: activePersonalAgentName,
                     codexConfiguration: codexConnectionConfiguration,
                     codexSnapshot: codexYourSpaceSnapshot,
                     onAskAgent: activeAgentRequest,
@@ -1090,7 +1122,7 @@ private extension YourSpaceView {
                     }
 
                     VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                        Text(activePersonalAgent.map { "Ask \($0.displayName)" } ?? "Ask your agent")
+                        Text(activePersonalAgentName.map { "Ask \($0)" } ?? "Ask your agent")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.colorTextPrimary)
                             .lineLimit(1)
@@ -1111,16 +1143,19 @@ private extension YourSpaceView {
 
             if activePersonalAgent != nil {
                 Menu {
-                    ForEach(personalAgentSelectorProviders) { provider in
+                    ForEach(personalAgentSelectorHarnesses) { harness in
                         Button {
-                            personalAgentProviderRawValue = provider.rawValue
-                            if !provider.hasStoredConnection {
-                                presentPersonalAgentOnboarding(for: provider)
+                            personalAgentProviderRawValue = harness.provider.rawValue
+                            if let grokBotAgent = harness.grokBotAgent {
+                                personalGrokBotAgentId = grokBotAgent.id
+                            }
+                            if !harness.provider.hasStoredConnection || (harness.provider == .grokBot && harness.grokBotAgent == nil) {
+                                presentPersonalAgentOnboarding(for: harness.provider)
                             }
                         } label: {
                             Label(
-                                provider.displayName,
-                                systemImage: provider == activePersonalAgent ? "checkmark" : provider.symbolName
+                                harness.name,
+                                systemImage: harness.id == activePersonalHarnessId ? "checkmark" : harness.provider.symbolName
                             )
                         }
                     }
@@ -1177,6 +1212,14 @@ private extension YourSpaceView {
                 ? "Reconnect your Tasklet agent"
                 : "Live · Tasklet memory and tools"
         }
+        if activePersonalAgent == .grokBot {
+            guard GrokBotConnectionStore.configuration() != nil else {
+                return "Reconnect your Grok Bot computer"
+            }
+            return activeGrokBotAgent == nil
+                ? "Choose a Grokbot to add"
+                : "Live · Private agent on your computer"
+        }
         return "Connection preview"
     }
 
@@ -1196,11 +1239,30 @@ private extension YourSpaceView {
         }
     }
 
+    private var personalAgentSelectorHarnesses: [PersonalAgentHarness] {
+        personalAgentSelectorProviders.flatMap { provider in
+            guard provider == .grokBot else {
+                return [PersonalAgentHarness(provider: provider, grokBotAgent: nil)]
+            }
+            let agents = GrokBotConnectionStore.configuration()?.enabledAgents ?? []
+            if agents.isEmpty {
+                return [PersonalAgentHarness(provider: provider, grokBotAgent: nil)]
+            }
+            return agents.map { PersonalAgentHarness(provider: provider, grokBotAgent: $0) }
+        }
+    }
+
+    private var activePersonalHarnessId: String? {
+        guard let activePersonalAgent else { return nil }
+        return PersonalAgentHarness(provider: activePersonalAgent, grokBotAgent: activeGrokBotAgent).id
+    }
+
     private var personalAgentSectionActionTitle: String {
         guard let activePersonalAgent else { return "Connect a personal agent" }
-        return activePersonalAgent.hasStoredConnection
-            ? "Talk to \(activePersonalAgent.displayName) privately"
-            : "Reconnect \(activePersonalAgent.displayName)"
+        let name = activePersonalAgentName ?? activePersonalAgent.displayName
+        return activePersonalAgent.hasStoredConnection && (activePersonalAgent != .grokBot || activeGrokBotAgent != nil)
+            ? "Talk to \(name) privately"
+            : "Reconnect \(name)"
     }
 
     private var chatButton: some View {
@@ -1290,6 +1352,10 @@ private extension YourSpaceView {
         personalAgentState.connect(provider)
         AddedExternalAgentStore.remember(provider)
         personalAgentProviderRawValue = provider.rawValue
+        if provider == .grokBot,
+           let firstAgent = GrokBotConnectionStore.configuration()?.enabledAgents.first {
+            personalGrokBotAgentId = firstAgent.id
+        }
         onboardingInitialProvider = nil
         presentingPersonalAgentOnboarding = false
     }
@@ -1304,10 +1370,19 @@ private extension YourSpaceView {
             if provider.hasStoredConnection {
                 personalAgentState.connect(provider)
             }
+            if provider == .grokBot,
+               activeGrokBotAgent == nil,
+               let firstAgent = GrokBotConnectionStore.configuration()?.enabledAgents.first {
+                personalGrokBotAgentId = firstAgent.id
+            }
             return
         }
         if let firstConnected = personalAgentState.connectedExternalProviders.first {
             personalAgentProviderRawValue = firstConnected.rawValue
+            if firstConnected == .grokBot,
+               let firstAgent = GrokBotConnectionStore.configuration()?.enabledAgents.first {
+                personalGrokBotAgentId = firstAgent.id
+            }
         } else {
             personalAgentProviderRawValue = ""
         }
@@ -1326,6 +1401,10 @@ private extension YourSpaceView {
             presentPersonalAgentOnboarding(for: activePersonalAgent)
             return
         }
+        if activePersonalAgent == .grokBot, activeGrokBotAgent == nil {
+            presentPersonalAgentOnboarding(for: .grokBot)
+            return
+        }
         inputMode = mode
     }
 
@@ -1335,7 +1414,7 @@ private extension YourSpaceView {
     }
 
     private func saveAgentOutput(_ output: String) throws -> YourSpaceContextItem {
-        let agentName = activePersonalAgent?.displayName ?? "Your Space agent"
+        let agentName = activePersonalAgentName ?? "Your Space agent"
         let file = try YourSpaceFileStore.storeText(output, title: "\(agentName) output")
         refreshLocalContext(selecting: file)
         return YourSpaceContextItem(local: file)
@@ -1376,6 +1455,24 @@ private extension YourSpaceView {
         )
         return try await TaskletBridgeClient().send(
             prompt,
+            configuration: configuration,
+            yourSpaceSnapshot: snapshot
+        ).shareText
+    }
+
+    private func askGrokBotAgent(_ prompt: String, agent: GrokBotAgent) async throws -> String {
+        guard let configuration = GrokBotConnectionStore.configuration() else {
+            throw GrokBotConnectionError.notConnected
+        }
+        let snapshot = GrokBotYourSpaceSnapshot(
+            briefing: briefing,
+            contextItems: allContextItems,
+            conversationTitle: conversationTitle,
+            senderName: senderName
+        )
+        return try await GrokBotBridgeClient().send(
+            prompt,
+            to: agent,
             configuration: configuration,
             yourSpaceSnapshot: snapshot
         ).shareText

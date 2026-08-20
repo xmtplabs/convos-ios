@@ -53,7 +53,7 @@ final class TaskletConnectionTests: XCTestCase {
         state.connect(.grokBot)
         state.connect(.claudeCode)
 
-        XCTAssertEqual(state.connectedExternalProviders, [.tasklet])
+        XCTAssertEqual(state.connectedExternalProviders, [.tasklet, .grokBot])
     }
 
     @MainActor
@@ -79,14 +79,16 @@ final class TaskletConnectionTests: XCTestCase {
         })
     }
 
-    func testTaskletSitsBelowTownAndComingSoonProvidersStayAtTheBottom() throws {
+    func testTaskletAndGrokBotSitBelowTownAndConnectMCPStaysAtTheBottom() throws {
         let townIndex = try XCTUnwrap(ExternalAgentProvider.allCases.firstIndex(of: .town))
         let taskletIndex = try XCTUnwrap(ExternalAgentProvider.allCases.firstIndex(of: .tasklet))
+        let grokBotIndex = try XCTUnwrap(ExternalAgentProvider.allCases.firstIndex(of: .grokBot))
 
         XCTAssertEqual(taskletIndex, townIndex + 1)
+        XCTAssertEqual(grokBotIndex, taskletIndex + 1)
         XCTAssertEqual(ExternalAgentProvider.tasklet.connectionAvailability, .live)
-        XCTAssertEqual(ExternalAgentProvider.grokBot.connectionAvailability, .comingSoon)
-        XCTAssertEqual(ExternalAgentProvider.grokBot.shortDescription, "Coming soon")
+        XCTAssertEqual(ExternalAgentProvider.grokBot.connectionAvailability, .live)
+        XCTAssertTrue(ExternalAgentProvider.grokBot.shortDescription.contains("Multiple"))
         XCTAssertEqual(ExternalAgentProvider.allCases.last, .connectMCP)
         XCTAssertEqual(ExternalAgentProvider.connectMCP.connectionAvailability, .comingSoon)
         XCTAssertEqual(ExternalAgentProvider.connectMCP.shortDescription, "Coming soon")
@@ -100,7 +102,7 @@ final class TaskletConnectionTests: XCTestCase {
         AddedExternalAgentStore.remember(.tasklet, defaults: defaults)
         AddedExternalAgentStore.remember(.grokBot, defaults: defaults)
 
-        XCTAssertEqual(AddedExternalAgentStore.providers(defaults: defaults), [.tasklet])
+        XCTAssertEqual(AddedExternalAgentStore.providers(defaults: defaults), [.tasklet, .grokBot])
     }
 }
 
