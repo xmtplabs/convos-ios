@@ -9,6 +9,7 @@ public final class MockConversationLocalStateWriter: ConversationLocalStateWrite
     public var leftHostedInviteSessionStates: [String: Bool] = [:]
     public var hasSharedInviteStates: [String: Bool] = [:]
     public var publishedProfileUpdatedAtStates: [String: Date?] = [:]
+    public var personalSpaceStates: [String: Bool] = [:]
 
     public init() {}
 
@@ -38,5 +39,9 @@ public final class MockConversationLocalStateWriter: ConversationLocalStateWrite
 
     public func setPublishedProfileUpdatedAt(_ publishedProfileUpdatedAt: Date?, for conversationId: String) async throws {
         publishedProfileUpdatedAtStates[conversationId] = publishedProfileUpdatedAt
+    }
+
+    public func setPersonalSpace(_ isPersonalSpace: Bool, for conversationId: String) async throws {
+        personalSpaceStates[conversationId] = isPersonalSpace
     }
 }

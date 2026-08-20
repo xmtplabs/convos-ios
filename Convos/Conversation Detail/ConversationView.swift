@@ -44,6 +44,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// host that renders one too (the new-convo sheet's close) hides its own
     /// and the bar keeps a single leading button.
     var onHomeBrowsingChanged: ((Bool) -> Void)?
+    /// True when this conversation is the user's Space, which the Space Home
+    /// renders. Handed in rather than derived: the Space is designated by a
+    /// local flag the conversation itself carries no trace of. See
+    /// `PersonalSpaceService`.
+    var isPersonalSpace: Bool = false
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
@@ -447,9 +452,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
         )
     }
 
-    /// Every conversation offers both transcripts.
+    /// Every conversation offers both transcripts - except one that is
+    /// already a DM with an agent, which has no second agent to open a DM
+    /// with. Its single lane is the conversation itself, relabelled: see
+    /// `ConversationTab.title(isPersonalSpace:)`.
     private var availableTabs: [ConversationTab] {
-        ConversationTab.allCases
+        isPersonalSpace ? [.group] : ConversationTab.allCases
     }
 
     /// The view model behind the transcript the selected tab is showing.
@@ -1568,6 +1576,7 @@ private extension ConversationView {
     var backingViews: some View {
         HomeLayoutView(
             webURL: viewModel.conversation.spaceURL,
+            subject: isPersonalSpace ? .space : .group,
             sheetGeometry: sheetGeometry,
             onNavigationRequest: { url in
                 pushHomeBrowserPage(for: url)
@@ -1643,6 +1652,7 @@ private extension ConversationView {
                 ConversationTabBar(
                     selectedTab: $selectedTab,
                     tabs: availableTabs,
+                    isPersonalSpace: isPersonalSpace,
                     badgedTabs: badgedTabs,
                     onReselect: handleTabReselect(_:)
                 )

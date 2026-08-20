@@ -372,6 +372,7 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addProfileAvatarLastRenewed", migrate: Self.addProfileAvatarLastRenewed)
         migrator.registerMigration("makeProfileAvatarLatestViewDeterministic", migrate: Self.makeProfileAvatarLatestViewDeterministic)
         migrator.registerMigration("addConversationLocalStatePublishedProfileUpdatedAt", migrate: Self.addConversationLocalStatePublishedProfileUpdatedAt)
+        migrator.registerMigration("addConversationLocalStateIsPersonalSpace", migrate: Self.addConversationLocalStateIsPersonalSpace)
         Self.registerCatchUpCursorMigrations(on: &migrator)
         migrator.registerMigration("createSelfConversationMetadata", migrate: Self.createSelfConversationMetadata)
     }
@@ -616,6 +617,20 @@ extension SharedDatabaseMigrator {
     /// conversations the user re-engages rather than fanning out to all of them.
     /// `nil` means never published (treated as stale), so no backfill is needed.
     /// Guarded on column existence for idempotency across dev installs.
+    /// Marks the one conversation that is this user's Space. Local-only: the
+    /// synced agent-DM marker looked like the natural home for this until it
+    /// turned out the assistant runtime acts on it, so the Space needs a flag
+    /// nothing off-device can see. Defaults false; no backfill, because before
+    /// this migration no Space had been designated. Guarded on column existence
+    /// for idempotency across dev installs.
+    static func addConversationLocalStateIsPersonalSpace(_ db: Database) throws {
+        let hasColumn = try db.columns(in: "conversationLocalState").contains { $0.name == "isPersonalSpace" }
+        guard !hasColumn else { return }
+        try db.alter(table: "conversationLocalState") { t in
+            t.add(column: "isPersonalSpace", .boolean).notNull().defaults(to: false)
+        }
+    }
+
     static func addConversationLocalStatePublishedProfileUpdatedAt(_ db: Database) throws {
         let hasColumn = try db.columns(in: "conversationLocalState").contains { $0.name == "publishedProfileUpdatedAt" }
         guard !hasColumn else { return }

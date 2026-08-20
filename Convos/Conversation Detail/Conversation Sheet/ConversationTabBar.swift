@@ -13,6 +13,10 @@ struct ConversationTabBar: View {
     /// Tabs to render, in order. The full set by default; hosts may trim it
     /// (e.g. a draft conversation with no home yet).
     var tabs: [ConversationTab] = ConversationTab.allCases
+    /// Relabels the group lane as the agent - see
+    /// `ConversationTab.title(isPersonalSpace:)`. Defaults to the ordinary
+    /// conversation, so every existing call site is unaffected.
+    var isPersonalSpace: Bool = false
     /// Tabs carrying an unread indicator: a dot on the icon's top-right
     /// corner (Figma 7488:14106). Hosts exclude the active tab - the user
     /// is looking at it.
@@ -114,13 +118,13 @@ struct ConversationTabBar: View {
                         unreadDot
                     }
                 }
-            Text(tab.title)
+            Text(tab.title(isPersonalSpace: isPersonalSpace))
                 .font(.system(size: Constant.labelPointSize, weight: .bold))
                 .foregroundStyle(labelColor(isSelected: isSelected))
         }
         .frame(width: Constant.slotWidth, height: Constant.slotHeight)
         .animation(.easeInOut(duration: 0.2), value: isSelected)
-        .accessibilityLabel(tab.title)
+        .accessibilityLabel(tab.title(isPersonalSpace: isPersonalSpace))
         .accessibilityValue(isBadged ? "Unread" : "")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier("conversation-tab-\(tab.rawValue)")

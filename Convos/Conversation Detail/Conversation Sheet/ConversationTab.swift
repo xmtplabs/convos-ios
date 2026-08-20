@@ -22,6 +22,17 @@ enum ConversationTab: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// The label this lane wears in a given conversation.
+    ///
+    /// The personal Space is a conversation whose only other member is the
+    /// user's own agent, so its group lane *is* the agent. Calling it "Group"
+    /// would name a room that has one other member in it and no way to add a
+    /// second.
+    func title(isPersonalSpace: Bool) -> String {
+        guard isPersonalSpace, self == .group else { return title }
+        return ConversationTab.agent.title
+    }
+
     /// The transcript a conversation opens on. A tap that specifically asked
     /// for the agent DM (a DM notification, or a list row whose most recent
     /// unread is in the DM) gets it; everything else opens on the group.

@@ -10,6 +10,8 @@ import SwiftUI
 struct HomeWebSurface: View {
     var url: URL?
     var isScrollEnabled: Bool = true
+    /// Forwarded to the preparing state, so its copy names the right thing.
+    var subject: HomePreparingView.Subject = .group
     /// Forwarded to `HomeWebView`: top clearance (the navigation chrome)
     /// for the page and its scroll indicator.
     var topContentInset: CGFloat = 0
@@ -31,12 +33,14 @@ struct HomeWebSurface: View {
     init(
         url: URL? = nil,
         isScrollEnabled: Bool = true,
+        subject: HomePreparingView.Subject = .group,
         topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         onNavigationRequest: @escaping @MainActor (URL) -> Void = { _ in }
     ) {
         self.url = url
         self.isScrollEnabled = isScrollEnabled
+        self.subject = subject
         self.topContentInset = topContentInset
         self.bottomContentInset = bottomContentInset
         self.onNavigationRequest = onNavigationRequest
@@ -77,7 +81,7 @@ struct HomeWebSurface: View {
                 },
                 onNavigationRequest: onNavigationRequest
             )
-            HomeCoverView(hasSpaceURL: url != nil)
+            HomeCoverView(hasSpaceURL: url != nil, subject: subject)
                 .opacity(isLoaded ? 0 : 1)
                 .allowsHitTesting(!isLoaded)
         }
@@ -115,6 +119,7 @@ private struct HomeCoverView: View {
     /// False until the worker publishes the space URL, which the preparing
     /// state uses to decide how far its bar may advance.
     let hasSpaceURL: Bool
+    let subject: HomePreparingView.Subject
 
     var body: some View {
         // Opaque fill (it must hide the loading page beneath), layered the same
@@ -122,7 +127,7 @@ private struct HomeCoverView: View {
         ZStack {
             Color.colorBackgroundSurfaceless
             Color.colorBackgroundSubtle
-            HomePreparingView(stage: hasSpaceURL ? .loadingPage : .awaitingSpace)
+            HomePreparingView(stage: hasSpaceURL ? .loadingPage : .awaitingSpace, subject: subject)
         }
     }
 }

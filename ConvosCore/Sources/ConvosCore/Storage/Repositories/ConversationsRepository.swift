@@ -40,6 +40,19 @@ public protocol ConversationsRepositoryProtocol {
     /// carrying the agent-DM marker only).
     func findAgentDm(with inboxId: String) throws -> Conversation?
 
+    /// The user's personal Space conversation: their locked, two-member convo
+    /// with their own agent.
+    ///
+    /// Identified by a local flag, `ConversationLocalState.isPersonalSpace`.
+    /// The synced agent-DM marker was the first answer and a wrong one: it is
+    /// read by the assistant runtime, not just by us, and wearing it made the
+    /// runtime open a separate DM for the agent and walk the agent out of the
+    /// Space. The Space is an ordinary group; only this device knows it is
+    /// special.
+    ///
+    /// Nil until one has been provisioned. See `PersonalSpaceService`.
+    func findPersonalSpace() throws -> Conversation?
+
     /// Routing for a tapped agent-DM notification. The tap carries the DM's own
     /// conversation id; return the parent group to open and the agent whose DM
     /// page to select. nil when the id is not a routable agent DM (not a DM, no
@@ -133,6 +146,12 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
                 consent: consent,
                 onlyAgentDms: true
             )
+        }
+    }
+
+    func findPersonalSpace() throws -> Conversation? {
+        try dbReader.read { [consent] db in
+            try db.composePersonalSpace(consent: consent)
         }
     }
 
@@ -234,6 +253,32 @@ extension Database {
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
             .filter(DBConversation.Columns.isAgentDm == false)
+            // The Space is a perfectly ordinary group - locked, two members,
+            // one of them an agent - so nothing about its own row keeps it out
+            // of the list. It is the screen the list sits on, not a row in it,
+            // so it is excluded here by the local flag that designates it.
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.isPersonalSpace == false))
+    }
+
+    /// The conversation flagged as this user's Space. See
+    /// `ConversationsRepositoryProtocol.findPersonalSpace`.
+    ///
+    /// Deliberately not built on `baseListConversationsRequest`, which now
+    /// excludes exactly this row. Oldest first, so a duplicate left behind by a
+    /// failed provision can never displace the Space the user has been living
+    /// in.
+    fileprivate func composePersonalSpace(consent: [Consent]) throws -> Conversation? {
+        let details = try DBConversation
+            .filter(consent.contains(DBConversation.Columns.consent))
+            .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
+            .filter(DBConversation.Columns.isUnused == false)
+            .joining(required: DBConversation.localState
+                .filter(ConversationLocalState.Columns.wasRemoved == false)
+                .filter(ConversationLocalState.Columns.isPersonalSpace == true))
+            .order(DBConversation.Columns.createdAt.asc)
+            .detailedConversationQuery()
+            .fetchAll(self)
+        return try details.composeConversations(from: self).first
     }
 
     fileprivate func composeAllConversations(consent: [Consent]) throws -> [Conversation] {

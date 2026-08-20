@@ -146,6 +146,17 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     /// waits on that join instead of offering to add another agent.
     func isProvisioningDefaultAgent(id conversationId: String) async -> Bool
 
+    /// Re-adds the default agent to a conversation that has lost it.
+    ///
+    /// Distinct from `ensureDefaultAgentConversationReady`, which is
+    /// deliberately once-per-conversation-per-session: it shares one task per
+    /// id, so a second call after the first has completed returns that
+    /// finished task and does nothing. That is right for "make sure the
+    /// provision happened" and useless for "the agent is gone, put it back".
+    /// This forgets the completed task first, so the provision actually runs
+    /// again.
+    func reprovisionDefaultAgent(id conversationId: String) async
+
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 

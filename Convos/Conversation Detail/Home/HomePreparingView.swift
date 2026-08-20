@@ -16,7 +16,16 @@ struct HomePreparingView: View {
         case loadingPage
     }
 
+    /// Whose home this is. The personal Space is a conversation with nobody in
+    /// it but the user and their own agent, so a line about "your group's"
+    /// home names a group that isn't there.
+    enum Subject {
+        case group
+        case space
+    }
+
     var stage: Stage = .loadingPage
+    var subject: Subject = .group
 
     @State private var progress: Double = Constant.progressStart
 
@@ -43,9 +52,11 @@ struct HomePreparingView: View {
     /// space URL there is no page yet - the home is still being built - so the
     /// line only claims to be loading once there is something to load.
     private var caption: String {
-        switch stage {
-        case .awaitingSpace: "Preparing your group's new home"
-        case .loadingPage: "Loading your group's home"
+        switch (stage, subject) {
+        case (.awaitingSpace, .group): "Preparing your group's new home"
+        case (.loadingPage, .group): "Loading your group's home"
+        case (.awaitingSpace, .space): "Preparing your home"
+        case (.loadingPage, .space): "Loading your home"
         }
     }
 
@@ -139,5 +150,12 @@ struct HomePreparingView: View {
     ZStack {
         Color.colorBackgroundSubtle
         HomePreparingView(stage: .loadingPage)
+    }
+}
+
+#Preview("Your Space, awaiting") {
+    ZStack {
+        Color.colorBackgroundSubtle
+        HomePreparingView(stage: .awaitingSpace, subject: .space)
     }
 }
