@@ -30,6 +30,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var expandedMessageIds: Set<String> = []
     var onToggleMessageExpanded: ((String) -> Void)?
     var contextMenuState: MessageContextMenuState?
+    var messageAgentReceiptStore: MessageAgentReceiptStore = .init()
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
     var agentPowerDepletedByInboxId: [String: Bool] = [:]
@@ -130,6 +131,7 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
                 self?.onToggleMessageExpanded?(messageId)
             },
             contextMenuState: contextMenuState ?? .init(),
+            messageAgentReceiptStore: messageAgentReceiptStore,
             onAgentOutOfCredits: { [weak self] in
                 self?.onAgentOutOfCredits?()
             },

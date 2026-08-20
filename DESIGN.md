@@ -92,6 +92,16 @@ components:
     backgroundColor: "{colors.canvas}"
     textColor: "{colors.text-primary}"
     typography: "{typography.body}"
+  agent-destination-sheet:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.text-primary}"
+    typography: "{typography.body}"
+    minimumRowHeight: "{spacing.step-11x}"
+  agent-handoff-receipt:
+    backgroundColor: "system glass"
+    textColor: "{colors.text-primary}"
+    iconSize: "28pt"
+    minimumTapTarget: "{spacing.step-11x}"
   sheet-primary-action:
     backgroundColor: "{colors.attention-surface}"
     textColor: "{colors.text-on-attention}"

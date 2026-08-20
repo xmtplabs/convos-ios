@@ -167,10 +167,66 @@ struct AgentChatLane: Identifiable {
         profile: nil,
         agentVerification: .unverified
     )
+
+    func receipt(conversationId: String, messageId: String) -> MessageAgentReceipt {
+        MessageAgentReceipt(
+            conversationId: conversationId,
+            messageId: messageId,
+            agentId: id,
+            agentName: name,
+            appearance: receiptAppearance
+        )
+    }
+
+    private var receiptAppearance: MessageAgentReceipt.Appearance {
+        switch kind {
+        case .live, .prototype(.spaceAbilities):
+            .init(
+                symbolName: "sparkles",
+                backgroundRed: 0.98,
+                backgroundGreen: 0.30,
+                backgroundBlue: 0.10,
+                foregroundRed: 1,
+                foregroundGreen: 0.85,
+                foregroundBlue: 0.12
+            )
+        case .prototype(.flightTracker):
+            .init(symbolName: "airplane", backgroundRed: 0.08, backgroundGreen: 0.42, backgroundBlue: 0.88)
+        case .prototype(.shanesAgent):
+            .init(symbolName: "person.fill", backgroundRed: 0.08, backgroundGreen: 0.08, backgroundBlue: 0.09)
+        case .external(let provider):
+            provider.receiptAppearance
+        case .grokBot:
+            ExternalAgentProvider.grokBot.receiptAppearance
+        case .ghost:
+            .init(symbolName: "eye.slash.fill", backgroundRed: 0.52, backgroundGreen: 0.20, backgroundBlue: 0.78)
+        }
+    }
 }
 
-struct AgentChatPrototypeMessage: Identifiable, Equatable {
-    enum Sender {
+private extension ExternalAgentProvider {
+    var receiptAppearance: MessageAgentReceipt.Appearance {
+        let background: [Double] = switch self {
+        case .codex: [0.08, 0.08, 0.09]
+        case .town: [0.10, 0.37, 0.28]
+        case .tasklet: [0.30, 0.23, 0.76]
+        case .claudeCode: [0.72, 0.36, 0.20]
+        case .hermes: [0.23, 0.38, 0.74]
+        case .openClaw: [0.77, 0.17, 0.13]
+        case .grokBot: [0.12, 0.12, 0.14]
+        case .connectMCP: [0.24, 0.27, 0.31]
+        }
+        return .init(
+            symbolName: symbolName,
+            backgroundRed: background[0],
+            backgroundGreen: background[1],
+            backgroundBlue: background[2]
+        )
+    }
+}
+
+struct AgentChatPrototypeMessage: Identifiable, Equatable, Codable {
+    enum Sender: String, Codable {
         case user
         case agent
     }
@@ -199,11 +255,26 @@ final class AgentChatPrototypeState {
     private(set) var approvedPersonalContextItemIds: Set<String> = []
     private(set) var connectedExternalProviders: [ExternalAgentProvider] = []
     private(set) var externalAccessByProvider: [ExternalAgentProvider: ExternalAgentAccess] = [:]
+    @ObservationIgnored private let transcriptKeychain: any KeychainServiceProtocol
+    @ObservationIgnored private var boundConversationId: String?
 
-    init(restoresConnectedExternalProviders: Bool = true) {
+    init(
+        restoresConnectedExternalProviders: Bool = true,
+        transcriptKeychain: any KeychainServiceProtocol = KeychainService()
+    ) {
+        self.transcriptKeychain = transcriptKeychain
         if restoresConnectedExternalProviders {
             restoreExternalConnections()
         }
+    }
+
+    /// Restores the private agent transcript for this Convo. The payload lives
+    /// in this-device-only Keychain storage so forwarded group text never goes
+    /// through preferences or cloud sync just to remain visible on reopen.
+    func bind(to conversationId: String) {
+        guard boundConversationId != conversationId else { return }
+        boundConversationId = conversationId
+        messagesByLane = loadTranscript(for: conversationId)
     }
 
     var hasApprovedPersonalContext: Bool {
@@ -265,6 +336,7 @@ final class AgentChatPrototypeState {
     func prepare(_ lane: AgentChatLane) {
         guard lane.isLocalPrototype, messagesByLane[lane.id] == nil else { return }
         messagesByLane[lane.id] = initialMessages(for: lane)
+        persistTranscript()
     }
 
     func messages(for lane: AgentChatLane) -> [AgentChatPrototypeMessage] {
@@ -283,43 +355,47 @@ final class AgentChatPrototypeState {
     }
 
     func send(in lane: AgentChatLane) {
-        prepare(lane)
-        guard !workingLaneIds.contains(lane.id) else { return }
         let text: String = (draftsByLane[lane.id] ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-
+        guard send(text: text, in: lane) else { return }
         draftsByLane[lane.id] = ""
-        messagesByLane[lane.id, default: []].append(
-            AgentChatPrototypeMessage(sender: .user, text: text)
-        )
+    }
+
+    /// Queues explicit text without taking over the visible composer. This is
+    /// the path used by a group message's "Send to agent" action.
+    @discardableResult
+    func send(text rawText: String, in lane: AgentChatLane) -> Bool {
+        prepare(lane)
+        guard !workingLaneIds.contains(lane.id) else { return false }
+        let text: String = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return false }
+
+        append(.init(sender: .user, text: text), to: lane)
         workingLaneIds.insert(lane.id)
 
         if case .external(.codex) = lane.kind {
             sendToCodex(text, in: lane)
-            return
+            return true
         }
         if case .external(.town) = lane.kind {
             sendToTown(text, in: lane)
-            return
+            return true
         }
         if case .external(.tasklet) = lane.kind {
             sendToTasklet(text, in: lane)
-            return
+            return true
         }
         if case .grokBot(let agent) = lane.kind {
             sendToGrokBot(text, agent: agent, in: lane)
-            return
+            return true
         }
 
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(850))
             guard let self else { return }
-            messagesByLane[lane.id, default: []].append(
-                AgentChatPrototypeMessage(sender: .agent, text: reply(for: lane, userText: text))
-            )
+            append(.init(sender: .agent, text: reply(for: lane, userText: text)), to: lane)
             workingLaneIds.remove(lane.id)
         }
+        return true
     }
 
     private func sendToTown(_ text: String, in lane: AgentChatLane) {
@@ -334,17 +410,16 @@ final class AgentChatPrototypeState {
                     configuration: configuration,
                     yourSpaceSnapshot: nil
                 )
-                messagesByLane[lane.id, default: []].append(
-                    AgentChatPrototypeMessage(sender: .agent, text: result.shareText)
-                )
+                append(.init(sender: .agent, text: result.shareText), to: lane)
             } catch is CancellationError {
                 // The lane may be dismissed while Town is still working.
             } catch {
-                messagesByLane[lane.id, default: []].append(
+                append(
                     AgentChatPrototypeMessage(
                         sender: .agent,
                         text: "I couldn't finish that Town request. \(error.localizedDescription)"
-                    )
+                    ),
+                    to: lane
                 )
             }
             workingLaneIds.remove(lane.id)
@@ -363,17 +438,16 @@ final class AgentChatPrototypeState {
                     configuration: configuration,
                     yourSpaceSnapshot: nil
                 )
-                messagesByLane[lane.id, default: []].append(
-                    AgentChatPrototypeMessage(sender: .agent, text: result.shareText)
-                )
+                append(.init(sender: .agent, text: result.shareText), to: lane)
             } catch is CancellationError {
                 // The lane may be dismissed while Tasklet is still working.
             } catch {
-                messagesByLane[lane.id, default: []].append(
+                append(
                     AgentChatPrototypeMessage(
                         sender: .agent,
                         text: "I couldn't finish that Tasklet request. \(error.localizedDescription)"
-                    )
+                    ),
+                    to: lane
                 )
             }
             workingLaneIds.remove(lane.id)
@@ -393,17 +467,16 @@ final class AgentChatPrototypeState {
                     configuration: configuration,
                     yourSpaceSnapshot: nil
                 )
-                messagesByLane[lane.id, default: []].append(
-                    AgentChatPrototypeMessage(sender: .agent, text: result.shareText)
-                )
+                append(.init(sender: .agent, text: result.shareText), to: lane)
             } catch is CancellationError {
                 // The lane may be dismissed while Grok Bot is still working.
             } catch {
-                messagesByLane[lane.id, default: []].append(
+                append(
                     AgentChatPrototypeMessage(
                         sender: .agent,
                         text: "I couldn't finish that \(agent.name) request. \(error.localizedDescription)"
-                    )
+                    ),
+                    to: lane
                 )
             }
             workingLaneIds.remove(lane.id)
@@ -416,11 +489,12 @@ final class AgentChatPrototypeState {
             shareConfirmation = "Prototype preview only — nothing was sent to \(lane.name)"
             return
         }
-        messagesByLane[lane.id, default: []].append(
+        append(
             AgentChatPrototypeMessage(
                 sender: .user,
                 text: "Shared from Ghost Mode:\n\(message.text)"
-            )
+            ),
+            to: lane
         )
         shareConfirmation = "Shared only this message with \(lane.name)"
     }
@@ -431,11 +505,12 @@ final class AgentChatPrototypeState {
 
     private func sendToCodex(_ text: String, in lane: AgentChatLane) {
         guard let configuration = CodexConnectionStore.configuration() else {
-            messagesByLane[lane.id, default: []].append(
+            append(
                 AgentChatPrototypeMessage(
                     sender: .agent,
                     text: "Codex isn’t connected yet. Open Add an external agent, choose Codex, and connect this iPhone to the app-server on your Mac."
-                )
+                ),
+                to: lane
             )
             workingLaneIds.remove(lane.id)
             return
@@ -451,15 +526,14 @@ final class AgentChatPrototypeState {
                     existingThreadId: CodexConnectionStore.threadId()
                 )
                 CodexConnectionStore.saveThreadId(result.threadId)
-                messagesByLane[lane.id, default: []].append(
-                    AgentChatPrototypeMessage(sender: .agent, text: result.text)
-                )
+                append(.init(sender: .agent, text: result.text), to: lane)
             } catch {
-                messagesByLane[lane.id, default: []].append(
+                append(
                     AgentChatPrototypeMessage(
                         sender: .agent,
                         text: "I couldn’t reach Codex on your Mac. \(error.localizedDescription)"
-                    )
+                    ),
+                    to: lane
                 )
             }
             workingLaneIds.remove(lane.id)
@@ -532,6 +606,42 @@ final class AgentChatPrototypeState {
         case .live:
             ""
         }
+    }
+
+    private func append(_ message: AgentChatPrototypeMessage, to lane: AgentChatLane) {
+        messagesByLane[lane.id, default: []].append(message)
+        if let count = messagesByLane[lane.id]?.count, count > Constant.maximumMessagesPerLane {
+            messagesByLane[lane.id]?.removeFirst(count - Constant.maximumMessagesPerLane)
+        }
+        persistTranscript()
+    }
+
+    private func loadTranscript(for conversationId: String) -> [String: [AgentChatPrototypeMessage]] {
+        guard let data = try? transcriptKeychain.retrieveData(account: transcriptAccount(for: conversationId)),
+              let envelope = try? JSONDecoder().decode(TranscriptEnvelope.self, from: data) else {
+            return [:]
+        }
+        return envelope.messagesByLane
+    }
+
+    private func persistTranscript() {
+        guard let boundConversationId,
+              let data = try? JSONEncoder().encode(TranscriptEnvelope(messagesByLane: messagesByLane)) else {
+            return
+        }
+        try? transcriptKeychain.saveData(data, account: transcriptAccount(for: boundConversationId))
+    }
+
+    private func transcriptAccount(for conversationId: String) -> String {
+        "agent-chat-transcript.v1.\(conversationId)"
+    }
+
+    private struct TranscriptEnvelope: Codable {
+        let messagesByLane: [String: [AgentChatPrototypeMessage]]
+    }
+
+    private enum Constant {
+        static let maximumMessagesPerLane: Int = 100
     }
 }
 
@@ -844,6 +954,132 @@ struct AgentSwitcherSheet: View {
         if prototypeState.isWorking(lane) { values.append("Working") }
         if lane.isGhost { values.append("Private from the group") }
         return values.joined(separator: ", ")
+    }
+}
+
+/// Destination-only companion to the Agent switcher. It intentionally uses
+/// the same ordered lanes, while omitting setup and context controls so a
+/// long-press remains one quick handoff instead of becoming another workflow.
+struct AgentMessageDestinationSheet: View {
+    let lanes: [AgentChatLane]
+    let prototypeState: AgentChatPrototypeState
+    let onSelect: (AgentChatLane) -> Void
+
+    @Environment(\.dismiss) private var dismiss: DismissAction
+    @State private var reconnectProvider: ExternalAgentProvider?
+    @State private var isExternalOnboardingPresented: Bool = false
+
+    private var groupAgent: AgentChatLane? { lanes.first }
+    private var personalAgents: [AgentChatLane] { Array(lanes.dropFirst()).filter { !$0.isGhost } }
+    private var ghost: AgentChatLane? { lanes.first(where: \.isGhost) }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let groupAgent {
+                    Section("This Convo") {
+                        laneButton(groupAgent)
+                    }
+                }
+                if !personalAgents.isEmpty {
+                    Section("Your agents") {
+                        ForEach(personalAgents) { lane in
+                            laneButton(lane)
+                        }
+                    }
+                }
+                if let ghost {
+                    Section {
+                        laneButton(ghost)
+                    } footer: {
+                        Text("Only this message is sent. Personal agents and Ghost Mode stay private from the group.")
+                    }
+                }
+            }
+            .navigationTitle("Send to agent")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .fullScreenCover(isPresented: $isExternalOnboardingPresented) {
+            ExternalAgentOnboardingView(
+                prototypeState: prototypeState,
+                initialProvider: reconnectProvider,
+                onConnected: { provider in
+                    prototypeState.connect(provider)
+                    AddedExternalAgentStore.remember(provider)
+                    let connectedLane: AgentChatLane?
+                    if provider == .grokBot {
+                        connectedLane = GrokBotConnectionStore.configuration()?
+                            .enabledAgents.first.map(AgentChatLane.grokBot)
+                    } else {
+                        connectedLane = .external(provider)
+                    }
+                    reconnectProvider = nil
+                    isExternalOnboardingPresented = false
+                    if let connectedLane {
+                        onSelect(connectedLane)
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(250))
+                            dismiss()
+                        }
+                    }
+                }
+            )
+        }
+    }
+
+    private func laneButton(_ lane: AgentChatLane) -> some View {
+        Button {
+            if let provider = lane.externalProvider, !provider.hasStoredConnection {
+                reconnectProvider = provider
+                isExternalOnboardingPresented = true
+                return
+            }
+            onSelect(lane)
+            dismiss()
+        } label: {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                AgentChatLaneAvatar(lane: lane)
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                    Text(lane.name)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                    Text(subtitle(for: lane))
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: DesignConstants.Spacing.step2x)
+                if prototypeState.isWorking(lane) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityHidden(true)
+                } else {
+                    Image(systemName: "arrow.up.right.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.colorLava)
+                        .accessibilityHidden(true)
+                }
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(prototypeState.isWorking(lane))
+        .accessibilityLabel("Send message to \(lane.name)")
+        .accessibilityHint(lane.isGhost ? "Sends only this message privately" : "Sends in the background")
+    }
+
+    private func subtitle(for lane: AgentChatLane) -> String {
+        if let provider = lane.externalProvider, !provider.hasStoredConnection {
+            return "Disconnected · Tap to reconnect"
+        }
+        return prototypeState.isWorking(lane) ? "Working…" : lane.subtitle
     }
 }
 

@@ -3373,6 +3373,15 @@ extension ConversationViewModel {
         }
     }
 
+    /// Sends one already-authored message without touching the visible
+    /// composer, reply state, draft, or focus. Used for private agent handoffs
+    /// initiated from the group transcript.
+    func sendTextInBackground(_ rawText: String) async throws {
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        try await cachedMessageWriter.send(text: text, afterPhoto: nil)
+    }
+
     func onSendMessage(focusCoordinator: FocusCoordinator) {
         // Settle the keyboard before reading and clearing messageText. If the
         // send lands while the keyboard still holds uncommitted input (a

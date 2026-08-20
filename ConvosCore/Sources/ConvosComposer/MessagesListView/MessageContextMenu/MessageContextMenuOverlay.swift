@@ -10,19 +10,22 @@ public struct MessageContextMenuOverlay: View {
     let onReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onCopy: (String) -> Void
+    let onSendToAgent: ((AnyMessage) -> Void)?
 
     public init(
         state: MessageContextMenuState,
         isReadOnly: Bool = false,
         onReaction: @escaping (String, String) -> Void,
         onReply: @escaping (AnyMessage) -> Void,
-        onCopy: @escaping (String) -> Void
+        onCopy: @escaping (String) -> Void,
+        onSendToAgent: ((AnyMessage) -> Void)? = nil
     ) {
         self.state = state
         self.isReadOnly = isReadOnly
         self.onReaction = onReaction
         self.onReply = onReply
         self.onCopy = onCopy
+        self.onSendToAgent = onSendToAgent
     }
 
     @State private var appeared: Bool = false
@@ -133,9 +136,11 @@ public struct MessageContextMenuOverlay: View {
             // the text-bubble path where the tile holds its size and place.
             let isHTMLTile: Bool = photoAttachment?.isHTMLFile == true
             let usesPhotoLayout: Bool = isPhoto && !isHTMLTile && !state.isReplyParent
-            let menuEstimatedHeight: CGFloat = isPhoto && !state.isReplyParent
+            let baseMenuEstimatedHeight: CGFloat = isPhoto && !state.isReplyParent
                 ? C.photoMenuEstimatedHeight
                 : C.textMenuEstimatedHeight
+            let menuEstimatedHeight: CGFloat = baseMenuEstimatedHeight
+                + (onSendToAgent != nil && !state.isReplyParent ? C.actionRowEstimatedHeight : 0)
             let endBubble = endBubbleRect(
                 source: localBubble,
                 screenSize: screenSize,
@@ -516,6 +521,17 @@ public struct MessageContextMenuOverlay: View {
                     ContextMenuRow(icon: "arrowshape.turn.up.left", title: "Reply", action: replyAction)
                 }
 
+                if !isReadOnly, !state.isReplyParent, let onSendToAgent {
+                    let sendToAgentAction = {
+                        let msg = message
+                        dismissMenu()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                            onSendToAgent(msg)
+                        }
+                    }
+                    ContextMenuRow(icon: "sparkles", title: "Send to agent", action: sendToAgentAction)
+                }
+
                 if let text = copyableText {
                     let copyAction = {
                         dismissMenu()
@@ -629,6 +645,7 @@ public struct MessageContextMenuOverlay: View {
         static let photoCornerRadius: CGFloat = DesignConstants.CornerRadius.photo
         static let textMenuEstimatedHeight: CGFloat = 80
         static let photoMenuEstimatedHeight: CGFloat = 160
+        static let actionRowEstimatedHeight: CGFloat = 44
         /// Slack above and below the message preview. Applied twice by
         /// `endBubbleRect` - once inside its bottom padding and once again
         /// against the content height - so the effective reservation is double

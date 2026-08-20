@@ -32,6 +32,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// Toggles a message id's long-body inline expansion on the host.
     var onToggleMessageExpanded: (String) -> Void = { _ in }
     let contextMenuState: MessageContextMenuState
+    var messageAgentReceiptStore: MessageAgentReceiptStore = .init()
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAgentOutOfCredits: () -> Void
     /// Backend owner-computed per-agent power map (inboxId -> depleted).
@@ -111,6 +112,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         expandedMessageIds: Set<String> = [],
         onToggleMessageExpanded: @escaping (String) -> Void = { _ in },
         contextMenuState: MessageContextMenuState,
+        messageAgentReceiptStore: MessageAgentReceiptStore = .init(),
         onPhotoDimensionsLoaded: @escaping (String, Int, Int) -> Void,
         onAgentOutOfCredits: @escaping () -> Void,
         agentPowerDepletedByInboxId: [String: Bool],
@@ -182,6 +184,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.onOpenMessageDetail = onOpenMessageDetail
         self.expandedMessageIds = expandedMessageIds
         self.onToggleMessageExpanded = onToggleMessageExpanded
+        self.messageAgentReceiptStore = messageAgentReceiptStore
         self.agentBuilderSummaryProvider = agentBuilderSummaryProvider
         self.currentUserProfileImage = currentUserProfileImage
         self.backwardsSecrecyInfoSheet = backwardsSecrecyInfoSheet
@@ -197,6 +200,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     public func makeUIViewController(context: Context) -> MessagesViewController {
         let viewController = MessagesViewController()
         viewController.contextMenuState = contextMenuState
+        viewController.messageAgentReceiptStore = messageAgentReceiptStore
         context.coordinator.scrollToBottomFunction = { [weak viewController] animated in
             viewController?.scrollToBottomForSend(animated: animated)
         }
@@ -235,6 +239,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onOpenMessageDetail = onOpenMessageDetail
         messagesViewController.onToggleMessageExpanded = onToggleMessageExpanded
         messagesViewController.expandedMessageIds = expandedMessageIds
+        messagesViewController.messageAgentReceiptStore = messageAgentReceiptStore
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
             self.onPhotoDimensionsLoaded(key, width, height)
         }

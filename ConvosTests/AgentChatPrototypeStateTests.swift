@@ -1,4 +1,5 @@
 import ConvosComposer
+import ConvosCore
 import XCTest
 @testable import Convos
 
@@ -47,6 +48,57 @@ final class AgentChatPrototypeStateTests: XCTestCase {
         XCTAssertFalse(state.isWorking(flightTracker))
         XCTAssertEqual(state.messages(for: flightTracker).last?.sender, .agent)
         XCTAssertEqual(state.selectedLaneId, shanesAgent.id)
+    }
+
+    func testMessageHandoffQueuesWithoutTakingOverTheAgentDraft() {
+        let state = AgentChatPrototypeState(restoresConnectedExternalProviders: false)
+        let lane = AgentChatLane.ghost
+        state.draftBinding(for: lane).wrappedValue = "Keep my unfinished thought"
+
+        let wasQueued = state.send(text: "Priya shared in this Convo:\nShip the prototype", in: lane)
+
+        XCTAssertTrue(wasQueued)
+        XCTAssertEqual(state.draftBinding(for: lane).wrappedValue, "Keep my unfinished thought")
+        XCTAssertEqual(state.messages(for: lane).last?.sender, .user)
+        XCTAssertEqual(state.messages(for: lane).last?.text, "Priya shared in this Convo:\nShip the prototype")
+    }
+
+    func testForwardedAgentTranscriptRestoresFromDeviceKeychain() {
+        let keychain = AgentTranscriptMemoryKeychain()
+        let lane = AgentChatLane.ghost
+        let firstState = AgentChatPrototypeState(
+            restoresConnectedExternalProviders: false,
+            transcriptKeychain: keychain
+        )
+        firstState.bind(to: "convo-123")
+        XCTAssertTrue(firstState.send(text: "Keep this Grokbot handoff", in: lane))
+
+        let restoredState = AgentChatPrototypeState(
+            restoresConnectedExternalProviders: false,
+            transcriptKeychain: keychain
+        )
+        restoredState.bind(to: "convo-123")
+
+        XCTAssertEqual(restoredState.messages(for: lane).last?.text, "Keep this Grokbot handoff")
+        XCTAssertEqual(restoredState.messages(for: lane).last?.sender, .user)
+    }
+
+    func testAgentReceiptTracksPrivateDeliveryStatus() {
+        let store = MessageAgentReceiptStore()
+        let receipt = AgentChatLane.external(.tasklet).receipt(
+            conversationId: "convo-123",
+            messageId: "message-456"
+        )
+
+        store.upsert(receipt)
+        store.updateStatus(.sent, receiptId: receipt.id)
+
+        let storedReceipt = store.receipts(
+            conversationId: "convo-123",
+            messageId: "message-456"
+        ).first
+        XCTAssertEqual(storedReceipt?.agentName, "Tasklet")
+        XCTAssertEqual(storedReceipt?.status, .sent)
     }
 
     func testGhostShareCopiesOnlyTheSelectedMessage() {
@@ -203,5 +255,30 @@ final class AgentChatPrototypeStateTests: XCTestCase {
 
     func testShareContextIsHostOptInRatherThanAStandardAttachment() {
         XCTAssertFalse(ComposerAttachmentAction.standard.contains(.shareContext))
+    }
+}
+
+private final class AgentTranscriptMemoryKeychain: KeychainServiceProtocol, @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: Data] = [:]
+
+    func saveString(_ value: String, account: String) throws {
+        try saveData(Data(value.utf8), account: account)
+    }
+
+    func saveData(_ data: Data, account: String) throws {
+        lock.withLock { values[account] = data }
+    }
+
+    func retrieveString(account: String) throws -> String? {
+        try retrieveData(account: account).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    func retrieveData(account: String) throws -> Data? {
+        lock.withLock { values[account] }
+    }
+
+    func delete(account: String) throws {
+        _ = lock.withLock { values.removeValue(forKey: account) }
     }
 }

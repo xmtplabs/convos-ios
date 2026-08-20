@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import ConvosCore
+import Observation
 import SwiftUI
 
 /// Identifies which visual piece of a message a gesture targets. A text
@@ -88,14 +89,122 @@ public class MessageContextMenuState: @unchecked Sendable {
     }
 }
 
+/// Private, device-local evidence that one group message was handed to an
+/// agent. This deliberately is not an XMTP reaction: other group members do
+/// not see which personal agent the current user chose.
+public struct MessageAgentReceipt: Identifiable, Equatable, Sendable {
+    public enum Status: Equatable, Sendable {
+        case sending
+        case sent
+        case failed
+    }
+
+    public struct Appearance: Equatable, Sendable {
+        public let symbolName: String
+        public let backgroundRed: Double
+        public let backgroundGreen: Double
+        public let backgroundBlue: Double
+        public let foregroundRed: Double
+        public let foregroundGreen: Double
+        public let foregroundBlue: Double
+
+        public init(
+            symbolName: String,
+            backgroundRed: Double,
+            backgroundGreen: Double,
+            backgroundBlue: Double,
+            foregroundRed: Double = 1,
+            foregroundGreen: Double = 1,
+            foregroundBlue: Double = 1
+        ) {
+            self.symbolName = symbolName
+            self.backgroundRed = backgroundRed
+            self.backgroundGreen = backgroundGreen
+            self.backgroundBlue = backgroundBlue
+            self.foregroundRed = foregroundRed
+            self.foregroundGreen = foregroundGreen
+            self.foregroundBlue = foregroundBlue
+        }
+    }
+
+    public let id: String
+    public let conversationId: String
+    public let messageId: String
+    public let agentId: String
+    public let agentName: String
+    public let appearance: Appearance
+    public var status: Status
+
+    public init(
+        conversationId: String,
+        messageId: String,
+        agentId: String,
+        agentName: String,
+        appearance: Appearance,
+        status: Status = .sending
+    ) {
+        self.id = "\(conversationId):\(messageId):\(agentId)"
+        self.conversationId = conversationId
+        self.messageId = messageId
+        self.agentId = agentId
+        self.agentName = agentName
+        self.appearance = appearance
+        self.status = status
+    }
+}
+
+/// Observable receipt state shared by the group transcript and its owning
+/// conversation screen. The screen owns the lifetime; closing the Convo clears
+/// these private delivery markers without touching the group message.
+@Observable
+public final class MessageAgentReceiptStore: @unchecked Sendable {
+    public init() {}
+
+    public private(set) var receiptsByMessageId: [String: [MessageAgentReceipt]] = [:]
+
+    public func receipts(conversationId: String, messageId: String) -> [MessageAgentReceipt] {
+        receiptsByMessageId[messageId, default: []]
+            .filter { $0.conversationId == conversationId }
+    }
+
+    public func upsert(_ receipt: MessageAgentReceipt) {
+        var receipts = receiptsByMessageId[receipt.messageId, default: []]
+        if let index = receipts.firstIndex(where: { $0.id == receipt.id }) {
+            receipts[index] = receipt
+        } else {
+            receipts.append(receipt)
+        }
+        receiptsByMessageId[receipt.messageId] = receipts
+    }
+
+    public func updateStatus(_ status: MessageAgentReceipt.Status, receiptId: String) {
+        for messageId in Array(receiptsByMessageId.keys) {
+            guard let index = receiptsByMessageId[messageId]?.firstIndex(where: { $0.id == receiptId }) else {
+                continue
+            }
+            receiptsByMessageId[messageId]?[index].status = status
+            return
+        }
+    }
+}
+
 private struct MessageContextMenuStateKey: EnvironmentKey {
     static let defaultValue: MessageContextMenuState = .init()
+}
+
+private struct MessageAgentReceiptStoreKey: EnvironmentKey {
+    static let defaultValue: MessageAgentReceiptStore = .init()
 }
 
 public extension EnvironmentValues {
     var messageContextMenuState: MessageContextMenuState {
         get { self[MessageContextMenuStateKey.self] }
         set { self[MessageContextMenuStateKey.self] = newValue }
+    }
+
+    var messageAgentReceiptStore: MessageAgentReceiptStore {
+        get { self[MessageAgentReceiptStoreKey.self] }
+        set { self[MessageAgentReceiptStoreKey.self] = newValue }
     }
 }
 #endif

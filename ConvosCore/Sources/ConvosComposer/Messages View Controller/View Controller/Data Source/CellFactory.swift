@@ -39,6 +39,7 @@ struct CellConfig {
     /// Toggles a message id's long-body inline expansion on the host.
     let onToggleMessageExpanded: (String) -> Void
     let contextMenuState: MessageContextMenuState
+    let messageAgentReceiptStore: MessageAgentReceiptStore
     let onAgentOutOfCredits: () -> Void
     /// Backend owner-computed per-agent power map (inboxId -> depleted).
     /// Absent key = unknown = no indicator; the viewer's wallet is never

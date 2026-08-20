@@ -56,6 +56,7 @@ struct MessagesGroupView: View {
     var memberContactOverride: (String) -> Contact? = { _ in nil }
 
     @Environment(\.displayScale) private var displayScale: CGFloat
+    @Environment(\.messageAgentReceiptStore) private var messageAgentReceiptStore: MessageAgentReceiptStore
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
     /// Animated mirror of `group.readByMembers` for the status row. Cell
@@ -280,6 +281,7 @@ struct MessagesGroupView: View {
             voiceMemoTranscriptIsTailed: transcriptIsTailed
         )
         reactionRow(message: message, isFullWidthAttachment: isFullWidthAttachment)
+        agentReceiptRow(message: message)
 
         let thinkingDescriptor: ThinkingSessionDescriptor? = displayGroup.thinkingByMessageId[message.messageId]
         // Requires .published (unlike the plain status row, which reserves
@@ -568,6 +570,26 @@ struct MessagesGroupView: View {
         }
     }
 
+    @ViewBuilder
+    private func agentReceiptRow(message: AnyMessage) -> some View {
+        let receipts = messageAgentReceiptStore.receipts(
+            conversationId: conversationId,
+            messageId: message.messageId
+        )
+        if !receipts.isEmpty {
+            MessageAgentReceiptIndicator(
+                receipts: receipts,
+                isOutgoing: message.sender.isCurrentUser
+            )
+            .padding(.leading, message.sender.isCurrentUser ? 0 : avatarWidth + avatarSpacing + DesignConstants.Spacing.step2x)
+            .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+            .padding(.bottom, DesignConstants.Spacing.stepX)
+            .transition(.scale(scale: 0.82).combined(with: .opacity))
+            .zIndex(49)
+            .id("agent-receipts-\(message.differenceIdentifier)")
+        }
+    }
+
     /// Inline thinking footer anchored to the contact card (not to a
     /// specific message). The card row above already shows the agent
     /// avatar, so this footer suppresses its own leading avatar to avoid
@@ -796,6 +818,108 @@ struct MessagesGroupView: View {
             }
         }
         .id("messages-group-\(displayGroup.id)")
+    }
+}
+
+private struct MessageAgentReceiptIndicator: View {
+    let receipts: [MessageAgentReceipt]
+    let isOutgoing: Bool
+
+    @State private var selectedReceipt: MessageAgentReceipt?
+
+    var body: some View {
+        HStack {
+            if isOutgoing { Spacer(minLength: 0) }
+            HStack(spacing: -16) {
+                ForEach(Array(receipts.prefix(Constant.maxVisibleReceipts))) { receipt in
+                    Button {
+                        selectedReceipt = receipt
+                    } label: {
+                        receiptIcon(receipt)
+                            .frame(width: Constant.tapTargetSize, height: Constant.tapTargetSize)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(statusText(for: receipt))
+                    .accessibilityHint("Shows agent delivery details")
+                }
+                if receipts.count > Constant.maxVisibleReceipts {
+                    Text("+\(receipts.count - Constant.maxVisibleReceipts)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.colorTextSecondary)
+                        .frame(width: Constant.iconSize, height: Constant.iconSize)
+                        .background(.colorFillMinimal, in: .circle)
+                        .frame(width: Constant.tapTargetSize, height: Constant.tapTargetSize)
+                }
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .frame(minHeight: Constant.pillHeight)
+            .glassEffect(.clear.interactive(), in: .capsule)
+            if !isOutgoing { Spacer(minLength: 0) }
+        }
+        .frame(maxWidth: .infinity)
+        .popover(item: $selectedReceipt, arrowEdge: .bottom) { receipt in
+            Label(statusText(for: receipt), systemImage: statusSymbol(for: receipt.status))
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.colorTextPrimary)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .padding(.vertical, DesignConstants.Spacing.step3x)
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private func receiptIcon(_ receipt: MessageAgentReceipt) -> some View {
+        let appearance = receipt.appearance
+        return Image(systemName: appearance.symbolName)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(
+                Color(
+                    red: appearance.foregroundRed,
+                    green: appearance.foregroundGreen,
+                    blue: appearance.foregroundBlue
+                )
+            )
+            .frame(width: Constant.iconSize, height: Constant.iconSize)
+            .background(
+                Color(
+                    red: appearance.backgroundRed,
+                    green: appearance.backgroundGreen,
+                    blue: appearance.backgroundBlue
+                ),
+                in: .circle
+            )
+            .opacity(receipt.status == .sending ? 0.62 : 1)
+            .overlay(alignment: .bottomTrailing) {
+                if receipt.status == .failed {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.red, .white)
+                        .background(.white, in: .circle)
+                        .offset(x: 2, y: 2)
+                }
+            }
+    }
+
+    private func statusText(for receipt: MessageAgentReceipt) -> String {
+        switch receipt.status {
+        case .sending: "Sending to \(receipt.agentName)…"
+        case .sent: "Message sent to \(receipt.agentName)"
+        case .failed: "Couldn’t send to \(receipt.agentName)"
+        }
+    }
+
+    private func statusSymbol(for status: MessageAgentReceipt.Status) -> String {
+        switch status {
+        case .sending: "arrow.up.circle.fill"
+        case .sent: "checkmark.circle.fill"
+        case .failed: "exclamationmark.triangle.fill"
+        }
+    }
+
+    private enum Constant {
+        static let iconSize: CGFloat = 28
+        static let pillHeight: CGFloat = 44
+        static let tapTargetSize: CGFloat = 44
+        static let maxVisibleReceipts: Int = 3
     }
 }
 

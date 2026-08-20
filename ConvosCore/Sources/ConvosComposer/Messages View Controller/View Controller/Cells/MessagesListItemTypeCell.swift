@@ -165,6 +165,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: rootAlignment)
             .id("message-cell-\(item.differenceIdentifier)")
             .environment(\.messageContextMenuState, config.contextMenuState)
+            .environment(\.messageAgentReceiptStore, config.messageAgentReceiptStore)
             .environment(\.agentShareResolver, config.agentShareResolver)
             .environment(\.inviteMembershipResolver, config.inviteMembershipResolver)
             .environment(\.onTapAgentShare, config.onTapAgentShare)

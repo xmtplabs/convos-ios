@@ -22,6 +22,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var expandedMessageIds: Set<String> { get set }
     var onToggleMessageExpanded: ((String) -> Void)? { get set }
     var contextMenuState: MessageContextMenuState? { get set }
+    var messageAgentReceiptStore: MessageAgentReceiptStore { get set }
     var conversationId: String { get set }
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)? { get set }
     var onAgentOutOfCredits: (() -> Void)? { get set }

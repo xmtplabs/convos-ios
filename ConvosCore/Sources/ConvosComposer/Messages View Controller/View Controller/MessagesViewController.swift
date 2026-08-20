@@ -460,6 +460,10 @@ public final class MessagesViewController: UIViewController {
         didSet { dataSource.contextMenuState = contextMenuState }
     }
 
+    var messageAgentReceiptStore: MessageAgentReceiptStore = .init() {
+        didSet { dataSource.messageAgentReceiptStore = messageAgentReceiptStore }
+    }
+
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
     /// Drives the in-stream "lost power" cell. Set from

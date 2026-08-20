@@ -202,6 +202,42 @@ final class AgentDmSession {
         }
     }
 
+    /// Hands one message to a live group agent without selecting its Agent tab
+    /// or changing whichever private lane the user is currently viewing.
+    func sendTextInBackground(_ text: String, to inboxId: String) async -> Bool {
+        for attempt in 0 ..< Constant.backgroundBindAttempts {
+            if let viewModel = backgroundDmViewModel(for: inboxId) {
+                do {
+                    try await viewModel.sendTextInBackground(text)
+                    return true
+                } catch {
+                    Log.warning("Failed sending a group message to agent DM: \(error.localizedDescription)")
+                    return false
+                }
+            }
+            guard attempt < Constant.backgroundBindAttempts - 1 else { break }
+            try? await Task.sleep(for: .milliseconds(Constant.backgroundBindIntervalMilliseconds))
+        }
+        return false
+    }
+
+    private func backgroundDmViewModel(for inboxId: String) -> ConversationViewModel? {
+        if agentInboxId == inboxId, let dmViewModel {
+            return dmViewModel
+        }
+        guard let conversation = try? originViewModel.session
+            .conversationsRepository(for: [.allowed, .unknown])
+            .findAgentDm(with: inboxId) else {
+            return nil
+        }
+        return ConversationViewModel(
+            conversation: conversation,
+            session: originViewModel.session,
+            messagingService: originViewModel.session.messagingServiceSync(),
+            coreActions: originViewModel.coreActions
+        )
+    }
+
     /// Clears the agent-DM lane's unread flag when the user views the Agent
     /// tab. The lane is its own conversation, so opening the parent (which
     /// only marks the group read) never cleared it - leaving the DM
@@ -267,5 +303,7 @@ final class AgentDmSession {
         /// Comfortably past the join's own registration deadline, so the offer
         /// only returns once the attempt has really failed.
         static let requestTimeout: Double = 90.0
+        static let backgroundBindAttempts: Int = 16
+        static let backgroundBindIntervalMilliseconds: Int = 250
     }
 }

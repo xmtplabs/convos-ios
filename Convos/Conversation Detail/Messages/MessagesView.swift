@@ -14,6 +14,7 @@ struct MessagesView<BottomBarContent: View>: View {
     /// the conversation/things pager so a swipe mid-press doesn't drag the
     /// user out of the conversation into the things page.
     @Bindable var contextMenuState: MessageContextMenuState
+    var messageAgentReceiptStore: MessageAgentReceiptStore = .init()
     let conversation: Conversation
     let messages: [MessagesListItemType]
     let invite: Invite
@@ -204,6 +205,7 @@ struct MessagesView<BottomBarContent: View>: View {
             expandedMessageIds: expandedMessageIds,
             onToggleMessageExpanded: onToggleMessageExpanded,
             contextMenuState: contextMenuState,
+            messageAgentReceiptStore: messageAgentReceiptStore,
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
             onAgentOutOfCredits: onAgentOutOfCredits,
             agentPowerDepletedByInboxId: agentPowerDepletedByInboxId,

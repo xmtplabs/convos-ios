@@ -121,6 +121,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Lifted out of `MessagesView` so this view can hide the conversation
     /// sheet while the long-press context menu is presented.
     @State private var contextMenuState: MessageContextMenuState = .init()
+    /// Private, device-local markers left under group messages handed to an
+    /// agent. They are deliberately not reactions broadcast to the group.
+    @State private var messageAgentReceiptStore: MessageAgentReceiptStore = .init()
+    /// The source message for the destination-only agent picker opened from a
+    /// group message's long-press menu.
+    @State private var messageToSendToAgent: AnyMessage?
     /// The agent DM transcript's own context-menu state; the DM stays mounted
     /// alongside the group transcript, so they cannot share one.
     @State private var agentContextMenuState: MessageContextMenuState = .init()
@@ -227,6 +233,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private func messagesView(focus: FocusState<MessagesViewInputFocus?>.Binding) -> some View {
         MessagesView(
             contextMenuState: contextMenuState,
+            messageAgentReceiptStore: messageAgentReceiptStore,
             conversation: viewModel.conversation,
             messages: viewModel.messagesWithThinkingIndicators,
             invite: viewModel.invite,
@@ -339,6 +346,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .environment(\.agentParticipation, participationContext)
         .task(id: participationTaskKey) { await prepareParticipation() }
         .task(id: escalationTaskKey) { prepareEscalationIfNeeded() }
+        .task(id: viewModel.conversation.id) {
+            agentChatPrototypeState.bind(to: viewModel.conversation.id)
+        }
         // The mode rides the group's appData, so another member's change lands
         // as a change to this conversation's synced row and the bubble follows
         // it - nothing here polls.
@@ -808,6 +818,16 @@ private extension ConversationView {
                 // myProfileViewModel and clobbered the just-saved profile.
                 ProfileSetupSheet(mode: .edit)
             }
+            .sheet(item: $messageToSendToAgent) { message in
+                AgentMessageDestinationSheet(
+                    lanes: agentChatLanes,
+                    prototypeState: agentChatPrototypeState,
+                    onSelect: { lane in
+                        sendGroupMessage(message, to: lane)
+                    }
+                )
+                .environment(\.colorScheme, .dark)
+            }
             .debugConnectionInjectorSheet(
                 isPresented: debugInjectorBinding,
                 conversationId: viewModel.conversation.id,
@@ -983,6 +1003,76 @@ private extension ConversationView {
         withAnimation(.snappy(duration: 0.35)) {
             sheetDetent = .full
         }
+    }
+
+    private func sendGroupMessage(_ message: AnyMessage, to lane: AgentChatLane) {
+        guard let text = agentHandoffText(for: message) else { return }
+        let receipt = lane.receipt(
+            conversationId: viewModel.conversation.id,
+            messageId: message.messageId
+        )
+        withAnimation(.snappy(duration: 0.24)) {
+            messageAgentReceiptStore.upsert(receipt)
+        }
+
+        if let liveInboxId = lane.liveInboxId {
+            let session = agentDmSession ?? AgentDmSession(originViewModel: viewModel)
+            if agentDmSession == nil { agentDmSession = session }
+            Task {
+                let wasSent = await session.sendTextInBackground(text, to: liveInboxId)
+                withAnimation(.snappy(duration: 0.24)) {
+                    messageAgentReceiptStore.updateStatus(
+                        wasSent ? .sent : .failed,
+                        receiptId: receipt.id
+                    )
+                }
+            }
+            return
+        }
+
+        let wasQueued = agentChatPrototypeState.send(text: text, in: lane)
+        withAnimation(.snappy(duration: 0.24)) {
+            messageAgentReceiptStore.updateStatus(
+                wasQueued ? .sent : .failed,
+                receiptId: receipt.id
+            )
+        }
+    }
+
+    /// The selected row is the complete privacy boundary: no surrounding
+    /// transcript or hidden Home context is silently attached to the handoff.
+    private func agentHandoffText(for message: AnyMessage) -> String? {
+        let body: String = switch message.content {
+        case .text(let text), .emoji(let text):
+            text
+        case .invite(let invite):
+            "Convo invite: https://\(ConfigManager.shared.associatedDomain)/v2?i=\(invite.inviteSlug)"
+        case .agentShare(let share):
+            share.url
+        case .attachment(let attachment):
+            attachment.filename ?? attachment.mediaType.previewLabel
+        case .attachments(let attachments):
+            attachments.map { $0.filename ?? $0.mediaType.previewLabel }.joined(separator: ", ")
+        case .update(let update):
+            update.summary
+        case .linkPreview(let preview):
+            preview.url
+        case .assistantJoinRequest:
+            "Agent join request"
+        case .connectionGrantRequest(let request):
+            "\(request.service) connection request: \(request.reason)"
+        case .capabilityConnect(let prompt):
+            "\(prompt.serviceName) connection request"
+        case .connectionEvent(let summary),
+             .connectionInvocation(let summary),
+             .connectionInvocationResult(let summary),
+             .connectionPayload(let summary):
+            summary.text
+        }
+        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBody.isEmpty else { return nil }
+        let senderName = message.sender.isCurrentUser ? "You" : message.sender.profile.displayName
+        return "\(senderName) shared in this Convo:\n\(trimmedBody)"
     }
 
     /// Leaving the Group tab. When the group was actually on screen,
@@ -1875,7 +1965,10 @@ private extension ConversationView {
             onReply: handleContextMenuReply(_:),
             onCopy: { text in
                 UIPasteboard.general.string = text
-            }
+            },
+            onSendToAgent: selectedTab == .group && !agentChatLanes.isEmpty
+                ? { message in messageToSendToAgent = message }
+                : nil
         )
         .environment(\.agentShareResolver, lane.agentShareResolver)
         .environment(\.inviteMembershipResolver, lane.inviteMembershipResolver)
