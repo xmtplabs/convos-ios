@@ -59,3 +59,47 @@ final class AgentVariantAssignmentStore {
         static let assignmentsKey: String = "agentVariantAssignmentsByConversation"
     }
 }
+
+extension ConversationReadyResult.Origin {
+    /// Whether a creation flow's variant pick belongs to the conversation it
+    /// just settled on.
+    ///
+    /// `.created` is the cold path — the flow minted the conversation. But the
+    /// common path is `.existing`: compose adopts a conversation prepared ahead
+    /// of the pick (`prepareNewConversation()`), and that row is just as much
+    /// this flow's own. Binding only on `.created` dropped the pick on every
+    /// warm-cache create, and the join then read the global selector — usually
+    /// nothing — so the agent quietly built on the default runtime.
+    ///
+    /// Only `.joined` is somebody else's conversation, superseding the one this
+    /// flow was going to create; the pick was never made for it. Invite and
+    /// scanner flows carry no pick at all (`agentVariantSlug` is nil), so they
+    /// stay unbound regardless of which origin they report.
+    var bindsCreationFlowVariantPick: Bool {
+        switch self {
+        case .created, .existing: return true
+        case .joined: return false
+        }
+    }
+}
+
+/// The one place that answers "which variant does this conversation's agent
+/// traffic route to". Every caller — the join, the join-status poll, the
+/// participation read and mirror, and the warm-cache default-agent provision —
+/// resolves through here, so none of them can drift onto the global selector
+/// while the others read the conversation's own binding.
+@MainActor
+enum AgentVariantResolution {
+    static func slug(for conversationId: String) -> String? {
+        guard !ConfigManager.shared.currentEnvironment.isProduction else {
+            return FeatureFlags.shared.effectiveAgentVariantSlug
+        }
+        if let assigned = AgentVariantAssignmentStore.shared.slug(for: conversationId) {
+            Log.info("AgentVariant: \(conversationId) routing to assigned variant \(assigned)")
+            return assigned
+        }
+        let fallback = FeatureFlags.shared.effectiveAgentVariantSlug
+        Log.info("AgentVariant: \(conversationId) has no assignment, using \(fallback ?? "none")")
+        return fallback
+    }
+}

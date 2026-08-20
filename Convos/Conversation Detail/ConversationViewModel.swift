@@ -4514,16 +4514,7 @@ extension ConversationViewModel {
     /// be enabled there) and the API client strips any variant on prod.
     @MainActor
     private static func selectedAgentVariantSlug(for conversationId: String) -> String? {
-        guard !ConfigManager.shared.currentEnvironment.isProduction else {
-            return FeatureFlags.shared.effectiveAgentVariantSlug
-        }
-        if let assigned = AgentVariantAssignmentStore.shared.slug(for: conversationId) {
-            Log.info("AgentVariant: \(conversationId) routing to assigned variant \(assigned)")
-            return assigned
-        }
-        let fallback = FeatureFlags.shared.effectiveAgentVariantSlug
-        Log.info("AgentVariant: \(conversationId) has no assignment, using \(fallback ?? "none")")
-        return fallback
+        AgentVariantResolution.slug(for: conversationId)
     }
 
     /// The agent-variant slug bound to THIS conversation — the per-conversation

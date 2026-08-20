@@ -65,7 +65,13 @@ extension SessionManager {
     /// whose pin or selection changes mid-session applies it to the next
     /// provision. Nil (no app layer, e.g. tests) keeps joins on the default
     /// runtime, as does production via the API client's prod-safe strip.
-    public nonisolated(unsafe) static var defaultAgentVariantIdProvider: (@Sendable () async -> String?)?
+    ///
+    /// Takes the conversation because a variant is bound per conversation: the
+    /// pick made while creating this one must beat whatever the global selector
+    /// happens to hold now, exactly as every other agent call resolves it.
+    /// Resolving globally here is what sent picked-variant agents to the
+    /// default runtime while the rest of the conversation's calls routed right.
+    public nonisolated(unsafe) static var defaultAgentVariantIdProvider: (@Sendable (String) async -> String?)?
 
     /// Every conversation gets a bare default agent (no template) pre-added
     /// while it still sits hidden in the warm cache. Disabled for unit tests,
@@ -79,11 +85,27 @@ extension SessionManager {
         }
     }
 
+    /// Hook the app layer installs to hold the warm cache's default-agent
+    /// provision until the conversation is adopted. The cache provisions at
+    /// preparation time, which is before a creation flow exists to pick a
+    /// variant, so a prepared conversation's agent would always be built on
+    /// whatever runtime was current when the row was minted — the pick could
+    /// never apply to the one agent the conversation ships with. Holding it
+    /// costs the pre-warm latency, so only the dev variant selector asks for
+    /// it; `commitClaimedConversation` ensures the agent at adoption, after the
+    /// variant is bound.
+    public nonisolated(unsafe) static var deferCacheTimeDefaultAgent: (@Sendable () async -> Bool)?
+
     /// Wires the warm cache so every conversation it finishes preparing gets
-    /// the default agent provisioned into it, best-effort, in the background.
+    /// the default agent provisioned into it, best-effort, in the background —
+    /// unless the app layer is holding that provision for a variant pick.
     func wireDefaultAgentProvisioner() {
         Task { [weak self, unusedConversationCache] in
             await unusedConversationCache.configureAgentProvisioner { [weak self] conversationId in
+                if await Self.deferCacheTimeDefaultAgent?() == true {
+                    Log.debug("Default agent: holding cache-time provision for \(conversationId) until adoption")
+                    return
+                }
                 await self?.ensureDefaultAgentInConversation(id: conversationId)
             }
         }
@@ -122,7 +144,7 @@ extension SessionManager {
                 Log.debug("Default agent: conversation \(conversationId) already has a second member, skipping provision")
                 return
             }
-            let variantId = await Self.defaultAgentVariantIdProvider?()
+            let variantId = await Self.defaultAgentVariantIdProvider?(conversationId)
             let ownerProfileName = await currentOwnerProfileName()
             do {
                 try await provisionDefaultAgent(
