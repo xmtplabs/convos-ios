@@ -411,7 +411,45 @@ final class ConnectionUsageAvailabilityTests: XCTestCase {
         let snapshot = await source.usageSnapshot()
 
         XCTAssertFalse(snapshot.isUnavailable)
+        XCTAssertEqual(snapshot, .empty, "a successful read of no conversations is the empty answer, not an outage")
     }
+
+    /// Losing the conversation list is ignorance about the whole account.
+    /// The per-conversation reads here would all succeed -- only the list
+    /// read fails -- so an empty snapshot could only come from swallowing
+    /// that error, which is what rendered a database failure as "nothing
+    /// uses this".
+    func testAFailedConversationListReadIsUnavailableRatherThanUnused() async {
+        let service = MockAbilitiesService(artificialDelay: .zero)
+        let source = ConversationConnectionUsageSource(
+            service: service,
+            conversations: { throw ConversationListReadFailure() }
+        )
+
+        let snapshot = await source.usageSnapshot()
+
+        XCTAssertTrue(snapshot.isUnavailable)
+        XCTAssertTrue(snapshot.usage(forAbilityId: "googlecalendar").isEmpty)
+    }
+
+    @MainActor
+    func testTheDetailScreenCarriesAFailedConversationListRead() async {
+        let ability = MockAbilitiesService.standardCatalog().first { $0.id == "googlecalendar" }
+        guard let ability else { return XCTFail("fixture guard: the standard catalog holds this ability") }
+        let source = ConversationConnectionUsageSource(
+            service: MockAbilitiesService(artificialDelay: .zero),
+            conversations: { throw ConversationListReadFailure() }
+        )
+        let viewModel = AbilityDetailViewModel(ability: ability, usageSource: source)
+
+        await viewModel.refresh()
+
+        XCTAssertTrue(viewModel.isUnavailable, "the screen says it cannot check rather than reporting no usage")
+        XCTAssertTrue(viewModel.agents.isEmpty)
+        XCTAssertTrue(viewModel.conversations.isEmpty)
+    }
+
+    private struct ConversationListReadFailure: Error {}
 
     @MainActor
     func testTheDetailScreenCarriesTheUnavailableFlag() async {

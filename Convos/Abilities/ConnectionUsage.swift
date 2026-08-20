@@ -168,12 +168,19 @@ struct PreviewConnectionUsageSource: ConnectionUsageSourcing {
 /// `maxConcurrentReads` reads are in flight. A conversation whose read
 /// fails contributes nothing rather than failing the screen: a partial
 /// answer beats an error where the alternative is a count with no names.
+/// Losing the conversation list itself is the different case: the provider
+/// throws, and the snapshot is unavailable rather than empty.
 struct ConversationConnectionUsageSource: ConnectionUsageSourcing {
     let service: any AbilitiesServiceProtocol
-    let conversations: @Sendable () async -> [Conversation]
+    let conversations: @Sendable () async throws -> [Conversation]
 
     func usageSnapshot() async -> ConnectionUsageSnapshot {
-        let candidates: [Conversation] = await conversations().filter(Self.mayHoldAbilities)
+        // A conversation-store read that fails is ignorance about the whole
+        // account, not an account without conversations. Collapsing it into
+        // an empty list here would render "nothing uses this" over a
+        // database error.
+        guard let all: [Conversation] = try? await conversations() else { return .unavailable }
+        let candidates: [Conversation] = all.filter(Self.mayHoldAbilities)
         guard !candidates.isEmpty else { return .empty }
         let reads: [Read] = await readAll(candidates)
         // Every conversation refused: an empty map here is ignorance, not

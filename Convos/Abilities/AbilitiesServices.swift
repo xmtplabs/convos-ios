@@ -49,7 +49,7 @@ enum AbilitiesServices {
     /// The session's conversations, read fresh on every call. Captured as a
     /// closure rather than a retained repository so the read happens off the
     /// main actor at the moment the detail screen asks for it.
-    nonisolated(unsafe) private static var conversationsProvider: (@Sendable () async -> [Conversation])?
+    nonisolated(unsafe) private static var conversationsProvider: (@Sendable () async throws -> [Conversation])?
     private static let mockService: MockAbilitiesService = MockAbilitiesService()
     /// One escalation mock app-wide so grants made in a conversation are
     /// visible in the ability detail's delegations list. Both selection
@@ -106,7 +106,7 @@ enum AbilitiesServices {
         catalogCache = cache
         conversationsProvider = {
             let repository = session.conversationsRepository(for: [.allowed, .unknown])
-            return (try? await repository.fetchAll()) ?? []
+            return try await repository.fetchAll()
         }
         liveService = LiveAbilitiesService(
             apiClient: ConvosAPIClientFactory.client(environment: environment),

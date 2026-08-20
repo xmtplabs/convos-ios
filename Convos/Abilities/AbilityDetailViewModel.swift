@@ -16,9 +16,10 @@ final class AbilityDetailViewModel {
     let ability: AbilitiesAPI.Ability
 
     private(set) var usage: ConnectionUsage = .empty
-    /// True when the read could not reach a single conversation. The
-    /// sections then say they could not check rather than reporting that
-    /// nothing uses the connection.
+    /// True when the read reached nothing: either the conversation list
+    /// itself failed, or every conversation refused. The sections then say
+    /// they could not check rather than reporting that nothing uses the
+    /// connection.
     private(set) var isUnavailable: Bool = false
     private(set) var isLoading: Bool = false
     private(set) var hasLoadedOnce: Bool = false
