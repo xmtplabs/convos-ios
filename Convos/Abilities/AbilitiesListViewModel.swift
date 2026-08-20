@@ -101,24 +101,73 @@ final class AbilitiesListViewModel {
             && !availableAbilities.isEmpty
     }
 
-    /// Abilities the caller holds an entitlement for, in any lifecycle
-    /// state. Under `entitlementsUnavailable` this reflects last-known
-    /// state, already resolved by the service.
+    /// Abilities the caller holds a usable account connection for: the
+    /// OAuth round finished and left an entitlement the agent can act on,
+    /// however that entitlement has aged since. Under
+    /// `entitlementsUnavailable` this reflects last-known state, already
+    /// resolved by the service.
     var entitledAbilities: [AbilitiesAPI.Ability] {
-        filteredAbilities.filter { $0.entitlement != nil }
+        filteredAbilities.filter { Self.section(for: $0) == .connected }
     }
 
-    /// Abilities the caller is authoritatively not entitled to and can
-    /// connect. Unknown states are deliberately excluded: an outage with
-    /// no last-known state must never render as "Available".
+    /// Abilities the caller can connect: no entitlement at all, or one
+    /// still waiting on an authorization that never completed. Unknown
+    /// states are deliberately excluded - an outage with no last-known
+    /// state must never render as connectable.
     var availableAbilities: [AbilitiesAPI.Ability] {
-        filteredAbilities.filter { $0.entitlementState == .notEntitled }
+        filteredAbilities.filter { Self.section(for: $0) == .discover }
     }
 
     /// Abilities whose entitlement state could not be determined (outage
     /// with no last-known state). Rendered without connect controls.
     var unknownStateAbilities: [AbilitiesAPI.Ability] {
-        filteredAbilities.filter { $0.entitlementState == .unknown }
+        filteredAbilities.filter { Self.section(for: $0) == .statusUnknown }
+    }
+
+    /// Which of the browser's three sections an ability belongs in. Both
+    /// modes share the mapping; only headers and row accessories differ.
+    enum BrowserSection: Hashable {
+        /// "Connected" in both modes.
+        case connected
+        /// "All connections" in app settings, "Discover" in the chat-scoped
+        /// browser. Carries the Connect affordance in both.
+        case discover
+        /// "Status unknown": browsable, no controls.
+        case statusUnknown
+    }
+
+    /// Section membership as one total function of entitlement state, so a
+    /// status added to the wire contract has to be classified here rather
+    /// than inheriting a default.
+    ///
+    /// `pendingAuth` is the entry that does not read the way its wire shape
+    /// suggests. The backend writes it when authorization is *initiated*,
+    /// not when it is being processed, so an OAuth the member abandoned at
+    /// the provider's sign-in page leaves exactly the same record as one
+    /// still on screen. Filing it under Connected therefore advertised
+    /// accounts that were never linked, with a repair route that could only
+    /// re-offer the dead consent link. It belongs in Discover, where
+    /// Connect opens a fresh round - the only action that can actually
+    /// finish the job.
+    ///
+    /// Everything else that is entitled stays Connected: `expired`,
+    /// `needsReauth` and `revoked` all describe a connection that did exist
+    /// and can be repaired in place, and the badge beside them is what
+    /// tells the member what to fix.
+    static func section(for ability: AbilitiesAPI.Ability) -> BrowserSection {
+        switch ability.entitlementState {
+        case .notEntitled:
+            return .discover
+        case .unknown:
+            return .statusUnknown
+        case .entitled(let entitlement):
+            switch entitlement.status {
+            case .pendingAuth:
+                return .discover
+            case .active, .expired, .needsReauth, .revoked:
+                return .connected
+            }
+        }
     }
 
     var hasVisibleAbilities: Bool {
@@ -169,9 +218,20 @@ final class AbilitiesListViewModel {
         errorMessage = nil
     }
 
-    /// Starts (or restarts, for expired/needs-reauth/revoked states) the
-    /// entitlement. A `pendingAuth` initiation with a redirect URL opens
-    /// the authorization step: the injected browser authorizer when one is
+    /// Starts the entitlement, or restarts it for every state that can
+    /// reach this method with one already on file (`pendingAuth` from a
+    /// Discover row, `expired` / `needsReauth` / `revoked` from a Connected
+    /// row's Reconnect).
+    ///
+    /// A restart never re-serves the previous consent URL -- that link
+    /// session has its own expiry, and re-opening it is what walks the
+    /// member into "this link has expired". The service does try to finish
+    /// the outstanding round first, silently, which is why a connect tap on
+    /// a row whose authorization already went through upstream comes straight
+    /// back as active with no sign-in at all.
+    ///
+    /// A `pendingAuth` initiation with a redirect URL opens the
+    /// authorization step: the injected browser authorizer when one is
     /// present (live transport), the stub sheet otherwise. Either way,
     /// completion only ever runs after the user approved it, mirroring the
     /// browser-callback boundary.
@@ -182,11 +242,10 @@ final class AbilitiesListViewModel {
         Task {
             do {
                 let initiation = try await service.beginEntitlement(abilityId: ability.id)
-                // Cosmetic mid-flow refresh (the row shows Continue and
-                // Disconnect behind the authorization surface). It must
-                // never gate the authorization step: begin has already
-                // opened a backend OAuth round, and failing here would
-                // strand it behind an error message.
+                // Cosmetic mid-flow refresh, behind the authorization
+                // surface. It must never gate the authorization step: begin
+                // has already opened a backend OAuth round, and failing here
+                // would strand it behind an error message.
                 await refreshCatalogQuietly()
                 if initiation.status == .pendingAuth {
                     // A pending entitlement with no redirect URL is a
@@ -258,11 +317,11 @@ final class AbilitiesListViewModel {
     /// Live-transport authorization: `ASWebAuthenticationSession` replaces
     /// the stub sheet, then the same complete/cancel lifecycle runs. On any
     /// failure the entitlement stays `pendingAuth` server-side, so a
-    /// refresh leaves the row offering Continue and Disconnect; only
-    /// non-cancel failures surface a message. Continue then resumes the
-    /// same attempt: the service re-serves the retained consent URL and
-    /// completion echoes the retained connection-request id -- it never
-    /// mints a new backend connection request.
+    /// refresh returns the row to Discover offering Connect; only non-cancel
+    /// failures surface a message. That Connect first re-submits the round
+    /// already outstanding -- which resolves it outright if the provider
+    /// finished in the meantime -- and only otherwise opens a new one
+    /// against a new link session.
     private func runBrowserAuthorization(
         for ability: AbilitiesAPI.Ability,
         redirectUrl: String,
@@ -297,8 +356,11 @@ final class AbilitiesListViewModel {
     /// (still INITIALIZING); each retry re-submits the same retained
     /// connection-request id, which the service keeps across
     /// `auth_incomplete` failures. If it still isn't active after the
-    /// budget, the final error surfaces its retry copy and the pending row
-    /// offers Continue -- which resumes this same attempt.
+    /// budget, the final error surfaces its retry copy and the row returns
+    /// to Discover -- where Connect re-submits this same id before minting
+    /// anything, so a connection that finished INITIALIZING in the meantime
+    /// lands with no second sign-in. Nothing else would ever complete it:
+    /// the provider sends no webhook.
     private func completeRetryingAuthIncomplete(abilityId: String) async throws {
         let retryDelays: [Duration] = [.seconds(1), .seconds(2)]
         for delay in retryDelays {
@@ -348,9 +410,9 @@ final class AbilitiesListViewModel {
 
     /// Runs on every dismissal of the authorization sheet. Unless
     /// approval already took over, the entitlement stays `pendingAuth`
-    /// server-side, so refresh: the row then offers Continue (re-runs
-    /// `connect`, begin is idempotent) and Disconnect (revokes the pending
-    /// entitlement) instead of a stale Connect.
+    /// server-side, so refresh: the row settles back into Discover with a
+    /// live Connect (begin is idempotent) rather than sitting under
+    /// Connected claiming an account the member never finished linking.
     ///
     /// This is also the second half of the activation latch: an activation
     /// confirmed while the sheet was still on screen is released here, so
