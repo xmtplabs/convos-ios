@@ -33,12 +33,14 @@ struct HomeWebSurface: View {
     init(
         url: URL? = nil,
         isScrollEnabled: Bool = true,
+        subject: HomePreparingView.Subject = .group,
         topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         onNavigationRequest: @escaping @MainActor (URL) -> Void = { _ in }
     ) {
         self.url = url
         self.isScrollEnabled = isScrollEnabled
+        self.subject = subject
         self.topContentInset = topContentInset
         self.bottomContentInset = bottomContentInset
         self.onNavigationRequest = onNavigationRequest
