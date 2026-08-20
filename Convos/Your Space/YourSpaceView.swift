@@ -1242,6 +1242,10 @@ private extension YourSpaceView {
                 messagesTextFieldEnabled: !convoViewModel.conversation.isPendingInvite,
                 isReadOnly: isReadOnly,
                 opensInFullScreenChat: true,
+                onConversationBack: {
+                    viewModel.endHostedInviteSessionOnPop()
+                    viewModel.selectedConversationId = nil
+                },
                 initialAgentDmInboxId: viewModel.selectedInitialAgentDmInboxId,
                 bottomBarContent: { EmptyView() }
             )

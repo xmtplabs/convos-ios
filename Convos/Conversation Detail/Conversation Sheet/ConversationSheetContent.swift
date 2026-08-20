@@ -90,8 +90,8 @@ enum ConversationSheetMetrics {
     }
 }
 
-/// The contents of the conversation's presentation sheet: the selected
-/// transcript above the selected tab's bar and the Group/Agent tab bar.
+/// The contents of the conversation's surface container: the selected surface
+/// above its optional composer and the Desktop/Group/Agent switcher.
 ///
 /// Everything about how big this is, and how it got that way, belongs to the
 /// presentation - see `conversationSheetPresentation`. The system owns the
@@ -125,6 +125,9 @@ struct ConversationSheetContent<
     /// Fired with how much of the sheet is on screen, which is how much of the
     /// Home behind it is covered.
     var onSheetHeightChanged: (CGFloat) -> Void = { _ in }
+    /// Legacy resizable hosts widen the system grabber's target. A locked
+    /// full-screen surface has no resize gesture and leaves this disabled.
+    var showsDragTarget: Bool = true
     /// The selected transcript, given whatever height the detent leaves above
     /// the chrome and clipped to it.
     @ViewBuilder let transcriptContent: () -> TranscriptContent
@@ -279,7 +282,7 @@ struct ConversationSheetContent<
     /// it has.
     @ViewBuilder
     private var dragTarget: some View {
-        if detent == .full {
+        if detent == .full, showsDragTarget {
             Color.clear
                 .frame(height: ConversationSheetMetrics.dragTargetHeight)
                 // `Color.clear` alone draws nothing and takes no touches; the

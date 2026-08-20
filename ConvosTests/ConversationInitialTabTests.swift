@@ -1,14 +1,23 @@
 @testable import Convos
 import XCTest
 
-/// What a conversation opens on. The tab picks which transcript the sheet
-/// hosts; the detent decides whether that transcript is showing at all, since
-/// the Home sits behind the sheet at every size.
+/// What a conversation opens on. The current shell uses three full-screen
+/// surfaces; detent coverage remains tested for explicit legacy hosts.
 final class ConversationInitialTabTests: XCTestCase {
     private let allTabs: [ConversationTab] = ConversationTab.allCases
     private let groupOnly: [ConversationTab] = [.group]
 
     // MARK: - Which transcript
+
+    func testSurfaceOrderIsDesktopGroupAgent() {
+        XCTAssertEqual(allTabs, [.desktop, .group, .agent])
+    }
+
+    func testOnlyDesktopAndGroupShowGroupControls() {
+        XCTAssertTrue(ConversationTab.desktop.showsGroupControls)
+        XCTAssertTrue(ConversationTab.group.showsGroupControls)
+        XCTAssertFalse(ConversationTab.agent.showsGroupControls)
+    }
 
     func testOpensOnTheGroupByDefault() {
         let tab = ConversationTab.initial(available: allTabs, agentDmRequested: false)
@@ -31,16 +40,12 @@ final class ConversationInitialTabTests: XCTestCase {
         XCTAssertEqual(tab, .group)
     }
 
-    /// Opening onto the group would show a read transcript while the dot sat on
-    /// the other tab, so the lane holding the unread gets the open.
-    func testAnUnreadDmOpensTheDmWithoutBeingAskedFor() {
-        let tab = ConversationTab.initial(
-            available: allTabs,
-            agentDmRequested: false,
-            agentDmHoldsTheUnread: true
-        )
+    /// A regular Convo tap stays predictable even when the private agent lane
+    /// holds the newest unread; its tab badge carries that state.
+    func testAnUnreadDmDoesNotOverrideARegularConvoTap() {
+        let tab = ConversationTab.initial(available: allTabs, agentDmRequested: false)
 
-        XCTAssertEqual(tab, .agent)
+        XCTAssertEqual(tab, .group)
     }
 
     /// With both lanes unread the group wins - it is the conversation the list row
@@ -49,8 +54,7 @@ final class ConversationInitialTabTests: XCTestCase {
     func testTheGroupKeepsTheOpenWhenItAlsoHasSomethingUnread() {
         let tab = ConversationTab.initial(
             available: allTabs,
-            agentDmRequested: false,
-            agentDmHoldsTheUnread: false
+            agentDmRequested: false
         )
 
         XCTAssertEqual(tab, .group)

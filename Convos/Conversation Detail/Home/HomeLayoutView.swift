@@ -18,6 +18,10 @@ struct HomeLayoutView: View {
     /// it fits the viewport exactly and would otherwise gain a pointless scroll
     /// range.
     var sheetGeometry: ConversationSheetGeometry = ConversationSheetGeometry()
+    /// A full-screen Desktop surface reserves only its own bottom switcher,
+    /// rather than the coverage of a sheet sitting over a separate backing
+    /// view. Nil retains the legacy sheet-driven clearance.
+    var bottomContentInsetOverride: CGFloat?
     /// Fired when the page requests navigation away from the space URL; the
     /// host presents it in the home browser popup.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
@@ -31,7 +35,9 @@ struct HomeLayoutView: View {
                 conversationId: conversationId,
                 url: webURL,
                 topContentInset: webURL != nil ? proxy.safeAreaInsets.top : 0,
-                bottomContentInset: webURL != nil ? sheetGeometry.homeBottomClearance : 0,
+                bottomContentInset: webURL != nil
+                    ? (bottomContentInsetOverride ?? sheetGeometry.homeBottomClearance)
+                    : 0,
                 onNavigationRequest: onNavigationRequest
             )
             .ignoresSafeArea(edges: .vertical)

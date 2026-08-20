@@ -210,7 +210,11 @@ The large system-serif sentence is the signature component. It describes what ne
 
 ### Recent Convos
 
-Exactly the three most recent real conversations appear under the narrative when at least three exist. Rows stay flat on the canvas, use `48pt` circular avatars inside `72pt`-minimum targets, one-line previews, native dividers, explicit unread language, and a small Lava signal. Tapping pushes the conversation into a full-height transcript focus. The top overlay keeps a `44pt` Back to Your Space control; no group-home screen sits between Home and chat.
+Exactly the three most recent real conversations appear under the narrative when at least three exist. Rows stay flat on the canvas, use `48pt` circular avatars inside `72pt`-minimum targets, one-line previews, native dividers, explicit unread language, and a small Lava signal. Tapping pushes directly into the full-height Group surface; no Desktop or group-home screen sits between Home and chat.
+
+### Convo Surface Switcher
+
+Every Convo is one full-screen shell with a fixed, equal-width **Desktop / Group / Agent** switcher at the bottom. Regular Convo entry always selects Group. Desktop and Group share the top group chrome: a `44pt` Back control at left, the group identity/settings control centered, and Invite at right. Agent is the private lane and keeps only Back. The shell never exposes a half-height chat state or a resize grabber. Switching surfaces preserves the Desktop browser stack, transcript positions, and composer drafts.
 
 ### Me & My Stuff
 

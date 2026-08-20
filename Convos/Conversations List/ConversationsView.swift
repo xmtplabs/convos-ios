@@ -124,6 +124,10 @@ struct ConversationsView: View {
                 messagesTopBarTrailingItemEnabled: !convoVM.conversation.isPendingInvite,
                 messagesTextFieldEnabled: !convoVM.conversation.isPendingInvite,
                 isReadOnly: isReadOnly,
+                onConversationBack: {
+                    viewModel.endHostedInviteSessionOnPop()
+                    viewModel.selectedConversationId = nil
+                },
                 initialAgentDmInboxId: viewModel.selectedInitialAgentDmInboxId,
                 bottomBarContent: { EmptyView() }
             )

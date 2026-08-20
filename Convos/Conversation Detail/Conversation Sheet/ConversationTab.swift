@@ -1,15 +1,13 @@
 import Foundation
 
-/// The two transcripts the floating conversation sheet can host, in display
-/// order: the group chat, and the user's private DM with the conversation's
-/// agent.
+/// The three peer surfaces inside a conversation, in display order: its
+/// desktop, the group chat, and the user's private DM with an agent.
 ///
-/// The selected tab drives both the transcript inside the sheet and the bar
-/// beneath it (the group composer or the agent-DM composer). The Home - the
-/// conversation's Space web surface - is not a tab: it is always behind the
-/// sheet, and how much of it you can see is the sheet's detent
-/// (`ConversationSheetDetent`).
+/// The selected tab drives the full-screen content and the bar beneath it.
+/// Desktop has no composer, Group hosts the group composer, and Agent hosts
+/// the private agent composer.
 enum ConversationTab: String, CaseIterable, Identifiable, Hashable {
+    case desktop
     case group
     case agent
 
@@ -17,29 +15,30 @@ enum ConversationTab: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
+        case .desktop: "Desktop"
         case .group: "Group"
         case .agent: "Agent"
         }
+    }
+
+    /// Desktop and Group belong to the shared Convo shell. The private Agent
+    /// lane deliberately omits group identity/settings and invite controls.
+    var showsGroupControls: Bool {
+        self != .agent
     }
 
     /// The transcript a conversation opens on. A tap that specifically asked
     /// for the agent DM (a DM notification, or a list row whose most recent
     /// unread is in the DM) gets it; everything else opens on the group.
     ///
-    /// Whether that transcript is actually showing on arrival is the detent's
-    /// business - see `ConversationSheetDetent.initial`.
-    /// - Parameter agentDmHoldsTheUnread: the DM lane is the one with something
-    ///   waiting and the group is not. Opening onto the group would show a read
-    ///   transcript while the dot sat on the other tab, so the unread lane gets
-    ///   the open. When both lanes have something, the group wins - it is the
-    ///   conversation the row was for.
+    /// A regular Convo tap always lands in Group. Agent is reserved for an
+    /// explicit agent-lane action or agent-DM notification.
     static func initial(
         available: [ConversationTab],
-        agentDmRequested: Bool,
-        agentDmHoldsTheUnread: Bool = false
+        agentDmRequested: Bool
     ) -> ConversationTab {
         guard available.contains(.agent) else { return .group }
-        if agentDmRequested || agentDmHoldsTheUnread {
+        if agentDmRequested {
             return .agent
         }
         return .group

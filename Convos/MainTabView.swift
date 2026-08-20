@@ -308,7 +308,11 @@ struct MainTabView: View {
         .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: activeConvoVM != nil)
         .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: isContactDetailPushed)
         .ignoresSafeArea()
-        .allowsHitTesting(true)
+        .allowsHitTesting(activeConvoVM == nil)
+        // The full-screen conversation owns Back, settings, and Invite inside
+        // its presented surface. Keep this transition source mounted behind it
+        // without exposing a second set of invisible controls to VoiceOver.
+        .accessibilityHidden(activeConvoVM != nil)
         .zIndex(1000)
         .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { _ in
             updateTrafficLightWindowState()

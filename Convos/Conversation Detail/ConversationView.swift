@@ -18,17 +18,21 @@ struct ConversationView<MessagesBottomBar: View>: View {
     let messagesTopBarTrailingItemEnabled: Bool
     let messagesTextFieldEnabled: Bool
     var isReadOnly: Bool = false
-    /// Your Space opens a Convo as a focused, full-height transcript. Other
-    /// entry points retain the existing Home-backed detent behavior.
-    var opensInFullScreenChat: Bool = false
+    /// Conversations open as one full-screen surface with Desktop, Group, and
+    /// Agent as peer destinations. The old Home-backed half-sheet remains
+    /// available only to an explicit legacy host.
+    var opensInFullScreenChat: Bool = true
+    /// An explicit host action for the in-surface back button. Pushed Convos
+    /// clear their selection here; standalone flows fall back to `dismiss`.
+    var onConversationBack: (() -> Void)?
     /// Hide the trailing toolbar item (the "+" add menu / scan button)
     /// without removing the rest of the toolbar. Used by the Agent
     /// Builder to keep the bar clean during the draft phase, then bring
     /// the item in once the user commits via Make.
     var topBarTrailingHidden: Bool = false
-    /// When set (and that agent has a DM page), the pager opens on the agent's
-    /// DM page instead of the group. Used when a conversations-list row is
-    /// tapped whose most-recent unread is in the DM.
+    /// When set (and that agent has a DM page), the shell opens on the agent's
+    /// DM page instead of the group. Reserved for an explicit agent action or
+    /// agent-DM notification; a regular Convo tap always opens Group.
     var initialAgentDmInboxId: String?
     /// Controls the messages list's leading empty-state view (QR invite +
     /// identity, or the `ConversationInfoPreview`). Defaults to `.standard`
@@ -56,8 +60,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// It lives here rather than in the composer because the level belongs to
     /// the conversation; the composer only draws the control.
     @State private var participation: AgentParticipationStore?
-    /// The conversation sheet's selected tab, the single source of truth for
-    /// both the backing view behind the sheet and the bar the sheet hosts.
+    /// The selected full-screen surface, shared by the content and its bottom
+    /// switcher.
     @State private var selectedTab: ConversationTab = .group
     /// Tabs the user has visited. The agent DM mounts on first visit and stays
     /// mounted (hidden, not torn down) so tab switches never reload it.
@@ -376,8 +380,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             )
         let tab: ConversationTab = ConversationTab.initial(
             available: availableTabs,
-            agentDmRequested: agentDmRequested,
-            agentDmHoldsTheUnread: agentDmHoldsTheUnread
+            agentDmRequested: agentDmRequested
         )
         guard tab != selectedTab else { return }
         selectTab(tab)
@@ -390,16 +393,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private var hasUnreadToRead: Bool {
         if viewModel.conversation.isUnread { return true }
         if initialAgentDmInboxId != nil { return true }
-        return agentDmSession?.dmViewModel?.conversation.isUnread == true
-    }
-
-    /// Whether the DM lane is the one holding something to read, so the open lands
-    /// there rather than on a group transcript that has nothing new in it.
-    ///
-    /// Only when the group has nothing of its own: with both unread, the group is
-    /// what the list row was for.
-    private var agentDmHoldsTheUnread: Bool {
-        guard !viewModel.conversation.isUnread else { return false }
         return agentDmSession?.dmViewModel?.conversation.isUnread == true
     }
 
@@ -752,7 +745,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         // While browser pages are showing, the pop-a-page back button in
         // `topBarTrailing` stands in for the system one.
-        .navigationBarBackButtonHidden(isBrowsingHome)
+        .navigationBarBackButtonHidden(opensInFullScreenChat || isBrowsingHome)
         .modifier(HomeBrowsingReporter(isBrowsing: isBrowsingHome, onChanged: onHomeBrowsingChanged))
         .modifier(metricsObserversPart1)
         .modifier(metricsObserversPart2)
@@ -760,7 +753,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onChange(of: presentedColorScheme) { _, scheme in
             captureAmbientScheme(scheme)
         }
-        .toolbar { topBarTrailing }
+        .toolbar {
+            if !opensInFullScreenChat {
+                topBarTrailing
+            }
+        }
         .onDisappear {
             VoiceMemoPlayer.shared.stop()
             viewModel.voiceMemoRecorder.cancelRecording()
@@ -928,6 +925,9 @@ private extension ConversationView {
         parkIncomingTranscriptIfCollapsed(newTab)
         let keyboardWasUp: Bool = isKeyboardVisible
         switch newTab {
+        case .desktop:
+            focusCoordinator.dismissMessageComposerIfNeeded()
+            agentFocusCoordinator.dismissMessageComposerIfNeeded()
         case .group:
             if keyboardWasUp {
                 // Claim the incoming composer directly - the outgoing field
@@ -1030,6 +1030,8 @@ private extension ConversationView {
         groupMarkReadTask?.cancel()
         agentDmSession?.cancelPendingReadMark()
         switch selectedTab {
+        case .desktop:
+            break
         case .group:
             if viewModel.isViewingConversation {
                 viewModel.onConversationDisappeared()
@@ -1048,6 +1050,8 @@ private extension ConversationView {
     /// otherwise mark the lane unread and then be wiped by the clear.
     private func claimReadingLane() {
         switch selectedTab {
+        case .desktop:
+            break
         case .group:
             viewModel.onConversationAppeared()
             updateActiveGroupLane(isActive: true)
@@ -1136,17 +1140,14 @@ private extension ConversationView {
         homeBrowserEntries.removeLast()
     }
 
-    /// The re-tap contract for a tab bar that raises a sheet rather than swapping
-    /// a root: the active tab is the toggle for the sheet it selects. Tapping it
-    /// with the sheet up puts it back down, tapping it with the sheet down brings
-    /// it back.
-    ///
-    /// Collapsing rather than scrolling to the latest message: the tap the user
-    /// has to hand while the sheet is up is the one asking to see the Home again,
-    /// and the sheet is what is covering it. The transcript is already parked at
-    /// its newest message on every expansion, so the scroll the native contract
-    /// offers had nothing left to do here.
+    /// In the full-screen three-surface shell, reselecting Group or Agent returns
+    /// that transcript to its newest message. A legacy detent host retains the
+    /// old expand/collapse behavior.
     private func handleTabReselect(_ tab: ConversationTab) {
+        if opensInFullScreenChat {
+            scrollTranscriptToBottom(tab, animated: true)
+            return
+        }
         guard sheetDetent != .collapsed else {
             expandCollapsedSheet()
             return
@@ -1297,6 +1298,8 @@ private extension ConversationView {
     /// animating it only risks the motion being seen.
     private func scrollTranscriptToBottom(_ tab: ConversationTab, animated: Bool) {
         switch tab {
+        case .desktop:
+            break
         case .group:
             groupScrollToBottom?(animated)
         case .agent:
@@ -1308,10 +1311,8 @@ private extension ConversationView {
         scrollTranscriptToBottom(selectedTab, animated: animated)
     }
 
-    /// True while the Home is showing an open browsing chain: the top bar pops
-    /// pages instead of the conversation, and the add-members item hides. The
-    /// Home is always behind the sheet, so a chain is browsable at any detent
-    /// that leaves it reachable.
+    /// True while Desktop is showing an open browsing chain. Only Desktop's
+    /// back action pops the page; Group and Agent still leave the Convo.
     private var isBrowsingHome: Bool {
         !homeBrowserEntries.isEmpty
     }
@@ -1336,19 +1337,29 @@ private extension ConversationView {
         // trailing item entirely.
         if !topBarTrailingHidden && !isBrowsingHome {
             ToolbarItem(placement: .topBarTrailing) {
-                if viewModel.isLocked {
-                    lockedInfoButton
-                } else if !isAgentDmPageActive {
-                    switch messagesTopBarTrailingItem {
-                    case .share:
-                        // A full conversation can't mint new invite links, so the
-                        // invite affordance is hidden entirely (mirrors
-                        // `showsTopOfConvoInvite`'s `!isFull` gate).
-                        if !viewModel.isFull {
-                            inviteButton
-                        }
-                    case .scan: scanInviteButton
+                surfaceTrailingAction
+            }
+        }
+    }
+
+    /// The shared top-right action for Desktop and Group. The Agent header
+    /// omits this view entirely.
+    @ViewBuilder
+    private var surfaceTrailingAction: some View {
+        if !topBarTrailingHidden {
+            if viewModel.isLocked {
+                lockedInfoButton
+            } else if !isAgentDmPageActive {
+                switch messagesTopBarTrailingItem {
+                case .share:
+                    // A full conversation can't mint new invite links, so the
+                    // invite affordance is hidden entirely (mirrors
+                    // `showsTopOfConvoInvite`'s `!isFull` gate).
+                    if !viewModel.isFull {
+                        inviteButton
                     }
+                case .scan:
+                    scanInviteButton
                 }
             }
         }
@@ -1523,12 +1534,17 @@ private extension ConversationView {
         // read as deselected, which took the conversation indicator with it and
         // brought the root tab bar back.
         ZStack {
-            HomeBrowserNavigationHost(
-                entries: $homeBrowserEntries,
-                root: { AnyView(backingViews) },
-                page: { entry in AnyView(homeBrowserPage(for: entry)) }
-            )
-            .ignoresSafeArea()
+            if opensInFullScreenChat {
+                Color.colorBackgroundSurfaceless
+                    .ignoresSafeArea()
+            } else {
+                HomeBrowserNavigationHost(
+                    entries: $homeBrowserEntries,
+                    root: { AnyView(backingViews) },
+                    page: { entry in AnyView(homeBrowserPage(for: entry)) }
+                )
+                .ignoresSafeArea()
+            }
         }
         // The container the sheet presents over, which is what caps how tall the
         // sheet can get - and so the height the transcript holds. See
@@ -1576,6 +1592,39 @@ private extension ConversationView {
         )
     }
 
+    /// Desktop rendered as a peer of Group and Agent inside the full-screen
+    /// conversation surface. It owns the web-navigation stack rather than
+    /// exposing a page behind a modal sheet.
+    var desktopViews: some View {
+        HomeBrowserNavigationHost(
+            entries: $homeBrowserEntries,
+            root: {
+                AnyView(
+                    HomeLayoutView(
+                        conversationId: viewModel.conversation.id,
+                        webURL: viewModel.conversation.spaceURL,
+                        bottomContentInsetOverride: sheetChromeHeight
+                    ) { url in
+                        pushHomeBrowserPage(for: url)
+                    }
+                )
+            },
+            page: { entry in
+                AnyView(
+                    HomeBrowserPageView(
+                        entry: entry,
+                        bottomContentInsetOverride: sheetChromeHeight,
+                        onNavigationRequest: { url in
+                            pushHomeBrowserPage(for: url)
+                        }
+                    )
+                )
+            }
+        )
+        .ignoresSafeArea()
+        .accessibilityIdentifier("conversation-desktop-surface")
+    }
+
     /// The permanent backing surface. The Home is no longer a tab: it is what
     /// the conversation *is* behind the sheet, uncovered when the sheet rests
     /// collapsed and progressively hidden as it grows.
@@ -1602,9 +1651,14 @@ private extension ConversationView {
         agentFocus: FocusState<MessagesViewInputFocus?>.Binding
     ) -> some View {
         ZStack {
+            desktopViews
+                .opacity(selectedTab == .desktop ? 1 : 0)
+                .allowsHitTesting(selectedTab == .desktop)
+                .accessibilityHidden(selectedTab != .desktop)
             messagesView(focus: groupFocus)
                 .opacity(selectedTab == .group ? 1 : 0)
                 .allowsHitTesting(selectedTab == .group)
+                .accessibilityHidden(selectedTab != .group)
             if visitedTabs.contains(.agent), let agentDmSession {
                 AgentDmPageView(
                     session: agentDmSession,
@@ -1628,6 +1682,7 @@ private extension ConversationView {
                 )
                 .opacity(selectedTab == .agent ? 1 : 0)
                 .allowsHitTesting(selectedTab == .agent)
+                .accessibilityHidden(selectedTab != .agent)
             }
         }
     }
@@ -1649,6 +1704,7 @@ private extension ConversationView {
             onSheetHeightChanged: { height in
                 sheetGeometry.coveredHeight = height
             },
+            showsDragTarget: !opensInFullScreenChat,
             transcriptContent: {
                 sheetTranscripts(groupFocus: groupFocus, agentFocus: agentFocus)
             },
@@ -1677,6 +1733,75 @@ private extension ConversationView {
         .onChange(of: agentFocusCoordinator.currentFocus) { _, newFocus in
             handleComposerFocusChanged(newFocus)
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            conversationSurfaceHeader(groupFocus: groupFocus)
+        }
+    }
+
+    /// The navigation shared by Desktop and Group. Agent deliberately keeps
+    /// only Back: group identity/settings and inviting people do not belong in
+    /// the user's private agent lane.
+    func conversationSurfaceHeader(
+        groupFocus: FocusState<MessagesViewInputFocus?>.Binding
+    ) -> some View {
+        ZStack {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Button(action: handleConversationBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    selectedTab == .desktop && isBrowsingHome
+                        ? "Back to Desktop"
+                        : "Back to Your Space"
+                )
+                .accessibilityIdentifier("conversation-surface-back")
+
+                Spacer(minLength: 0)
+
+                if selectedTab.showsGroupControls {
+                    surfaceTrailingAction
+                        .frame(width: 44, height: 44)
+                }
+            }
+
+            if selectedTab.showsGroupControls, viewModel.showsInfoView {
+                ConversationIndicatorWrapper(
+                    viewModel: viewModel,
+                    placeholderOverride: nil,
+                    subtitleOverride: nil,
+                    allowsEditing: !effectiveReadOnly,
+                    focusState: groupFocus,
+                    focusCoordinator: focusCoordinator
+                )
+                .frame(maxWidth: surfaceHeaderCenterWidth)
+                .disabled(effectiveReadOnly)
+                .accessibilityIdentifier("conversation-surface-settings")
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 52)
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.stepX)
+        .background(.bar.opacity(0.96))
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+    }
+
+    private var surfaceHeaderCenterWidth: CGFloat {
+        min(max(containerWidth - 144, 140), 360)
+    }
+
+    private func handleConversationBack() {
+        if selectedTab == .desktop, isBrowsingHome {
+            popHomeBrowserPage()
+        } else if let onConversationBack {
+            onConversationBack()
+        } else {
+            dismiss()
+        }
     }
 
     /// The bar the sheet hosts above its tab bar, keyed by the selected tab:
@@ -1688,6 +1813,8 @@ private extension ConversationView {
         agentFocus: FocusState<MessagesViewInputFocus?>.Binding
     ) -> some View {
         switch selectedTab {
+        case .desktop:
+            EmptyView()
         case .group:
             if !effectiveReadOnly {
                 ConversationComposerBar(

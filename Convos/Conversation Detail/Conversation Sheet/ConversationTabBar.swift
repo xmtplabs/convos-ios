@@ -1,8 +1,8 @@
 import ConvosComposer
 import SwiftUI
 
-/// The conversation sheet's tab bar: Group | Agent slots that drive which
-/// transcript the sheet hosts. Styled after the system tab
+/// The conversation's bottom switcher: Desktop | Group | Agent slots that
+/// drive which full-screen surface is active. Styled after the system tab
 /// bar's equal-width icon-over-label items, with native segmented-control
 /// mechanics: one selection thumb that slides between slots, live tracking
 /// while a finger is down (touch-down selects, dragging across slots moves
@@ -17,9 +17,8 @@ struct ConversationTabBar: View {
     /// corner (Figma 7488:14106). Hosts exclude the active tab - the user
     /// is looking at it.
     var badgedTabs: Set<ConversationTab> = []
-    /// Fired when a tap lands on the already-selected tab. The conversation
-    /// host uses this to toggle the sheet fully open or collapsed. Not fired
-    /// when a drag visits other slots before returning.
+    /// Fired when a tap lands on the already-selected tab. Not fired when a
+    /// drag visits other slots before returning.
     var onReselect: (ConversationTab) -> Void = { _ in }
 
     /// True while a finger is on the bar; compresses the thumb slightly,
@@ -124,8 +123,8 @@ struct ConversationTabBar: View {
         .accessibilityValue(isBadged ? "Unread" : "")
         .accessibilityHint(
             isSelected
-                ? "Double tap to expand or collapse the conversation"
-                : "Double tap to open this conversation"
+                ? "Selected surface"
+                : "Double tap to open \(tab.title)"
         )
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { accessibilityActivate(tab) }
@@ -168,6 +167,8 @@ struct ConversationTabBar: View {
     @ViewBuilder
     private func glyph(for tab: ConversationTab, isSelected: Bool) -> some View {
         switch tab {
+        case .desktop:
+            symbolGlyph("macwindow", isSelected: isSelected)
         case .group:
             symbolGlyph("message.fill", isSelected: isSelected)
         case .agent:

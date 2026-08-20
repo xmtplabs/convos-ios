@@ -22,8 +22,10 @@ The agent side of a conversation is a private, controllable workspace. The activ
 - A personal external lane is private to its owner and is not automatically connected to any group. Added provider identities persist independently of credentials; a disconnected row remains in Talk to and opens the provider-specific reconnect flow.
 - Each local prototype lane keeps its own draft, transcript, and working state. Switching lanes never redirects or cancels in-flight work.
 - Ghost Mode uses the custom ghost glyph, the heading **Completely off the record.**, and message-level Share actions. The native **Send to** menu states that only the selected message leaves.
-- Home remains an unobstructed WebView owned by the desktop surface. Native agent prototypes must not overlay controls or intercept touches above that WebView.
-- A Convo opened from Your Space locks the transcript at full height and does not offer half/collapsed detents. A visible Back to Your Space control clears the selected conversation. Other entry paths retain the existing persistent-sheet behavior.
+- Every Convo uses three peer, full-screen surfaces selected by one fixed bottom switcher in this order: **Desktop / Group / Agent**. A normal Convo tap always opens Group; only an explicit agent action or agent-DM notification opens Agent directly.
+- Desktop owns the unobstructed group WebView. Group owns the group transcript and composer. Agent owns the private agent transcript and composer. Switching surfaces keeps their navigation, transcript position, and drafts mounted.
+- The top-left Back control is always present and returns directly to the previous Convos list. Desktop browser pages consume Back only while Desktop is active. Desktop and Group show the group identity/settings control in the middle and Invite at top right; Agent intentionally shows neither group control.
+- The full-screen shell does not expose half/collapsed detents or an invisible resize target. Native agent prototypes must not overlay controls or intercept touches above the Desktop WebView.
 - The group-agent model picker offers ChatGPT, Claude, Grok, Gemini, and DeepSeek as the current non-production catalog.
 
 ## Truth boundary
@@ -40,11 +42,13 @@ Ghost sharing completes inside local prototype lanes. A real agent destination m
 
 ## Acceptance path
 
-1. Open a recent Convo from Your Space and confirm the transcript fills the screen.
-2. Use Back to Your Space and confirm it returns directly to the Home hierarchy.
-3. Reopen, tap **Agent**, open Talk to, and confirm only verified/current-group agents, added external providers, and Ghost appear.
-4. Disconnect an added live provider and confirm its row remains and routes to reconnect.
-5. Inspect Add an external agent: Tasklet follows Town; Grok Bot is Coming soon; Connect MCP is the final Coming soon row.
-6. Enter text in two real/connected lanes and confirm drafts stay separate.
-7. Open Ghost Mode, share one message, and confirm the UI identifies the single-message scope.
-8. Open the model picker and confirm ChatGPT, Claude, Grok, Gemini, and DeepSeek appear.
+1. Open a recent Convo from Your Space and confirm it lands directly in the full-screen Group surface.
+2. Confirm **Desktop / Group / Agent** remains fixed at the bottom, then move between all three without losing the current surface state.
+3. On Desktop and Group, confirm Back is top left, group settings is centered, and Invite is top right. On Agent, confirm only Back remains.
+4. Use Back from Group or Agent and confirm it returns directly to the Home hierarchy. From a pushed Desktop browser page, confirm Back pops the page before leaving the Convo.
+5. Reopen, tap **Agent**, open Talk to, and confirm only verified/current-group agents, added external providers, and Ghost appear.
+6. Disconnect an added live provider and confirm its row remains and routes to reconnect.
+7. Inspect Add an external agent: Tasklet follows Town; Grok Bot is Coming soon; Connect MCP is the final Coming soon row.
+8. Enter text in two real/connected lanes and confirm drafts stay separate.
+9. Open Ghost Mode, share one message, and confirm the UI identifies the single-message scope.
+10. Open the model picker and confirm ChatGPT, Claude, Grok, Gemini, and DeepSeek appear.

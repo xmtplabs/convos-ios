@@ -21,6 +21,8 @@ struct HomeBrowserPageView: View {
     /// content/indicator inset. Read here rather than handed in as a number - see
     /// `ConversationSheetGeometry`.
     var sheetGeometry: ConversationSheetGeometry = ConversationSheetGeometry()
+    /// See `HomeLayoutView.bottomContentInsetOverride`.
+    var bottomContentInsetOverride: CGFloat?
     /// Fired when this page requests navigation away from its own URL; the
     /// host pushes another page for it.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
@@ -33,7 +35,7 @@ struct HomeBrowserPageView: View {
                 conversationId: "",
                 url: entry.url,
                 topContentInset: proxy.safeAreaInsets.top,
-                bottomContentInset: sheetGeometry.homeBottomClearance,
+                bottomContentInset: bottomContentInsetOverride ?? sheetGeometry.homeBottomClearance,
                 onNavigationRequest: onNavigationRequest
             )
             .ignoresSafeArea(edges: .vertical)
