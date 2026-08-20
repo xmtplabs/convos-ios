@@ -138,6 +138,14 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     /// Send text after a photo reply (both replying to the same parent).
     func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws
 
+    // MARK: - Widget Replies
+
+    /// Send a text message associated with a widget (a "widget reply", from
+    /// window.convos.replyToWidget). The message is published as a
+    /// `ContextReply` wrapping the text and renders like a reply keyed off the
+    /// widget context. See ContextReplyCodec.
+    func sendContextReply(text: String, context: ContextReplyContext) async throws
+
     // MARK: - Failed Messages
 
     func retryFailedMessage(id: String) async throws
@@ -178,6 +186,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let text: String
         let dependsOnPhotoKey: String?
         let replyContext: ReplyContext?
+        var contextReplyContext: ContextReplyContext?
         let isExistingLocalMessage: Bool
     }
 
@@ -426,18 +435,26 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         startProcessingIfNeeded()
     }
 
-    private func sendText(_ text: String, afterPhoto trackingKey: String?, replyContext: ReplyContext?, clientMessageId: String? = nil, recordsMetric: Bool = true) async throws {
+    private func sendText(
+        _ text: String,
+        afterPhoto trackingKey: String?,
+        replyContext: ReplyContext?,
+        contextReplyContext: ContextReplyContext? = nil,
+        clientMessageId: String? = nil,
+        recordsMetric: Bool = true
+    ) async throws {
         let clientMessageId: String = clientMessageId ?? UUID().uuidString
         if recordsMetric {
             trackSendMetric(clientMessageId: clientMessageId, hasText: !text.isEmpty, attachmentMimeTypes: [])
         }
-        try await saveTextToDatabase(clientMessageId: clientMessageId, text: text, replyContext: replyContext)
+        try await saveTextToDatabase(clientMessageId: clientMessageId, text: text, replyContext: replyContext, contextReplyContext: contextReplyContext)
 
         let queued = QueuedTextMessage(
             clientMessageId: clientMessageId,
             text: text,
             dependsOnPhotoKey: trackingKey,
             replyContext: replyContext,
+            contextReplyContext: contextReplyContext,
             isExistingLocalMessage: false
         )
 
@@ -2214,6 +2231,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         try await sendText(text, afterPhoto: trackingKey, replyContext: replyContext)
     }
 
+    // MARK: - Widget Replies
+
+    func sendContextReply(text: String, context: ContextReplyContext) async throws {
+        try await sendText(text, afterPhoto: nil, replyContext: nil, contextReplyContext: context)
+    }
+
     func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
         let replyContext = try await resolveReplyContext(parentClientMessageId: parentClientMessageId)
 
@@ -2307,7 +2330,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     // MARK: - Database Save (Optimistic)
 
-    private func saveTextToDatabase(clientMessageId: String, text: String, replyContext: ReplyContext? = nil) async throws {
+    private func saveTextToDatabase(clientMessageId: String, text: String, replyContext: ReplyContext? = nil, contextReplyContext: ContextReplyContext? = nil) async throws {
         let senderId: String
         if case .ready(let result) = sessionStateManager.currentState {
             senderId = result.client.inboxId
@@ -2363,7 +2386,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 linkPreview: linkPreview,
                 sourceMessageId: replyContext?.parentDbId,
                 attachmentUrls: [],
-                update: nil
+                update: nil,
+                contextReply: contextReplyContext
             )
             try localMessage.save(db)
             Log.debug("Saved text message optimistically with id: \(clientMessageId) sortId=\(sortId)")
@@ -2430,7 +2454,10 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
 
         let xmtpMessageId: String
-        if let replyContext = queued.replyContext {
+        if let contextReplyContext = queued.contextReplyContext {
+            let contextReply = ContextReply(context: contextReplyContext, content: queued.text, contentType: ContentTypeText)
+            xmtpMessageId = try await sender.prepare(contextReply: contextReply)
+        } else if let replyContext = queued.replyContext {
             let reply = Reply(reference: replyContext.parentDbId, content: queued.text, contentType: ContentTypeText)
             xmtpMessageId = try await sender.prepare(reply: reply)
         } else {

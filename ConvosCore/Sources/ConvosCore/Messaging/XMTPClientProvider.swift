@@ -11,6 +11,7 @@ public protocol MessageSender {
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String
     func prepare(multiRemoteAttachment: MultiRemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String
+    func prepare(contextReply: ContextReply) async throws -> String
     func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String
     /// Variants that stage the message in the local store without queueing a
     /// libxmtp send intent (`prepareMessage(noSend: true)`). A queued intent
@@ -357,6 +358,13 @@ extension XMTPiOS.Conversation: MessageSender {
         return try await prepareMessage(
             content: reply,
             options: .init(contentType: ContentTypeReply)
+        )
+    }
+
+    public func prepare(contextReply: ContextReply) async throws -> String {
+        return try await prepareMessage(
+            content: contextReply,
+            options: .init(contentType: ContentTypeContextReply)
         )
     }
 

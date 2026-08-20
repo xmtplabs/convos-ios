@@ -107,6 +107,10 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
         try await send(text: text, afterPhoto: trackingKey)
     }
 
+    public func sendContextReply(text: String, context: ContextReplyContext) async throws {
+        try await send(text: text)
+    }
+
     public func retryFailedMessage(id: String) async throws {}
     public func deleteFailedMessage(id: String) async throws {}
 

@@ -49,6 +49,12 @@ public final class MockMessageSender: MessageSender, @unchecked Sendable {
         return messageId
     }
 
+    public func prepare(contextReply: ContextReply) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
     public func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String {
         let messageId = UUID().uuidString
         preparedMessages.append(messageId)

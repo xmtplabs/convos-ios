@@ -15,6 +15,7 @@ struct HomeBridgeNavigation {
     }
     var showInvitePicker: @MainActor @Sendable () -> Void = {}
     var showMembersList: @MainActor @Sendable () -> Void = {}
+    var replyToWidget: @MainActor @Sendable (String, WidgetRef) -> Void = { _, _ in }
 }
 
 /// Main-actor state shared between the hosting web view (which refreshes the
@@ -62,7 +63,7 @@ enum HomeBridgePlugins {
             InvitePluginDispatcher(HomeInvitePlugin(host: host)),
             ChatPluginDispatcher(HomeChatPlugin(host: host)),
             ThingsPluginDispatcher(HomeThingsPlugin()),
-            DesktopPluginDispatcher(HomeDesktopPlugin()),
+            DesktopPluginDispatcher(HomeDesktopPlugin(host: host)),
         ]
     }
 }
@@ -170,8 +171,15 @@ private final class HomeThingsPlugin: ThingsPlugin, Sendable {
 }
 
 private final class HomeDesktopPlugin: DesktopPlugin, Sendable {
+    private let host: HomeBridgeHost
+
+    init(host: HomeBridgeHost) {
+        self.host = host
+    }
+
     func replyToWidget(id: String, widget: WidgetRef) {
-        Log.debug("bridge replyToWidget(\(id), \(widget.title))")
+        let host = host
+        Task { @MainActor in host.navigation.replyToWidget(id, widget) }
     }
 
     func popupWidget(id: String, url: String, bounds: PopupBounds) {

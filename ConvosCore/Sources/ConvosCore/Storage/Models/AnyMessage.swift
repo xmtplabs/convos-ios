@@ -32,6 +32,17 @@ public enum AnyMessage: Hashable, Equatable, Codable, Sendable, Identifiable {
         }
     }
 
+    /// The widget this message replies to, if any. A message reply and a
+    /// widget context are mutually exclusive, so `.reply` never carries one.
+    public var widgetContext: ContextReplyContext? {
+        switch self {
+        case .message(let message, _):
+            return message.widgetContext
+        case .reply:
+            return nil
+        }
+    }
+
     public var sender: ConversationMember {
         switch self {
         case .message(let message, _):

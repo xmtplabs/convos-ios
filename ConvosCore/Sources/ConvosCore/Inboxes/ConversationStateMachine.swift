@@ -948,6 +948,11 @@ extension ConversationStateMachine {
         try await writer.sendReply(text: text, afterPhoto: trackingKey, toMessageWithClientId: parentClientMessageId)
     }
 
+    func sendContextReply(text: String, context: ContextReplyContext) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendContextReply(text: text, context: context)
+    }
+
     func retryFailedMessage(id: String) async throws {
         let writer = try await getOrCreateMessageWriter()
         try await writer.retryFailedMessage(id: id)

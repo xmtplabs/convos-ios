@@ -1042,6 +1042,17 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     /// cell showing a different message.
     var expandedMessageIds: Set<String> = []
     var replyingToMessage: AnyMessage?
+    /// The widget the user is replying to (window.convos.replyToWidget), set on
+    /// the agent DM's view model when a `replyToWidget` bridge call routes to
+    /// the agent tab. Mutually exclusive with `replyingToMessage`: the composer
+    /// shows one reply bar at a time and the send routes to `sendContextReply`.
+    var pendingWidgetReplyContext: ContextReplyContext? {
+        didSet {
+            if pendingWidgetReplyContext != nil {
+                replyingToMessage = nil
+            }
+        }
+    }
     /// Drives the invite-code sheet (`InviteCodeSheet`), presented by
     /// `ConversationPresenter` for whichever surface is showing this
     /// conversation.
@@ -3607,6 +3618,7 @@ extension ConversationViewModel {
 
         let prevMessageText = messageText
         let replyTarget = replyingToMessage
+        let widgetReplyContext = pendingWidgetReplyContext
         let prevMediaAttachments = pendingMediaAttachments
         let prevInviteURL = pendingInvite?.fullURL
         let sideConvoName = pendingInviteConvoName
@@ -3619,6 +3631,7 @@ extension ConversationViewModel {
         stopTyping()
         messageText = ""
         replyingToMessage = nil
+        pendingWidgetReplyContext = nil
         pendingMediaAttachments = []
         videoThumbnailTasks.values.forEach { $0.cancel() }
         videoThumbnailTasks.removeAll()
@@ -3667,6 +3680,7 @@ extension ConversationViewModel {
                     linkURL: prevLinkURL,
                     photoTrackingKey: nil,
                     replyTarget: trailingReplyTarget,
+                    widgetReplyContext: widgetReplyContext,
                     messageWriter: messageWriter
                 )
             } catch {
@@ -3888,6 +3902,7 @@ extension ConversationViewModel {
         linkURL: String?,
         photoTrackingKey: String?,
         replyTarget: AnyMessage?,
+        widgetReplyContext: ContextReplyContext? = nil,
         messageWriter: any OutgoingMessageWriterProtocol
     ) async throws {
         let hasAttachment = photoTrackingKey != nil
@@ -3919,7 +3934,9 @@ extension ConversationViewModel {
         }
 
         if let text {
-            if replyTarget != nil && !hasAttachment, let replyTarget {
+            if let widgetReplyContext, !hasAttachment {
+                try await messageWriter.sendContextReply(text: text, context: widgetReplyContext)
+            } else if replyTarget != nil && !hasAttachment, let replyTarget {
                 try await messageWriter.sendReply(text: text, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
             } else {
                 try await messageWriter.send(text: text, afterPhoto: photoTrackingKey)
@@ -3941,7 +3958,12 @@ extension ConversationViewModel {
     }
 
     func onReply(_ message: AnyMessage) {
+        pendingWidgetReplyContext = nil
         replyingToMessage = message
+    }
+
+    func cancelWidgetReply() {
+        pendingWidgetReplyContext = nil
     }
 
     func toggleMessageExpanded(_ messageId: String) {

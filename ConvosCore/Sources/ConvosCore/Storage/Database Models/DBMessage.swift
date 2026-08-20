@@ -37,6 +37,7 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
         static let linkPreview: Column = Column(CodingKeys.linkPreview)
         static let sourceMessageId: Column = Column(CodingKeys.sourceMessageId)
         static let attachmentUrls: Column = Column(CodingKeys.attachmentUrls)
+        static let contextReply: Column = Column(CodingKeys.contextReply)
     }
 
     let id: String // external
@@ -59,6 +60,12 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
     let sourceMessageId: String? // replies and reactions
     let attachmentUrls: [String]
     let update: Update?
+    // Set when this message is a reply to a widget (window.convos.replyToWidget).
+    // The message renders like a reply, keyed off this context instead of a
+    // parent message. A defaulted var so the memberwise initializer keeps a
+    // `contextReply: nil` default, leaving the many DBMessage construction sites
+    // that never carry a widget context unchanged. See ContextReplyCodec.
+    var contextReply: ContextReplyContext?
 
     var attachmentUrl: String? {
         attachmentUrls.first
@@ -126,7 +133,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            contextReply: contextReply
         )
     }
 
@@ -148,7 +156,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            contextReply: contextReply
         )
     }
 
@@ -170,7 +179,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            contextReply: contextReply
         )
     }
 
@@ -192,7 +202,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            contextReply: contextReply
         )
     }
 
@@ -214,7 +225,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            contextReply: contextReply
         )
     }
 
@@ -236,7 +248,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            contextReply: contextReply
         )
     }
 
@@ -258,7 +271,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            contextReply: contextReply
         )
     }
 
@@ -280,7 +294,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            contextReply: contextReply
         )
     }
 
@@ -302,7 +317,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            contextReply: contextReply
         )
     }
 

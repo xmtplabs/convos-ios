@@ -1,3 +1,4 @@
+import ConvosBridge
 import ConvosComposer
 import ConvosCore
 import ConvosCoreiOS
@@ -1553,8 +1554,21 @@ private extension ConversationView {
                 }
                 presentingAddFromContactsPicker = true
             },
-            showMembersList: { viewModel.presentingConversationSettings = true }
+            showMembersList: { viewModel.presentingConversationSettings = true },
+            replyToWidget: { id, widget in
+                selectAgentTabForWidgetReply(id: id, widget: widget)
+            }
         )
+    }
+
+    /// Routes a `window.convos.replyToWidget(id, widget)` bridge call to the
+    /// agent DM: presents the Agent tab and attaches the widget context to the
+    /// DM composer as a "widget reply" (applied once the DM binds if it is not
+    /// ready yet). The typed reply is published as a `ContextReply`.
+    private func selectAgentTabForWidgetReply(id: String, widget: WidgetRef) {
+        let context = ContextReplyContext(id: id, title: widget.title, description: widget.description)
+        agentDmSession?.attachWidgetReply(context)
+        selectTab(.agent)
     }
 
     /// The single host seam for the composer's connections capability: the

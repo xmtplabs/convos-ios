@@ -520,7 +520,8 @@ extension Array where Element == DBMessage {
                     status: dbMessage.status,
                     content: messageContent,
                     date: dbMessage.date,
-                    reactions: reactions
+                    reactions: reactions,
+                    widgetContext: dbMessage.contextReply
                 )
                 return .message(message, origin)
             case .reply:

@@ -32,6 +32,12 @@ final class AgentDmSession {
     /// has one on the way, so the tab must wait on it rather than offer to add
     /// another. Refreshed by `refreshDefaultAgentProvisioning()`.
     private(set) var isProvisioningDefaultAgent: Bool = false
+    /// A widget reply requested via window.convos.replyToWidget. Held here
+    /// until the DM view model exists, then handed to it so the composer shows
+    /// the widget reply bar. A call can arrive during the noAgent/preparing
+    /// phases (before `dmViewModel` binds), so it is stored and applied on bind.
+    @ObservationIgnored
+    private var storedWidgetReplyContext: ContextReplyContext?
     @ObservationIgnored
     private var requestTimeoutTask: Task<Void, Never>?
     /// The in-flight read mark, held so it can be abandoned if the lane stops
@@ -55,6 +61,20 @@ final class AgentDmSession {
     func updateOrigin(_ viewModel: ConversationViewModel) {
         guard viewModel !== originViewModel else { return }
         originViewModel = viewModel
+    }
+
+    /// Attaches a widget reply (window.convos.replyToWidget) to the agent DM
+    /// composer. Applied immediately if the DM is bound, otherwise held and
+    /// applied the moment `bindIfNeeded` attaches the view model.
+    func attachWidgetReply(_ context: ContextReplyContext) {
+        storedWidgetReplyContext = context
+        applyPendingWidgetReplyIfPossible()
+    }
+
+    private func applyPendingWidgetReplyIfPossible() {
+        guard let context = storedWidgetReplyContext, let dmViewModel else { return }
+        dmViewModel.pendingWidgetReplyContext = context
+        storedWidgetReplyContext = nil
     }
 
     /// The bound agent's member row in the origin conversation, if present.
@@ -191,6 +211,8 @@ final class AgentDmSession {
         // not raise a banner. Separate from `updateActiveDmLane`, which is only
         // true while the lane is the one being read.
         updateDmOnScreen(isOnScreen: true)
+        // A replyToWidget call that arrived before the DM bound is applied now.
+        applyPendingWidgetReplyIfPossible()
     }
 
     /// The eager reconciler (or another device) can create the DM while the

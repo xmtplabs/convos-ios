@@ -83,6 +83,15 @@ struct MessagesGroupItemView: View {
                     ? DesignConstants.Spacing.step4x
                     : 0.0)
                 .padding(.trailing, trailingPadding)
+            } else if let widgetContext = message.widgetContext {
+                ContextReplyReferenceView(
+                    context: widgetContext,
+                    isOutgoing: message.sender.isCurrentUser
+                )
+                .padding(.leading, !message.sender.isCurrentUser && message.content.isFullBleedAttachment
+                    ? DesignConstants.Spacing.step4x
+                    : 0.0)
+                .padding(.trailing, trailingPadding)
             }
             messageContent
             if let voiceMemoTranscript, !isAudioAttachment {
