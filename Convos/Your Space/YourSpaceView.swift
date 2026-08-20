@@ -370,8 +370,6 @@ private extension YourSpaceView {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step10x) {
-                    briefingHero
-
                     recentConvosSection
 
                     if conversations.isEmpty {
@@ -394,11 +392,13 @@ private extension YourSpaceView {
                         agentsWidget
                     }
 
+                    contextPromise
+
                     if showsFootprintWidget, briefing.sourceCount > 0 {
                         footprintWidget
                     }
 
-                    contextPromise
+                    briefingHero
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step6x)
                 .padding(.top, DesignConstants.Spacing.step8x)
