@@ -113,10 +113,11 @@ struct ConversationsView: View {
             appIndicatorContext: nil,
             sharedIndicatorNamespace: appIndicatorContext.sharedIndicatorNamespace,
             rendersConversationIndicator: false
-        ) { _, coordinator in
+        ) { focusBinding, coordinator in
             ConversationView(
                 viewModel: convoVM,
                 profileSettingsViewModel: profileSettingsViewModel,
+                focusState: focusBinding,
                 focusCoordinator: coordinator,
                 onScanInviteCode: {},
                 onDeleteConversation: {},
@@ -124,10 +125,6 @@ struct ConversationsView: View {
                 messagesTopBarTrailingItemEnabled: !convoVM.conversation.isPendingInvite,
                 messagesTextFieldEnabled: !convoVM.conversation.isPendingInvite,
                 isReadOnly: isReadOnly,
-                onConversationBack: {
-                    viewModel.endHostedInviteSessionOnPop()
-                    viewModel.selectedConversationId = nil
-                },
                 initialAgentDmInboxId: viewModel.selectedInitialAgentDmInboxId,
                 onStageTextInConversation: stageAgentText(_:in:),
                 bottomBarContent: { EmptyView() }

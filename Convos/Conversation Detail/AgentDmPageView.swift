@@ -3,25 +3,26 @@ import ConvosCore
 import SwiftUI
 
 /// The Agent tab's backing view: the user's private DM with the
-/// conversation's agent, rendered behind the conversation sheet. The DM is a
-/// real 2-member conversation (see docs/plans/agent-dms.md).
+/// conversation's agent. The DM is a real 2-member conversation (see
+/// docs/plans/agent-dms.md).
 ///
-/// The DM's lifecycle lives in `AgentDmSession`, owned by `ConversationView`
-/// and shared with the sheet's `AgentComposerBar`: once the DM exists this
-/// view renders the same `MessagesView` the group chat uses (composer
-/// excluded - the sheet hosts it), so list layout, filtering, and
-/// interactions behave identically. Before the agent-created DM syncs in it
-/// shows the disclosure empty state while the sheet's composer sits
-/// disabled.
+/// The DM's lifecycle lives in `AgentDmSession`, owned by `ConversationView`:
+/// once the DM exists this view renders the same `MessagesView` the group chat
+/// uses, composer included, so list layout, filtering, and interactions behave
+/// identically. Before the agent-created DM syncs in it shows the disclosure
+/// empty state while the composer sits disabled.
 struct AgentDmPageView: View {
     let session: AgentDmSession
     /// Backs the contact card opened from an avatar tap, the same way the
     /// group transcript's does.
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
-    /// Clearance for the conversation sheet floating over the transcript.
-    /// Owned by ConversationView, which keeps it fed with the sheet's
-    /// measured height.
+    /// Extra clearance beneath the transcript. The full-screen tab normally
+    /// supplies zero; the local prototype composer owns its own safe-area bar.
     let extraBottomInset: CGFloat
+    /// Host gate for the composer `+` menu's Connections row.
+    var connectionsEnabled: Bool = false
+    /// Presents the host's Connections browser, scoped to this DM.
+    var onConnectionsTap: (() -> Void)?
     /// Mirrors ConversationView's effectiveReadOnly: a removed or stale
     /// device must not be able to send into agent DMs.
     let isReadOnly: Bool
@@ -31,40 +32,29 @@ struct AgentDmPageView: View {
     /// ConversationView's tab-change handler, through the focus
     /// coordinators.)
     let isActiveTab: Bool
-    /// True while the conversation sheet rests collapsed, which puts this
-    /// transcript behind the chrome.
-    ///
-    /// The read state keys off it, not off `isActiveTab` alone: nothing here has
-    /// been read while it is true, so the lane must not be marked read nor claim
-    /// to be the lane being read. Otherwise a bind landing while the sheet is
-    /// down - the reconciler creating the DM as the user waits - would quietly
-    /// clear the unread state its own arrival should have set.
-    var isSheetCollapsed: Bool = false
-    /// Owned by ConversationView so the sheet can hide while the DM's
-    /// long-press context menu is presented.
+    /// Owned by ConversationView, which renders the DM's long-press context
+    /// menu at its own root.
     @Bindable var contextMenuState: MessageContextMenuState
-    /// Focus shared with the sheet's agent composer; deliberately not the
-    /// group composer's focus state, which stays mounted alongside this tab.
+    /// Focus shared with the agent composer; deliberately not the group
+    /// composer's focus state, which stays mounted alongside this tab.
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
-    /// Bridges the DM transcript's scroll-to-bottom up to the sheet's
-    /// composer, which fires it on send.
+    /// Bridges the DM transcript's scroll-to-bottom to its composer.
     var onScrollToBottomAvailable: ((@escaping (Bool) -> Void) -> Void)?
-    /// Surfaces this transcript's content height, which caps how far the sheet
-    /// opens on the Agent tab.
+    /// Retained for the local prototype transcript's measurement hook.
     var onContentHeightChanged: ((CGFloat) -> Void)?
-
     /// Non-production switcher state. A local prototype lane replaces the
     /// real DM transcript without mutating or sending to the underlying XMTP
     /// conversation.
     var prototypeState: AgentChatPrototypeState?
     var selectedLane: AgentChatLane?
     var lanes: [AgentChatLane] = []
+    var onSelectLane: (AgentChatLane) -> Void = { _ in }
     var onShareToConvo: ((String) -> Void)?
-
     /// Fill of the preparing bar. Creeps while the agent is on its way; it
     /// tracks elapsed time, not real progress, since nothing reports any.
     @State private var preparingProgress: Double = Constant.progressStart
+    @State private var isAgentSwitcherPresented: Bool = false
 
     private var agentName: String { session.agentName }
 
@@ -75,10 +65,26 @@ struct AgentDmPageView: View {
                     lane: selectedLane,
                     lanes: lanes,
                     prototypeState: prototypeState,
+                    topContentInset: ConversationChromeMetrics.controlClearance,
                     extraBottomInset: extraBottomInset,
                     onContentHeightChanged: onContentHeightChanged,
                     onShareToConvo: onShareToConvo
                 )
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    AgentComposerBar(
+                        session: session,
+                        conversationId: session.originConversationId,
+                        focusState: $focusState,
+                        focusCoordinator: focusCoordinator,
+                        isReadOnly: isReadOnly,
+                        prototypeState: prototypeState,
+                        lanes: lanes,
+                        selectedLane: selectedLane,
+                        onSelectLane: onSelectLane
+                    )
+                    .padding(.top, DesignConstants.Spacing.step2x)
+                    .padding(.bottom, DesignConstants.Spacing.step4x)
+                }
             } else {
                 switch phase {
                 case .ready(let dmViewModel):
@@ -95,11 +101,22 @@ struct AgentDmPageView: View {
         // speak in the group room; it has no meaning in a 1:1 agent DM, so clear
         // the inherited participation context to hide the control here.
         .environment(\.agentParticipation, nil)
+        .sheet(isPresented: $isAgentSwitcherPresented) {
+            if let prototypeState, let selectedLane {
+                AgentSwitcherSheet(
+                    lanes: lanes,
+                    selectedLane: selectedLane,
+                    prototypeState: prototypeState,
+                    conversationId: session.originConversationId,
+                    onSelect: onSelectLane
+                )
+            }
+        }
         // The backing views mount on the tab's first visit with the tab
         // already active, so no isActiveTab change fires; handle the initial
         // activation (mark read, register the push-suppression lane) here.
         .onAppear {
-            if !isShowingPrototypeLane, isActiveTab, !isSheetCollapsed {
+            if !isShowingPrototypeLane, isActiveTab {
                 handleActiveTabChange(true)
             }
         }
@@ -121,8 +138,7 @@ struct AgentDmPageView: View {
         .onChange(of: session.dmViewModel?.conversation.id) { _, dmId in
             guard !isShowingPrototypeLane,
                   dmId != nil,
-                  isActiveTab,
-                  !isSheetCollapsed else { return }
+                  isActiveTab else { return }
             session.markDmAsRead()
             session.updateActiveDmLane(isActive: true)
         }
@@ -149,15 +165,11 @@ struct AgentDmPageView: View {
             session.dmViewModel?.replyingToMessage = nil
             // The user just had the DM on screen: anything that arrived
             // while they watched is read, so it doesn't badge the tab they
-            // left. Unless the sheet was collapsed over it, where nothing was
-            // on screen to have been read.
-            if !isSheetCollapsed {
-                session.markDmAsRead()
-            }
+            // left.
+            session.markDmAsRead()
             session.updateActiveDmLane(isActive: false)
             return
         }
-        guard !isSheetCollapsed else { return }
         session.markDmAsRead()
         session.updateActiveDmLane(isActive: true)
     }
@@ -196,8 +208,7 @@ struct AgentDmPageView: View {
     }
 
     /// Offered when the conversation has no agent at all (Figma 7488:14502).
-    /// Centered in the space above the sheet rather than the full view, so it
-    /// reads as centered on screen.
+    /// Centered in the band the reader can see, below the floating top chrome.
     private var addAgentState: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
             Button(action: session.requestAgentJoin) {
@@ -215,6 +226,11 @@ struct AgentDmPageView: View {
                 .foregroundStyle(.colorLava)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Inset past the floating top chrome so this centers in what the
+        // reader can see rather than behind the segmented control. The
+        // background sits outside the inset, so the dark surface still fills
+        // the whole page.
+        .padding(.top, ConversationChromeMetrics.contentClearance)
         .padding(.bottom, extraBottomInset)
         .background(.colorBackgroundSurfaceless)
     }
@@ -231,6 +247,11 @@ struct AgentDmPageView: View {
             progressBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Inset past the floating top chrome so this centers in what the
+        // reader can see rather than behind the segmented control. The
+        // background sits outside the inset, so the dark surface still fills
+        // the whole page.
+        .padding(.top, ConversationChromeMetrics.contentClearance)
         .padding(.bottom, extraBottomInset)
         .background(.colorBackgroundSurfaceless)
         .task(id: isPreparing) {
@@ -399,11 +420,46 @@ struct AgentDmPageView: View {
             voiceMemoRecorder: dmVm.voiceMemoRecorder,
             onSendVoiceMemo: { dmVm.sendVoiceMemo() },
             extraBottomInset: extraBottomInset,
-            hostsBottomBar: false,
+            // Clearance for the conversation's floating top chrome.
+            topContentInset: ConversationChromeMetrics.controlClearance,
+            // Same reason as the group transcript: the controller only adjusts
+            // for safe area and tracks the keyboard when it owns its bottom bar.
+            hostsBottomBar: true,
+            // The DM's composer is the agent-style one: its `+` menu carries
+            // the Connections row.
+            usesAgentComposerLayout: true,
+            connectionsEnabled: connectionsEnabled,
+            onConnectionsTap: onConnectionsTap,
+            composerLeadingAccessory: agentSelectorAccessory,
             hostRendersContextMenu: true,
             onContentHeightChanged: onContentHeightChanged,
             onScrollToBottomAvailable: onScrollToBottomAvailable,
             bottomBarContent: { EmptyView() }
+        )
+    }
+
+    private var agentSelectorAccessory: AnyView? {
+        guard prototypeState != nil,
+              let selectedLane,
+              lanes.count > 1 else {
+            return nil
+        }
+        return AnyView(
+            Button {
+                isAgentSwitcherPresented = true
+            } label: {
+                AgentChatLaneAvatar(lane: selectedLane, size: 44)
+                    .overlay {
+                        Circle()
+                            .stroke(Color.colorBorderSubtle, lineWidth: 1)
+                    }
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 44, height: 44)
+            .accessibilityLabel("Switch agent. Current: \(selectedLane.name)")
+            .accessibilityHint("Opens your connected agents and Ghost Mode")
+            .accessibilityIdentifier("agent-chat-switcher-button")
         )
     }
 

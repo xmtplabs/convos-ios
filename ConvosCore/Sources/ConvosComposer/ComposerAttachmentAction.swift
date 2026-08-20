@@ -11,6 +11,9 @@ public enum ComposerAttachmentAction: String, CaseIterable, Identifiable, Sendab
     /// `standard`; only hosts with a real approval flow opt into the row.
     case shareContext
     case voiceNote
+    /// Opens the host app's Connections browser. Offered only by agent DMs
+    /// when the host enables that capability.
+    case connections
     /// Injects a canned attachment for testing. Only ever offered behind
     /// `FeatureFlags.isDebugInjectorEnabled`, which is hard-locked off in
     /// production - so it is absent from `standard` and a host has to ask for
@@ -21,6 +24,10 @@ public enum ComposerAttachmentAction: String, CaseIterable, Identifiable, Sendab
     /// without the debug flag should ever see.
     public static let standard: [ComposerAttachmentAction] = [.photos, .camera, .files, .voiceNote]
 
+    public static func agentMenu(connectionsEnabled: Bool) -> [ComposerAttachmentAction] {
+        connectionsEnabled ? standard + [.connections] : standard
+    }
+
     public var id: String { rawValue }
 
     public var title: String {
@@ -30,6 +37,7 @@ public enum ComposerAttachmentAction: String, CaseIterable, Identifiable, Sendab
         case .files: "Files"
         case .shareContext: "Share context"
         case .voiceNote: "Voice note"
+        case .connections: "Connections"
         case .debugInjector: "Test attachment"
         }
     }
@@ -44,6 +52,7 @@ public enum ComposerAttachmentAction: String, CaseIterable, Identifiable, Sendab
         case .files: "document"
         case .shareContext: "person.crop.circle.badge.plus"
         case .voiceNote: "waveform"
+        case .connections: "powerplug"
         case .debugInjector: "testtube.2"
         }
     }

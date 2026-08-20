@@ -8,34 +8,29 @@ struct HomeBrowserEntry: Identifiable, Hashable {
     let url: URL
 }
 
-/// An external web page layered over the home, below the floating
-/// conversation sheet - browsing never leaves the conversation screen, so
-/// the sheet stays up and the top bar's back button (swapped in by
-/// `ConversationView` while pages are open) walks the chain home to the
-/// root home view. Mirrors the home surface's full-bleed geometry:
-/// the page insets by the navigation chrome and the sheet so content
-/// scrolls clear of both.
+/// An external web page layered over the Context tab's Space page - browsing
+/// never leaves the conversation screen, so the top chrome stays put and its
+/// back button (swapped in by `ConversationView` while pages are open) walks
+/// the chain home to the root Space view.
+///
+/// Mirrors the Space surface's full-bleed geometry: the page insets by the top
+/// chrome so content scrolls clear of it.
 struct HomeBrowserPageView: View {
     let entry: HomeBrowserEntry
-    /// The sheet's live geometry, whose coverage becomes this page's bottom
-    /// content/indicator inset. Read here rather than handed in as a number - see
-    /// `ConversationSheetGeometry`.
-    var sheetGeometry: ConversationSheetGeometry = ConversationSheetGeometry()
-    /// See `HomeLayoutView.bottomContentInsetOverride`.
-    var bottomContentInsetOverride: CGFloat?
     /// Fired when this page requests navigation away from its own URL; the
     /// host pushes another page for it.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
 
     var body: some View {
         GeometryReader { proxy in
+            let topInset: CGFloat = proxy.safeAreaInsets.top + ConversationChromeMetrics.controlClearance
             HomeWebView(
                 // An empty conversation id keeps browser pages from
                 // overwriting the conversation's home cover snapshot.
                 conversationId: "",
                 url: entry.url,
-                topContentInset: proxy.safeAreaInsets.top,
-                bottomContentInset: bottomContentInsetOverride ?? sheetGeometry.homeBottomClearance,
+                topContentInset: topInset,
+                bottomContentInset: proxy.safeAreaInsets.bottom,
                 onNavigationRequest: onNavigationRequest
             )
             .ignoresSafeArea(edges: .vertical)

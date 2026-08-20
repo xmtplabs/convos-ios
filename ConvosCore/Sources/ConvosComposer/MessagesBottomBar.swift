@@ -112,6 +112,15 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     /// inline at the field's leading edge instead of behind the `+` menu,
     /// and an empty composer's send slot becomes the voice-memo entry.
     var usesInlineMediaButtons: Bool = false
+    /// Agent DM layout: keeps the attachment menu and adds the host-routed
+    /// Connections row plus voice-memo behavior in an empty input.
+    var usesAgentComposerLayout: Bool = false
+    var connectionsEnabled: Bool = false
+    var onConnectionsTap: (() -> Void)?
+    /// Optional host-owned control before the input. Agent DMs use this for
+    /// their private lane selector without coupling the composer package to
+    /// app-level agent models.
+    var leadingAccessory: AnyView?
 
     @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
@@ -167,6 +176,10 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         onDebugAttachmentTap: (() -> Void)? = nil,
         onShareContextTap: (() -> Void)? = nil,
         usesInlineMediaButtons: Bool = false,
+        usesAgentComposerLayout: Bool = false,
+        connectionsEnabled: Bool = false,
+        onConnectionsTap: (() -> Void)? = nil,
+        leadingAccessory: AnyView? = nil,
         onBaseHeightChanged: @escaping (CGFloat) -> Void,
         @ViewBuilder bottomBarContent: @escaping () -> BottomBarContent,
         @ViewBuilder quickEditView: @escaping (String, Binding<Bool>) -> QuickEdit,
@@ -210,6 +223,10 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         self.onDebugAttachmentTap = onDebugAttachmentTap
         self.onShareContextTap = onShareContextTap
         self.usesInlineMediaButtons = usesInlineMediaButtons
+        self.usesAgentComposerLayout = usesAgentComposerLayout
+        self.connectionsEnabled = connectionsEnabled
+        self.onConnectionsTap = onConnectionsTap
+        self.leadingAccessory = leadingAccessory
         self.onBaseHeightChanged = onBaseHeightChanged
         self.bottomBarContent = bottomBarContent
         self.quickEditView = quickEditView
@@ -282,9 +299,13 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 }
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
-            // No vertical insets: the conversation sheet's card padding and
-            // its 12pt content gap place the input row directly (Figma
-            // 7156:13775); slot content above supplies its own spacing.
+            // The bar sits directly on the keyboard when one is up, so it
+            // carries its own vertical insets rather than resting flush
+            // against it. These are the values the bar shipped with before
+            // the conversation sheet briefly supplied them from its card
+            // padding instead.
+            .padding(.top, DesignConstants.Spacing.step2x)
+            .padding(.bottom, DesignConstants.Spacing.step4x)
         }
     }
 
@@ -526,7 +547,9 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     /// host handed one over, which it does behind `isDebugInjectorEnabled` -
     /// hard-locked off in production, so no member ever sees the row.
     private var offeredAttachmentActions: [ComposerAttachmentAction] {
-        var actions: [ComposerAttachmentAction] = ComposerAttachmentAction.standard
+        var actions: [ComposerAttachmentAction] = usesAgentComposerLayout
+            ? ComposerAttachmentAction.agentMenu(connectionsEnabled: connectionsEnabled)
+            : ComposerAttachmentAction.standard
         if onShareContextTap != nil {
             actions.insert(.shareContext, at: 3)
         }
@@ -594,6 +617,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         case .files: isFilePickerPresented = true
         case .shareContext: onShareContextTap?()
         case .voiceNote: startVoiceMemoRecording()
+        case .connections: onConnectionsTap?()
         case .debugInjector: onDebugAttachmentTap?()
         }
     }
@@ -653,6 +677,10 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
             participationBubble
 
+            if let leadingAccessory {
+                leadingAccessory
+            }
+
             MessagesInputView(
                 displayName: $displayName,
                 emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
@@ -674,7 +702,9 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
-                onVoiceMemoTapWhenEmpty: usesInlineMediaButtons ? { startVoiceMemoRecording() } : nil,
+                onVoiceMemoTapWhenEmpty: usesInlineMediaButtons || usesAgentComposerLayout
+                    ? { startVoiceMemoRecording() }
+                    : nil,
                 onClearLinkPreview: onClearLinkPreview,
                 onClearMediaAttachment: onClearMediaAttachment,
                 fileAttachmentPreview: fileAttachmentPreview,

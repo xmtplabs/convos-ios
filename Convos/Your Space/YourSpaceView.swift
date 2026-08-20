@@ -1292,10 +1292,11 @@ private extension YourSpaceView {
             appIndicatorContext: nil,
             sharedIndicatorNamespace: appIndicatorContext.sharedIndicatorNamespace,
             rendersConversationIndicator: false
-        ) { _, coordinator in
+        ) { focusBinding, coordinator in
             ConversationView(
                 viewModel: convoViewModel,
                 profileSettingsViewModel: profileSettingsViewModel,
+                focusState: focusBinding,
                 focusCoordinator: coordinator,
                 onScanInviteCode: {},
                 onDeleteConversation: {},
@@ -1303,11 +1304,6 @@ private extension YourSpaceView {
                 messagesTopBarTrailingItemEnabled: !convoViewModel.conversation.isPendingInvite,
                 messagesTextFieldEnabled: !convoViewModel.conversation.isPendingInvite,
                 isReadOnly: isReadOnly,
-                opensInFullScreenChat: true,
-                onConversationBack: {
-                    viewModel.endHostedInviteSessionOnPop()
-                    viewModel.selectedConversationId = nil
-                },
                 initialAgentDmInboxId: viewModel.selectedInitialAgentDmInboxId,
                 onStageTextInConversation: stageAgentText(_:in:),
                 bottomBarContent: { EmptyView() }

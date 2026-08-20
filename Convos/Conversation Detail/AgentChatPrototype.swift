@@ -1320,6 +1320,7 @@ struct AgentChatDemoTranscript: View {
     let lane: AgentChatLane
     let lanes: [AgentChatLane]
     let prototypeState: AgentChatPrototypeState
+    var topContentInset: CGFloat = 0
     let extraBottomInset: CGFloat
     var onContentHeightChanged: ((CGFloat) -> Void)?
     var onShareToConvo: ((String) -> Void)?
@@ -1348,7 +1349,7 @@ struct AgentChatDemoTranscript: View {
                     }
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
-                .padding(.top, DesignConstants.Spacing.step6x)
+                .padding(.top, topContentInset + DesignConstants.Spacing.step6x)
                 .padding(.bottom, extraBottomInset + DesignConstants.Spacing.step6x)
                 .onGeometryChange(for: CGFloat.self) { proxy in
                     proxy.size.height

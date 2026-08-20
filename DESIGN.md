@@ -221,11 +221,11 @@ The large system-serif sentence is the signature component. It describes what ne
 
 ### Recent Convos
 
-Exactly the three most recent real conversations appear under the narrative when at least three exist. Rows stay flat on the canvas, use `48pt` circular avatars inside `72pt`-minimum targets, one-line previews, native dividers, explicit unread language, and a small Lava signal. Tapping pushes directly into the full-height Group surface; no Desktop or group-home screen sits between Home and chat.
+Exactly the three most recent real conversations lead the Home content when at least three exist. Rows stay flat on the canvas, use `48pt` circular avatars inside `72pt`-minimum targets, one-line previews, native dividers, explicit unread language, and a small Lava signal. Tapping pushes directly into the full-height Group surface; no Context or group-home screen sits between Home and chat.
 
 ### Convo Surface Switcher
 
-Every Convo is one full-screen shell with a fixed, equal-width **Desktop / Group / Agent** switcher at the bottom. Regular Convo entry always selects Group. Desktop and Group share the top group chrome: a `44pt` Back control at left, the group identity/settings control centered, and Invite at right. Agent is the private lane and keeps only Back. The shell never exposes a half-height chat state or a resize grabber. Switching surfaces preserves the Desktop browser stack, transcript positions, and composer drafts.
+Every Convo is one full-screen shell with a compact **Group / Agent / Context** control floating beneath the group identity. Regular Convo entry always selects Group. Back stays in the top-left `44pt` target; the centered identity opens group settings, and Invite remains at top right wherever group actions apply. Group is the normal conversation, Agent is the user's private lane with the group agent first and connected personal agents available from its selector, and Context is the group's Space. The shell never exposes a half-height chat state, resize grabber, or persistent bottom navigation. Group and Agent own their respective bottom composers, while Context devotes the viewport to the Space. Switching surfaces preserves the Context browser stack, transcript positions, selected personal agent, and composer drafts.
 
 ### Me & My Stuff
 
