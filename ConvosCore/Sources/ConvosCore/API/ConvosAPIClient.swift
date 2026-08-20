@@ -23,6 +23,14 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
                  method: String,
                  queryParameters: [String: String]?) throws -> URLRequest
 
+    /// Builds a request with the JWT attached (override token first, then
+    /// the keychain slots) and returns it for the caller to execute on its
+    /// own session. The agent relay uses this so long-poll responses never
+    /// pass through the client's body-logging path.
+    func authorizedRequest(for endpoint: String,
+                           method: String,
+                           queryParameters: [String: String]?) async throws -> URLRequest
+
     /// Register device with AppCheck authentication (no JWT required - device-level operation)
     func registerDevice(deviceId: String, pushToken: String?) async throws
 
@@ -677,6 +685,12 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     ) throws -> URLRequest {
         let request = try request(for: path, method: method, queryParameters: queryParameters)
         return attachingAuthHeader(to: request)
+    }
+
+    func authorizedRequest(for endpoint: String,
+                           method: String,
+                           queryParameters: [String: String]?) async throws -> URLRequest {
+        try authenticatedRequest(for: endpoint, method: method, queryParameters: queryParameters)
     }
 
     /// Attaches the auth header to a prebuilt request. Split from
