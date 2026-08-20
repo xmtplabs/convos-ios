@@ -275,3 +275,96 @@ private actor RecordingAbilitiesService: AbilitiesServiceProtocol {
         )
     }
 }
+
+/// The browser row's "Used in N convos" is a cache: it survives neither a
+/// per-chat toggle (which changes what it counts) nor an account change
+/// (which changes whose convos they are).
+@MainActor
+final class ConnectionUsageCacheTests: XCTestCase {
+    private static let agent: ConversationAgentDescriptor = ConversationAgentDescriptor(
+        inboxId: "mock-agent-inbox-1",
+        displayName: "Caley"
+    )
+
+    /// Toggling the connection off for this convo drops it from the count
+    /// the browser row shows. Without the mutation callback the detail
+    /// screen updated and the row it was pushed from did not.
+    func testTogglingOffInThisConvoUpdatesTheBrowserCount() async throws {
+        let service = MockAbilitiesService(scenario: .standard, artificialDelay: .zero)
+        let conversations: [Conversation] = Self.conversations
+        let usageSource = ConversationConnectionUsageSource(
+            service: service,
+            conversations: { conversations }
+        )
+        let listViewModel = AbilitiesListViewModel(service: service, usageSource: usageSource)
+        let conversationViewModel = ConversationAbilitiesViewModel(
+            conversationId: "mock-conversation-2",
+            agents: [Self.agent],
+            selection: AbilitiesSelection(service: service)
+        )
+        AbilitiesListScreen.wireActivation(list: listViewModel, conversation: conversationViewModel)
+        await listViewModel.refresh()
+        await conversationViewModel.refresh()
+        XCTAssertEqual(listViewModel.conversationCount(forAbilityId: "googlecalendar"), 2)
+
+        let row = try XCTUnwrap(conversationViewModel.rows.first { $0.ability.id == "googlecalendar" })
+        XCTAssertTrue(row.isOn, "fixture guard: the toggle starts on in this convo")
+        conversationViewModel.toggle(row)
+
+        try await Self.waitUntil { listViewModel.conversationCount(forAbilityId: "googlecalendar") == 1 }
+        XCTAssertEqual(listViewModel.conversationCount(forAbilityId: "googlecalendar"), 1)
+    }
+
+    /// An account wipe must not leave the previous account's counts under
+    /// the new account's rows. Ability ids repeat across accounts, so the
+    /// cache is checked at the exact moment the new catalog publishes --
+    /// clearing it once the next usage read lands would be too late.
+    func testTheCountsDoNotSurviveAnAccountChange() async throws {
+        let service = MockAbilitiesService(scenario: .standard, artificialDelay: .zero)
+        let epoch = AbilitiesAccountEpoch()
+        let conversations: [Conversation] = Self.conversations
+        let usageSource = ConversationConnectionUsageSource(
+            service: service,
+            conversations: { conversations }
+        )
+        let viewModel = AbilitiesListViewModel(service: service, accountEpoch: epoch, usageSource: usageSource)
+        await viewModel.refresh()
+        XCTAssertEqual(viewModel.conversationCount(forAbilityId: "googlecalendar"), 2)
+
+        epoch.advance()
+        var countAtPublish: Int?
+        viewModel.onCatalogCommitted = { _ in
+            countAtPublish = viewModel.conversationCount(forAbilityId: "googlecalendar")
+        }
+        await viewModel.refresh()
+
+        XCTAssertEqual(countAtPublish, 0, "the new account's rows must not render the previous account's counts")
+    }
+
+    private static var conversations: [Conversation] {
+        [
+            conversation(id: "mock-conversation-1", name: "Weekend trip"),
+            conversation(id: "mock-conversation-2", name: "Standup notes"),
+        ]
+    }
+
+    private static func conversation(id: String, name: String) -> Conversation {
+        let members: [ConversationMember] = [
+            .mock(isCurrentUser: true),
+            ConversationMember(
+                profile: .mock(inboxId: agent.inboxId, conversationId: id, name: agent.displayName),
+                role: .member,
+                isCurrentUser: false,
+                isAgent: true
+            ),
+        ]
+        return .mock(id: id, name: name, members: members)
+    }
+
+    private static func waitUntil(_ predicate: () -> Bool) async throws {
+        for _ in 0..<200 {
+            if predicate() { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+}

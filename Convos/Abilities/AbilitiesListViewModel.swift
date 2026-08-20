@@ -212,6 +212,13 @@ final class AbilitiesListViewModel {
         usageByAbilityId[abilityId]?.conversations.count ?? 0
     }
 
+    /// Re-reads usage outside the catalog refresh. The per-chat toggle
+    /// writes grants this view model never sees, so its rows would keep
+    /// counting the convos the connection was in before the tap.
+    func refreshUsage() async {
+        await refreshUsage(epoch: accountEpoch.value)
+    }
+
     private func refreshUsage(epoch: UInt64) async {
         let usage: [String: ConnectionUsage] = await usageSource.usageByAbilityId()
         guard epoch == accountEpoch.value, epoch == snapshotEpoch else { return }
@@ -234,6 +241,11 @@ final class AbilitiesListViewModel {
         guard current != snapshotEpoch else { return }
         snapshotEpoch = current
         catalog = nil
+        // Cleared with the catalog, not after the next usage read lands:
+        // ability ids repeat across accounts, so a surviving cache renders
+        // the previous account's counts under the new account's rows for
+        // as long as the read takes - forever, if it never completes.
+        usageByAbilityId = [:]
         busyAbilityIds = []
         pendingAuthorization = nil
         parkedActivations = []

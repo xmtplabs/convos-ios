@@ -190,6 +190,10 @@ final class ConversationAbilitiesViewModel {
     /// Where a row without a usable entitlement routes its repair. Set by
     /// the host after construction when the host owns the connect flow.
     var entitlementRecoveryRoute: EntitlementRecoveryRoute = .inlineSheet
+    /// Fires once every extend or withdraw has settled and the opt-ins have
+    /// been re-read. The Connections browser hosting these toggles counts
+    /// convos from its own read, which this mutation just invalidated.
+    var onOptInsMutated: (() -> Void)?
 
     private var service: any AbilitiesServiceProtocol { selection.service }
 
@@ -679,6 +683,7 @@ final class ConversationAbilitiesViewModel {
             }
             isBusy = false
             await refresh()
+            onOptInsMutated?()
             // The refresh clears errorMessage on success; re-assert the
             // mutation failure so the bounced-back toggle is explained.
             if let mutationError {
@@ -729,6 +734,7 @@ final class ConversationAbilitiesViewModel {
             }
             isBusy = false
             await refresh()
+            onOptInsMutated?()
             if let mutationError {
                 errorMessage = mutationError
             }

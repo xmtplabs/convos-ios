@@ -59,7 +59,7 @@ struct AbilitiesListScreen: View {
     /// Points the list view model's catalog and activation callbacks at
     /// the per-chat view model.
     ///
-    /// The captures are **strong on purpose**. `@State` releases the
+    /// The catalog and activation captures are **strong on purpose**. `@State` releases the
     /// per-chat view model the moment the modal is dismissed, but a
     /// connect already in flight still has to write its grant: dismissing
     /// before `beginEntitlement` returns would otherwise connect the
@@ -76,6 +76,13 @@ struct AbilitiesListScreen: View {
         }
         list.onEntitlementActivated = { abilityId in
             conversation.enableAfterConnect(abilityId: abilityId)
+        }
+        // The reverse edge, captured weakly like the other one: a toggle
+        // here changes which convos the connection is in, which is what the
+        // list's "Used in N convos" counts.
+        conversation.onOptInsMutated = { [weak list] in
+            guard let list else { return }
+            Task { await list.refreshUsage() }
         }
     }
 
