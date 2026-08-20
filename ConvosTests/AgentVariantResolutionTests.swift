@@ -91,6 +91,32 @@ final class AgentVariantResolutionTests: XCTestCase {
         XCTAssertEqual(AgentVariantResolution.slug(for: "never-bound"), "globally-selected")
     }
 
+    /// A prepared conversation goes back in the pool when its flow is
+    /// abandoned. If the pick it carried survived there, the next compose
+    /// would adopt that conversation and build its agent under the old
+    /// variant — so "No variant" has to clear the binding, not skip it.
+    func testANilPickClearsAnAbandonedFlowsBinding() {
+        let prepared = "prepared-conversation"
+        AgentVariantAssignmentStore.shared.assign(slug: "left-behind", to: prepared)
+        defer { AgentVariantAssignmentStore.shared.assign(slug: nil, to: prepared) }
+
+        AgentVariantAssignmentStore.shared.assign(slug: nil, to: prepared)
+
+        XCTAssertNil(AgentVariantAssignmentStore.shared.slug(for: prepared))
+    }
+
+    /// The same conversation picked again under a different variant takes the
+    /// new one; a stale pick never wins by having been written first.
+    func testASecondPickReplacesAnAbandonedOne() {
+        let prepared = "prepared-conversation-2"
+        AgentVariantAssignmentStore.shared.assign(slug: "first-pick", to: prepared)
+        defer { AgentVariantAssignmentStore.shared.assign(slug: nil, to: prepared) }
+
+        AgentVariantAssignmentStore.shared.assign(slug: "second-pick", to: prepared)
+
+        XCTAssertEqual(AgentVariantAssignmentStore.shared.slug(for: prepared), "second-pick")
+    }
+
     private func variant(slug: String) -> ConvosAPI.AgentVariant {
         ConvosAPI.AgentVariant(
             slug: slug,

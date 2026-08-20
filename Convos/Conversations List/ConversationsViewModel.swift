@@ -532,8 +532,19 @@ final class ConversationsViewModel {
         // provisioner resolves, so a pick can't lose that race and land its
         // agent on the default runtime. `.ready` still binds as the backstop
         // for a cold create, where no prepared conversation exists yet.
-        if let agentVariantSlug, let prepared = session.peekPreparedConversationId() {
-            AgentVariantAssignmentStore.shared.assignIfUnset(slug: agentVariantSlug, to: prepared)
+        //
+        // Writes unconditionally — including a nil pick, which clears. The
+        // prepared conversation outlives a flow that never adopts it (the
+        // picker was dismissed, or a scan superseded the create), and it goes
+        // back in the pool carrying whatever was written for it. Leaving a
+        // stale slug there is worse than not binding at all: the next compose
+        // adopts that same conversation and builds its agent under the
+        // previous pick, so choosing "No variant" silently yields the last
+        // variant. Every compose therefore states the pick for the
+        // conversation it is about to take, rather than deferring to whatever
+        // an abandoned flow left behind.
+        if let prepared = session.peekPreparedConversationId() {
+            AgentVariantAssignmentStore.shared.assign(slug: agentVariantSlug, to: prepared)
         }
         newConversationViewModel = NewConversationViewModel(
             session: session,
