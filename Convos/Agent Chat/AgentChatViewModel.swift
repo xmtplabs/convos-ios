@@ -60,6 +60,31 @@ final class AgentChatViewModel {
         perform(prompt: turn.prompt)
     }
 
+    func checkAgain(turn: AgentTurn) {
+        guard turn.status == .pending, !isSubmitting else { return }
+        errorMessage = nil
+        isSubmitting = true
+        let dependencies = dependencies
+        let provider = provider
+        submissionTask = Task { [weak self] in
+            defer { self?.isSubmitting = false }
+            do {
+                let result = try await dependencies.client.collect(
+                    requestId: turn.requestId,
+                    provider: provider
+                )
+                guard result == nil else { return }
+                guard try dependencies.repository.turn(requestId: turn.requestId)?.status == .pending else {
+                    return
+                }
+                let outcome = try await dependencies.client.watch(requestId: turn.requestId)
+                self?.apply(outcome)
+            } catch {
+                self?.errorMessage = AgentSetupCopy.errorMessage(error, provider: provider)
+            }
+        }
+    }
+
     func userFacingError(for turn: AgentTurn) -> String {
         guard let code = turn.errorCode else {
             return "Something went wrong. Try again."

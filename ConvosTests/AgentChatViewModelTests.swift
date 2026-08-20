@@ -17,17 +17,61 @@ final class AgentChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.composerText, draft.text)
     }
 
-    func testCanSubmitIsDisabledWhileTurnIsPending() throws {
+    func testCanSubmitOnlyBlocksForRecentPendingTurn() throws {
         let fixture = try AgentChatViewModelFixture()
         let viewModel = fixture.makeViewModel(provider: .town, initialText: "Next request")
 
         XCTAssertTrue(viewModel.canSubmit)
 
-        viewModel.turns = [makeAgentChatTurn(status: .pending)]
+        viewModel.turns = [makeAgentChatTurn(
+            status: .pending,
+            createdAt: Date().addingTimeInterval(-60)
+        )]
         XCTAssertFalse(viewModel.canSubmit)
 
-        viewModel.turns = [makeAgentChatTurn(status: .failed)]
+        viewModel.turns = [makeAgentChatTurn(
+            status: .pending,
+            createdAt: Date().addingTimeInterval(-601)
+        )]
         XCTAssertTrue(viewModel.canSubmit)
+    }
+
+    func testCheckAgainCollectsThenRearmsWatch() async throws {
+        let completedResult = AgentRelayTurnResult(
+            message: "Completed after checking again",
+            links: [],
+            completedAt: Date()
+        )
+        let fixture = try AgentChatViewModelFixture(fetchOutcomes: [
+            .pending(expiresAt: Date().addingTimeInterval(3_600)),
+            .completed(completedResult),
+        ])
+        let pendingTurn = makeAgentChatTurn(
+            requestId: "request_check_again",
+            provider: .town,
+            status: .pending,
+            createdAt: Date().addingTimeInterval(-601)
+        )
+        try fixture.insertPending(pendingTurn)
+        let viewModel = fixture.makeViewModel(provider: .town)
+
+        viewModel.checkAgain(turn: pendingTurn)
+        while await fixture.api.ackCount == 0 {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+
+        let turn = try fixture.repository.turn(requestId: pendingTurn.requestId)
+        let ackCount: Int = await fixture.api.ackCount
+        XCTAssertEqual(turn?.status, .completed)
+        XCTAssertEqual(turn?.resultMessage, completedResult.message)
+        XCTAssertNotNil(turn?.ackedAt)
+        XCTAssertEqual(ackCount, 1)
+    }
+
+    func testAgentRelayPreviewBuildUsesPRBundleSuffix() {
+        XCTAssertTrue(ConfigManager.isAgentRelayPreviewBundleIdentifier("org.convos.ios-preview.pr"))
+        XCTAssertFalse(ConfigManager.isAgentRelayPreviewBundleIdentifier("org.convos.ios-preview"))
+        XCTAssertFalse(ConfigManager.isAgentRelayPreviewBundleIdentifier("org.convos.ios-production"))
     }
 
     func testRetrySubmitsANewTurnWithTheFailedPrompt() async throws {
@@ -64,11 +108,11 @@ private final class AgentChatViewModelFixture {
     private let dependencies: AgentRelayDependencies
     private let defaultsSuiteName: String
 
-    init() throws {
+    init(fetchOutcomes: [AgentRelayFetchOutcome] = []) throws {
         let database = try AgentChatDatabase.inMemoryForTests()
         let writer = AgentChatWriter(database: database)
         let repository = AgentChatRepository(database: database)
-        let api = RecordingAgentRelayBackendAPI()
+        let api = RecordingAgentRelayBackendAPI(fetchOutcomes: fetchOutcomes)
         let webhook = RecordingAgentWebhookTransport()
         let client = AgentRelayClient(
             api: api,
@@ -126,11 +170,20 @@ private final class AgentChatViewModelFixture {
             initialText: initialText
         )
     }
+
+    func insertPending(_ turn: AgentTurn) throws {
+        try dependencies.writer.insertPending(turn)
+    }
 }
 
 private actor RecordingAgentRelayBackendAPI: AgentRelayBackendAPI {
     private var mintCount: Int = 0
     private(set) var ackCount: Int = 0
+    private var fetchOutcomes: [AgentRelayFetchOutcome]
+
+    init(fetchOutcomes: [AgentRelayFetchOutcome] = []) {
+        self.fetchOutcomes = fetchOutcomes
+    }
 
     func mint(provider: ExternalAgentProvider) async throws -> AgentRelayMint {
         mintCount += 1
@@ -145,11 +198,14 @@ private actor RecordingAgentRelayBackendAPI: AgentRelayBackendAPI {
     }
 
     func fetch(requestId: String, waitMs: Int) async throws -> AgentRelayFetchOutcome {
-        .completed(AgentRelayTurnResult(
-            message: "Completed",
-            links: [],
-            completedAt: Date()
-        ))
+        guard !fetchOutcomes.isEmpty else {
+            return .completed(AgentRelayTurnResult(
+                message: "Completed",
+                links: [],
+                completedAt: Date()
+            ))
+        }
+        return fetchOutcomes.removeFirst()
     }
 
     func ack(requestId: String) async throws {
@@ -217,9 +273,9 @@ private func makeAgentChatTurn(
     requestId: String = "request_existing",
     provider: ExternalAgentProvider = .town,
     status: AgentTurnStatus,
-    prompt: String = "Existing prompt"
+    prompt: String = "Existing prompt",
+    createdAt: Date = Date()
 ) -> AgentTurn {
-    let createdAt = Date()
     return AgentTurn(
         requestId: requestId,
         provider: provider,

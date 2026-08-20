@@ -20,6 +20,8 @@ enum AgentSetupCopy {
 
     static let notificationNote: String = "Agent replies can take minutes. Notifications let you know when one arrives."
 
+    static let previewBackendNote: String = "Agents cannot reach this preview backend, so replies will not arrive here."
+
     static func taskletInstruction(mcpURL: URL) -> String {
         let firstParagraph: String = [
             "Connect this MCP server to this Tasklet agent and enable its return_result tool:",
@@ -79,6 +81,16 @@ enum AgentSetupCopy {
             return "Tasklet did not recognise the webhook URL"
         }
         return "\(provider.displayName) rejected the webhook (\(status)). Check its setup and try again."
+    }
+}
+
+extension ConfigManager {
+    var isAgentRelayPreviewBuild: Bool {
+        Self.isAgentRelayPreviewBundleIdentifier(bundleIdentifier)
+    }
+
+    static func isAgentRelayPreviewBundleIdentifier(_ bundleIdentifier: String) -> Bool {
+        bundleIdentifier.hasSuffix(".pr")
     }
 }
 

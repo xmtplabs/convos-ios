@@ -156,15 +156,30 @@ struct AgentChatView: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let elapsed: Int = max(0, Int(context.date.timeIntervalSince(turn.createdAt)))
             let stillWorking: Bool = viewModel.isStillWorking(turn, now: context.date)
-            let status: String = stillWorking
-                ? "Still working after ten minutes; you will get a notification when it replies."
-                : "Working on its own platform - \(elapsed)s"
-            Label(status, systemImage: stillWorking ? "clock.badge.exclamationmark" : "ellipsis")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .padding(DesignConstants.Spacing.step3x)
-                .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: 20))
+            let status: String = pendingStatus(elapsed: elapsed, stillWorking: stillWorking)
+            let systemImage: String = stillWorking ? "clock.badge.exclamationmark" : "ellipsis"
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                Label(status, systemImage: systemImage)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                if stillWorking {
+                    let action = { viewModel.checkAgain(turn: turn) }
+                    Button("Check again", action: action)
+                        .buttonStyle(.bordered)
+                        .tint(.green)
+                }
+            }
+            .padding(DesignConstants.Spacing.step3x)
+            .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: 20))
         }
+    }
+
+    private func pendingStatus(elapsed: Int, stillWorking: Bool) -> String {
+        guard !ConfigManager.shared.isAgentRelayPreviewBuild else {
+            return AgentSetupCopy.previewBackendNote
+        }
+        guard stillWorking else { return "Working on its own platform - \(elapsed)s" }
+        return "Still working after ten minutes; you will get a notification when it replies."
     }
 
     private func completedBubble(_ turn: AgentTurn) -> some View {

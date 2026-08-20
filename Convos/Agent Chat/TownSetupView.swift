@@ -17,6 +17,7 @@ struct TownSetupView: View {
 
     var body: some View {
         Form {
+            previewBackendSection
             webhookSection
             returnToolSection
             instructionSection
@@ -32,6 +33,15 @@ struct TownSetupView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Your agent transcript stays on this iPhone.")
+        }
+    }
+
+    @ViewBuilder
+    private var previewBackendSection: some View {
+        if ConfigManager.shared.isAgentRelayPreviewBuild {
+            Section {
+                Text(AgentSetupCopy.previewBackendNote)
+            }
         }
     }
 

@@ -16,6 +16,7 @@ struct TaskletSetupView: View {
 
     var body: some View {
         Form {
+            previewBackendSection
             instructionSection
             webhookSection
             privacySection
@@ -30,6 +31,15 @@ struct TaskletSetupView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Your agent transcript stays on this iPhone.")
+        }
+    }
+
+    @ViewBuilder
+    private var previewBackendSection: some View {
+        if ConfigManager.shared.isAgentRelayPreviewBuild {
+            Section {
+                Text(AgentSetupCopy.previewBackendNote)
+            }
         }
     }
 
