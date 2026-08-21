@@ -465,8 +465,16 @@ struct MainTabView: View {
     /// The conversation the shared overlay is showing, if any. Drives its
     /// morph between the leading pill (when nil) and the centered
     /// conversation indicator (when non-nil).
+    /// Falls back to the compose flow's conversation so a freshly created
+    /// convo still gets the shell's centered indicator. The indicator a pushed
+    /// `ConversationPresenter` renders sits below this overlay and never
+    /// receives taps, so without the fallback the pill on a newly created
+    /// convo rendered but did nothing - conversation info never opened.
+    /// `NewConversationView` passes `rendersConversationIndicator: false` so
+    /// only one of the two is ever built.
     private var activeConvoVM: ConversationViewModel? {
         conversationsViewModel.selectedConversationViewModel
+            ?? conversationsViewModel.newConversationViewModel?.conversationViewModel
     }
 
     private enum Constant {

@@ -30,15 +30,20 @@ enum ConversationChromeMetrics {
     static let controlHeight: CGFloat = 32.0
     /// Space below the control before a page's content may start.
     static let controlBottomPadding: CGFloat = DesignConstants.Spacing.step3x
-    /// How far the scrim takes to fade from full strength to nothing (Figma
-    /// 8007:27603 draws its wash as a 153pt band).
+    /// How far the scrim takes to fade from full strength to nothing.
     ///
-    /// The design starts that ramp at the status bar's bottom edge, which puts
-    /// the wash at roughly half strength by the time it reaches the segmented
-    /// control - not enough to read the control against a transcript scrolling
-    /// under it. So the length is the design's; the start is not. See
-    /// `scrimHoldFraction`.
-    static let scrimRampLength: CGFloat = 153.0
+    /// Figma (8007:27603) draws the wash as a 153pt band starting at the status
+    /// bar's bottom edge. Starting it there puts the wash at roughly half
+    /// strength by the time it reaches the segmented control - not enough to
+    /// read the control against a transcript scrolling under it - so the ramp
+    /// starts at the control's bottom instead (see `scrimHeight`).
+    ///
+    /// Moving the start down without shortening the ramp pushed the wash's end
+    /// ~40pt past where it should sit, which reads as a wash running on too
+    /// long below the control. The ramp is the knob rather than the hold:
+    /// shortening the hold would take the strength out from under the control,
+    /// which is the thing the deviation exists to protect.
+    static let scrimRampLength: CGFloat = 113.0
 
     /// The whole chrome's height below the safe area, for a surface that
     /// reserves all of it.
