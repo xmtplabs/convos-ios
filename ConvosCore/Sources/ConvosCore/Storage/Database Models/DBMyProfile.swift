@@ -12,6 +12,8 @@ struct DBMyProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let imageAssetIdentifier: Column = Column(CodingKeys.imageAssetIdentifier)
         static let imageContentDigest: Column = Column(CodingKeys.imageContentDigest)
         static let metadata: Column = Column(CodingKeys.metadata)
+        static let remoteAvatarUrl: Column = Column(CodingKeys.remoteAvatarUrl)
+        static let remoteVersion: Column = Column(CodingKeys.remoteVersion)
         static let updatedAt: Column = Column(CodingKeys.updatedAt)
     }
 
@@ -27,6 +29,13 @@ struct DBMyProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
     /// per-conversation re-upload is needed.
     let imageContentDigest: String?
     let metadata: ProfileMetadata?
+    /// The avatar URL the backend holds for this user, as returned by the last
+    /// successful write. This is what the fan-out advertises to other people -
+    /// `imageData` is the local source bytes, which nobody else can see.
+    let remoteAvatarUrl: String?
+    /// The backend's version for this profile, echoed on the fan-out so a
+    /// recipient holding it can skip a fetch.
+    let remoteVersion: Int?
     let updatedAt: Date
 
     init(
@@ -36,6 +45,8 @@ struct DBMyProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         imageAssetIdentifier: String? = nil,
         imageContentDigest: String? = nil,
         metadata: ProfileMetadata? = nil,
+        remoteAvatarUrl: String? = nil,
+        remoteVersion: Int? = nil,
         updatedAt: Date = Date()
     ) {
         self.inboxId = inboxId
@@ -44,6 +55,8 @@ struct DBMyProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         self.imageAssetIdentifier = imageAssetIdentifier
         self.imageContentDigest = imageContentDigest
         self.metadata = metadata
+        self.remoteAvatarUrl = remoteAvatarUrl
+        self.remoteVersion = remoteVersion
         self.updatedAt = updatedAt
     }
 }

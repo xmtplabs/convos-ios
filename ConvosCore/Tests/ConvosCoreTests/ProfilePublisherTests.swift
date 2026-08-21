@@ -18,6 +18,9 @@ private actor FakeProfilePublishSession: ProfilePublishSession {
     private var uploadFailuresRemaining: Int
     private var sendFailuresRemaining: Int
     private(set) var uploadAttempts: Int = 0
+    /// Counts attempts, not successes: a retry test needs to see the failed
+    /// try, which never reaches `sends`.
+    private(set) var sendAttempts: Int = 0
     private(set) var uploads: [String] = []
     private(set) var sends: [RecordedSend] = []
 
@@ -51,7 +54,14 @@ private actor FakeProfilePublishSession: ProfilePublishSession {
         return "https://uploads/\(uploads.count)"
     }
 
-    func sendProfileUpdate(name: String?, metadata: ProfileMetadata?, avatar: PublishedAvatar?, conversationId: String) throws {
+    func sendProfileUpdate(
+        name: String?,
+        metadata: ProfileMetadata?,
+        avatarUrl: String?,
+        version: Int?,
+        conversationId: String
+    ) throws {
+        sendAttempts += 1
         if missingConversations.contains(conversationId) {
             throw ProfilePublishSessionError.conversationNotFound(conversationId: conversationId)
         }
@@ -59,7 +69,7 @@ private actor FakeProfilePublishSession: ProfilePublishSession {
             sendFailuresRemaining -= 1
             throw FakeSessionError.send
         }
-        sends.append(RecordedSend(name: name, avatarURL: avatar?.url, metadata: metadata, conversationId: conversationId))
+        sends.append(RecordedSend(name: name, avatarURL: avatarUrl, metadata: metadata, conversationId: conversationId))
     }
 }
 
@@ -243,59 +253,59 @@ struct ProfilePublisherTests {
         #expect(try await condition())
     }
 
-    @Test("publish enqueues, encrypts/uploads/sends per conversation, and writes local slots")
+    @Test("publish enqueues and sends the backend avatar to every conversation")
     func publishAvatar() async throws {
         let publishStore = InMemoryProfilePublishStore()
         let profileStore = InMemoryProfileStore()
+        let selfStore = InMemorySelfProfileStore()
+        try await selfStore.save(DBMyProfile(
+            inboxId: "me",
+            name: "Me",
+            remoteAvatarUrl: "https://cdn/profiles/me.jpg",
+            remoteVersion: 3
+        ))
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
-        let publisher = makePublisher(publishStore: publishStore, profileStore: profileStore, selfProfileStore: InMemorySelfProfileStore(), clock: clock)
+        let publisher = makePublisher(publishStore: publishStore, profileStore: profileStore, selfProfileStore: selfStore, clock: clock)
         let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key, "c2": key])
         await publisher.attach(session: session)
 
-        try await publisher.updateAvatarSource(Data([1, 2, 3]))
         try await publisher.publishConversation("c1")
         try await publisher.publishConversation("c2")
 
         let sends = await session.sends
         #expect(sends.count == 2)
         #expect(Set(sends.map(\.conversationId)) == ["c1", "c2"])
-        #expect(sends.allSatisfy { $0.avatarURL != nil })
+        // The same URL to everyone: it is the backend's, not encrypted for a
+        // particular conversation.
+        #expect(sends.allSatisfy { $0.avatarURL == "https://cdn/profiles/me.jpg" })
         let uploadAttempts = await session.uploadAttempts
-        #expect(uploadAttempts == 2)
+        #expect(uploadAttempts == 0)
 
-        let slot = try await profileStore.avatar(inboxId: "me", conversationId: "c1")
-        #expect(slot?.url != nil)
         let remaining = try await publishStore.activeJobs()
         #expect(remaining.isEmpty)
     }
 
-    @Test("a failed upload is retried with backoff and eventually succeeds")
-    func retriesFailedUpload() async throws {
+    @Test("a failed send is retried with backoff and eventually succeeds")
+    func failedSendRetries() async throws {
         let publishStore = InMemoryProfilePublishStore()
+        let selfStore = InMemorySelfProfileStore()
+        try await selfStore.save(DBMyProfile(inboxId: "me", name: "Me", remoteAvatarUrl: "https://cdn/me.jpg"))
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
-        let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key], uploadFailures: 1)
+        let publisher = makePublisher(
+            publishStore: publishStore,
+            profileStore: InMemoryProfileStore(),
+            selfProfileStore: selfStore,
+            clock: clock,
+            // Stand in for elapsed time so the backoff does not make the test
+            // wait it out for real.
+            sleep: { delay in clock.advance(by: delay) }
+        )
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key], sendFailures: 1)
         await publisher.attach(session: session)
 
-        try await publisher.updateAvatarSource(Data([1]))
         try await publisher.publishConversation("c1")
-        let sendsAfterFailure = await session.sends
-        #expect(sendsAfterFailure.isEmpty)
-        let attemptsAfterFailure = await session.uploadAttempts
-        #expect(attemptsAfterFailure == 1)
-
-        clock.advance(by: 2)
-        // Drain in a poll: a single call can no-op against the `draining`
-        // guard while the publish's own kicked background drain is mid-run.
-        try await waitFor {
-            await publisher.drainReadyJobs()
-            return await session.uploadAttempts == 2
-        }
-
-        let sends = await session.sends
-        #expect(sends.count == 1)
-        let remaining = try await publishStore.activeJobs()
-        #expect(remaining.isEmpty)
+        try await waitFor { await session.sends.count == 1 }
+        try await waitFor { try await publishStore.activeJobs().isEmpty }
     }
 
     @Test("a job for a missing conversation is dropped")
@@ -303,10 +313,9 @@ struct ProfilePublisherTests {
         let publishStore = InMemoryProfilePublishStore()
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
         let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:], missingConversations: ["c1"])
         await publisher.attach(session: session)
 
-        try await publisher.updateAvatarSource(Data([1]))
         try await publisher.publishConversation("c1")
 
         let sends = await session.sends
@@ -315,49 +324,21 @@ struct ProfilePublisherTests {
         #expect(remaining.isEmpty)
     }
 
-    @Test("a job pinned to a superseded source version is dropped without uploading")
-    func dropsStaleSourceVersion() async throws {
+
+    @Test("every send carries the backend avatar, so a name change never clears it")
+    func nameChangeKeepsAvatar() async throws {
         let publishStore = InMemoryProfilePublishStore()
+        let selfStore = InMemorySelfProfileStore()
+        try await selfStore.save(DBMyProfile(inboxId: "me", name: "Me", remoteAvatarUrl: "https://cdn/me.jpg"))
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
-        try await publishStore.setSource(DBProfileAvatarSource(inboxId: "me", plaintext: Data([9]), version: 2, updatedAt: clock.current))
-        let seq = try await publishStore.nextSeq()
-        try await publishStore.enqueue(DBProfilePublishJob(
-            id: "j1", seq: seq, conversationId: "c1", sourceVersion: 1, hasAvatar: true,
-            nextAttemptAt: clock.current, createdAt: clock.current, updatedAt: clock.current
-        ))
-        let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key])
-
-        await publisher.attach(session: session)
-
-        let sends = await session.sends
-        #expect(sends.isEmpty)
-        let attempts = await session.uploadAttempts
-        #expect(attempts == 0)
-        let remaining = try await publishStore.activeJobs()
-        #expect(remaining.isEmpty)
-    }
-
-    @Test("a name-only publish re-sends the existing avatar rather than clearing it")
-    func nameOnlyResendsAvatar() async throws {
-        let publishStore = InMemoryProfilePublishStore()
-        let profileStore = InMemoryProfileStore()
-        let clock = TestClock(Date(timeIntervalSince1970: 1_000))
-        try await profileStore.saveAvatar(DBProfileAvatar(
-            inboxId: "me", conversationId: "c1", url: "existing", salt: salt, nonce: nonce,
-            encryptionKey: key, profileSource: .profileUpdate, updatedAt: Date(timeIntervalSince1970: 1)
-        ))
-        let publisher = makePublisher(publishStore: publishStore, profileStore: profileStore, selfProfileStore: InMemorySelfProfileStore(), clock: clock)
+        let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: selfStore, clock: clock)
         let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key])
         await publisher.attach(session: session)
 
         try await publisher.publishConversation("c1")
 
         let sends = await session.sends
-        #expect(sends.count == 1)
-        #expect(sends.first?.avatarURL == "existing")
-        let attempts = await session.uploadAttempts
-        #expect(attempts == 0)
+        #expect(sends.first?.avatarURL == "https://cdn/me.jpg")
     }
 
     @Test("attach drains jobs left over from a previous run")
@@ -590,16 +571,15 @@ struct ProfilePublisherTests {
             // deadline, standing in for real elapsed time.
             sleep: { delay in clock.advance(by: delay) }
         )
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key], uploadFailures: 1)
+        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key], sendFailures: 1)
         await publisher.attach(session: session)
 
-        try await publisher.updateAvatarSource(Data([1]))
         try await publisher.publishConversation("c1")
 
         // No manual drain and no clock manipulation here: the armed timer
         // must wake the queue and complete the retry on its own.
         try await waitFor {
-            let attempts = await session.uploadAttempts
+            let attempts = await session.sendAttempts
             let remaining = try await publishStore.activeJobs()
             return attempts == 2 && remaining.isEmpty
         }

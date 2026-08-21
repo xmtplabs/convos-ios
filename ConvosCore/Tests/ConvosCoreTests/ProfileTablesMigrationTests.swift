@@ -211,15 +211,7 @@ struct ProfileTablesMigrationTests {
     /// need that table in the minimal schema too.
     private func makeSchemaWithMyProfile(_ db: Database) throws {
         try makeSchema(db)
-        try db.create(table: "myProfile") { t in
-            t.column("inboxId", .text).notNull().primaryKey()
-            t.column("name", .text)
-            t.column("imageData", .blob)
-            t.column("imageAssetIdentifier", .text)
-            t.column("imageContentDigest", .text)
-            t.column("metadata", .jsonText)
-            t.column("updatedAt", .datetime).notNull()
-        }
+        try ProfileStoreTestSupport.makeMyProfileTable(db)
     }
 
     @Test("createSelfConversationMetadata creates the table, round-trips, and cascades on conversation delete")

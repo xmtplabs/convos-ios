@@ -207,7 +207,10 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         selfInboxIdProvider: { [sessionStateManager] in
             (try? await sessionStateManager.waitForInboxReadyResult())?.client.inboxId
         },
-        remoteResolver: remoteProfileResolver
+        remoteResolver: remoteProfileResolver,
+        apiClientProvider: { [sessionStateManager] in
+            (try? await sessionStateManager.waitForInboxReadyResult())?.apiClient
+        }
     )
 
     /// Canonical identity source. Inbound writes land here directly via

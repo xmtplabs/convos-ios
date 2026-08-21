@@ -269,11 +269,10 @@ actor ProfilePublisher {
 
     private func process(_ job: DBProfilePublishJob, session: any ProfilePublishSession, selfInboxId: String) async {
         do {
-            if job.hasAvatar {
-                try await processAvatarJob(job, session: session, selfInboxId: selfInboxId)
-            } else {
-                try await processNameOnlyJob(job, session: session, selfInboxId: selfInboxId)
-            }
+            // Avatar and name-only jobs are the same work now: one message
+            // carrying the backend's URL. The distinction existed because an
+            // avatar had to be encrypted and uploaded per conversation.
+            try await sendUpdate(job, session: session, selfInboxId: selfInboxId)
             try? await publishStore.deleteJob(id: job.id)
         } catch is PublishDropError {
             try? await publishStore.deleteJob(id: job.id)
@@ -289,69 +288,16 @@ actor ProfilePublisher {
         }
     }
 
-    private func processAvatarJob(_ job: DBProfilePublishJob, session: any ProfilePublishSession, selfInboxId: String) async throws {
-        guard let version = job.sourceVersion,
-              let source = try await publishStore.source(inboxId: selfInboxId),
-              source.version == version else {
-            throw PublishDropError.staleSource
-        }
-        guard let groupKey = try await session.imageKey(conversationId: job.conversationId) else {
-            throw PublishDropError.conversationGone
-        }
-
-        var current = job
-        if current.ciphertext == nil || current.groupKey != groupKey {
-            let payload = try session.encrypt(source.plaintext, groupKey: groupKey)
-            current.ciphertext = payload.ciphertext
-            current.salt = payload.salt
-            current.nonce = payload.nonce
-            current.groupKey = groupKey
-            current.filename = "ep-\(UUID().uuidString).enc"
-            current.uploadedURL = nil
-            current.updatedAt = now()
-            try await publishStore.update(current)
-        }
-
-        let url: String
-        if let uploaded = current.uploadedURL {
-            url = uploaded
-        } else {
-            guard let ciphertext = current.ciphertext, let filename = current.filename else {
-                throw PublishDropError.staleSource
-            }
-            url = try await session.upload(ciphertext, filename: filename)
-            current.uploadedURL = url
-            current.updatedAt = now()
-            try await publishStore.update(current)
-        }
-
-        guard let salt = current.salt, let nonce = current.nonce, let key = current.groupKey else {
-            throw PublishDropError.staleSource
-        }
-        let published = PublishedAvatar(url: url, salt: salt, nonce: nonce, key: key)
+    private func sendUpdate(_ job: DBProfilePublishJob, session: any ProfilePublishSession, selfInboxId: String) async throws {
         let selfProfile = try await selfProfileStore.load()
         let metadata = try await outgoingMetadata(for: job.conversationId, selfInboxId: selfInboxId, selfProfile: selfProfile)
-        try await session.sendProfileUpdate(name: selfProfile?.name, metadata: metadata, avatar: published, conversationId: job.conversationId)
-        let slot = DBProfileAvatar(
-            inboxId: selfInboxId,
-            conversationId: job.conversationId,
-            url: url,
-            salt: salt,
-            nonce: nonce,
-            encryptionKey: key,
-            profileSource: .profileUpdate,
-            updatedAt: now()
+        try await session.sendProfileUpdate(
+            name: selfProfile?.name,
+            metadata: metadata,
+            avatarUrl: selfProfile?.remoteAvatarUrl,
+            version: selfProfile?.remoteVersion,
+            conversationId: job.conversationId
         )
-        try await profileStore.saveAvatar(slot)
-        await stampPublished(job)
-    }
-
-    private func processNameOnlyJob(_ job: DBProfilePublishJob, session: any ProfilePublishSession, selfInboxId: String) async throws {
-        let existing = try await profileStore.avatar(inboxId: selfInboxId, conversationId: job.conversationId)
-        let published = publishedAvatar(from: existing)
-        let selfProfile = try await selfProfileStore.load()
-        let metadata = try await outgoingMetadata(for: job.conversationId, selfInboxId: selfInboxId, selfProfile: selfProfile)
-        try await session.sendProfileUpdate(name: selfProfile?.name, metadata: metadata, avatar: published, conversationId: job.conversationId)
         await stampPublished(job)
     }
 
@@ -383,13 +329,13 @@ actor ProfilePublisher {
         guard let selfInboxId = await resolveSelfInboxId() else {
             throw ProfilePublishError.selfInboxUnavailable
         }
-        let slot = try await profileStore.avatar(inboxId: selfInboxId, conversationId: conversationId)
         let selfProfile = try await selfProfileStore.load()
         let merged = Self.mergedMetadata(global: selfProfile?.metadata, scoped: metadata)
         try await session.sendProfileUpdate(
             name: selfProfile?.name,
             metadata: merged,
-            avatar: publishedAvatar(from: slot),
+            avatarUrl: selfProfile?.remoteAvatarUrl,
+            version: selfProfile?.remoteVersion,
             conversationId: conversationId
         )
         try await selfProfileStore.saveScopedMetadata(metadata, inboxId: selfInboxId, conversationId: conversationId, updatedAt: now())

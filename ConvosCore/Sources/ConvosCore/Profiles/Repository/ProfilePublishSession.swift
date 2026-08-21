@@ -31,7 +31,17 @@ protocol ProfilePublishSession: Sendable {
     /// Uploads ciphertext, returning the URL it can be fetched from.
     func upload(_ ciphertext: Data, filename: String) async throws -> String
 
-    /// Sends a ProfileUpdate carrying the name, metadata, and (optional) avatar
-    /// to one conversation.
-    func sendProfileUpdate(name: String?, metadata: ProfileMetadata?, avatar: PublishedAvatar?, conversationId: String) async throws
+    /// Sends a ProfileUpdate carrying the name, metadata, and the backend's
+    /// avatar URL and version to one conversation.
+    ///
+    /// The avatar is a URL the backend already holds, not something encrypted
+    /// for this conversation, so the same string goes to every conversation and
+    /// nothing is uploaded per recipient.
+    func sendProfileUpdate(
+        name: String?,
+        metadata: ProfileMetadata?,
+        avatarUrl: String?,
+        version: Int?,
+        conversationId: String
+    ) async throws
 }
