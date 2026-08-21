@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The conversation's Group | Agent | Context selector, floating in the top
+/// The conversation's Group | Agent | Things selector, floating in the top
 /// chrome under the conversation's title capsule.
 ///
 /// A pill segmented control rather than the system's: the design (Figma
@@ -11,7 +11,7 @@ import SwiftUI
 /// The selection chip is one view moved between slots by
 /// `matchedGeometryEffect`, not a background drawn per slot. That is what lets
 /// the slots size to their own labels - the previous bar could hard-code equal
-/// 102pt slots because it drew icons, and "Context" is not the width of
+/// 102pt slots because it drew icons, and "Things" is not the width of
 /// "Agent".
 struct ConversationSegmentedControl: View {
     @Binding var selectedTab: ConversationTab

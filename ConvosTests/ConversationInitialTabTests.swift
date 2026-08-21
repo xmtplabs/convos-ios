@@ -99,6 +99,6 @@ final class ConversationInitialTabTests: XCTestCase {
     func testTitlesMatchTheDesign() {
         XCTAssertEqual(ConversationTab.group.title, "Group")
         XCTAssertEqual(ConversationTab.agent.title, "Agent")
-        XCTAssertEqual(ConversationTab.context.title, "Context")
+        XCTAssertEqual(ConversationTab.context.title, "Things")
     }
 }
