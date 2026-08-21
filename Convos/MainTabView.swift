@@ -6,8 +6,8 @@ import SwiftUI
 /// Root tab shell for the app. Hosts `ConversationsView` under the "Convos"
 /// tab, `ContactsView` under "Contacts" and `AgentsHomeView` under "Agents",
 /// in a standard SwiftUI `TabView` with the system tab bar. The Agents tab is
-/// behind the agent-relay feature flag; the App Settings "Agents" row reaches
-/// the same `AgentsHomeView` when it is off.
+/// behind the agent-relay feature flag, as is the App Settings "Agents" row.
+/// Both entry points reach the same `AgentsHomeView` when the flag is on.
 ///
 /// The compose button lives in the shared toolbar; the app-indicator pill is
 /// a top-leading overlay (see `sharedAppIndicatorOverlay`).
@@ -192,6 +192,11 @@ struct MainTabView: View {
         presentingAppSettings = false
     }
 
+    private func handleAgentRelayEnabledChanged(_ isEnabled: Bool) {
+        guard !isEnabled, activeTab == .agents else { return }
+        activeTab = .chats
+    }
+
     /// A tapped agent notification (and an agent switch made inside a chat)
     /// lands on the Agents tab with that provider's chat pushed, rather than
     /// on a sheet over whatever the user was doing. Ignored when the tab is
@@ -211,6 +216,7 @@ struct MainTabView: View {
         bodyCore
             .profilesRepository(conversationsViewModel.session.messagingServiceSync().profilesRepository())
             .onAppear {
+                handleAgentRelayEnabledChanged(FeatureFlags.shared.agentRelayEnabled)
                 ensureNavigators()
                 tabRootNavState.markScreenAppeared()
                 navStateForTab(activeTab).markScreenAppeared()
@@ -254,6 +260,9 @@ struct MainTabView: View {
             // scan navigation gated on the Chats tab consumes only once the
             // switch has actually committed.
             conversationsViewModel.isChatsTabActive = newTab == .chats
+        }
+        .onChange(of: FeatureFlags.shared.agentRelayEnabled) { _, isEnabled in
+            handleAgentRelayEnabledChanged(isEnabled)
         }
     }
 
