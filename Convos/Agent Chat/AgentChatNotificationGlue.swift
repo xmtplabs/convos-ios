@@ -132,45 +132,18 @@ struct AgentChatDraft: Identifiable {
     let text: String
 }
 
-struct AgentRelayNotificationPresentationModifier: ViewModifier {
-    let dependencies: AgentRelayDependencies?
-    let session: any SessionManagerProtocol
-    @State private var presentedProvider: ExternalAgentProvider?
-
-    func body(content: Content) -> some View {
-        content
-            .onReceive(NotificationCenter.default.publisher(for: .agentRelayNotificationTapped)) { notification in
-                presentAgentChat(notification)
-            }
-            .sheet(item: $presentedProvider) { provider in
-                if let dependencies {
-                    NavigationStack {
-                        AgentChatView(
-                            provider: provider,
-                            dependencies: dependencies,
-                            session: session
-                        )
-                    }
-                }
-            }
-    }
-
-    private func presentAgentChat(_ notification: Notification) {
+/// Reads the provider a tapped agent notification (or an in-chat agent
+/// switch) names. The shell routes it onto the Agents tab's navigation path;
+/// there is no sheet, because the Agents tab is where an agent chat lives.
+enum AgentRelayNotificationRoute {
+    @MainActor
+    static func provider(
+        from notification: Notification,
+        dependencies: AgentRelayDependencies?
+    ) -> ExternalAgentProvider {
         let rawProvider: String? = notification.userInfo?["provider"] as? String
         let pushedProvider: ExternalAgentProvider? = rawProvider.flatMap(ExternalAgentProvider.init(rawValue:))
-        let provider: ExternalAgentProvider = pushedProvider ?? dependencies?.connectionStore.activeProvider ?? .town
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            presentedProvider = provider
-        }
-    }
-}
-
-extension View {
-    func agentRelayNotificationPresentation(
-        dependencies: AgentRelayDependencies?,
-        session: any SessionManagerProtocol
-    ) -> some View {
-        modifier(AgentRelayNotificationPresentationModifier(dependencies: dependencies, session: session))
+        return pushedProvider ?? dependencies?.connectionStore.activeProvider ?? .town
     }
 }
 

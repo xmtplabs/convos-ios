@@ -259,7 +259,7 @@ struct AppSettingsView: View {
         Section {
             if let agentRelayDependencies {
                 NavigationLink {
-                    AgentProvidersView(dependencies: agentRelayDependencies, session: session)
+                    AgentsHomeView(mode: .settingsPage, dependencies: agentRelayDependencies, session: session)
                 } label: {
                     Label("Agents", systemImage: "sparkles")
                         .foregroundStyle(.colorTextPrimary)

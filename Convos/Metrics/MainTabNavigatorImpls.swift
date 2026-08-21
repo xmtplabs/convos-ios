@@ -57,3 +57,24 @@ final class ContactsNavigatorImpl: @preconcurrency ContactsNavigator, NavigatorL
     func present(agentBuilder: AgentBuilderNavigatorArgs) {}
     func closed(context: ScreenContext) {}
 }
+
+/// Lifecycle-only navigator for the Agents tab. The shared `ConvosMetrics`
+/// package has no Agents screen, so this conforms to `NavigatorLifecycle`
+/// alone: the shell can still dispatch appear/close for the tab, and no event
+/// is emitted until the package has one that means what happened.
+@MainActor
+@Observable
+final class AgentsNavigatorImpl: NavigatorLifecycle {
+    @ObservationIgnored
+    private(set) var screenAppearAt: Date?
+
+    func markScreenAppeared() {
+        screenAppearAt = Date()
+    }
+
+    func closeContext() -> ScreenContext {
+        let secs: Float = screenAppearAt.map { Float(Date().timeIntervalSince($0)) } ?? 0
+        screenAppearAt = nil
+        return ScreenContext(durationSecs: secs)
+    }
+}

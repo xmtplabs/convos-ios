@@ -320,10 +320,6 @@ struct ConvosApp: App {
             .additionalTopSafeArea(DesignConstants.Spacing.stepX)
             .withSafeAreaEnvironment()
             .environment(\.agentRelayDependencies, agentRelayDependencies)
-            .agentRelayNotificationPresentation(
-                dependencies: agentRelayDependencies,
-                session: convos.session
-            )
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
                 case .active:

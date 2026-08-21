@@ -22,6 +22,35 @@ enum AgentSetupCopy {
 
     static let previewBackendNote: String = "Agents cannot reach this preview backend, so replies will not arrive here."
 
+    static let homeIntroduction: String = [
+        "Connect an agent you already run somewhere else.",
+        "Send it work from Convos, and its finished answers come back here.",
+    ].joined(separator: " ")
+
+    static let transcriptStaysHere: String = "Your agent chats stay on this iPhone. Nothing reaches a convo until you copy it there."
+
+    /// What connecting this provider gets you, in the user's terms. Lives in
+    /// the app layer because it is product copy, not part of the provider's
+    /// protocol identity in ConvosCore.
+    static func discoverSubtitle(for provider: ExternalAgentProvider) -> String {
+        switch provider {
+        case .town: return "Run one of your Town routines from here"
+        case .tasklet: return "Run one of your Tasklet agents from here"
+        }
+    }
+
+    /// Names the boundary a message crosses when it leaves Convos. Shown once
+    /// at the head of the transcript rather than under the composer, where it
+    /// competed with the input it sat beneath.
+    static func contextBoundary(for provider: ExternalAgentProvider) -> String {
+        switch provider {
+        case .town:
+            return "Messages go to your Town routine, with the last 10 turns as context."
+        case .tasklet:
+            return "Messages go to your Tasklet agent, with the last 10 turns as context."
+        }
+    }
+
     static func taskletInstruction(mcpURL: URL) -> String {
         let firstParagraph: String = [
             "Connect this MCP server to this Tasklet agent and enable its return_result tool:",
@@ -48,6 +77,18 @@ enum AgentSetupCopy {
     static let stillWorkingNote: String = "Still working. You will get a notification when it replies."
 
     static let stoppedWaitingNote: String = "Stopped waiting on this iPhone. If it replies, the answer arrives here."
+
+    static let collectedElsewhereNote: String = "This reply was collected on another device."
+
+    static let chatEmptyState: String = [
+        "Send it a request. It works on its own platform, which can take a few minutes,",
+        "and the finished answer comes back here.",
+    ].joined(separator: " ")
+
+    static let clearHistoryWarning: String = [
+        "This removes your finished messages with this agent from this iPhone and cannot be undone.",
+        "Anything still working stays until it replies.",
+    ].joined(separator: " ")
 
     static func errorMessage(_ error: Error, provider: ExternalAgentProvider) -> String {
         guard let relayError = error as? AgentRelayError else {
@@ -252,7 +293,7 @@ final class AgentSetupViewModel {
         case .stillWorking:
             state = .stillWorking
         case .collectedElsewhere:
-            state = .failed("This reply was collected on another device.")
+            state = .failed(AgentSetupCopy.collectedElsewhereNote)
         }
     }
 }
