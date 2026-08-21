@@ -74,6 +74,8 @@ enum AgentSetupCopy {
     /// place so every surface says the same thing.
     static let genericFailure: String = "Something went wrong. Try again."
 
+    static let workingNote: String = "Working on its own platform"
+
     static let stillWorkingNote: String = "Still working. You will get a notification when it replies."
 
     static let stoppedWaitingNote: String = "Stopped waiting on this iPhone. If it replies, the answer arrives here."

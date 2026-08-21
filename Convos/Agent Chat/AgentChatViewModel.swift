@@ -107,13 +107,30 @@ final class AgentChatViewModel {
         }
     }
 
-    /// Drops this provider's settled transcript rows and releases the mailboxes
+    /// True while this provider has something a clear would actually remove.
+    /// A transcript holding nothing but the turn in flight has nothing to
+    /// clear, so the menu item is disabled rather than opening a dialog that
+    /// would delete nothing.
+    var hasClearableHistory: Bool {
+        turns.contains { $0.status != .pending }
+    }
+
+    /// Drops this provider's finished transcript rows and releases the mailboxes
     /// the backend is still holding for them, so a cleared history cannot come
-    /// back on the next launch. Turns still in flight are left alone.
+    /// back on the next launch. The turn still in flight is left alone.
+    ///
+    /// Two states can still own a live mailbox when they are deleted: a
+    /// completed turn whose ack never landed, and a superseded one, which was
+    /// never acked at all because the agent may still answer it. Both are acked
+    /// here; the rest (failed, expired, collected elsewhere) have no mailbox
+    /// left to release.
     func clearHistory() {
         let unackedIds: [String] = turns.compactMap { turn in
-            guard turn.status == .completed, turn.ackedAt == nil else { return nil }
-            return turn.requestId
+            switch turn.status {
+            case .completed: return turn.ackedAt == nil ? turn.requestId : nil
+            case .superseded: return turn.requestId
+            case .pending, .failed, .expired, .collectedElsewhere: return nil
+            }
         }
         do {
             try dependencies.writer.deleteSettledTurns(provider: provider)
@@ -141,7 +158,14 @@ final class AgentChatViewModel {
     }
 
     func isStillWorking(_ turn: AgentTurn, now: Date) -> Bool {
-        turn.status == .pending && now.timeIntervalSince(turn.createdAt) >= Constant.watchDeadline
+        turn.status == .pending && now >= watchDeadline(for: turn)
+    }
+
+    /// When this device gives up watching a turn and the transcript starts
+    /// offering "Check again" instead. The pending bubble reads it so the
+    /// deadline lives in one place.
+    func watchDeadline(for turn: AgentTurn) -> Date {
+        turn.createdAt.addingTimeInterval(Constant.watchDeadline)
     }
 
     private func stopWaitingOnInFlightTurns() {

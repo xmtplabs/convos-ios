@@ -1,5 +1,7 @@
+import ConvosComposer
 import ConvosCore
 import SwiftUI
+import UIKit
 
 /// The transcript's bubble vocabulary, kept in one file so the agent chat
 /// speaks the same visual language as a convo. Shape, fill, text color and
@@ -183,22 +185,154 @@ struct AgentStatusBubble<Actions: View>: View {
     }
 }
 
-/// The recovery action on a status bubble. A small bordered capsule in the
-/// affirmative accent - the same control the setup screens use for their
-/// primary step, one size down because it sits inside a bubble.
+/// The one control vocabulary for actions that live inside a bubble: a
+/// bordered capsule in the affirmative accent, tall enough to be a legal
+/// touch target on its own. Every recovery action in the transcript - try
+/// again, check again, stop waiting - is this control, so the transcript
+/// never shows two shapes for the same kind of choice.
 struct AgentBubbleAction: View {
     let title: String
     var tint: Color = .colorGreen
     var accessibilityIdentifier: String?
+    var accessibilityHint: String?
     let action: () -> Void
 
     var body: some View {
         Button(title, action: action)
             .buttonStyle(.bordered)
             .buttonBorderShape(.capsule)
-            .controlSize(.small)
             .tint(tint)
+            .frame(minHeight: Constant.minimumTargetHeight)
             .accessibilityIdentifier(accessibilityIdentifier ?? "")
+            .accessibilityHint(accessibilityHint ?? "")
+    }
+
+    private enum Constant {
+        static let minimumTargetHeight: CGFloat = 44.0
+    }
+}
+
+/// The turn this device is watching. It is the only place in the app where
+/// waiting is the content, so it says three true things at once: that the
+/// agent is working (the same pulsing dot a convo shows while an agent
+/// thinks), how long it has been (real seconds, monospaced so the number
+/// never shifts under itself), and that the waiting can be ended here.
+///
+/// One `TimelineView` ticks the whole inside of the bubble once a second: the
+/// counter, and the moment the watch deadline passes and "Check again"
+/// appears. It exists only while a turn is in flight, so nothing ticks once
+/// the transcript settles, and the pulsing dot sits outside it so a redraw
+/// never restarts its animation.
+struct AgentPendingBubble: View {
+    let startedAt: Date
+    /// When the copy switches from "working" to "still working, you will get
+    /// a notification", and the check-again escape hatch appears.
+    let deadline: Date
+    let workingMessage: String
+    let pastDeadlineMessage: String
+    let onCheckAgain: () -> Void
+    let onStopWaiting: () -> Void
+    @State private var stopCount: Int = 0
+
+    private var lineHeight: CGFloat {
+        UIFont.preferredFont(forTextStyle: .subheadline).lineHeight
+    }
+
+    var body: some View {
+        AgentChatBubble(isOutgoing: false) {
+            HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
+                workingDot
+                ticking
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// The convo's own "an agent is working on this" mark, sized to the line
+    /// it sits on so it stays optically centered on the first line as the
+    /// message wraps and as Dynamic Type grows.
+    private var workingDot: some View {
+        PulsingCircleView.thinkingIndicator
+            .frame(width: Constant.dotSize, height: Constant.dotSize)
+            .frame(height: lineHeight)
+            .accessibilityHidden(true)
+    }
+
+    private var ticking: some View {
+        TimelineView(.periodic(from: startedAt, by: Constant.tick)) { context in
+            let isPastDeadline: Bool = context.date >= deadline
+            let seconds: Int = Int(max(0, context.date.timeIntervalSince(startedAt)))
+            let message: String = isPastDeadline ? pastDeadlineMessage : workingMessage
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundStyle(.colorTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: DesignConstants.Spacing.step2x)
+                    elapsed(seconds)
+                }
+                actions(isPastDeadline: isPastDeadline)
+            }
+        }
+    }
+
+    private func elapsed(_ seconds: Int) -> some View {
+        Text("\(seconds)s")
+            .font(.caption)
+            .monospacedDigit()
+            .foregroundStyle(.colorTextTertiary)
+            .frame(height: lineHeight)
+            .accessibilityLabel("\(seconds) seconds so far")
+            .accessibilityIdentifier("agent-turn-elapsed")
+    }
+
+    @ViewBuilder
+    private func actions(isPastDeadline: Bool) -> some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            if isPastDeadline {
+                AgentBubbleAction(
+                    title: "Check again",
+                    accessibilityIdentifier: "agent-turn-check-again",
+                    action: onCheckAgain
+                )
+            }
+            let stop = {
+                stopCount += 1
+                onStopWaiting()
+            }
+            AgentBubbleAction(
+                title: "Stop waiting",
+                tint: .colorTextSecondary,
+                accessibilityIdentifier: "agent-turn-stop-waiting",
+                accessibilityHint: "The agent keeps working. Only this iPhone stops waiting.",
+                action: stop
+            )
+            .sensoryFeedback(.impact(weight: .light), trigger: stopCount)
+        }
+    }
+
+    private enum Constant {
+        static let dotSize: CGFloat = 10.0
+        static let tick: TimeInterval = 1.0
+    }
+}
+
+/// The line at the head of the transcript naming what leaves Convos when you
+/// send. It sits with the transcript, not under the composer, where it used
+/// to compete with the field it was printed beneath.
+struct AgentTranscriptNote: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.colorTextTertiary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, DesignConstants.Spacing.step6x)
+            .padding(.bottom, DesignConstants.Spacing.step2x)
     }
 }
 
@@ -258,12 +392,22 @@ private func previewLink(_ host: String, title: String?) -> AgentRelayLink {
                 onOpenLink: { _ in }
             )
             AgentUserBubble(text: "Book the airport transfer too.")
-            AgentStatusBubble(
-                systemImage: "clock",
-                message: "Working on its own platform - 4 min"
-            ) {
-                AgentBubbleAction(title: "Stop waiting", tint: .colorTextSecondary, action: {})
-            }
+            AgentPendingBubble(
+                startedAt: Date().addingTimeInterval(-218),
+                deadline: Date().addingTimeInterval(382),
+                workingMessage: AgentSetupCopy.workingNote,
+                pastDeadlineMessage: AgentSetupCopy.stillWorkingNote,
+                onCheckAgain: {},
+                onStopWaiting: {}
+            )
+            AgentPendingBubble(
+                startedAt: Date().addingTimeInterval(-742),
+                deadline: Date().addingTimeInterval(-142),
+                workingMessage: AgentSetupCopy.workingNote,
+                pastDeadlineMessage: AgentSetupCopy.stillWorkingNote,
+                onCheckAgain: {},
+                onStopWaiting: {}
+            )
             AgentStatusBubble(
                 systemImage: "clock.arrow.circlepath",
                 message: "Stopped waiting on this iPhone. If it replies, the answer arrives here."

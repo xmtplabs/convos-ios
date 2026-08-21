@@ -107,15 +107,20 @@ public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderRe
         }
     }
 
-    /// Removes one provider's settled rows, leaving in-flight turns (pending
-    /// or superseded) alone so a result that is still on its way keeps the
-    /// journal row it has to land in.
+    /// Removes one provider's finished rows, leaving only the turn this device
+    /// is still watching so a result that is on its way keeps the journal row
+    /// it has to land in.
+    ///
+    /// Superseded counts as finished: the user stopped waiting for it and then
+    /// asked for the history to go. Its backend mailbox can still be open, so
+    /// the caller acks those request ids - an unacked mailbox whose local row
+    /// is gone would otherwise sit until recovery notices the orphan and acks
+    /// it there.
     public func deleteSettledTurns(provider: ExternalAgentProvider) throws {
         try database.pool.write { db in
             _ = try AgentTurn
                 .filter(Column("provider") == provider.rawValue)
                 .filter(Column("status") != AgentTurnStatus.pending.rawValue)
-                .filter(Column("status") != AgentTurnStatus.superseded.rawValue)
                 .deleteAll(db)
         }
     }

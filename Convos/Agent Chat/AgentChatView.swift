@@ -1,6 +1,15 @@
+import ConvosComposer
 import ConvosCore
 import SwiftUI
 
+/// One provider's transcript. Reached from the Agents tab, from the App
+/// Settings "Agents" row, and from a tapped agent notification.
+///
+/// The transcript speaks the app's own message vocabulary (`AgentChatBubbles`)
+/// and the composer is the app's composer (`MessagesInputView` in the glass
+/// capsule the conversation bar uses), so the only thing that distinguishes
+/// this screen from a convo is what it honestly is: a chat with something that
+/// works elsewhere and answers here.
 struct AgentChatView: View {
     let provider: ExternalAgentProvider
     let dependencies: AgentRelayDependencies
@@ -9,6 +18,8 @@ struct AgentChatView: View {
     @State private var selectedLink: AgentRelayLink?
     @State private var copyText: AgentConversationCopy?
     @State private var showingDisconnectConfirmation: Bool = false
+    @State private var showingClearHistoryConfirmation: Bool = false
+    @FocusState private var composerFocus: MessagesViewInputFocus?
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     init(
@@ -28,36 +39,63 @@ struct AgentChatView: View {
     }
 
     var body: some View {
+        navigation(dialogs(sheets(chatStack)))
+    }
+
+    private var chatStack: some View {
         VStack(spacing: 0) {
             providerSwitcher
             transcript
             composer
         }
         .background(.colorBackgroundSurfaceless)
-        .navigationTitle(provider.displayName)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar { toolbarContent }
-        .sheet(item: $selectedLink) { link in
-            AgentLinkConfirmationView(url: link.url)
-                .presentationDetents([.medium])
-        }
-        .sheet(item: $copyText) { copy in
-            ConversationPickerView(
-                mode: .stageDraft(text: copy.text),
-                session: session,
-                draftStore: PendingComposerDraftStore(environment: ConfigManager.shared.currentEnvironment),
-                onPick: { dismiss() }
-            )
-        }
-        .confirmationDialog("Disconnect \(provider.displayName)?", isPresented: $showingDisconnectConfirmation) {
-            let action = { disconnect() }
-            Button("Disconnect", role: .destructive, action: action)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Your agent transcript stays on this iPhone.")
-        }
-        .onAppear { AgentChatVisibility.isVisible = true }
-        .onDisappear { AgentChatVisibility.isVisible = false }
+    }
+
+    private func navigation(_ content: some View) -> some View {
+        content
+            .navigationTitle(provider.displayName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { toolbarContent }
+            .onAppear { AgentChatVisibility.isVisible = true }
+            .onDisappear { AgentChatVisibility.isVisible = false }
+    }
+
+    private func sheets(_ content: some View) -> some View {
+        content
+            .sheet(item: $selectedLink) { link in
+                AgentLinkConfirmationView(url: link.url)
+                    .presentationDetents([.medium])
+            }
+            .sheet(item: $copyText) { copy in
+                ConversationPickerView(
+                    mode: .stageDraft(text: copy.text),
+                    session: session,
+                    draftStore: PendingComposerDraftStore(environment: ConfigManager.shared.currentEnvironment),
+                    onPick: { dismiss() }
+                )
+            }
+    }
+
+    private func dialogs(_ content: some View) -> some View {
+        content
+            .confirmationDialog(
+                "Clear \(provider.displayName) history?",
+                isPresented: $showingClearHistoryConfirmation,
+                titleVisibility: .visible
+            ) {
+                let action = { viewModel.clearHistory() }
+                Button("Clear history", role: .destructive, action: action)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(AgentSetupCopy.clearHistoryWarning)
+            }
+            .confirmationDialog("Disconnect \(provider.displayName)?", isPresented: $showingDisconnectConfirmation) {
+                let action = { disconnect() }
+                Button("Disconnect", role: .destructive, action: action)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your agent transcript stays on this iPhone.")
+            }
     }
 
     @ViewBuilder
@@ -67,7 +105,7 @@ struct AgentChatView: View {
             HStack {
                 Text("Using \(provider.displayName)")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.colorTextSecondary)
                 Spacer()
                 Menu("Switch") {
                     ForEach(providers) { candidate in
@@ -86,6 +124,8 @@ struct AgentChatView: View {
                 LazyVStack(spacing: DesignConstants.Spacing.step3x) {
                     if viewModel.turns.isEmpty {
                         emptyState
+                    } else {
+                        AgentTranscriptNote(text: AgentSetupCopy.contextBoundary(for: provider))
                     }
                     ForEach(viewModel.turns) { turn in
                         turnPair(turn)
@@ -94,6 +134,7 @@ struct AgentChatView: View {
                 }
                 .padding(DesignConstants.Spacing.step4x)
             }
+            .scrollDismissesKeyboard(.interactively)
             .onChange(of: viewModel.turns) { _, turns in
                 guard let last = turns.last else { return }
                 withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
@@ -103,221 +144,167 @@ struct AgentChatView: View {
 
     private var emptyState: some View {
         ContentUnavailableView(
-            "Chat with \(provider.displayName)",
+            "Send \(provider.displayName) some work",
             systemImage: provider.symbolName,
-            description: Text("Work happens on its own platform. Finished answers return here.")
+            description: Text(AgentSetupCopy.chatEmptyState)
         )
         .padding(.top, DesignConstants.Spacing.step8x)
+        .accessibilityIdentifier("agent-chat-empty-state")
     }
 
     private func turnPair(_ turn: AgentTurn) -> some View {
         VStack(spacing: DesignConstants.Spacing.step2x) {
-            userBubble(turn.prompt)
+            AgentUserBubble(text: turn.prompt)
             agentBubble(turn)
         }
-    }
-
-    private func userBubble(_ text: String) -> some View {
-        HStack {
-            Spacer(minLength: DesignConstants.Spacing.step8x)
-            Text(text)
-                .foregroundStyle(.colorTextPrimaryInverted)
-                .padding(.horizontal, DesignConstants.Spacing.step3x)
-                .padding(.vertical, DesignConstants.Spacing.step2x)
-                .background(.colorBackgroundInverted, in: RoundedRectangle(cornerRadius: 20))
-        }
+        .animation(.snappy(duration: 0.25), value: turn.status)
     }
 
     @ViewBuilder
     private func agentBubble(_ turn: AgentTurn) -> some View {
-        HStack(alignment: .top) {
-            agentBubbleContent(turn)
-            Spacer(minLength: DesignConstants.Spacing.step8x)
-        }
-    }
-
-    @ViewBuilder
-    private func agentBubbleContent(_ turn: AgentTurn) -> some View {
         switch turn.status {
         case .pending:
             pendingBubble(turn)
         case .completed:
             completedBubble(turn)
         case .failed:
-            retryBubble(message: viewModel.userFacingError(for: turn), turn: turn)
+            retryBubble(message: viewModel.userFacingError(for: turn), symbol: "exclamationmark.triangle.fill", turn: turn)
         case .expired:
-            retryBubble(message: AgentSetupCopy.errorMessage(.expired, provider: turn.provider), turn: turn)
+            retryBubble(
+                message: AgentSetupCopy.errorMessage(.expired, provider: turn.provider),
+                symbol: "hourglass",
+                turn: turn
+            )
         case .collectedElsewhere:
-            retryBubble(message: "This reply was collected on another device.", turn: turn)
+            retryBubble(
+                message: AgentSetupCopy.collectedElsewhereNote,
+                symbol: "iphone.gen3",
+                glyphTint: .colorTextSecondary,
+                turn: turn
+            )
         case .superseded:
             supersededBubble(turn)
         }
     }
 
-    /// The elapsed time is real and worth showing - these turns legitimately
-    /// run for minutes - but a per-second counter reads as a stall. Whole
-    /// minutes on a slow tick keep the truth and drop the alarm.
+    /// The elapsed seconds are real and worth showing: these turns legitimately
+    /// run for minutes, and the count is the only honest answer to "is anything
+    /// happening". The bubble owns its own clock so the rest of the transcript
+    /// is not redrawn each second.
     private func pendingBubble(_ turn: AgentTurn) -> some View {
-        TimelineView(.periodic(from: .now, by: Constant.pendingTick)) { context in
-            let stillWorking: Bool = viewModel.isStillWorking(turn, now: context.date)
-            let status: String = pendingStatus(turn: turn, now: context.date, stillWorking: stillWorking)
-            let systemImage: String = stillWorking ? "clock.badge.exclamationmark" : "clock"
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                Label(status, systemImage: systemImage)
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextSecondary)
-                pendingActions(turn: turn, stillWorking: stillWorking)
-            }
-            .padding(DesignConstants.Spacing.step3x)
-            .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: 20))
-        }
-    }
-
-    @ViewBuilder
-    private func pendingActions(turn: AgentTurn, stillWorking: Bool) -> some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            if stillWorking {
-                let checkAction = { viewModel.checkAgain(turn: turn) }
-                Button("Check again", action: checkAction)
-                    .buttonStyle(.bordered)
-                    .tint(.colorGreen)
-            }
-            let stopAction = { viewModel.stopWaiting(turn: turn) }
-            Button("Stop waiting", action: stopAction)
-                .buttonStyle(.bordered)
-                .tint(.colorTextSecondary)
-                .accessibilityIdentifier("agent-turn-stop-waiting")
-        }
+        let isPreviewBuild: Bool = ConfigManager.shared.isAgentRelayPreviewBuild
+        let working: String = isPreviewBuild ? AgentSetupCopy.previewBackendNote : AgentSetupCopy.workingNote
+        let past: String = isPreviewBuild ? AgentSetupCopy.previewBackendNote : AgentSetupCopy.stillWorkingNote
+        let checkAction = { viewModel.checkAgain(turn: turn) }
+        let stopAction = { viewModel.stopWaiting(turn: turn) }
+        return AgentPendingBubble(
+            startedAt: turn.createdAt,
+            deadline: viewModel.watchDeadline(for: turn),
+            workingMessage: working,
+            pastDeadlineMessage: past,
+            onCheckAgain: checkAction,
+            onStopWaiting: stopAction
+        )
     }
 
     private func supersededBubble(_ turn: AgentTurn) -> some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            Label(AgentSetupCopy.stoppedWaitingNote, systemImage: "clock.arrow.circlepath")
-                .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
+        AgentStatusBubble(
+            systemImage: "clock.arrow.circlepath",
+            message: AgentSetupCopy.stoppedWaitingNote
+        ) {
             let action = { viewModel.checkAgain(turn: turn) }
-            Button("Check again", action: action)
-                .buttonStyle(.bordered)
-                .tint(.colorGreen)
+            AgentBubbleAction(
+                title: "Check again",
+                accessibilityIdentifier: "agent-turn-check-again",
+                action: action
+            )
         }
-        .padding(DesignConstants.Spacing.step3x)
-        .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: 20))
-    }
-
-    private func pendingStatus(turn: AgentTurn, now: Date, stillWorking: Bool) -> String {
-        guard !ConfigManager.shared.isAgentRelayPreviewBuild else {
-            return AgentSetupCopy.previewBackendNote
-        }
-        guard !stillWorking else { return AgentSetupCopy.stillWorkingNote }
-        let minutes: Int = Int(max(0, now.timeIntervalSince(turn.createdAt)) / 60)
-        guard minutes >= 1 else { return "Working on its own platform" }
-        return "Working on its own platform - \(minutes) min"
     }
 
     private func completedBubble(_ turn: AgentTurn) -> some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            if let message = turn.resultMessage {
-                Text(message)
-                    .textSelection(.enabled)
+        let links: [AgentRelayLink] = turn.resultLinks.filter { $0.url.scheme?.lowercased() == "https" }
+        let openLink = { (link: AgentRelayLink) in selectedLink = link }
+        return AgentReplyBubble(message: turn.resultMessage, links: links, onOpenLink: openLink)
+            .contextMenu {
+                let action = { copyText = AgentConversationCopy(text: copyableText(for: turn)) }
+                Button("Copy to convo", systemImage: "bubble.left.and.text.bubble.right", action: action)
             }
-            let secureLinks: [AgentRelayLink] = turn.resultLinks.filter { $0.url.scheme?.lowercased() == "https" }
-            ForEach(Array(secureLinks.enumerated()), id: \.offset) { _, link in
-                linkButton(link)
-            }
-        }
-        .padding(DesignConstants.Spacing.step3x)
-        .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: 20))
-        .contextMenu {
-            let action = { copyText = AgentConversationCopy(text: copyableText(for: turn)) }
-            Button("Copy to convo", systemImage: "bubble.left.and.text.bubble.right", action: action)
-        }
     }
 
-    private func linkButton(_ link: AgentRelayLink) -> some View {
-        let host: String = link.url.host(percentEncoded: false) ?? link.url.absoluteString
-        let action = { selectedLink = link }
-        return Button(action: action) {
-            Label(host, systemImage: "arrow.up.right.square")
-                .font(.subheadline)
-                .lineLimit(1)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.green)
-    }
-
-    private func retryBubble(message: String, turn: AgentTurn) -> some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            Text(message)
-                .foregroundStyle(.secondary)
+    private func retryBubble(
+        message: String,
+        symbol: String,
+        glyphTint: Color = .colorCaution,
+        turn: AgentTurn
+    ) -> some View {
+        AgentStatusBubble(systemImage: symbol, message: message, glyphTint: glyphTint) {
             let action = { viewModel.retry(turn: turn) }
-            Button("Try again", action: action)
-                .buttonStyle(.bordered)
-                .tint(.green)
+            AgentBubbleAction(
+                title: "Try again",
+                accessibilityIdentifier: "agent-turn-try-again",
+                action: action
+            )
         }
-        .padding(DesignConstants.Spacing.step3x)
-        .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: 20))
     }
 
+    /// The app's composer, in the app's glass capsule. The boundary note that
+    /// used to sit under it now heads the transcript, so nothing competes with
+    /// the field the user is typing in.
     private var composer: some View {
-        VStack(spacing: DesignConstants.Spacing.stepX) {
-            if let error = viewModel.errorMessage {
-                Text(error)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
-                TextField("Message \(provider.displayName)", text: $viewModel.composerText, axis: .vertical)
-                    .lineLimit(1 ... 6)
-                    .textFieldStyle(.plain)
-                    .padding(.horizontal, DesignConstants.Spacing.step3x)
-                    .padding(.vertical, DesignConstants.Spacing.step2x)
-                    .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: 20))
-                submitButton
-            }
-            Text(boundaryLabel)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            composerNotice
+            inputCapsule
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.top, DesignConstants.Spacing.step2x)
-        .padding(.bottom, DesignConstants.Spacing.stepX)
-        .background(.ultraThinMaterial)
+        .padding(.bottom, DesignConstants.Spacing.step4x)
     }
 
-    private var submitButton: some View {
-        let action = { viewModel.submit() }
-        return Button(action: action) {
-            Image(systemName: "arrow.up")
-                .font(.body.weight(.bold))
-                .frame(width: 36, height: 36)
+    @ViewBuilder
+    private var composerNotice: some View {
+        if let error = viewModel.errorMessage {
+            let dismissNotice = { viewModel.errorMessage = nil }
+            AgentComposerNotice(message: error, onDismiss: dismissNotice)
+                .transition(.opacity)
         }
-        .buttonStyle(.borderedProminent)
-        .buttonBorderShape(.circle)
-        .tint(.green)
-        .disabled(!viewModel.canSubmit)
-        .accessibilityLabel("Send to \(provider.displayName)")
     }
 
-    private var boundaryLabel: String {
-        switch provider {
-        case .town:
-            return "Messages go to your Town routine with the last 10 turns as context."
-        case .tasklet:
-            return "Messages go to your Tasklet agent with the last 10 turns as context."
-        }
+    private var inputCapsule: some View {
+        MessagesInputView(
+            displayName: .constant(""),
+            emptyDisplayNamePlaceholder: "",
+            messagePlaceholder: "Message \(provider.displayName)",
+            messageText: $viewModel.composerText,
+            pendingInviteConvoName: .constant(""),
+            pendingInviteImage: .constant(nil),
+            sendButtonEnabled: viewModel.canSubmit,
+            focusState: $composerFocus,
+            messagesTextFieldEnabled: true,
+            onSendMessage: { viewModel.submit() },
+            onClearInvite: {},
+            fileAttachmentPreview: { _ in EmptyView() },
+            agentShareChip: { EmptyView() },
+            attachmentsButton: { EmptyView() }
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .clipShape(.rect(cornerRadius: Constant.composerCornerRadius))
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: Constant.composerCornerRadius))
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                let action = { showingDisconnectConfirmation = true }
-                Button("Disconnect", systemImage: "link.badge.minus", role: .destructive, action: action)
+                let clearAction = { showingClearHistoryConfirmation = true }
+                Button("Clear history", systemImage: "trash", role: .destructive, action: clearAction)
+                    .disabled(!viewModel.hasClearableHistory)
+                    .accessibilityIdentifier("agent-clear-history")
+                let disconnectAction = { showingDisconnectConfirmation = true }
+                Button("Disconnect", systemImage: "link.badge.minus", role: .destructive, action: disconnectAction)
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: "ellipsis")
             }
+            .accessibilityLabel("More")
         }
     }
 
@@ -362,9 +349,9 @@ struct AgentChatView: View {
     }
 
     private enum Constant {
-        /// The pending line only counts whole minutes, so a slower tick keeps
-        /// it accurate without redrawing the transcript every second.
-        static let pendingTick: TimeInterval = 15.0
+        /// The conversation composer's capsule radius, so the two bars are the
+        /// same shape.
+        static let composerCornerRadius: CGFloat = 26.0
     }
 }
 
