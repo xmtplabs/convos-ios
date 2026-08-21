@@ -65,6 +65,19 @@ extension ConversationCustomMetadata {
         return ConversationCustomMetadata()
     }
 
+    /// Parse appData string strictly: a nil or empty string is a legitimately
+    /// unset blob and decodes to empty metadata, but a non-empty string that
+    /// fails to decode throws instead of being mistaken for "no data".
+    /// - Parameter appDataString: The raw appData string from XMTP
+    /// - Returns: Parsed metadata, or empty metadata for nil/empty input
+    public static func strictParseAppData(_ appDataString: String?) throws -> ConversationCustomMetadata {
+        guard let appDataString, !appDataString.isEmpty else {
+            return ConversationCustomMetadata()
+        }
+
+        return try fromCompactString(appDataString)
+    }
+
     /// Check if string appears to be encoded metadata
     public static func isEncodedMetadata(_ string: String) -> Bool {
         guard !string.isEmpty else { return false }

@@ -111,14 +111,16 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        let expiresAtUnix = Int64(expiresAt.timeIntervalSince1970)
+        // Durable-eventual: enqueue the appData change and return; the local
+        // mirror below is the immediate truth for the setter's UI, and the
+        // coordinator guarantees delivery across offline/restart.
+        try await sessionStateManager.appDataCoordinator.enqueueChange(
+            conversationId: conversationId,
+            domain: .expiry
+        ) { metadata in
+            metadata.expiresAtUnix = expiresAtUnix
         }
-
-        try await group.updateExpiresAt(date: expiresAt)
 
         let updatedConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
@@ -142,14 +144,15 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     /// written here too so the setter's own control does not wait a round trip
     /// for state their device already knows.
     func updateParticipationMode(_ mode: ConversationParticipationMode, for conversationId: String) async throws {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        // Durable-eventual, like `updateExpiresAt`: the local mirror is the
+        // immediate truth for the setter's own control and the coordinator
+        // delivers the commit other members receive.
+        try await sessionStateManager.appDataCoordinator.enqueueChange(
+            conversationId: conversationId,
+            domain: .participation
+        ) { metadata in
+            metadata.participationMode = mode.proto
         }
-
-        try await group.updateParticipationMode(mode)
 
         try await databaseWriter.write { db in
             guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
@@ -238,14 +241,17 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         // Clear any stale `encryptedGroupImage` appData ref left by a prior
         // encrypted upload. Peers that pair the native URL with appData crypto
         // unconditionally would otherwise tag this plain URL with a key it can't
-        // be decrypted with. Best-effort: the read-side URL-match guard also
-        // protects against this, so a failure here only logs.
-        if (try? group.currentCustomMetadata.hasEncryptedGroupImage) == true {
-            do {
-                try await group.clearEncryptedGroupImage()
-            } catch {
-                Log.error("Failed to clear stale encryptedGroupImage for \(conversation.id): \(error.localizedDescription)")
+        // be decrypted with. Fire-and-forget durable: the read-side URL-match
+        // guard also protects against this, so a failure here only logs.
+        do {
+            try await sessionStateManager.appDataCoordinator.enqueueChange(
+                conversationId: conversation.id,
+                domain: .legacyImageCleanup
+            ) { metadata in
+                metadata.clearEncryptedGroupImage()
             }
+        } catch {
+            Log.error("Failed to enqueue encryptedGroupImage cleanup for \(conversation.id): \(error.localizedDescription)")
         }
         try await group.updateImageUrl(imageUrl: imageUrl)
 
@@ -447,15 +453,13 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     // MARK: - Member Management
 
     func markAsAgentDm(_ conversationId: String, originConversationId: String?) async throws {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
-        }
-
         let originIdData = originConversationId.flatMap { Self.hexDecoded($0) }
-        try await group.markAsAgentDm(originConversationId: originIdData)
+        try await sessionStateManager.appDataCoordinator.enqueueChange(
+            conversationId: conversationId,
+            domain: .agentDm
+        ) { metadata in
+            metadata.markAgentDm(originConversationId: originIdData)
+        }
 
         try await databaseWriter.write { db in
             let updated = try DBConversation
@@ -710,7 +714,18 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         }
 
         try await group.updateAddMemberPermission(newPermissionOption: .deny)
-        try await group.rotateInviteTag()
+        // Rotate the invite tag through the coordinator, then wait for the
+        // commit to land before generating the invite so it never references
+        // an unpublished tag.
+        let newTag = try InviteTag.generate()
+        let rotation = try await sessionStateManager.appDataCoordinator.enqueueChange(
+            conversationId: conversationId,
+            domain: .inviteTag
+        ) { metadata in
+            metadata.tag = newTag
+        }
+        let rotatedTag = rotation.localMerged.tag
+        try await rotation.awaitPublished()
 
         let updatedConversation: DBConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
@@ -718,7 +733,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             }
             let updated = localConversation
                 .with(isLocked: true)
-                .with(inviteTag: try group.inviteTag)
+                .with(inviteTag: rotatedTag)
             try updated.save(db)
             Log.debug("Locked conversation \(conversationId) in local database")
             return updated
@@ -738,9 +753,17 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
-        // Rotate invite tag first so the new invite is ready before members can add others.
-        // This ensures the invite works immediately when permissions are updated.
-        try await group.rotateInviteTag()
+        // Rotate the invite tag first and wait for the commit to land, so the
+        // new invite is live before members regain the right to add others.
+        let newTag = try InviteTag.generate()
+        let rotation = try await sessionStateManager.appDataCoordinator.enqueueChange(
+            conversationId: conversationId,
+            domain: .inviteTag
+        ) { metadata in
+            metadata.tag = newTag
+        }
+        let rotatedTag = rotation.localMerged.tag
+        try await rotation.awaitPublished()
 
         try await group.updateAddMemberPermission(newPermissionOption: .allow)
 
@@ -750,7 +773,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             }
             let updated = localConversation
                 .with(isLocked: false)
-                .with(inviteTag: try group.inviteTag)
+                .with(inviteTag: rotatedTag)
             try updated.save(db)
             Log.debug("Unlocked conversation \(conversationId) in local database")
             return updated

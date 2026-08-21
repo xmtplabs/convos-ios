@@ -104,6 +104,10 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     private let syncingManager: AnySyncingManager?
     private let overrideJWTToken: String?
     private let databaseWriter: any DatabaseWriter
+    /// The session-scoped sole reader and writer of conversation appData. Built
+    /// eagerly with no network dependency; `MessagingService.startProfileServices`
+    /// binds the XMTP-backed session once the inbox is ready.
+    public let appDataCoordinator: AppDataCoordinator
     private let apiClient: any ConvosAPIClientProtocol
     private let networkMonitor: any NetworkMonitorProtocol
     private let appLifecycle: any AppLifecycleProviding
@@ -293,6 +297,9 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         self.identityStore = identityStore
         self.invitesRepository = invitesRepository
         self.databaseWriter = databaseWriter
+        self.appDataCoordinator = AppDataCoordinator(
+            store: GRDBAppDataPendingChangeStore(databaseWriter: databaseWriter, databaseReader: databaseWriter)
+        )
         self.syncingManager = syncingManager
         self.networkMonitor = networkMonitor
         self.overrideJWTToken = overrideJWTToken ?? environment.defaultOverrideJWTToken
@@ -385,6 +392,11 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
     public func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
         guard let syncingManager else { return }
         await syncingManager.setTypingIndicatorHandler(handler)
+    }
+
+    public func setAppDataCommitObserver(_ handler: @escaping @Sendable (String) async -> Void) async {
+        guard let syncingManager else { return }
+        await syncingManager.setAppDataCommitObserver(handler)
     }
 
     public func requestDiscovery() async {

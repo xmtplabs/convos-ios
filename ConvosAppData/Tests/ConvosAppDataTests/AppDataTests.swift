@@ -74,6 +74,33 @@ struct SerializationTests {
         #expect(metadata.tag.isEmpty)
     }
 
+    @Test("Strict parse of nil and empty input returns empty metadata")
+    func strictParseEmptyAppData() throws {
+        #expect(try ConversationCustomMetadata.strictParseAppData(nil).tag.isEmpty)
+        #expect(try ConversationCustomMetadata.strictParseAppData("").profiles.isEmpty)
+    }
+
+    @Test("Strict parse round-trips valid metadata")
+    func strictParseValidAppData() throws {
+        var metadata = ConversationCustomMetadata()
+        metadata.tag = "abc123XYZ0"
+        let encoded = try metadata.toCompactString()
+
+        let decoded = try ConversationCustomMetadata.strictParseAppData(encoded)
+        #expect(decoded.tag == "abc123XYZ0")
+    }
+
+    @Test("Strict parse of undecodable input throws instead of returning empty")
+    func strictParseInvalidAppDataThrows() {
+        #expect(throws: (any Error).self) {
+            try ConversationCustomMetadata.strictParseAppData("not-valid-base64!")
+        }
+        #expect(throws: (any Error).self) {
+            // Valid base64url, but not a protobuf payload.
+            try ConversationCustomMetadata.strictParseAppData("_____w")
+        }
+    }
+
     @Test("isEncodedMetadata detects valid encoded data")
     func isEncodedMetadataValid() throws {
         var metadata = ConversationCustomMetadata()

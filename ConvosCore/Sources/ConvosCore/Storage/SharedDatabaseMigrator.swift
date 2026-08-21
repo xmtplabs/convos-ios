@@ -223,6 +223,39 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConversationParticipationMode", migrate: Self.addConversationParticipationMode)
         migrator.registerMigration("clearCutListenParticipationMode", migrate: Self.clearCutListenParticipationMode)
         migrator.registerMigration("addConversationSpaceURLString", migrate: Self.addConversationSpaceURLString)
+        migrator.registerMigration("createAppDataPendingChange", migrate: Self.createAppDataPendingChange)
+    }
+
+    /// Durable outbox for the appData coordinator: one row per
+    /// (conversationId, domain, scopeKey) holding the locally-merged metadata
+    /// snapshot as raw protobuf bytes plus retry bookkeeping. No foreign key to
+    /// `conversation` - creator metadata is enqueued before the conversation
+    /// row exists; the reconcile pass drops rows for unresolvable groups.
+    static func createAppDataPendingChange(_ db: Database) throws {
+        try db.create(table: "appDataPendingChange") { t in
+            t.column("id", .text).notNull().primaryKey()
+            t.column("seq", .integer).notNull()
+            t.column("conversationId", .text).notNull()
+            t.column("domain", .text).notNull()
+            t.column("scopeKey", .text)
+            t.column("snapshot", .blob).notNull()
+            t.column("attemptCount", .integer).notNull().defaults(to: 0)
+            t.column("nextAttemptAt", .datetime).notNull()
+            t.column("lastError", .text)
+            t.column("createdAt", .datetime).notNull()
+            t.column("updatedAt", .datetime).notNull()
+        }
+
+        try db.create(
+            index: "appDataPendingChange_ready",
+            on: "appDataPendingChange",
+            columns: ["nextAttemptAt", "seq"]
+        )
+        try db.create(
+            index: "appDataPendingChange_conversation",
+            on: "appDataPendingChange",
+            columns: ["conversationId", "domain", "scopeKey"]
+        )
     }
 
     /// The deployed Space web URL for the conversation, mirrored from the
