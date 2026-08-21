@@ -359,10 +359,10 @@ Each phase is independently shippable and leaves the app working.
 | # | Phase | Repo(s) | Notes |
 |---|---|---|---|
 | 1 | ✅ **Done** — `Profile` model + migration, inbox binding, 5 endpoints, `profiles/` avatar prefix, 21 tests | backend | Branch `jarod/backend-profiles`. Full suite green (1972 passed). The bucket lifecycle exclusion is an AWS-side action, not code |
-| 2 | Read path: `profile` table, resolver, backend fetch, `UnifiedProfile` shape change | ios | Behind a flag; nothing renders from it yet |
-| 3 | View cutover: `ConversationMember` and every avatar/name site read the per-inbox profile; plain-URL avatars | ios | The visible change; largest single PR. Ships the "resolved only via v1" counter — the retirement trigger needs a baseline from day one |
-| 4 | Write path: upload → `PUT` → fan-out; `ProfileUpdate` v2 encode/decode. The appData write stops here | ios | v1 read kept; nothing is mirrored any more |
-| 5 | ✅ **Done (agent parity)** — `AgentProfile` + `POST /v2/profiles/agent`, worker registers at join, container proxy denied | backend, assistants | Agent avatars were already plain URLs, so nothing to unwind. `herald-lite` + `convos-cli` v2 *sending* moves to phase 4 with the rest of the wire format |
+| 2 | ✅ **Done** — Read path: `profile` table, resolver, backend fetch, `UnifiedProfile` shape change | ios | PRs #1345 (API client) + #1346 (resolver). Behind a flag; nothing renders from it yet |
+| 3 | ✅ **Done** — View cutover: `ConversationMember` and every avatar/name site read the per-inbox profile; plain-URL avatars | ios | PR #1348. The visible change; largest single PR. Ships the "resolved only via v1" counter — the retirement trigger needs a baseline from day one |
+| 4 | ✅ **Done** — Write path: upload → `PUT` → fan-out; `ProfileUpdate` v2 encode/decode. The appData write stops here | ios, convos-cli | PR #1387 (iOS) + convos-cli #137. v1 read kept; nothing is mirrored any more. The CLI reads v2 but keeps *sending* v1 — see below |
+| 5 | ✅ **Done (agent parity)** — `AgentProfile` + `POST /v2/profiles/agent`, worker registers at join, container proxy denied | backend, assistants | Agent avatars were already plain URLs, so nothing to unwind. `herald-lite` + `convos-cli` move to phase 4 with the rest of the wire format |
 | 6 | Delete: publish queue, `ProfileSnapshot`, `ProfileBackfill`, `ProfileMerge`, `ProfileSource`, `DBProfileAvatar*`, the contact identity mirror, `PostPairProfileSnapshotBroadcaster` | ios | The bulk of the removal |
 | 7 | Delete the v1 avatar read and the encrypted-image profile stack | ios | Gated on ~90% of active sessions on the cutover build |
 | 8 | Delete the v1 name read + appData profile parsing; retire legacy `DBMemberProfile` (344 references) | ios | Gated on the counter, not a date. Mechanical PR |
@@ -440,6 +440,29 @@ is what makes phases 6–8 a straight demolition rather than a staged one.
 
 If support starts seeing "Somebody" reports at volume, the mirror is a small, well-understood patch to
 add back — the code exists today and would only need its avatar half removed.
+
+### Decided: the CLI reads v2 but keeps sending v1
+
+`@xmtp/node-sdk` keys its codec registry on the full content-type string, version
+included, so a v2 message finds no codec and arrives as raw `EncodedContent`.
+Reading v2 therefore needs a registered `ProfileUpdateV2Codec`, not just a
+version-tolerant matcher — that part is not optional.
+
+Sending is the opposite call. The proto is a superset: `avatar_url` and `version`
+ride along fine on a v1-typed message, and every client decodes them, iOS
+included — its `ProfileUpdateV1Codec` decodes into the same generated type. So
+bumping the CLI's send version would buy nothing and cost real breakage: an
+agent's name updates would go invisible to every client older than the v2
+release. iOS bumps because it genuinely stopped sending encrypted images and
+needs to say so; the CLI never sent them, because agent avatars were already
+plain URLs.
+
+The asymmetry is the point. A version bump should announce a break in what the
+sender speaks, not track a schema revision.
+
+Remaining: `herald-lite` surfacing `avatarUrl`/`version` on its `profile_update`
+webhook. Blocked on the CLI publishing to npm and the catalog moving off 0.10.15
+— nothing in the app depends on it.
 
 ### The trigger: instrument it, don't schedule it
 
