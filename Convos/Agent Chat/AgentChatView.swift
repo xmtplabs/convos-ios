@@ -34,6 +34,7 @@ struct AgentChatView: View {
         _viewModel = State(initialValue: AgentChatViewModel(
             provider: provider,
             dependencies: dependencies,
+            session: session,
             initialText: initialText
         ))
     }

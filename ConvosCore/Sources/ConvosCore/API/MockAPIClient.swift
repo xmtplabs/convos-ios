@@ -31,6 +31,14 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         return request
     }
 
+    func performAuthenticatedRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        return (data, httpResponse)
+    }
+
     func registerDevice(deviceId: String, pushToken: String?) async throws {
         // Mock implementation - no-op
     }

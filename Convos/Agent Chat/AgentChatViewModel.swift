@@ -12,6 +12,7 @@ final class AgentChatViewModel {
     var isSubmitting: Bool = false
 
     private let dependencies: AgentRelayDependencies
+    private let waitUntilReady: @Sendable () async throws -> Void
     @ObservationIgnored private var observationTask: Task<Void, Never>?
     @ObservationIgnored private var submissionTask: Task<Void, Never>?
 
@@ -22,6 +23,24 @@ final class AgentChatViewModel {
     ) {
         self.provider = provider
         self.dependencies = dependencies
+        self.waitUntilReady = {}
+        self.composerText = initialText
+        let initialTurns: [AgentTurn] = (try? dependencies.repository.turns(limit: Constant.turnLimit)) ?? []
+        self.turns = initialTurns.filter { $0.provider == provider }
+        observeTurns()
+    }
+
+    init(
+        provider: ExternalAgentProvider,
+        dependencies: AgentRelayDependencies,
+        session: any SessionManagerProtocol,
+        initialText: String = ""
+    ) {
+        self.provider = provider
+        self.dependencies = dependencies
+        self.waitUntilReady = {
+            _ = try await session.messagingService().sessionStateManager.waitForInboxReadyResult()
+        }
         self.composerText = initialText
         let initialTurns: [AgentTurn] = (try? dependencies.repository.turns(limit: Constant.turnLimit)) ?? []
         self.turns = initialTurns.filter { $0.provider == provider }
@@ -186,6 +205,7 @@ final class AgentChatViewModel {
         isSubmitting = true
         let dependencies = dependencies
         let provider = provider
+        let waitUntilReady = waitUntilReady
         submissionTask = Task { [weak self] in
             defer { self?.isSubmitting = false }
             do {
@@ -194,8 +214,8 @@ final class AgentChatViewModel {
                 }
                 let outcome = try await dependencies.client.send(
                     prompt: prompt,
-                    provider: provider,
-                    connection: connection
+                    connection: connection,
+                    waitUntilReady: waitUntilReady
                 )
                 self?.apply(outcome)
             } catch is CancellationError {

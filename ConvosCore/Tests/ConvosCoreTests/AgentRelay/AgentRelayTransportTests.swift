@@ -82,7 +82,7 @@ struct AgentRelayTransportTests {
             let response = try response(for: request, status: 201)
             return (response.0, Data(json.utf8))
         }
-        let api = AgentRelayHTTPAPI(apiClient: RecordingAuthorizedAPIClient(), configuration: stubConfiguration())
+        let api = authenticatedRelayAPI()
 
         let mint = try await api.mint(provider: .tasklet)
 
@@ -93,6 +93,26 @@ struct AgentRelayTransportTests {
         #expect(mint.requestId == "request_mint")
     }
 
+    @Test("HTTP mint surfaces success after authenticated retry")
+    func mintRetriesTransientUnauthorizedResponse() async throws {
+        defer { StubURLProtocol.reset() }
+        StubURLProtocol.install { request in
+            try response(for: request, status: 401)
+        }
+        let executor = RetryingMintExecutor()
+        let api = AgentRelayHTTPAPI(
+            apiClient: RecordingAuthorizedAPIClient(),
+            configuration: stubConfiguration(),
+            authenticatedRequestExecutor: executor.perform
+        )
+
+        let mint = try await api.mint(provider: .town)
+
+        #expect(mint.requestId == "request_retried")
+        #expect(executor.statuses == [401, 201])
+        #expect(StubURLProtocol.requests.isEmpty)
+    }
+
     @Test("HTTP completed listing uses the entry completedAt")
     func completedListingMapsEntryDate() async throws {
         defer { StubURLProtocol.reset() }
@@ -101,7 +121,7 @@ struct AgentRelayTransportTests {
             let response = try response(for: request, status: 200)
             return (response.0, Data(json.utf8))
         }
-        let api = AgentRelayHTTPAPI(apiClient: RecordingAuthorizedAPIClient(), configuration: stubConfiguration())
+        let api = authenticatedRelayAPI()
 
         let entries = try await api.listCompleted()
 
@@ -180,6 +200,22 @@ struct AgentRelayTransportTests {
         return configuration
     }
 
+    private func authenticatedRelayAPI() -> AgentRelayHTTPAPI {
+        let configuration = stubConfiguration()
+        let authenticatedSession = URLSession(configuration: configuration)
+        return AgentRelayHTTPAPI(
+            apiClient: RecordingAuthorizedAPIClient(),
+            configuration: configuration,
+            authenticatedRequestExecutor: { request in
+                let (data, response) = try await authenticatedSession.data(for: request)
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw AgentRelayTestError.expected
+                }
+                return (data, httpResponse)
+            }
+        )
+    }
+
     private func payload() -> AgentWebhookPayload {
         AgentWebhookPayload(
             requestId: "request_1234567890",
@@ -192,6 +228,29 @@ struct AgentRelayTransportTests {
 
     private func webhookURL() -> URL {
         URL(string: "https://hooks.example.com/webhook?capability=secret") ?? URL(fileURLWithPath: "/webhook")
+    }
+}
+
+private final class RetryingMintExecutor: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var storedStatuses: [Int] = []
+
+    var statuses: [Int] {
+        lock.withLock { storedStatuses }
+    }
+
+    func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let unauthorized = try response(for: request, status: 401).0
+        lock.withLock {
+            storedStatuses.append(unauthorized.statusCode)
+        }
+
+        let json = #"{"requestId":"request_retried","returnToken":"return_token","mcpUrl":"https://api.example.com/mcp","expiresAt":"2026-08-20T18:00:00Z"}"#
+        let success = try response(for: request, status: 201).0
+        lock.withLock {
+            storedStatuses.append(success.statusCode)
+        }
+        return (Data(json.utf8), success)
     }
 }
 

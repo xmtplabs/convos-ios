@@ -4,6 +4,43 @@ import Testing
 
 @Suite("AgentRelay client")
 struct AgentRelayClientTests {
+    @Test("send waits for readiness before minting")
+    func sendWaitsForReadinessBeforeMinting() async throws {
+        let recorder = AgentRelayCallRecorder()
+        let readiness = ControlledAgentRelayReadiness()
+        let result = makeAgentRelayResult()
+        let client = AgentRelayClient(
+            api: ScriptedAgentRelayAPI(fetchOutcomes: [.completed(result)], recorder: recorder),
+            webhook: ScriptedWebhookTransport(recorder: recorder),
+            store: RecordingAgentChatWriter(recorder: recorder),
+            history: StubAgentHistoryBuilder()
+        )
+
+        let task = Task {
+            try await client.send(
+                prompt: "Prompt",
+                provider: .town,
+                connection: makeAgentConnection(),
+                waitUntilReady: {
+                    recorder.append("waiting")
+                    await readiness.wait()
+                }
+            )
+        }
+        for _ in 0..<100 where !readiness.isWaiting {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+
+        #expect(readiness.isWaiting)
+        #expect(recorder.calls == ["waiting"])
+
+        readiness.release()
+        let outcome = try await task.value
+
+        #expect(outcome == .completed(result))
+        #expect(recorder.calls == ["waiting", "mint", "pending", "webhook", "fetch", "completed", "ack", "acked"])
+    }
+
     @Test("send persists pending, completed, and acked in order")
     func sendOrdersDurableSaveBeforeAck() async throws {
         let recorder = AgentRelayCallRecorder()

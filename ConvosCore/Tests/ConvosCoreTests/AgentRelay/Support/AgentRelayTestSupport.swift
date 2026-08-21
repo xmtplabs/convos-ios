@@ -39,6 +39,38 @@ final class MutableAgentRelayClock: @unchecked Sendable {
     }
 }
 
+final class ControlledAgentRelayReadiness: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released: Bool = false
+
+    var isWaiting: Bool {
+        lock.withLock { continuation != nil }
+    }
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = lock.withLock { () -> Bool in
+                guard !released else { return true }
+                self.continuation = continuation
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            released = true
+            defer { self.continuation = nil }
+            return self.continuation
+        }
+        continuation?.resume()
+    }
+}
+
 final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
     private struct State {
         var fetchOutcomes: [AgentRelayFetchOutcome]

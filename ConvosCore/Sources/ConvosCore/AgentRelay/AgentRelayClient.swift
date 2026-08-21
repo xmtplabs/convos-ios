@@ -31,8 +31,10 @@ public final class AgentRelayClient: Sendable {
     /// fails, or the 10-minute watch deadline passes.
     public func send(
         prompt: String,
-        connection: AgentConnection
+        connection: AgentConnection,
+        waitUntilReady: @Sendable () async throws -> Void = {}
     ) async throws -> AgentTurnOutcome {
+        try await waitUntilReady()
         let provider = connection.provider
         let startedAt = now()
         let mint = try await api.mint(provider: provider)

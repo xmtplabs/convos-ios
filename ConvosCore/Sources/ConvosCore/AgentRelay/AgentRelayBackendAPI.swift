@@ -10,23 +10,35 @@ public protocol AgentRelayBackendAPI: Sendable {
     func listCompleted() async throws -> [AgentRelayCompletedEntry]
 }
 
-/// `AgentRelayBackendAPI` over `ConvosAPIClientProtocol.authorizedRequest`,
-/// executed on a dedicated session so long-poll responses never pass
-/// through the client's body-logging path.
+/// `AgentRelayBackendAPI` over the authenticated API client, with a dedicated
+/// session for long-poll responses.
 public final class AgentRelayHTTPAPI: AgentRelayBackendAPI {
+    typealias AuthenticatedRequestExecutor = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
+
     private let apiClient: any ConvosAPIClientProtocol
+    private let authenticatedRequestExecutor: AuthenticatedRequestExecutor
     let session: URLSession
 
     public init(apiClient: any ConvosAPIClientProtocol) {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = Constant.requestTimeout
         self.apiClient = apiClient
+        self.authenticatedRequestExecutor = { request in
+            try await apiClient.performAuthenticatedRequest(request)
+        }
         session = URLSession(configuration: configuration)
     }
 
-    init(apiClient: any ConvosAPIClientProtocol, configuration: URLSessionConfiguration) {
+    init(
+        apiClient: any ConvosAPIClientProtocol,
+        configuration: URLSessionConfiguration,
+        authenticatedRequestExecutor: AuthenticatedRequestExecutor? = nil
+    ) {
         configuration.timeoutIntervalForRequest = Constant.requestTimeout
         self.apiClient = apiClient
+        self.authenticatedRequestExecutor = authenticatedRequestExecutor ?? { request in
+            try await apiClient.performAuthenticatedRequest(request)
+        }
         session = URLSession(configuration: configuration)
     }
 
@@ -35,7 +47,7 @@ public final class AgentRelayHTTPAPI: AgentRelayBackendAPI {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(MintBody(provider: provider))
 
-        let (data, response) = try await execute(request)
+        let (data, response) = try await executeAuthenticated(request)
         guard response.statusCode == 201 else {
             throw AgentRelayError.relayRejected(response.statusCode)
         }
@@ -46,7 +58,9 @@ public final class AgentRelayHTTPAPI: AgentRelayBackendAPI {
         let endpoint = "\(Constant.requestsEndpoint)/\(requestId)"
         let query = ["wait_ms": String(waitMs)]
         let request = try await authorizedRequest(endpoint: endpoint, method: "GET", queryParameters: query)
-        let (data, response) = try await execute(request)
+        // Long polling stays on the 35-second relay session so its timeout
+        // exceeds wait_ms without replaying a timed-out poll inside this call.
+        let (data, response) = try await executeLongPoll(request)
 
         switch response.statusCode {
         case 200:
@@ -67,7 +81,7 @@ public final class AgentRelayHTTPAPI: AgentRelayBackendAPI {
     public func ack(requestId: String) async throws {
         let endpoint = "\(Constant.requestsEndpoint)/\(requestId)/ack"
         let request = try await authorizedRequest(endpoint: endpoint, method: "POST")
-        let (_, response) = try await execute(request)
+        let (_, response) = try await executeAuthenticated(request)
         guard response.statusCode == 204 || response.statusCode == 404 else {
             throw AgentRelayError.relayRejected(response.statusCode)
         }
@@ -76,7 +90,7 @@ public final class AgentRelayHTTPAPI: AgentRelayBackendAPI {
     public func listCompleted() async throws -> [AgentRelayCompletedEntry] {
         let query = ["status": "completed"]
         let request = try await authorizedRequest(endpoint: Constant.requestsEndpoint, method: "GET", queryParameters: query)
-        let (data, response) = try await execute(request)
+        let (data, response) = try await executeAuthenticated(request)
         guard response.statusCode == 200 else {
             throw AgentRelayError.relayRejected(response.statusCode)
         }
@@ -110,7 +124,20 @@ public final class AgentRelayHTTPAPI: AgentRelayBackendAPI {
         }
     }
 
-    private func execute(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    private func executeAuthenticated(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        do {
+            return try await authenticatedRequestExecutor(request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch APIError.notAuthenticated {
+            throw AgentRelayError.relayRejected(401)
+        } catch {
+            guard !Task.isCancelled else { throw CancellationError() }
+            throw AgentRelayError.relayUnreachable
+        }
+    }
+
+    private func executeLongPoll(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         do {
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
