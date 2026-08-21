@@ -3,6 +3,7 @@ import ConvosCore
 import ConvosCoreiOS
 import ConvosMetrics
 import SwiftUI
+import SwiftUIIntrospect
 
 struct ConversationView<MessagesBottomBar: View>: View {
     @Bindable var viewModel: ConversationViewModel
@@ -64,9 +65,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// The conversation sheet's selected tab, the single source of truth for
     /// both the backing view behind the sheet and the bar the sheet hosts.
     @State private var selectedTab: ConversationTab = .group
-    /// Tabs the user has visited. The agent DM mounts on first visit and stays
-    /// mounted (hidden, not torn down) so tab switches never reload it.
-    @State private var visitedTabs: Set<ConversationTab> = [.group]
     /// Guards the one-time seed of `selectedTab` from `initialAgentDmInboxId`.
     @State private var didSeedInitialTab: Bool = false
     /// The in-flight write clearing the group's unread flag, held so a collapse
@@ -397,10 +395,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
         selectTab(.agent)
     }
 
-    /// Programmatic tab selection: keeps `visitedTabs` in sync (the
-    /// `onChange(of: selectedTab)` hook does the same for user taps).
+    /// Programmatic tab selection. Every page is mounted, so this is only the
+    /// write - `onChange(of: selectedTab)` does the rest for taps and swipes
+    /// alike.
     private func selectTab(_ tab: ConversationTab) {
-        visitedTabs.insert(tab)
         selectedTab = tab
     }
 
@@ -792,13 +790,15 @@ private extension ConversationView {
     /// claiming the incoming one so the keyboard hands over instead of
     /// dropping.
     private func handleSelectedTabChange(from oldTab: ConversationTab, to newTab: ConversationTab) {
-        visitedTabs.insert(newTab)
         transferKeyboard(to: newTab)
         // A right-swipe can both start a reply and switch away; cancel the
         // in-flight reply swipe so the tab change doesn't fire one.
-        if oldTab == .group {
-            contextMenuState.cancelInFlightSwipe()
-        }
+        // A right-swipe can both start a reply and carry the pager to another
+        // tab. Cancel the in-flight swipe on the lane being left so the tab
+        // change never lands a reply, and on the one being entered so a partial
+        // drag does not survive into it.
+        contextMenuState.cancelInFlightSwipe()
+        agentContextMenuState.cancelInFlightSwipe()
         // The group is "being viewed" only while its tab is selected. Off
         // the tab, read receipts must stop (the user isn't reading the
         // transcript) and the group has to leave the active-conversation
@@ -1369,23 +1369,66 @@ private extension ConversationView {
     /// so a Space page is not reloaded every time the user looks away.
     @ViewBuilder
     var pageHost: some View {
-        ZStack {
-            groupPage
-            agentPage
-            contextPage
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                ForEach(availableTabs) { tab in
+                    page(for: tab)
+                        // Sized against the scroll view's container rather than
+                        // a `GeometryReader`: the reader measures zero on the
+                        // first layout pass, which left every page zero-width
+                        // and the pager resting on the last one instead of the
+                        // tab the conversation opened on.
+                        .containerRelativeFrame(.horizontal)
+                        .id(tab)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: pagerSelection)
+        // A long-press menu owns the screen while it is up, and a drag that
+        // paged out from under it would leave the menu pointing at a message
+        // on another tab.
+        .scrollDisabled(isPagingDisabled)
+        .introspect(.scrollView, on: .iOS(.v26)) { (scrollView: UIScrollView) in
+            scrollView.bounces = false
+        }
+    }
+
+    /// The pager's position, bridged onto the tab the rest of the screen reads.
+    /// Writes land the same way a tap on the segmented control does, so a swipe
+    /// and a tap go through one path.
+    private var pagerSelection: Binding<ConversationTab?> {
+        Binding(
+            get: { selectedTab },
+            set: { newValue in
+                guard let newValue, newValue != selectedTab else { return }
+                selectedTab = newValue
+            }
+        )
+    }
+
+    /// True while either transcript has its long-press menu up.
+    private var isPagingDisabled: Bool {
+        contextMenuState.isPresented || agentContextMenuState.isPresented
+    }
+
+    @ViewBuilder
+    private func page(for tab: ConversationTab) -> some View {
+        switch tab {
+        case .group: groupPage
+        case .agent: agentPage
+        case .context: contextPage
         }
     }
 
     private var groupPage: some View {
-        let isActive: Bool = selectedTab == .group
-        return messagesView(focus: $focusState)
-            .opacity(isActive ? 1 : 0)
-            .allowsHitTesting(isActive)
+        messagesView(focus: $focusState)
     }
 
     @ViewBuilder
     private var agentPage: some View {
-        if visitedTabs.contains(.agent), let agentDmSession {
+        if let agentDmSession {
             let isActive: Bool = selectedTab == .agent
             AgentDmPageView(
                 session: agentDmSession,
@@ -1407,8 +1450,6 @@ private extension ConversationView {
                     }
                 },
             )
-            .opacity(isActive ? 1 : 0)
-            .allowsHitTesting(isActive)
         }
     }
 
@@ -1418,17 +1459,12 @@ private extension ConversationView {
     /// above it, so pushing a page never slides the segmented control away.
     @ViewBuilder
     private var contextPage: some View {
-        if visitedTabs.contains(.context) {
-            let isActive: Bool = selectedTab == .context
-            HomeBrowserNavigationHost(
-                entries: $homeBrowserEntries,
-                root: { AnyView(spaceSurface) },
-                page: { entry in AnyView(homeBrowserPage(for: entry)) }
-            )
-            .ignoresSafeArea()
-            .opacity(isActive ? 1 : 0)
-            .allowsHitTesting(isActive)
-        }
+        HomeBrowserNavigationHost(
+            entries: $homeBrowserEntries,
+            root: { AnyView(spaceSurface) },
+            page: { entry in AnyView(homeBrowserPage(for: entry)) }
+        )
+        .ignoresSafeArea()
     }
 
     /// One page in the Context tab's browsing chain.
