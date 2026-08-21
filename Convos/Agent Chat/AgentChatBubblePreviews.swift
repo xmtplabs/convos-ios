@@ -49,16 +49,14 @@ private func previewEveryState() -> some View {
         deadline: Date().addingTimeInterval(382),
         workingMessage: AgentSetupCopy.workingNote,
         pastDeadlineMessage: AgentSetupCopy.stillWorkingNote,
-        onCheckAgain: {},
-        onStopWaiting: {}
+        onCheckAgain: {}
     )
     AgentPendingBubble(
         startedAt: Date().addingTimeInterval(-742),
         deadline: Date().addingTimeInterval(-142),
         workingMessage: AgentSetupCopy.workingNote,
         pastDeadlineMessage: AgentSetupCopy.stillWorkingNote,
-        onCheckAgain: {},
-        onStopWaiting: {}
+        onCheckAgain: {}
     )
     AgentStatusBubble(
         systemImage: "clock.arrow.circlepath",
@@ -122,8 +120,7 @@ private func previewEveryState() -> some View {
             deadline: Date().addingTimeInterval(563),
             workingMessage: AgentSetupCopy.workingNote,
             pastDeadlineMessage: AgentSetupCopy.stillWorkingNote,
-            onCheckAgain: {},
-            onStopWaiting: {}
+            onCheckAgain: {}
         )
     }
 }
@@ -156,10 +153,101 @@ private func previewEveryState() -> some View {
             deadline: Date().addingTimeInterval(588),
             workingMessage: AgentSetupCopy.previewBackendNote,
             pastDeadlineMessage: AgentSetupCopy.previewBackendNote,
-            onCheckAgain: {},
-            onStopWaiting: {}
+            onCheckAgain: {}
         )
     }
+}
+
+private struct PreviewAgentComposer: View {
+    let isInFlight: Bool
+    @State private var messageText: String
+    @FocusState private var focusState: MessagesViewInputFocus?
+
+    init(isInFlight: Bool, initialText: String) {
+        self.isInFlight = isInFlight
+        _messageText = State(initialValue: initialText)
+    }
+
+    var body: some View {
+        inputCapsule
+            .padding(DesignConstants.Spacing.step4x)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .background(.colorBackgroundSurfaceless)
+    }
+
+    private var canSend: Bool {
+        !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var stopWaitingAction: (() -> Void)? {
+        guard isInFlight else { return nil }
+        let action: () -> Void = {}
+        return action
+    }
+
+    private var inputCapsule: some View {
+        let sendAction: () -> Void = {}
+        return MessagesInputView(
+            displayName: .constant(""),
+            emptyDisplayNamePlaceholder: "",
+            messagePlaceholder: "Message Tasklet",
+            messageText: $messageText,
+            pendingInviteConvoName: .constant(""),
+            pendingInviteImage: .constant(nil),
+            sendButtonEnabled: canSend,
+            focusState: $focusState,
+            messagesTextFieldEnabled: true,
+            onSendMessage: sendAction,
+            onClearInvite: {},
+            onStopWaitingWhenEmpty: stopWaitingAction,
+            fileAttachmentPreview: { _ in EmptyView() },
+            agentShareChip: { EmptyView() },
+            attachmentsButton: { EmptyView() }
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .clipShape(.rect(cornerRadius: Constant.composerCornerRadius))
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: Constant.composerCornerRadius))
+    }
+
+    private enum Constant {
+        static let composerCornerRadius: CGFloat = 26.0
+    }
+}
+
+#Preview("Composer idle, empty") {
+    PreviewAgentComposer(isInFlight: false, initialText: "")
+}
+
+#Preview("Composer idle, empty, dark") {
+    PreviewAgentComposer(isInFlight: false, initialText: "")
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Composer idle, text") {
+    PreviewAgentComposer(isInFlight: false, initialText: "Draft a reply")
+}
+
+#Preview("Composer idle, text, dark") {
+    PreviewAgentComposer(isInFlight: false, initialText: "Draft a reply")
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Composer in flight, empty") {
+    PreviewAgentComposer(isInFlight: true, initialText: "")
+}
+
+#Preview("Composer in flight, empty, dark") {
+    PreviewAgentComposer(isInFlight: true, initialText: "")
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Composer in flight, text") {
+    PreviewAgentComposer(isInFlight: true, initialText: "Send a newer request")
+}
+
+#Preview("Composer in flight, text, dark") {
+    PreviewAgentComposer(isInFlight: true, initialText: "Send a newer request")
+        .preferredColorScheme(.dark)
 }
 
 #Preview("Composer notice") {

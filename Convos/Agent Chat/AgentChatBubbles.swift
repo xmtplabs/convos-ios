@@ -188,8 +188,8 @@ struct AgentStatusBubble<Actions: View>: View {
 /// The one control vocabulary for actions that live inside a bubble: a
 /// bordered capsule in the affirmative accent, tall enough to be a legal
 /// touch target on its own. Every recovery action in the transcript - try
-/// again, check again, stop waiting - is this control, so the transcript
-/// never shows two shapes for the same kind of choice.
+/// again or check again - is this control, so the transcript never shows two
+/// shapes for the same kind of choice.
 struct AgentBubbleAction: View {
     let title: String
     var tint: Color = .colorGreen
@@ -216,7 +216,7 @@ struct AgentBubbleAction: View {
 /// waiting is the content, so it says three true things at once: that the
 /// agent is working (the same pulsing dot a convo shows while an agent
 /// thinks), how long it has been (real seconds, monospaced so the number
-/// never shifts under itself), and that the waiting can be ended here.
+/// never shifts under itself), and what stopping this phone's wait means.
 ///
 /// One `TimelineView` ticks the whole inside of the bubble once a second: the
 /// counter, and the moment the watch deadline passes and "Check again"
@@ -231,8 +231,6 @@ struct AgentPendingBubble: View {
     let workingMessage: String
     let pastDeadlineMessage: String
     let onCheckAgain: () -> Void
-    let onStopWaiting: () -> Void
-    @State private var stopCount: Int = 0
 
     private var lineHeight: CGFloat {
         UIFont.preferredFont(forTextStyle: .subheadline).lineHeight
@@ -272,7 +270,18 @@ struct AgentPendingBubble: View {
                     Spacer(minLength: DesignConstants.Spacing.step2x)
                     elapsed(seconds)
                 }
-                actions(isPastDeadline: isPastDeadline)
+                Text(Constant.stopWaitingHint)
+                    .font(.caption)
+                    .foregroundStyle(.colorTextTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("agent-turn-stop-waiting-hint")
+                if isPastDeadline {
+                    AgentBubbleAction(
+                        title: "Check again",
+                        accessibilityIdentifier: "agent-turn-check-again",
+                        action: onCheckAgain
+                    )
+                }
             }
         }
     }
@@ -287,33 +296,9 @@ struct AgentPendingBubble: View {
             .accessibilityIdentifier("agent-turn-elapsed")
     }
 
-    @ViewBuilder
-    private func actions(isPastDeadline: Bool) -> some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            if isPastDeadline {
-                AgentBubbleAction(
-                    title: "Check again",
-                    accessibilityIdentifier: "agent-turn-check-again",
-                    action: onCheckAgain
-                )
-            }
-            let stop = {
-                stopCount += 1
-                onStopWaiting()
-            }
-            AgentBubbleAction(
-                title: "Stop waiting",
-                tint: .colorTextSecondary,
-                accessibilityIdentifier: "agent-turn-stop-waiting",
-                accessibilityHint: "The agent keeps working. Only this iPhone stops waiting.",
-                action: stop
-            )
-            .sensoryFeedback(.impact(weight: .light), trigger: stopCount)
-        }
-    }
-
     private enum Constant {
         static let dotSize: CGFloat = 10.0
+        static let stopWaitingHint: String = "The agent keeps working. Only this iPhone stops waiting."
         static let tick: TimeInterval = 1.0
     }
 }

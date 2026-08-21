@@ -188,15 +188,13 @@ struct AgentChatView: View {
         let isPreviewBuild: Bool = ConfigManager.shared.isAgentRelayPreviewBuild
         let working: String = isPreviewBuild ? AgentSetupCopy.previewBackendNote : AgentSetupCopy.workingNote
         let past: String = isPreviewBuild ? AgentSetupCopy.previewBackendNote : AgentSetupCopy.stillWorkingNote
-        let checkAction = { viewModel.checkAgain(turn: turn) }
-        let stopAction = { viewModel.stopWaiting(turn: turn) }
+        let checkAction: () -> Void = { viewModel.checkAgain(turn: turn) }
         return AgentPendingBubble(
             startedAt: turn.createdAt,
             deadline: viewModel.watchDeadline(for: turn),
             workingMessage: working,
             pastDeadlineMessage: past,
-            onCheckAgain: checkAction,
-            onStopWaiting: stopAction
+            onCheckAgain: checkAction
         )
     }
 
@@ -263,7 +261,8 @@ struct AgentChatView: View {
     }
 
     private var inputCapsule: some View {
-        MessagesInputView(
+        let sendAction: () -> Void = { viewModel.submit() }
+        return MessagesInputView(
             displayName: .constant(""),
             emptyDisplayNamePlaceholder: "",
             messagePlaceholder: "Message \(provider.displayName)",
@@ -273,8 +272,9 @@ struct AgentChatView: View {
             sendButtonEnabled: viewModel.canSubmit,
             focusState: $composerFocus,
             messagesTextFieldEnabled: true,
-            onSendMessage: { viewModel.submit() },
+            onSendMessage: sendAction,
             onClearInvite: {},
+            onStopWaitingWhenEmpty: composerStopWaitingAction,
             fileAttachmentPreview: { _ in EmptyView() },
             agentShareChip: { EmptyView() },
             attachmentsButton: { EmptyView() }
@@ -282,6 +282,12 @@ struct AgentChatView: View {
         .fixedSize(horizontal: false, vertical: true)
         .clipShape(.rect(cornerRadius: Constant.composerCornerRadius))
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: Constant.composerCornerRadius))
+    }
+
+    private var composerStopWaitingAction: (() -> Void)? {
+        guard let turn: AgentTurn = viewModel.inFlightTurn else { return nil }
+        let action: () -> Void = { viewModel.stopWaiting(turn: turn) }
+        return action
     }
 
     @ToolbarContentBuilder
