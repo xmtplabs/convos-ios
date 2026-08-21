@@ -1,14 +1,17 @@
 @testable import Convos
 import XCTest
 
-/// What a conversation opens on. The tab picks which transcript the sheet
-/// hosts; the detent decides whether that transcript is showing at all, since
-/// the Home sits behind the sheet at every size.
+/// What a conversation opens on, and which of the three tabs carry a
+/// transcript.
+///
+/// There is no detent half to this any more. The conversation used to open onto
+/// a Space with a sheet over it, so "which tab" and "is that tab showing" were
+/// separate questions; the tab is the whole answer now.
 final class ConversationInitialTabTests: XCTestCase {
     private let allTabs: [ConversationTab] = ConversationTab.allCases
     private let groupOnly: [ConversationTab] = [.group]
 
-    // MARK: - Which transcript
+    // MARK: - Which tab
 
     func testOpensOnTheGroupByDefault() {
         let tab = ConversationTab.initial(available: allTabs, agentDmRequested: false)
@@ -56,32 +59,46 @@ final class ConversationInitialTabTests: XCTestCase {
         XCTAssertEqual(tab, .group)
     }
 
-    // MARK: - How much of it is showing
+    /// Context is the surface being demoted. Nothing routes an open to it -
+    /// landing on the Space unasked is what this hierarchy exists to stop.
+    func testNeverOpensOnContext() {
+        let cases: [(Bool, Bool)] = [(false, false), (true, false), (false, true), (true, true)]
+        for (requested, dmUnread) in cases {
+            let tab = ConversationTab.initial(
+                available: allTabs,
+                agentDmRequested: requested,
+                agentDmHoldsTheUnread: dmUnread
+            )
 
-    /// Nothing to read means the Home is the point, so the sheet leaves it
-    /// uncovered.
-    func testNothingUnreadRestsCollapsedOverTheHome() {
-        let detent = ConversationSheetDetent.initial(hasUnread: false, agentDmRequested: false)
-
-        XCTAssertEqual(detent, .collapsed)
-        XCTAssertFalse(detent.showsTranscript)
+            XCTAssertNotEqual(tab, .context, "requested: \(requested), dmUnread: \(dmUnread)")
+        }
     }
 
-    /// A backlog must not sit hidden behind the Home.
-    func testUnreadOpensOntoTheTranscript() {
-        let detent = ConversationSheetDetent.initial(hasUnread: true, agentDmRequested: false)
+    // MARK: - Which tabs carry a transcript
 
-        // `compact`, not `full`: opening a conversation is not a request to
-        // be taken to full screen. The unread message is at the bottom, half a
-        // screen shows it and its context, and the Home stays in view.
-        XCTAssertEqual(detent, .compact)
-        XCTAssertTrue(detent.showsTranscript)
+    /// The read-state machinery keys off this rather than naming `.context`, so
+    /// it has to stay true of exactly the two transcripts.
+    func testOnlyTheTranscriptTabsHostOne() {
+        XCTAssertTrue(ConversationTab.group.hostsTranscript)
+        XCTAssertTrue(ConversationTab.agent.hostsTranscript)
+        XCTAssertFalse(ConversationTab.context.hostsTranscript)
     }
 
-    /// Asking for the DM outright opens it even with nothing unread.
-    func testAgentDmRequestOpensOntoTheTranscript() {
-        let detent = ConversationSheetDetent.initial(hasUnread: false, agentDmRequested: true)
+    /// Context is a web view: there is nothing to type into.
+    func testContextHostsNoComposer() {
+        XCTAssertTrue(ConversationTab.group.hostsComposer)
+        XCTAssertTrue(ConversationTab.agent.hostsComposer)
+        XCTAssertFalse(ConversationTab.context.hostsComposer)
+    }
 
-        XCTAssertEqual(detent, .compact)
+    /// Display order is the order the segmented control renders.
+    func testTabsAreOrderedGroupAgentContext() {
+        XCTAssertEqual(ConversationTab.allCases, [.group, .agent, .context])
+    }
+
+    func testTitlesMatchTheDesign() {
+        XCTAssertEqual(ConversationTab.group.title, "Group")
+        XCTAssertEqual(ConversationTab.agent.title, "Agent")
+        XCTAssertEqual(ConversationTab.context.title, "Context")
     }
 }

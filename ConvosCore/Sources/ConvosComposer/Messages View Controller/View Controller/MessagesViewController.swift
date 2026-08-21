@@ -1098,7 +1098,6 @@ extension MessagesViewController {
         // applies the summary cutoff, and prepends the summary cell — so we
         // start from the publisher's items verbatim here.
         var cells: [MessagesListItemType] = messages
-        let hasVerifiedConvosAgent: Bool = conversation.members.contains(where: \.isVerifiedConvosAgent)
 
         // Add invite or conversation info at the beginning if all messages are loaded.
         // A home-flow Agent Builder summary suppresses this whole block - the
@@ -1117,23 +1116,21 @@ extension MessagesViewController {
         // whoever was getting the info preview still gets it, and an inviter who
         // was getting the QR now gets no leading cell rather than a different one.
         if hasLoadedAllMessages, summaryAllowsInvite, headerMode != .suppressed {
-            let hostsInviteHeader = !conversation.isDraft && conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull
-            if !hostsInviteHeader, !conversation.isDraft, headerMode == .standard, !hasVerifiedConvosAgent {
+            // `hidesInviteCard` and the header mode are checked here rather
+            // than in the cell: the cell has the invite but not the
+            // conversation, and this is where the choice between the two
+            // leading cells is made anyway.
+            let hostsInviteHeader = !conversation.isDraft
+                && conversation.creator.isCurrentUser
+                && !conversation.isLocked
+                && !conversation.isFull
+                && !conversation.hidesInviteCard
+                && headerMode == .standard
+            if hostsInviteHeader {
+                cells.insert(.invite(invite), at: 0)
+            } else if !conversation.isDraft, headerMode == .standard {
                 cells.insert(.conversationInfo(conversation), at: 0)
             }
-        }
-
-        // A conversation nobody has said anything in yet gets a stand-in, so the
-        // transcript is never entirely blank - and so the conversation sheet, which
-        // sizes itself to the transcript, has a height to size itself to.
-        //
-        // Unless the transcript already carries something that says the same thing:
-        // the agent DM's disclosure header always shows, so a "no comments" line
-        // under it is the empty state twice.
-        if hasLoadedAllMessages,
-           !cells.contains(where: \.isMessages),
-           !cells.contains(where: \.explainsAnEmptyTranscript) {
-            cells.append(.noComments)
         }
 
         // The per-agent "lost power" cell derives ONLY from the backend's

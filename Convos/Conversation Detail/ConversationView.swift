@@ -7,10 +7,18 @@ import SwiftUI
 struct ConversationView<MessagesBottomBar: View>: View {
     @Bindable var viewModel: ConversationViewModel
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
-    /// The group composer's focus coordinator. Its `@FocusState` counterpart is
-    /// declared inside the sheet (`ConversationSheetFocusHost`) rather than
-    /// handed down from the shell: focus is per-presentation, and the composer
-    /// lives in the sheet.
+    /// The group composer's focus, handed down by `ConversationPresenter`
+    /// rather than declared here.
+    ///
+    /// It has to be the shell's own state: the presenter already runs the one
+    /// `focusCoordinatorSync` for `focusCoordinator`, and a second sync onto a
+    /// local `@FocusState` gives one coordinator two owners. They then fight -
+    /// each other's writes land as in-flight transitions, `syncFocusState`
+    /// bails out, and a dismissal quietly does nothing.
+    @FocusState.Binding var focusState: MessagesViewInputFocus?
+    /// The group composer's focus coordinator, shared with the shell so the
+    /// conversation-name and display-name editors and the composer all move
+    /// focus through one object.
     let focusCoordinator: FocusCoordinator
     let onScanInviteCode: () -> Void
     let onDeleteConversation: () -> Void
@@ -61,30 +69,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var visitedTabs: Set<ConversationTab> = [.group]
     /// Guards the one-time seed of `selectedTab` from `initialAgentDmInboxId`.
     @State private var didSeedInitialTab: Bool = false
-    /// How much of the selected transcript the sheet is showing. Seeded per
-    /// conversation by `seedInitialTabIfNeeded`.
-    @State private var sheetDetent: ConversationSheetDetent = .collapsed
-    /// The measured height of the sheet chrome's bars - composer, gap, tab bar -
-    /// as the chrome reports it, with none of the padding around them.
-    ///
-    /// Two heights derive from this one measurement, in
-    /// `ConversationSheetMetrics`: the chrome's frame, which the transcript keeps
-    /// clear, and the sheet's resting height, which the `collapsed` detent
-    /// resolves to and the Home's clearance floors itself at.
-    @State private var sheetChromeBarsHeight: CGFloat = ConversationSheetMetrics.estimatedBarsHeight
-    /// Height of the view the sheet presents over, which bounds how tall the
-    /// sheet can get. The transcript holds this height at every detent so a
-    /// resize never moves the messages - see `ConversationSheetContent`.
-    @State private var containerHeight: CGFloat = 0
-    /// The screen's width, which the back swipe measures its completion against.
-    @State private var containerWidth: CGFloat = 0
-    /// The size a programmatic move is travelling to, for as long as it is
-    /// travelling. See `moveSheet`.
-    @State private var forcedSheetDetent: ConversationSheetDetent?
-    /// The sheet's live geometry, for the Home's bottom clearance. Deliberately
-    /// a reference type nothing in this body reads: see
-    /// `ConversationSheetGeometry`.
-    @State private var sheetGeometry: ConversationSheetGeometry = ConversationSheetGeometry()
     /// The in-flight write clearing the group's unread flag, held so a collapse
     /// can abandon it. See `markGroupAsRead`.
     @State private var groupMarkReadTask: Task<Void, Never>?
@@ -107,18 +91,25 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Tracks keyboard visibility so tab switches can transfer composer
     /// focus between the group and agent composers.
     @State private var isKeyboardVisible: Bool = false
+    /// Set when Context takes the keyboard away, so returning to a transcript
+    /// gives it back. Context has no composer, so the keyboard cannot simply
+    /// hand over the way it does between Group and Agent - it has to be put
+    /// away and remembered, or a glance at the Space costs the user their
+    /// keyboard and their place in what they were typing.
+    @State private var keyboardParkedByContext: Bool = false
     /// Lifted out of `MessagesView` so this view can hide the conversation
     /// sheet while the long-press context menu is presented.
     @State private var contextMenuState: MessageContextMenuState = .init()
     /// The agent DM transcript's own context-menu state; the DM stays mounted
     /// alongside the group transcript, so they cannot share one.
     @State private var agentContextMenuState: MessageContextMenuState = .init()
-    /// The agent composer's focus coordinator. Its `@FocusState` counterpart is
-    /// declared inside the sheet (`ConversationSheetFocusHost`), which is the
-    /// only place one can reach the composer.
+    /// The agent composer's focus coordinator, paired with `agentFocus` below.
     @State private var agentFocusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
+    /// The agent composer's focus, its own field because both transcripts stay
+    /// mounted and a shared one would move focus between lanes.
+    @FocusState private var agentFocus: MessagesViewInputFocus?
     /// Scroll-to-bottom triggers bridged out of each transcript for the
-    /// sheet-hosted composers to fire on send.
+    /// composers to fire on send.
     @State private var groupScrollToBottom: ((Bool) -> Void)?
     @State private var agentScrollToBottom: ((Bool) -> Void)?
     /// The home browsing chain, layered over the home and below the
@@ -307,16 +298,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
             voiceMemoRecorder: viewModel.voiceMemoRecorder,
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
-            // The list ignores the safe area, so its content inset comes from
-            // this number alone. The chrome and this frame both run to the
-            // physical bottom edge, so the chrome's own height is the whole
-            // clearance - and it stops at the input bar's top rather than
-            // 10pt above it, since the drag indicator's band is only in the
-            // chrome while the sheet is collapsed.
-            extraBottomInset: sheetChromeHeight,
-            // The composer lives in the conversation sheet now (see
-            // `sheetBarContent`), so the transcript renders no bar of its own.
-            hostsBottomBar: false,
+            extraBottomInset: 0,
+            // Clearance for the top chrome the transcript scrolls under.
+            topContentInset: ConversationChromeMetrics.controlClearance,
+            // The transcript hosts its own composer as a bottom safe-area bar.
+            // That is what puts the list at full height with content scrolling
+            // under the bar and the keyboard: the controller only turns on
+            // `contentInsetAdjustmentBehavior = .always` and its keyboard
+            // tracking when it owns a bottom bar.
+            hostsBottomBar: true,
             hostRendersContextMenu: true,
             onScrollToBottomAvailable: { scrollFn in
                 // Fires from inside the representable's make pass; defer the
@@ -326,7 +316,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     groupScrollToBottom = scrollFn
                 }
             },
-            bottomBarContent: { EmptyView() }
+            bottomBarContent: { groupExtraBarContent }
         )
         // Only where there is an agent to govern, and only while the Listen
         // flag is on. Absent, the composer draws no bubble at all.
@@ -358,18 +348,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
         selectedTab == .agent
     }
 
-    /// Chooses the transcript this conversation opens on and how much of it is
-    /// showing, once. See `ConversationTab.initial(available:agentDmRequested:)`
-    /// and `ConversationSheetDetent.initial(hasUnread:agentDmRequested:)`.
+    /// Chooses the tab this conversation opens on, once. See
+    /// `ConversationTab.initial(available:agentDmRequested:)`.
     private func seedInitialTabIfNeeded() {
         guard !didSeedInitialTab else { return }
         didSeedInitialTab = true
         let agentDmRequested: Bool = initialAgentDmInboxId != nil
             && initialAgentDmInboxId == primaryAgentInboxId
-        sheetDetent = ConversationSheetDetent.initial(
-            hasUnread: hasUnreadToRead,
-            agentDmRequested: agentDmRequested
-        )
         let tab: ConversationTab = ConversationTab.initial(
             available: availableTabs,
             agentDmRequested: agentDmRequested,
@@ -447,7 +432,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
         )
     }
 
-    /// Every conversation offers both transcripts.
+    /// Every conversation offers all three tabs.
+    ///
+    /// Context included even before the conversation has a Space: the surface
+    /// shows its preparing state there, and a tab that appears once a Space
+    /// arrives would resize the control mid-conversation.
     private var availableTabs: [ConversationTab] {
         ConversationTab.allCases
     }
@@ -478,20 +467,20 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     /// Per-tab unread indicators, from the surfaces' own conversations.
     ///
-    /// Being the selected tab is not enough to suppress the dot - being *read* is,
-    /// and at `collapsed` the selected tab is not being read: the sheet is only
-    /// its chrome and the transcript is behind it. So the selected tab badges
-    /// there too, which is the only notice a message gets once its banner is
-    /// suppressed. Above `collapsed` the user is looking at the selected
-    /// transcript, and coming up off `collapsed` marks it read (see
-    /// `claimReadingLane`).
+    /// A transcript tab that is selected is being read, so it never badges - the
+    /// user is looking at it, and selecting it marked it read (see
+    /// `claimReadingLane`). This used to be a weaker claim: the sheet could be
+    /// collapsed over the selected transcript, so being selected did not mean
+    /// being read and the selected tab badged anyway. Nothing covers a selected
+    /// tab now.
+    ///
+    /// Context is never badged - it has no unread state to carry.
     private var badgedTabs: Set<ConversationTab> {
-        let isReading: Bool = sheetDetent != .collapsed
         var badged: Set<ConversationTab> = []
-        if !(isReading && selectedTab == .group), viewModel.conversation.isUnread {
+        if selectedTab != .group, viewModel.conversation.isUnread {
             badged.insert(.group)
         }
-        if !(isReading && selectedTab == .agent),
+        if selectedTab != .agent,
            agentDmSession?.dmViewModel?.conversation.isUnread == true {
             badged.insert(.agent)
         }
@@ -502,9 +491,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// against the UIKit trait collection rather than SwiftUI's environment,
     /// so the scheme has to be forced rather than set in the environment.
     ///
-    /// Applied to the sheet alone. Driving the whole screen dark would take
-    /// the Home behind it along, which belongs to the conversation, not to the
-    /// tab the sheet happens to be showing.
+    /// Applied to the pages and the top chrome, not to the whole screen: the
+    /// conversation's title capsule is drawn by `ConversationPresenter` above
+    /// this view and belongs to the conversation, not to the selected tab.
     ///
     /// Leaving the group at "no preference" (nil) looks equivalent but isn't:
     /// the forced trait sticks, and the group chat comes back dark. Handing
@@ -522,60 +511,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         ambientColorScheme = scheme
     }
 
-    /// The chrome's current frame height, which is what the transcript keeps
-    /// clear at its bottom so its newest message is not hidden behind the
-    /// composer.
-    ///
-    /// Tracks the detent, because the band above the input bar does: see
-    /// `ConversationSheetMetrics.chromeTopPadding(for:)`.
-    private var sheetChromeHeight: CGFloat {
-        ConversationSheetMetrics.chromeHeight(barsHeight: sheetChromeBarsHeight, detent: sheetDetent)
-    }
-
-    /// The height the sheet rests at, which the `collapsed` detent resolves to.
-    /// Deliberately not the sheet's live height - see `collapsedChromeHeight`.
-    private var sheetRestingHeight: CGFloat {
-        ConversationSheetMetrics.collapsedChromeHeight(barsHeight: sheetChromeBarsHeight)
-    }
-
-    /// Everything the sheet's sizes resolve against.
-    ///
-    /// One measurement now: the chrome's own height, which `collapsed` resolves to.
-    /// `compact` and `full` are fractions of the screen, so nothing here depends on
-    /// which tab is selected or on how much transcript there is.
-    private var sheetHeights: ConversationSheetHeights {
-        ConversationSheetHeights(restingHeight: sheetRestingHeightAboveSafeArea)
-    }
-
-    /// Keeps `sheetGeometry` fed with the two heights it cannot measure itself.
-    /// Both change rarely - a rotation, the composer growing a line - unlike the
-    /// coverage, which changes every frame of a drag.
-    private func updateSheetGeometryBounds() {
-        sheetGeometry.containerHeight = presentationContainerHeight
-        sheetGeometry.restingHeight = sheetRestingHeight
-    }
-
-    /// The tallest the sheet can be, measured from the physical screen bottom -
-    /// the same way the sheet measures itself.
-    ///
-    /// The container plus the bottom safe area, because the sheet rests in that
-    /// inset while the container measures above it. Both the transcript's seed
-    /// height and the Home's ceiling take this rather than a fraction of the
-    /// container: a fraction of one party's height is not the number the sheet
-    /// reports, and the difference lands as a few points of missing scroll.
-    private var presentationContainerHeight: CGFloat {
-        containerHeight + windowSafeAreaInsets.bottom
-    }
-
-    /// The sheet's resting height measured from the top of the bottom safe area
-    /// rather than from the physical screen edge - the chrome ignores that safe
-    /// area and rests in it, so this is its height less the home indicator's
-    /// inset, which is the form a `.height()` detent wants: the system adds the
-    /// safe area back.
-    private var sheetRestingHeightAboveSafeArea: CGFloat {
-        max(sheetRestingHeight - windowSafeAreaInsets.bottom, 0)
-    }
-
     /// The layout plus the tab/focus/session observers, split from `body`
     /// to keep each expression inside the type-check budget.
     private var conversationCore: some View {
@@ -589,10 +524,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onChange(of: selectedTab) { oldTab, newTab in
             handleSelectedTabChange(from: oldTab, to: newTab)
         }
-        // Both composers' focus plumbing lives inside the sheet now - see
-        // `ConversationSheetFocusHost` - because a `@FocusState` declared out
-        // here cannot reach a field inside a presentation.
-        //
         // Losing the Space URL drops any pages browsed from it, but the tab
         // stays: without a URL the Home shows its preparing state rather than
         // moving the user somewhere they did not ask to go.
@@ -626,7 +557,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     var body: some View {
-        conversationCore
+        conversationPresentations(conversationCore)
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
             viewModel.checkForAgentShareURL()
@@ -645,14 +576,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // until its tab actually shows). Same when returning from a
             // push while on a non-Group tab.
             seedInitialTabIfNeeded()
-            // A sheet that opens collapsed is showing no transcript, so no lane
-            // is being read and the conversations list's claim has to be handed
-            // straight back - otherwise a message arriving before the user opens
-            // the sheet would neither badge a tab nor raise a banner.
-            if sheetDetent == .collapsed {
+            // Opening onto Context means no transcript is being read, so the
+            // conversations list's claim is handed straight back - otherwise a
+            // message arriving while the user is on the Space would neither
+            // badge a tab nor raise a banner. Seeding never picks Context
+            // today, but the read state should not depend on that.
+            if selectedTab.hostsTranscript {
+                claimReadingLane()
+            } else {
                 releaseReadingLane()
-            } else if selectedTab == .group {
-                viewModel.onConversationAppeared()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
@@ -695,20 +627,17 @@ struct ConversationView<MessagesBottomBar: View>: View {
 // MARK: - Presentations
 
 private extension ConversationView {
-    /// Every sheet the conversation raises, applied to the conversation sheet's
-    /// content rather than to `body`.
+    /// Every sheet the conversation raises, applied to `body`.
     ///
-    /// Not a style choice - it is the one place they can work. The conversation
-    /// sheet is presented for as long as this screen is up, and a view controller
-    /// presents one thing at a time, so a second presentation asked for from the
-    /// same host is simply refused: taps on a reaction or a read receipt did
-    /// nothing at all. Raising them from inside the sheet's content presents them
-    /// from the topmost presentation instead, which also puts them where they
-    /// belong visually - over the sheet, not behind it.
+    /// They used to hang off the conversation sheet's content instead, and had
+    /// to: the sheet was presented for as long as the screen was up, a view
+    /// controller presents one thing at a time, and a second presentation asked
+    /// for from the same host was simply refused - taps on a reaction or a read
+    /// receipt did nothing at all. With the sheet gone the screen's own
+    /// presentation slot is free, so these sit where they belong again.
     ///
-    /// They inherit the sheet's environment as a consequence, the forced scheme
-    /// on the Agent lane included. That is the right way round: a tray opened
-    /// from a message in the agent transcript belongs to that lane.
+    /// Split across three functions purely to keep each one inside the
+    /// type-check budget and the body-length limit.
     @ViewBuilder
     func conversationPresentations(_ content: some View) -> some View {
         messagePresentations(conversationLevelPresentations(connectionsBrowserPresentation(content)))
@@ -860,26 +789,7 @@ private extension ConversationView {
     /// dropping.
     private func handleSelectedTabChange(from oldTab: ConversationTab, to newTab: ConversationTab) {
         visitedTabs.insert(newTab)
-        parkIncomingTranscriptIfCollapsed(newTab)
-        let keyboardWasUp: Bool = isKeyboardVisible
-        switch newTab {
-        case .group:
-            if keyboardWasUp {
-                // Claim the incoming composer directly - the outgoing field
-                // resigns implicitly and its sync wiring clears its
-                // coordinator. Explicitly dismissing first leaves a beat
-                // with no first responder and the keyboard visibly dips.
-                focusCoordinator.moveFocus(to: .message)
-            } else {
-                agentFocusCoordinator.dismissMessageComposerIfNeeded()
-            }
-        case .agent:
-            if keyboardWasUp {
-                agentFocusCoordinator.moveFocus(to: .message)
-            } else {
-                focusCoordinator.dismissMessageComposerIfNeeded()
-            }
-        }
+        transferKeyboard(to: newTab)
         // A right-swipe can both start a reply and switch away; cancel the
         // in-flight reply swipe so the tab change doesn't fire one.
         if oldTab == .group {
@@ -891,23 +801,67 @@ private extension ConversationView {
         // gate so incoming messages mark it unread and badge its tab.
         if oldTab == .group, newTab != .group {
             handleGroupTabLeft()
-        } else if oldTab != .group, newTab == .group, sheetDetent != .collapsed {
-            // Not while collapsed. Arriving on the Group tab with the sheet down
-            // shows nothing, so claiming the lane there would tell the stream this
-            // transcript is being read: the next message would skip its unread
-            // mark, the tab would never badge, and read receipts would go out for
-            // messages nobody saw. If the sheet does open - see
-            // `openCollapsedSheetIfUnread` below - the detent handler claims it
-            // then. The Agent lane has always been gated this way; this side was
-            // not.
-            viewModel.onConversationAppeared()
-            updateActiveGroupLane(isActive: true)
         }
-        // Switching to a tab that is holding something unread opens the sheet on
-        // it; switching to one that is not leaves the sheet down, with the Home
-        // still in view. Raising it claims the incoming lane and marks it read
-        // through the detent handler.
-        openCollapsedSheetIfUnread(for: newTab)
+        // Landing on a transcript means it is being read: claim its lane and
+        // clear whatever badged while the user was elsewhere. Claiming, not just
+        // registering the lane - `claimReadingLane` is what also runs
+        // `markGroupAsRead`, so arriving on an unread Group clears the flag
+        // rather than leaving the row bold behind a transcript the user is
+        // looking at.
+        if newTab.hostsTranscript {
+            claimReadingLane()
+            scrollTranscriptToBottom(newTab, animated: false)
+        } else if oldTab == .group {
+            // Leaving the Group for Context. `handleGroupTabLeft` above owns the
+            // group's deactivation and has to do it *after* its asynchronous
+            // `setUnread(false)` lands; releasing the group lane here too would
+            // deactivate it first, so a message arriving in that window would be
+            // marked unread and then wiped by the stale write. Only the agent
+            // lane is handed back here.
+            agentDmSession?.cancelPendingReadMark()
+            agentDmSession?.updateActiveDmLane(isActive: false)
+        } else {
+            releaseReadingLane()
+        }
+    }
+
+    /// Moves the keyboard with the selected tab.
+    ///
+    /// Between the two transcripts it hands over: the incoming composer is
+    /// claimed directly, because the outgoing field resigns implicitly and its
+    /// sync wiring clears its coordinator - explicitly dismissing first leaves a
+    /// beat with no first responder and the keyboard visibly dips.
+    ///
+    /// Context has no composer to hand it to, so the keyboard is put away and
+    /// the fact that it was up is remembered. Returning to either transcript
+    /// gives it back, so stepping over to the Space and back does not cost the
+    /// user their keyboard.
+    private func transferKeyboard(to newTab: ConversationTab) {
+        let keyboardWasUp: Bool = isKeyboardVisible
+        guard newTab.hostsComposer else {
+            keyboardParkedByContext = keyboardWasUp
+            // Both layers, the same way `handleInviteCodeChanged` does it. The
+            // composer's first responder lives across the messages view
+            // controller's UIKit boundary, and SwiftUI's focus state does not
+            // always reflect it: a composer focused by a plain tap can leave
+            // both coordinators reading nil while the keyboard is up, so
+            // writing nil over nil changes nothing and resigns nothing.
+            // `moveFocus(to:)` rather than `dismissMessageComposerIfNeeded`,
+            // which is guarded on that same unreliable `currentFocus`.
+            focusCoordinator.moveFocus(to: nil)
+            agentFocusCoordinator.moveFocus(to: nil)
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            return
+        }
+        let shouldFocus: Bool = keyboardWasUp || keyboardParkedByContext
+        keyboardParkedByContext = false
+        let incoming: FocusCoordinator = newTab == .agent ? agentFocusCoordinator : focusCoordinator
+        let outgoing: FocusCoordinator = newTab == .agent ? focusCoordinator : agentFocusCoordinator
+        if shouldFocus {
+            incoming.moveFocus(to: .message)
+        } else {
+            outgoing.dismissMessageComposerIfNeeded()
+        }
     }
 
     /// Leaving the Group tab. When the group was actually on screen,
@@ -963,6 +917,14 @@ private extension ConversationView {
             updateActiveGroupLane(isActive: false)
         case .agent:
             agentDmSession?.updateActiveDmLane(isActive: false)
+        case .context:
+            // Whichever lane was being read has already been left; release both
+            // rather than guess which one the user came from.
+            if viewModel.isViewingConversation {
+                viewModel.onConversationDisappeared()
+            }
+            updateActiveGroupLane(isActive: false)
+            agentDmSession?.updateActiveDmLane(isActive: false)
         }
     }
 
@@ -981,6 +943,9 @@ private extension ConversationView {
         case .agent:
             agentDmSession?.updateActiveDmLane(isActive: true)
             agentDmSession?.markDmAsRead()
+        case .context:
+            // Nothing to read on the Space page.
+            break
         }
     }
 
@@ -1070,7 +1035,7 @@ private extension ConversationView {
               SpaceLink.matches(url, space: spaceURL) else {
             return false
         }
-        settleSheetForSpaceLink()
+        showContextForSpaceLink()
         if SpaceLink.isRoot(url, space: spaceURL) {
             // The root *is* the Home. Walk any open chain back to it rather
             // than stacking a second copy on top of itself.
@@ -1081,23 +1046,16 @@ private extension ConversationView {
         return true
     }
 
-    /// Clears the sheet off the page a Space link just opened, without taking
-    /// the transcript away.
+    /// Shows the page a Space link just opened, which now means selecting the
+    /// Context tab - that is where Space pages live.
     ///
-    /// Only ever downward, and only as far as `compact`. A sheet already at
-    /// `compact` is where it should be and does not move at all - a resize
-    /// nobody asked for reads as the screen twitching. A collapsed sheet stays
-    /// collapsed for the same reason: the tap asked to see a page, not to be
-    /// shown a transcript that was deliberately put away.
-    ///
-    /// Focus goes first regardless. A focused composer holds the sheet up no
-    /// matter which detent is selected, so a keyboard left standing would keep
-    /// the page covered even after the detent changed.
-    private func settleSheetForSpaceLink() {
+    /// Focus goes first: a keyboard left standing would cover the page the tap
+    /// asked to see, and the outgoing composer is not the one being switched
+    /// to.
+    private func showContextForSpaceLink() {
         focusCoordinator.dismissMessageComposerIfNeeded()
         agentFocusCoordinator.dismissMessageComposerIfNeeded()
-        guard sheetDetent > .compact else { return }
-        moveSheet(to: .compact)
+        selectTab(.context)
     }
 
     /// Whether the page on top of the browsing chain is already showing this
@@ -1125,153 +1083,15 @@ private extension ConversationView {
         homeBrowserEntries.removeLast()
     }
 
-    /// The re-tap contract for a tab bar that raises a sheet rather than swapping
-    /// a root: the active tab is the toggle for the sheet it selects. Tapping it
-    /// with the sheet up puts it back down, tapping it with the sheet down brings
-    /// it back.
+    /// Promotes focus onto the tab whose composer just took it.
     ///
-    /// Collapsing rather than scrolling to the latest message: the tap the user
-    /// has to hand while the sheet is up is the one asking to see the Home again,
-    /// and the sheet is what is covering it. The transcript is already parked at
-    /// its newest message on every expansion, so the scroll the native contract
-    /// offers had nothing left to do here.
-    private func handleTabReselect(_ tab: ConversationTab) {
-        guard sheetDetent != .collapsed else {
-            expandCollapsedSheet()
-            return
-        }
-        collapseSheet()
-    }
-
-    /// Puts the sheet back down to `collapsed`, keyboard included.
-    ///
-    /// Focus has to go first. A focused composer holds the sheet up - the system
-    /// raises a sheet to clear the keyboard regardless of the detent it is asked
-    /// for - so setting the detent alone would collapse our state while the sheet
-    /// stayed where it was. Both lanes are dismissed because either composer can
-    /// be the one holding the keyboard.
-    private func collapseSheet() {
-        focusCoordinator.dismissMessageComposerIfNeeded()
-        agentFocusCoordinator.dismissMessageComposerIfNeeded()
-        moveSheet(to: .collapsed)
-    }
-
-    /// Brings a collapsed sheet back up, the other half of the toggle.
-    private func expandCollapsedSheet() {
-        guard sheetDetent == .collapsed else { return }
-        moveSheet(to: .smallestReadable)
-    }
-
-    /// Opens a collapsed sheet when the tab being *switched to* is the one
-    /// carrying an unread dot, and only then.
-    ///
-    /// Switching tabs is not by itself a request to open the sheet: with the
-    /// sheet down the user is looking at the Home, and may be picking which lane
-    /// the composer belongs to while leaving it in view. It is the dot that makes
-    /// the switch mean "show me what arrived".
-    ///
-    /// `compact` rather than anything taller - it answers that question while
-    /// leaving the Home visible, which is why the detent exists.
-    private func openCollapsedSheetIfUnread(for tab: ConversationTab) {
-        guard sheetDetent == .collapsed, badgedTabs.contains(tab) else { return }
-        moveSheet(to: .smallestReadable)
-    }
-
-    /// Moves the sheet to a size the user did not drag it to.
-    ///
-    /// Writing the detent alone is not enough, and the reason is worth keeping. A
-    /// sheet asked to change its selected detent resizes its presented view in two
-    /// steps: the origin lands on the new size a layout pass before the height
-    /// does. Anything anchored to the bottom of that view - here the whole chrome -
-    /// is then laid out against a frame whose bottom edge is briefly wrong by the
-    /// difference between the two sizes, so the input bar and the tab bar leave the
-    /// screen and come back. Measured at 107.8pt for the collapsed/fitted pair, and
-    /// it scales with the gap, which is why compact looks worse than fitted.
-    ///
-    /// Dragging never shows it. An interactive resize keeps the presented view's
-    /// bottom edge pinned and moves only its top, so the chrome never moves at all.
-    ///
-    /// So leave the system nothing to re-resolve. With a single size on offer there
-    /// is no selection to settle, and the resize happens in one step with the bottom
-    /// edge pinned - the same shape as a drag. The full set goes back as soon as the
-    /// move lands, so the sheet is only undraggable for the length of its own
-    /// animation.
-    ///
-    /// Reproduced outside this app in ~180 lines of plain SwiftUI - two `.height()`
-    /// detents and one bottom-aligned child - so this is the platform's behaviour
-    /// rather than something the conversation is doing to itself.
-    private func moveSheet(to target: ConversationSheetDetent) {
-        forcedSheetDetent = target
-        sheetDetent = target
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(600))
-            forcedSheetDetent = nil
-        }
-    }
-
-    /// Every expansion opens on the newest message, and gets there without the
-    /// reset ever being watched.
-    ///
-    /// The reset happens on the way *up*, not on the way down. Collapsing leaves
-    /// the transcript exactly where the reader left it - the sheet closing over
-    /// what they were reading - and the reset lands as the sheet leaves
-    /// `collapsed`, before any of the transcript has been revealed. Doing it on
-    /// the way down put a scroll in flight while the transcript was still on
-    /// screen, so the reset was the last thing the user saw before the sheet
-    /// closed.
-    ///
-    /// Synchronously, and unanimated, for the same reason. The transcript holds
-    /// one height now (see `ConversationSheetContent.transcript`), so "the
-    /// bottom" does not move as the sheet does and there is nothing to wait for -
-    /// the old deferral existed only because the frame settled a beat later.
-    ///
-    /// Drags between the larger detents leave the scroll position alone: the
-    /// transcript stayed visible throughout, so it is still what the reader is
-    /// looking at.
-    private func handleSheetDetentChanged(
-        from oldValue: ConversationSheetDetent,
-        to newValue: ConversationSheetDetent
-    ) {
-        if newValue == .collapsed {
-            releaseReadingLane()
-        } else if oldValue == .collapsed {
-            claimReadingLane()
-            scrollActiveTranscriptToBottom(animated: false)
-        }
-    }
-
-    /// Promotes a collapsed sheet when a composer takes focus.
-    ///
-    /// The system expands a sheet on its own to clear the keyboard, but it does
-    /// not change which detent is selected - so the sheet grew while the detent
-    /// still said `collapsed` and the transcript stayed faded out, leaving a
-    /// tall empty card above the composer. Promoting keeps our state in step
-    /// with what is on screen, and matches the intent: typing means the user
-    /// wants the conversation, not the Home behind it.
-    ///
-    /// To the transcript's own ceiling rather than to `full`, which would walk
-    /// straight past the cap: focusing the composer of a conversation with two
-    /// messages in it was opening the sheet onto a screen of empty room, and on a
-    /// brand new one onto nothing at all.
+    /// The system raises the keyboard over whatever is on screen; if that was
+    /// the Context tab, the composer that took focus belongs to a tab the user
+    /// is not looking at. Selecting it keeps what is on screen in step with
+    /// what is being typed into.
     private func handleComposerFocusChanged(_ focus: MessagesViewInputFocus?) {
-        guard focus == .message, sheetDetent == .collapsed else { return }
-        moveSheet(to: .tallest)
-    }
-
-    /// Parks a transcript at its newest message as it becomes the selected one,
-    /// while the sheet is collapsed.
-    ///
-    /// Collapsing only parks the transcript that was showing at the time, so the
-    /// other one keeps whatever offset it had - and at `collapsed` the sheet is
-    /// just the chrome's height, so an unparked transcript leaves its last
-    /// message sitting above the chrome in plain view. Parking on the way in
-    /// keeps the collapsed sheet looking like chrome alone whichever tab is
-    /// selected.
-    private func parkIncomingTranscriptIfCollapsed(_ tab: ConversationTab) {
-        guard sheetDetent == .collapsed else { return }
-        DispatchQueue.main.async {
-            scrollTranscriptToBottom(tab, animated: false)
-        }
+        guard focus == .message, !selectedTab.hostsTranscript else { return }
+        selectTab(.group)
     }
 
     /// Returns a transcript to its newest message.
@@ -1286,6 +1106,8 @@ private extension ConversationView {
             groupScrollToBottom?(animated)
         case .agent:
             agentScrollToBottom?(animated)
+        case .context:
+            break
         }
     }
 
@@ -1293,12 +1115,18 @@ private extension ConversationView {
         scrollTranscriptToBottom(selectedTab, animated: animated)
     }
 
-    /// True while the Home is showing an open browsing chain: the top bar pops
-    /// pages instead of the conversation, and the add-members item hides. The
-    /// Home is always behind the sheet, so a chain is browsable at any detent
-    /// that leaves it reachable.
+    /// True while the Context tab is showing an open browsing chain: the top bar
+    /// pops pages instead of the conversation, and the add-members item hides.
+    ///
+    /// Scoped to the selected tab, not just to the chain. The Space used to sit
+    /// behind the sheet where it was always the thing on screen, so an open
+    /// chain always meant the user was in it. It is a tab now: leaving Context
+    /// with pages still pushed would keep the bar in browser mode over a
+    /// transcript, where its Back button pops a stack nobody can see instead of
+    /// leaving the conversation. The chain is kept rather than cleared, so
+    /// coming back to Context returns to the page they were on.
     private var isBrowsingHome: Bool {
-        !homeBrowserEntries.isEmpty
+        selectedTab == .context && !homeBrowserEntries.isEmpty
     }
 
     @ToolbarContentBuilder
@@ -1484,177 +1312,40 @@ private extension ConversationView {
 // MARK: - Layout
 
 private extension ConversationView {
-    /// The conversation's layered layout: the selected tab's backing view
-    /// filling the screen and the floating conversation sheet over it. The
-    /// sheet is a bottom-aligned ZStack sibling (not an overlay - safe-area
-    /// expansion doesn't reach overlay children), so it can extend into the
-    /// bottom safe area like the native tab bar while still riding the
-    /// keyboard.
-    var conversationLayout: some View {
-        // A navigation stack of its own, rooted at the Home and living entirely
-        // *below* the conversation sheet.
-        //
-        // The pages used to be layers in a ZStack with a hand-rolled transition,
-        // because a sheet does not travel with a navigation transition: pushing a
-        // page onto the conversation's own stack would slide the Home away and
-        // leave the sheet sitting there. Nesting the stack inside the Home avoids
-        // that entirely - the sheet is a presentation over the window and never
-        // participates - and hands back the push and pop animation, the back
-        // button's semantics, and the interactive edge swipe, none of which are
-        // worth reimplementing.
-        // The stack wraps the Home *only*. Everything that has to stay put while a
-        // page is pushed - the geometry the sheet sizes against, and the sheet
-        // presentation itself - hangs off the ZStack outside it. Wrapping the whole
-        // layout instead made the stack the view presenting the sheet, so pushing a
-        // page changed the presenting context out from under it: the conversation
-        // read as deselected, which took the conversation indicator with it and
-        // brought the root tab bar back.
-        ZStack {
-            HomeBrowserNavigationHost(
-                entries: $homeBrowserEntries,
-                root: { AnyView(backingViews) },
-                page: { entry in AnyView(homeBrowserPage(for: entry)) }
-            )
-            .ignoresSafeArea()
-        }
-        // The container the sheet presents over, which is what caps how tall the
-        // sheet can get - and so the height the transcript holds. See
-        // `ConversationSheetContent.transcript`.
-        .onGeometryChange(for: CGSize.self) { proxy in
-            proxy.size
-        } action: { size in
-            containerWidth = size.width
-            containerHeight = size.height
-            updateSheetGeometryBounds()
-        }
-        .conversationSheetPresentation(
-            detent: $sheetDetent,
-            heights: sheetHeights,
-            forcedDetent: forcedSheetDetent
-        ) {
-            // Focus is declared inside the sheet, because that is the only
-            // place a `@FocusState` can reach the composers. See
-            // `ConversationSheetFocusHost`.
-            ConversationSheetFocusHost(
-                groupCoordinator: focusCoordinator,
-                agentCoordinator: agentFocusCoordinator,
-                resetToken: viewModel.conversation.id
-            ) { groupFocus, agentFocus in
-                // Presentations go on the sheet's content, which is the only
-                // place they can present from - see `conversationPresentations`.
-                conversationPresentations(
-                    conversationSheet(groupFocus: groupFocus, agentFocus: agentFocus)
-                )
-            }
-        }
-    }
-
-    /// One page in the home browsing chain: an external page pushed over the
-    /// Home, below the floating sheet, so browsing never leaves the conversation.
-    @ViewBuilder
-    func homeBrowserPage(for entry: HomeBrowserEntry) -> some View {
-        HomeBrowserPageView(
-            entry: entry,
-            sheetGeometry: sheetGeometry,
-            onNavigationRequest: { url in
-                pushHomeBrowserPage(for: url)
-            }
-        )
-    }
-
-    /// The permanent backing surface. The Home is no longer a tab: it is what
-    /// the conversation *is* behind the sheet, uncovered when the sheet rests
-    /// collapsed and progressively hidden as it grows.
-    var backingViews: some View {
-        HomeLayoutView(
-            webURL: viewModel.conversation.spaceURL,
-            sheetGeometry: sheetGeometry,
-            onNavigationRequest: { url in
-                pushHomeBrowserPage(for: url)
-            }
-        )
-    }
-
-    /// The transcripts the sheet hosts, both kept mounted once visited:
-    /// switching flips opacity and hit-testing instead of tearing views down,
-    /// so the UIKit collection views keep their scroll state across a tab hop.
+    /// The conversation's layout: the selected tab's page filling the screen,
+    /// with the top chrome floating over it.
     ///
-    /// Neither insets for the sheet - inside it, the composer and tab bar are
-    /// siblings below rather than chrome floating over the content.
-    @ViewBuilder
-    func sheetTranscripts(
-        groupFocus: FocusState<MessagesViewInputFocus?>.Binding,
-        agentFocus: FocusState<MessagesViewInputFocus?>.Binding
-    ) -> some View {
-        ZStack {
-            messagesView(focus: groupFocus)
-                .opacity(selectedTab == .group ? 1 : 0)
-                .allowsHitTesting(selectedTab == .group)
-            if visitedTabs.contains(.agent), let agentDmSession {
-                AgentDmPageView(
-                    session: agentDmSession,
-                    profileSettingsViewModel: profileSettingsViewModel,
-                    extraBottomInset: sheetChromeHeight,
-                    isReadOnly: effectiveReadOnly,
-                    isActiveTab: selectedTab == .agent,
-                    isSheetCollapsed: sheetDetent == .collapsed,
-                    contextMenuState: agentContextMenuState,
-                    focusState: agentFocus,
-                    focusCoordinator: agentFocusCoordinator,
-                    messageLinkRouter: routeSpaceLink(_:),
-                    conversationSpaceURL: viewModel.conversation.spaceURL,
-                    onScrollToBottomAvailable: { scrollFn in
-                        // Same deferral as the group transcript's bridge.
-                        DispatchQueue.main.async {
-                            agentScrollToBottom = scrollFn
-                        }
-                    },
-                )
-                .opacity(selectedTab == .agent ? 1 : 0)
-                .allowsHitTesting(selectedTab == .agent)
-            }
-        }
-    }
-
-    func conversationSheet(
-        groupFocus: FocusState<MessagesViewInputFocus?>.Binding,
-        agentFocus: FocusState<MessagesViewInputFocus?>.Binding
-    ) -> some View {
-        ConversationSheetContent(
-            detent: sheetDetent,
-            transcriptHeight: presentationContainerHeight,
-            onChromeBarsHeightChanged: { height in
-                sheetChromeBarsHeight = height
-                updateSheetGeometryBounds()
-            },
-            // Straight onto the geometry object, never into this view's state:
-            // this fires every frame of a drag, and a state write here would
-            // rebuild the sheet presentation underneath the drag.
-            onSheetHeightChanged: { height in
-                sheetGeometry.coveredHeight = height
-            },
-            transcriptContent: {
-                sheetTranscripts(groupFocus: groupFocus, agentFocus: agentFocus)
-            },
-            barContent: {
-                sheetBarContent(groupFocus: groupFocus, agentFocus: agentFocus)
-            },
-            tabBar: {
-                ConversationTabBar(
+    /// This used to be the Space surface with a permanently-presented sheet over
+    /// it holding the transcripts. The sheet is gone, and with it the detent that
+    /// decided how much Space showed, the geometry the two sides traded, and the
+    /// focus host a presentation boundary made necessary. The Space is a tab now.
+    var conversationLayout: some View {
+        ZStack(alignment: .top) {
+            pageHost
+            ConversationTopChrome(topSafeAreaInset: windowSafeAreaInsets.top) {
+                ConversationSegmentedControl(
                     selectedTab: $selectedTab,
                     tabs: availableTabs,
-                    badgedTabs: badgedTabs,
-                    onReselect: handleTabReselect(_:)
+                    badgedTabs: badgedTabs
                 )
-            },
-            contextMenuOverlay: { messageContextMenuOverlay }
-        )
-        // Scoped to the sheet: the Agent tab's dark surface is the sheet's,
-        // not the conversation's, and the Home behind it keeps its own scheme.
-        .preferredColorScheme(preferredScheme)
-        .onChange(of: sheetDetent) { oldValue, newValue in
-            handleSheetDetentChanged(from: oldValue, to: newValue)
+            }
         }
+        .overlay { messageContextMenuOverlay }
+        // The agent composer's own state mirrors its own coordinator. Without
+        // it, `FocusCoordinator.moveFocus` still runs and still updates the
+        // coordinator, but nothing takes first responder. The group composer
+        // needs no sync here - it rides the shell's `focusState`, which
+        // `ConversationPresenter` already syncs to `focusCoordinator`. Adding a
+        // second one for the same coordinator is what broke dismissal.
+        .focusCoordinatorSync(
+            focusState: $agentFocus,
+            coordinator: agentFocusCoordinator,
+            resetToken: viewModel.conversation.id
+        )
+        // Scoped here rather than to `body`: the Agent tab's dark surface is the
+        // page's, and the conversation's title capsule above this view keeps the
+        // conversation's own scheme.
+        .preferredColorScheme(preferredScheme)
         .onChange(of: focusCoordinator.currentFocus) { _, newFocus in
             handleComposerFocusChanged(newFocus)
         }
@@ -1663,47 +1354,95 @@ private extension ConversationView {
         }
     }
 
-    /// The bar the sheet hosts above its tab bar, keyed by the selected tab:
-    /// the group composer, or the agent-DM composer (disabled until the DM
-    /// exists).
+    /// The three pages, and the composer under whichever of them has one.
+    ///
+    /// The transcripts stay mounted once visited - switching flips opacity and
+    /// hit-testing rather than tearing views down, so the UIKit collection views
+    /// keep their scroll state across a tab hop. Context is mounted the same way,
+    /// so a Space page is not reloaded every time the user looks away.
     @ViewBuilder
-    func sheetBarContent(
-        groupFocus: FocusState<MessagesViewInputFocus?>.Binding,
-        agentFocus: FocusState<MessagesViewInputFocus?>.Binding
-    ) -> some View {
-        switch selectedTab {
-        case .group:
-            if !effectiveReadOnly {
-                ConversationComposerBar(
-                    viewModel: viewModel,
-                    focusState: groupFocus,
-                    focusCoordinator: focusCoordinator,
-                    messagesTextFieldEnabled: messagesTextFieldEnabled,
-                    scrollToBottom: { groupScrollToBottom?(true) },
-                    onDebugAttachmentTap: debugAttachmentTapHandler,
-                    extraBarContent: { groupExtraBarContent }
-                )
-                // Only where there is an agent to govern, and only while the
-                // Listen flag is on. Absent, the composer draws no bubble at
-                // all.
-                .environment(\.agentParticipation, participationContext)
-            }
-        case .agent:
-            if let agentDmSession, !effectiveReadOnly {
-                AgentComposerBar(
-                    session: agentDmSession,
-                    focusState: agentFocus,
-                    focusCoordinator: agentFocusCoordinator,
-                    isReadOnly: effectiveReadOnly,
-                    connectionsEnabled: composerConnectionsEnabled,
-                    onConnectionsTap: handleComposerConnectionsTap,
-                    scrollToBottom: { agentScrollToBottom?(true) }
-                )
-                // The participation control governs the group room; it has
-                // no meaning in a 1:1 agent DM.
-                .environment(\.agentParticipation, nil)
-            }
+    var pageHost: some View {
+        ZStack {
+            groupPage
+            agentPage
+            contextPage
         }
+    }
+
+    private var groupPage: some View {
+        let isActive: Bool = selectedTab == .group
+        return messagesView(focus: $focusState)
+            .opacity(isActive ? 1 : 0)
+            .allowsHitTesting(isActive)
+    }
+
+    @ViewBuilder
+    private var agentPage: some View {
+        if visitedTabs.contains(.agent), let agentDmSession {
+            let isActive: Bool = selectedTab == .agent
+            AgentDmPageView(
+                session: agentDmSession,
+                profileSettingsViewModel: profileSettingsViewModel,
+                extraBottomInset: 0,
+                connectionsEnabled: composerConnectionsEnabled,
+                onConnectionsTap: handleComposerConnectionsTap,
+                isReadOnly: effectiveReadOnly,
+                isActiveTab: isActive,
+                contextMenuState: agentContextMenuState,
+                focusState: $agentFocus,
+                focusCoordinator: agentFocusCoordinator,
+                messageLinkRouter: routeSpaceLink(_:),
+                conversationSpaceURL: viewModel.conversation.spaceURL,
+                onScrollToBottomAvailable: { scrollFn in
+                    // Same deferral as the group transcript's bridge.
+                    DispatchQueue.main.async {
+                        agentScrollToBottom = scrollFn
+                    }
+                },
+            )
+            .opacity(isActive ? 1 : 0)
+            .allowsHitTesting(isActive)
+        }
+    }
+
+    /// The Context tab: the conversation's Space page, in a navigation stack of
+    /// its own so a link tapped inside it pushes without leaving the
+    /// conversation. The stack wraps this page only - the chrome is a sibling
+    /// above it, so pushing a page never slides the segmented control away.
+    @ViewBuilder
+    private var contextPage: some View {
+        if visitedTabs.contains(.context) {
+            let isActive: Bool = selectedTab == .context
+            HomeBrowserNavigationHost(
+                entries: $homeBrowserEntries,
+                root: { AnyView(spaceSurface) },
+                page: { entry in AnyView(homeBrowserPage(for: entry)) }
+            )
+            .ignoresSafeArea()
+            .opacity(isActive ? 1 : 0)
+            .allowsHitTesting(isActive)
+        }
+    }
+
+    /// One page in the Context tab's browsing chain.
+    @ViewBuilder
+    func homeBrowserPage(for entry: HomeBrowserEntry) -> some View {
+        HomeBrowserPageView(
+            entry: entry,
+            onNavigationRequest: { url in
+                pushHomeBrowserPage(for: url)
+            }
+        )
+    }
+
+    /// The Context tab's root: the conversation's Space web surface.
+    var spaceSurface: some View {
+        HomeLayoutView(
+            webURL: viewModel.conversation.spaceURL,
+            onNavigationRequest: { url in
+                pushHomeBrowserPage(for: url)
+            }
+        )
     }
 
     /// The single host seam for the composer's connections capability: the
@@ -1989,11 +1728,13 @@ extension ConversationView {
 #Preview {
     @Previewable @State var viewModel: ConversationViewModel = makeConversationViewPreviewViewModel()
     @Previewable @State var profileSettingsViewModel: ProfileSettingsViewModel = .shared
+    @Previewable @FocusState var focusState: MessagesViewInputFocus?
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     NavigationStack {
         ConversationView(
             viewModel: viewModel,
             profileSettingsViewModel: profileSettingsViewModel,
+            focusState: $focusState,
             focusCoordinator: focusCoordinator,
             onScanInviteCode: {},
             onDeleteConversation: {},
