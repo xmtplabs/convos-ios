@@ -20,6 +20,7 @@ struct ProfileTablesMigrationTests {
             t.column("id", .text).notNull().primaryKey()
         }
         try SharedDatabaseMigrator.createProfileTables(db)
+        try SharedDatabaseMigrator.addProfileAvatarSourceUploadedUrl(db)
     }
 
     private func insertConversation(_ db: Database, id: String) throws {
@@ -134,6 +135,7 @@ struct ProfileTablesMigrationTests {
                 inboxId: "me",
                 plaintext: Data(repeating: 9, count: 16),
                 version: 3,
+                uploadedUrl: "https://example.com/avatar.jpg",
                 updatedAt: Date(timeIntervalSince1970: 2)
             ).save(db)
         }
@@ -142,6 +144,7 @@ struct ProfileTablesMigrationTests {
             let source = try DBProfileAvatarSource.fetchOne(db, inboxId: "me")
             #expect(source?.version == 3)
             #expect(source?.plaintext.count == 16)
+            #expect(source?.uploadedUrl == "https://example.com/avatar.jpg")
         }
     }
 

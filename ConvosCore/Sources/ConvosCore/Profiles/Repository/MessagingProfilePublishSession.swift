@@ -2,7 +2,7 @@ import Foundation
 @preconcurrency import XMTPiOS
 
 /// Concrete `ProfilePublishSession` backed by the XMTP client and upload API.
-/// Encrypts, uploads, and sends the self profile to a conversation, including the
+/// Uploads and sends the self profile to a conversation, including the
 /// best-effort second channel (writing the profile into group app-data) so
 /// clients that read `ConversationProfile` rather than the `ProfileUpdate`
 /// message still see the identity.
@@ -17,26 +17,12 @@ struct MessagingProfilePublishSession: ProfilePublishSession {
         self.sessionStateManager = sessionStateManager
     }
 
-    func imageKey(conversationId: String) async throws -> Data? {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            return nil
-        }
-        return try await group.ensureImageEncryptionKey()
-    }
-
-    func encrypt(_ plaintext: Data, groupKey: Data) throws -> EncryptedAvatarPayload {
-        let payload = try ImageEncryption.encrypt(imageData: plaintext, groupKey: groupKey)
-        return EncryptedAvatarPayload(ciphertext: payload.ciphertext, salt: payload.salt, nonce: payload.nonce)
-    }
-
-    func upload(_ ciphertext: Data, filename: String) async throws -> String {
+    func upload(_ data: Data, filename: String, contentType: String) async throws -> String {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         return try await inboxReady.apiClient.uploadAttachment(
-            data: ciphertext,
+            data: data,
             filename: filename,
-            contentType: "application/octet-stream",
+            contentType: contentType,
             acl: "public-read"
         )
     }
@@ -55,11 +41,18 @@ struct MessagingProfilePublishSession: ProfilePublishSession {
             update.name = name
         }
         if let avatar {
-            var ref = EncryptedProfileImageRef()
-            ref.url = avatar.url
-            ref.salt = avatar.salt
-            ref.nonce = avatar.nonce
-            update.encryptedImage = ref
+            // A legacy encrypted avatar being re-advertised carries full crypto
+            // and rides `encrypted_image`; a plain avatar (the write path now
+            // only produces these) rides the plain `image` URL instead.
+            if let salt = avatar.salt, let nonce = avatar.nonce, avatar.key != nil {
+                var ref = EncryptedProfileImageRef()
+                ref.url = avatar.url
+                ref.salt = salt
+                ref.nonce = nonce
+                update.encryptedImage = ref
+            } else {
+                update.image = avatar.url
+            }
         }
         if let resolvedMetadata {
             update.metadata = resolvedMetadata.asProtoMap

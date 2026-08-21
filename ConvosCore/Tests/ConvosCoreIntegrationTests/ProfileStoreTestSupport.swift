@@ -24,6 +24,7 @@ enum ProfileStoreTestSupport {
         try SharedDatabaseMigrator.createProfileTables(db)
         try SharedDatabaseMigrator.createProfileAvatarLatestView(db)
         try SharedDatabaseMigrator.createSelfConversationMetadata(db)
+        try SharedDatabaseMigrator.addProfileAvatarSourceUploadedUrl(db)
     }
 
     static func seedConversations(_ db: Database, ids: [String]) throws {

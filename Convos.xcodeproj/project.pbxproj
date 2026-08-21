@@ -3028,11 +3028,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		713D94073026882A00E53855 /* BezelKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 713D94063026882A00E53855 /* XCRemoteSwiftPackageReference "BezelKit" */;
-			productName = BezelKit;
-		};
 		1AEE475B3FE0066D11742B75 /* ConvosComposer */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ConvosComposer;
@@ -3044,6 +3039,11 @@
 		6295E0ABD82D9105D8ECF82F /* ConvosCoreiOS */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ConvosCoreiOS;
+		};
+		713D94073026882A00E53855 /* BezelKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 713D94063026882A00E53855 /* XCRemoteSwiftPackageReference "BezelKit" */;
+			productName = BezelKit;
 		};
 		7A15D61B2EEBB0CF00627BC5 /* ConvosCoreiOS */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -524,7 +524,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                         inboxId: senderInboxId,
                         source: .profileUpdate,
                         name: update.hasName ? update.name : nil,
-                        avatar: .addressed(update.hasEncryptedImage ? update.encryptedImage : nil),
+                        avatar: .addressed(update.inboundImage),
                         memberKind: update.memberKind.dbMemberKind,
                         // A ProfileUpdate's map is authoritative; pass it through
                         // even when empty so a cleared map (e.g. revoked grants)
@@ -565,7 +565,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                             inboxId: inboxId,
                             source: .profileSnapshot,
                             name: memberProfile.hasName ? memberProfile.name : nil,
-                            avatar: .fillIfPresent(memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil),
+                            avatar: .fillIfPresent(memberProfile.inboundImage),
                             memberKind: memberProfile.memberKind.dbMemberKind,
                             metadata: metadata.isEmpty ? nil : metadata,
                             receivedAt: receivedAt

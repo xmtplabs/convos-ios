@@ -21,12 +21,16 @@ message MetadataValue {
 // The sender's inbox ID is implicit from the XMTP message — only the
 // sender can author their own profile update, preventing spoofing.
 //
-// Sending a ProfileUpdate with no name and no encrypted_image clears the profile.
+// Sending a ProfileUpdate with no name, no encrypted_image, and no image clears the profile.
 message ProfileUpdate {
     optional string name = 1;
     optional EncryptedProfileImageRef encrypted_image = 2;
     MemberKind member_kind = 3;
     map<string, MetadataValue> metadata = 4;
+    // Plain (unencrypted) avatar URL. Image encryption is removed on the write side;
+    // new clients set this instead of encrypted_image. Legacy peers still send
+    // encrypted_image, which continues to decrypt on the read path.
+    optional string image = 5;
 }
 
 // ProfileSnapshot is sent by the member who adds new members to a group.
@@ -47,6 +51,8 @@ message MemberProfile {
     optional EncryptedProfileImageRef encrypted_image = 3;
     MemberKind member_kind = 4;
     map<string, MetadataValue> metadata = 5;
+    // Plain (unencrypted) avatar URL -- see ProfileUpdate.image.
+    optional string image = 6;
 }
 
 // Reference to an encrypted profile image (matches EncryptedImageRef from ConvosAppData

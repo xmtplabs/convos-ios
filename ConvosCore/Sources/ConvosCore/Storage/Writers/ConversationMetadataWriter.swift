@@ -218,66 +218,59 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         let oldPublicImageURL = localConversation.publicImageURLString
         let includePublicPreview = localConversation.includeInfoInPublicPreview
 
-        let groupKey = try await group.ensureImageEncryptionKey()
-        let encryptedPayload = try ImageEncryption.encrypt(
-            imageData: compressedImageData,
-            groupKey: groupKey
-        )
-
-        let encryptedFilename = "eg-\(UUID().uuidString).enc"
-
-        if includePublicPreview {
-            Log.debug("Uploading group image (encrypted + public preview)")
-        } else {
-            Log.debug("Uploading group image (encrypted only, public preview disabled)")
-        }
-
-        let encryptedAssetUrl = try await inboxReady.apiClient.uploadAttachment(
-            data: encryptedPayload.ciphertext,
-            filename: encryptedFilename,
-            contentType: "application/octet-stream",
+        // Upload the raw image (no encryption). The plain URL rides the native
+        // XMTP group-image metadata; peers render it directly. A legacy peer or
+        // group that still carries a key continues to decrypt via the read path.
+        let filename = "eg-\(UUID().uuidString).jpg"
+        let imageUrl = try await inboxReady.apiClient.uploadAttachment(
+            data: compressedImageData,
+            filename: filename,
+            contentType: "image/jpeg",
             acl: "public-read"
         )
-        Log.debug("Encrypted image uploaded: \(encryptedAssetUrl)")
+        Log.debug("Group image uploaded (plain): \(imageUrl)")
 
-        let publicImageUrl: String?
-        if includePublicPreview {
-            let publicFilename = "pg-\(UUID().uuidString).jpg"
-            let uploadedUrl = try await inboxReady.apiClient.uploadAttachment(
-                data: compressedImageData,
-                filename: publicFilename,
-                contentType: "image/jpeg",
-                acl: "public-read"
-            )
-            Log.debug("Public preview image uploaded: \(uploadedUrl)")
-            publicImageUrl = uploadedUrl
-        } else {
-            publicImageUrl = nil
-            Log.debug("Public preview URL: none")
+        // A plain image needs no separate public-preview object: the bytes are
+        // identical and the asset is already public-read, so the invite reuses
+        // the same URL. The toggle still governs whether the invite exposes it.
+        let publicImageUrl: String? = includePublicPreview ? imageUrl : nil
+
+        // Clear any stale `encryptedGroupImage` appData ref left by a prior
+        // encrypted upload. Peers that pair the native URL with appData crypto
+        // unconditionally would otherwise tag this plain URL with a key it can't
+        // be decrypted with. Best-effort: the read-side URL-match guard also
+        // protects against this, so a failure here only logs.
+        if (try? group.currentCustomMetadata.hasEncryptedGroupImage) == true {
+            do {
+                try await group.clearEncryptedGroupImage()
+            } catch {
+                Log.error("Failed to clear stale encryptedGroupImage for \(conversation.id): \(error.localizedDescription)")
+            }
         }
-
-        var encryptedRef = EncryptedImageRef()
-        encryptedRef.url = encryptedAssetUrl
-        encryptedRef.salt = encryptedPayload.salt
-        encryptedRef.nonce = encryptedPayload.nonce
-
-        try await group.updateEncryptedGroupImage(encryptedRef)
-        try await group.updateImageUrl(imageUrl: encryptedAssetUrl)
+        try await group.updateImageUrl(imageUrl: imageUrl)
 
         let updatedConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
                 .fetchOne(db, key: conversation.id) else {
                 throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
             }
+            // Null the image salt/nonce (this image is plain); keep the group
+            // encryption key, which is also the profile-avatar fallback decrypt
+            // key for legacy peers.
             let updatedConversation = localConversation
-                .with(imageURLString: encryptedAssetUrl)
+                .with(
+                    imageURLString: imageUrl,
+                    imageSalt: nil,
+                    imageNonce: nil,
+                    imageEncryptionKey: localConversation.imageEncryptionKey
+                )
                 .with(publicImageURLString: localConversation.includeInfoInPublicPreview ? publicImageUrl : nil)
             try updatedConversation.save(db)
             return updatedConversation
         }
 
         // Invalidate old cache entries only after all operations succeed
-        if let oldImageURL, oldImageURL != encryptedAssetUrl {
+        if let oldImageURL, oldImageURL != imageUrl {
             ImageCacheContainer.shared.removeImage(for: oldImageURL)
         }
         if let oldPublicImageURL, oldPublicImageURL != publicImageUrl {
@@ -291,7 +284,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         ImageCacheContainer.shared.cacheAfterUpload(
             compressedImageData,
             for: conversation.clientConversationId,
-            url: encryptedAssetUrl
+            url: imageUrl
         )
 
         try await syncInvitePreview(for: updatedConversation)
@@ -299,7 +292,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         if includePublicPreview {
             Log.debug("Public preview URL set for invites")
         }
-        Log.debug("Updated encrypted conversation image for \(conversation.id): \(encryptedAssetUrl)")
+        Log.debug("Updated conversation image (plain) for \(conversation.id): \(imageUrl)")
     }
 
     func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws {
@@ -360,9 +353,17 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         localConversation: DBConversation,
         inboxReady: InboxReadyResult
     ) async -> String? {
-        guard localConversation.imageURLString != nil else {
+        guard let imageURLString = localConversation.imageURLString else {
             Log.debug("No group image to make public")
             return nil
+        }
+
+        // A plain (cleartext) group image is already a public-read object, so
+        // the invite reuses its URL directly - no decrypt-and-re-upload. Only a
+        // legacy encrypted image needs the round trip below.
+        if localConversation.imageSalt == nil, localConversation.imageNonce == nil {
+            Log.debug("Group image is plain; reusing its URL for public preview")
+            return imageURLString
         }
 
         guard let xmtpConversation = try? await inboxReady.client.conversation(with: conversationId),

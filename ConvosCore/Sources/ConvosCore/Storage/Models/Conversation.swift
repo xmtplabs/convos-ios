@@ -332,6 +332,15 @@ public extension Conversation {
         return .emoji(defaultEmoji)
     }
 
+    /// Whether this conversation's own image is group-encrypted. A plain
+    /// (cleartext) group image carries no crypto and must render via the plain
+    /// network fetch. Mirrors `Profile.isAvatarEncrypted`: all three of salt
+    /// (32), nonce (12), and key (32) must be present, or the cache's
+    /// encrypted-fetch branch silently returns nil and the image vanishes.
+    public var isImageEncrypted: Bool {
+        imageSalt?.count == 32 && imageNonce?.count == 12 && imageEncryptionKey?.count == 32
+    }
+
     var memberNamesString: String {
         membersWithoutCurrent.formattedNamesString
     }

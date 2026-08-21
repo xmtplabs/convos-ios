@@ -158,6 +158,10 @@ extension XMTPiOS.Group {
 
     // MARK: - Image Encryption Key Management
 
+    /// The group's image-encryption key. Image encryption is removed on the
+    /// write side, so no new key is written; this getter is kept because a
+    /// legacy key still decrypts a peer's encrypted avatar or group image on the
+    /// read path (it is the profile-avatar fallback decrypt key).
     public var imageEncryptionKey: Data? {
         get throws {
             let metadata = try currentCustomMetadata
@@ -166,27 +170,9 @@ extension XMTPiOS.Group {
         }
     }
 
-    @discardableResult
-    public func ensureImageEncryptionKey() async throws -> Data {
-        if let existingKey = try imageEncryptionKey {
-            return existingKey
-        }
-
-        let newKey = try ImageEncryption.generateGroupKey()
-        try await atomicUpdateMetadata(operation: "ensureImageEncryptionKey") { metadata in
-            if !metadata.hasImageEncryptionKey {
-                metadata.imageEncryptionKey = newKey
-            }
-        } verify: { metadata in
-            metadata.hasImageEncryptionKey
-        }
-
-        guard let finalKey = try imageEncryptionKey else {
-            throw ImageEncryptionError.keyGenerationFailed
-        }
-        return finalKey
-    }
-
+    /// A legacy encrypted group-image ref, kept for the read path: a group whose
+    /// image predates the write-side encryption removal still decrypts. New
+    /// writes upload plain and clear this via `clearEncryptedGroupImage`.
     public var encryptedGroupImage: EncryptedImageRef? {
         get throws {
             let metadata = try currentCustomMetadata
@@ -198,62 +184,48 @@ extension XMTPiOS.Group {
         }
     }
 
-    public func updateEncryptedGroupImage(_ encryptedRef: EncryptedImageRef) async throws {
-        try await atomicUpdateMetadata(operation: "updateEncryptedGroupImage") { metadata in
-            metadata.encryptedGroupImage = encryptedRef
+    /// Clears a stale `encryptedGroupImage` appData ref when a plain image
+    /// replaces an encrypted one, so peers that pair the native image URL with
+    /// appData crypto do not tag the plain URL with an unusable key.
+    public func clearEncryptedGroupImage() async throws {
+        try await atomicUpdateMetadata(operation: "clearEncryptedGroupImage") { metadata in
+            metadata.clearEncryptedGroupImage()
         } verify: { metadata in
-            metadata.hasEncryptedGroupImage &&
-            metadata.encryptedGroupImage.url == encryptedRef.url &&
-            metadata.encryptedGroupImage.salt == encryptedRef.salt &&
-            metadata.encryptedGroupImage.nonce == encryptedRef.nonce
+            !metadata.hasEncryptedGroupImage
         }
     }
 
-    /// Seeds every piece of creator-authored metadata in one commit: the
-    /// invite tag, the image encryption key, and (when a seed is provided)
-    /// the conversation emoji. Each individual `ensure*` call publishes its
-    /// own MLS commit with a network round trip, so the creation path calls
-    /// this instead of chaining them. No-ops without a commit when every
-    /// field is already present.
+    /// Seeds creator-authored metadata in one commit: the invite tag and (when
+    /// a seed is provided) the conversation emoji. Each individual `ensure*`
+    /// call publishes its own MLS commit with a network round trip, so the
+    /// creation path calls this instead of chaining them. No-ops without a
+    /// commit when every field is already present.
+    ///
+    /// Image encryption is removed on the write side, so no image-encryption key
+    /// is seeded here; new images upload plain.
     ///
     /// Only the conversation creator should call this - it authors the
     /// invite tag (see `ensureInviteTag`).
     public func ensureCreatorMetadata(emojiSeed: String? = nil) async throws {
         let current = try currentCustomMetadata
         let needsTag = current.tag.isEmpty
-        let needsKey = !current.hasImageEncryptionKey
         let needsEmoji = emojiSeed != nil && (!current.hasEmoji || current.emoji.isEmpty)
-        guard needsTag || needsKey || needsEmoji else { return }
+        guard needsTag || needsEmoji else { return }
 
         // Generate the tag only when it's actually missing so a transient
-        // SecRandomCopyBytes failure can't abort an emoji- or key-only update.
+        // SecRandomCopyBytes failure can't abort an emoji-only update.
         let newTag: String? = needsTag ? try generateSecureRandomString(length: 10) : nil
-        // Key generation failure stays non-fatal, matching how callers treat
-        // `ensureImageEncryptionKey`: the key is retried on first image
-        // upload, while a missing invite tag breaks joins.
-        var newKey: Data?
-        if needsKey {
-            do {
-                newKey = try ImageEncryption.generateGroupKey()
-            } catch {
-                Log.warning("Failed to generate image encryption key: \(error). Will retry on first image upload.")
-            }
-        }
         let newEmoji: String? = emojiSeed.map { EmojiSelector.emoji(for: $0) }
 
         try await atomicUpdateMetadata(operation: "ensureCreatorMetadata") { metadata in
             if let newTag, metadata.tag.isEmpty {
                 metadata.tag = newTag
             }
-            if let newKey, !metadata.hasImageEncryptionKey {
-                metadata.imageEncryptionKey = newKey
-            }
             if let newEmoji, !metadata.hasEmoji || metadata.emoji.isEmpty {
                 metadata.emoji = newEmoji
             }
         } verify: { metadata in
             guard !metadata.tag.isEmpty else { return false }
-            guard newKey == nil || metadata.hasImageEncryptionKey else { return false }
             return newEmoji == nil || (metadata.hasEmoji && !metadata.emoji.isEmpty)
         }
     }

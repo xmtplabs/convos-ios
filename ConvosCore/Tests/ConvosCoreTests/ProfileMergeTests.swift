@@ -299,24 +299,67 @@ struct ProfileMergeAvatarTests {
         #expect(merged?.url == "new")
     }
 
-    @Test("a set missing the encryption key is rejected and never downgrades an encrypted slot")
-    func keylessSetRejected() {
-        let keyless: IncomingAvatar = .set(url: "u", salt: nil, nonce: nil, key: nil)
-
-        // No existing slot: a keyless set stores nothing (no plaintext avatar).
+    @Test("a plain (crypto-less) set is stored as a plain avatar")
+    func plainSetStored() {
+        let plain: IncomingAvatar = .set(url: "u", salt: nil, nonce: nil, key: nil)
         let fresh = ProfileMerge.mergeAvatar(
-            existing: nil, inboxId: "i", conversationId: "c", incoming: keyless,
+            existing: nil, inboxId: "i", conversationId: "c", incoming: plain,
+            source: .profileUpdate, sentAt: t1
+        )
+        #expect(fresh?.url == "u")
+        #expect(fresh?.salt == nil)
+        #expect(fresh?.nonce == nil)
+        #expect(fresh?.encryptionKey == nil)
+    }
+
+    @Test("a newer plain set overwrites an existing encrypted slot")
+    func newerPlainOverwritesEncrypted() {
+        let encrypted = DBProfileAvatar(
+            inboxId: "i", conversationId: "c", url: "enc", salt: salt, nonce: nonce,
+            encryptionKey: key, profileSource: .profileUpdate, updatedAt: t1
+        )
+        let merged = ProfileMerge.mergeAvatar(
+            existing: encrypted, inboxId: "i", conversationId: "c",
+            incoming: .set(url: "plain", salt: nil, nonce: nil, key: nil),
+            source: .profileUpdate, sentAt: t2
+        )
+        #expect(merged?.url == "plain")
+        #expect(merged?.hasValidEncryptedAvatar == false)
+    }
+
+    @Test("an older plain set does not overwrite a newer encrypted slot")
+    func olderPlainDoesNotOverwrite() {
+        let encrypted = DBProfileAvatar(
+            inboxId: "i", conversationId: "c", url: "enc", salt: salt, nonce: nonce,
+            encryptionKey: key, profileSource: .profileUpdate, updatedAt: t2
+        )
+        let merged = ProfileMerge.mergeAvatar(
+            existing: encrypted, inboxId: "i", conversationId: "c",
+            incoming: .set(url: "plain", salt: nil, nonce: nil, key: nil),
+            source: .profileUpdate, sentAt: t1
+        )
+        #expect(merged?.url == "enc")
+        #expect(merged?.hasValidEncryptedAvatar == true)
+    }
+
+    @Test("a partial-crypto set is ignored and never downgrades an encrypted slot")
+    func partialCryptoSetRejected() {
+        // salt + nonce present but no key: not a valid encrypted avatar and not
+        // plain either, so it is ignored.
+        let partial: IncomingAvatar = .set(url: "u", salt: salt, nonce: nonce, key: nil)
+
+        let fresh = ProfileMerge.mergeAvatar(
+            existing: nil, inboxId: "i", conversationId: "c", incoming: partial,
             source: .profileUpdate, sentAt: t1
         )
         #expect(fresh == nil)
 
-        // Existing encrypted slot: a newer keyless set does not overwrite it.
         let encrypted = DBProfileAvatar(
             inboxId: "i", conversationId: "c", url: "enc", salt: salt, nonce: nonce,
             encryptionKey: key, profileSource: .profileUpdate, updatedAt: t1
         )
         let preserved = ProfileMerge.mergeAvatar(
-            existing: encrypted, inboxId: "i", conversationId: "c", incoming: keyless,
+            existing: encrypted, inboxId: "i", conversationId: "c", incoming: partial,
             source: .profileUpdate, sentAt: t2
         )
         #expect(preserved?.url == "enc")

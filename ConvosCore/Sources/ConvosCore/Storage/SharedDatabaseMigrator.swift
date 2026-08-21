@@ -374,6 +374,7 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConversationLocalStatePublishedProfileUpdatedAt", migrate: Self.addConversationLocalStatePublishedProfileUpdatedAt)
         Self.registerCatchUpCursorMigrations(on: &migrator)
         migrator.registerMigration("createSelfConversationMetadata", migrate: Self.createSelfConversationMetadata)
+        migrator.registerMigration("addProfileAvatarSourceUploadedUrl", migrate: Self.addProfileAvatarSourceUploadedUrl)
     }
 
     /// Additive, nullable column pinning the `myProfile.updatedAt` current when
@@ -700,6 +701,18 @@ extension SharedDatabaseMigrator {
         guard !hasColumn else { return }
         try db.alter(table: "profileAvatar") { t in
             t.add(column: "lastRenewed", .datetime)
+        }
+    }
+
+    /// Additive, nullable column caching the single plain upload of the current
+    /// source avatar. The publisher uploads the raw image once per `version` and
+    /// stores its URL here so per-conversation publish jobs (and crash-recovery
+    /// re-runs) reuse it instead of re-uploading. Nil on a new avatar version.
+    static func addProfileAvatarSourceUploadedUrl(_ db: Database) throws {
+        let hasColumn = try db.columns(in: "profileAvatarSource").contains { $0.name == "uploadedUrl" }
+        guard !hasColumn else { return }
+        try db.alter(table: "profileAvatarSource") { t in
+            t.add(column: "uploadedUrl", .text)
         }
     }
 

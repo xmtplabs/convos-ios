@@ -67,7 +67,46 @@ struct AvatarEncryptionPredicateTests {
         #expect(!Self.contact(salt: Self.salt32, nonce: Self.nonce12, key: shortKey).isAvatarEncrypted)
     }
 
+    // MARK: - Conversation
+
+    @Test("Conversation.isImageEncrypted is true only when all three fields have the correct lengths")
+    func testConversationPredicateRequiresAllThreeFields() {
+        let conversation = Conversation.mock(
+            imageURL: Self.imageURL, imageSalt: Self.salt32, imageNonce: Self.nonce12, imageEncryptionKey: Self.key32
+        )
+        #expect(conversation.isImageEncrypted)
+        #expect(conversation.isEncryptedImage)
+    }
+
+    @Test("Conversation.isImageEncrypted is false for a plain image URL with no crypto")
+    func testConversationPredicateFalseForPlainImage() {
+        let conversation = Conversation.mock(
+            imageURL: Self.imageURL, imageSalt: nil, imageNonce: nil, imageEncryptionKey: nil
+        )
+        #expect(!conversation.isImageEncrypted)
+        // ImageCacheable contract: a plain custom image must not route into the
+        // encrypted-fetch branch, which would silently fail with no key.
+        #expect(conversation.isEncryptedImage == false)
+        #expect(conversation.encryptionKey == nil)
+    }
+
+    @Test("Conversation.isImageEncrypted is false when only some crypto fields are present")
+    func testConversationPredicateFalseForPartialCrypto() {
+        let conversation = Conversation.mock(
+            imageURL: Self.imageURL, imageSalt: Self.salt32, imageNonce: Self.nonce12, imageEncryptionKey: nil
+        )
+        #expect(!conversation.isImageEncrypted)
+        #expect(conversation.isEncryptedImage == false)
+    }
+
     // MARK: - Helpers
+
+    private static let imageURL: URL = {
+        guard let url = URL(string: "https://example.com/group.jpg") else {
+            fatalError("static test URL is valid")
+        }
+        return url
+    }()
 
     private static func profile(salt: Data?, nonce: Data?, key: Data?) -> Profile {
         Profile(

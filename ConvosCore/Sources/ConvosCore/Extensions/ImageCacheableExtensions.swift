@@ -81,7 +81,9 @@ extension Conversation: ImageCacheable {
     public var isEncryptedImage: Bool {
         switch avatarType {
         case .customImage:
-            return true
+            // A plain (cleartext) group image has no crypto and must route to
+            // the plain network fetch; only a fully-keyed image decrypts.
+            return isImageEncrypted
         case .profile(let profile, _):
             return profile.isAvatarEncrypted
         default:

@@ -12,6 +12,7 @@ extension MemberProfile {
         inboxIdString: String,
         name: String? = nil,
         encryptedImage: EncryptedProfileImageRef? = nil,
+        image: String? = nil,
         metadata: ProfileMetadata? = nil
     ) {
         guard let inboxIdBytes = Data(hexString: inboxIdString), !inboxIdBytes.isEmpty else {
@@ -25,6 +26,9 @@ extension MemberProfile {
         if let encryptedImage {
             self.encryptedImage = encryptedImage
         }
+        if let image {
+            self.image = image
+        }
         if let metadata, !metadata.isEmpty {
             self.metadata = metadata.asProtoMap
         }
@@ -36,6 +40,40 @@ extension MemberProfile {
 extension EncryptedProfileImageRef {
     public var isValid: Bool {
         !url.isEmpty && salt.count == 32 && nonce.count == 12
+    }
+}
+
+// MARK: - Inbound Image Resolution
+
+/// The image a wire `ProfileUpdate`/`MemberProfile` carries. A message that sets
+/// both fields resolves to the valid encrypted ref; a plain-only message
+/// resolves to its URL. Senders only ever set one.
+public enum InboundProfileImage {
+    case encrypted(EncryptedProfileImageRef)
+    case plain(String)
+}
+
+extension ProfileUpdate {
+    public var inboundImage: InboundProfileImage? {
+        if hasEncryptedImage, encryptedImage.isValid {
+            return .encrypted(encryptedImage)
+        }
+        if hasImage, !image.isEmpty {
+            return .plain(image)
+        }
+        return nil
+    }
+}
+
+extension MemberProfile {
+    public var inboundImage: InboundProfileImage? {
+        if hasEncryptedImage, encryptedImage.isValid {
+            return .encrypted(encryptedImage)
+        }
+        if hasImage, !image.isEmpty {
+            return .plain(image)
+        }
+        return nil
     }
 }
 

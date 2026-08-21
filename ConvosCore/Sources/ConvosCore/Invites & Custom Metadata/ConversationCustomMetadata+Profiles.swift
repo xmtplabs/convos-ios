@@ -16,16 +16,17 @@ extension DBMemberProfile {
 
 extension DBMemberProfile {
     /// Projects this authoritative row into the `MemberProfile` used inside a
-    /// `ProfileSnapshot` message. The wire format carries only encrypted image
-    /// refs, so a plain (unencrypted) avatar URL is represented by name with
-    /// the image omitted rather than fabricating an encrypted ref. Returns nil
-    /// when the inbox id is not valid hex and so cannot be put on the wire.
+    /// `ProfileSnapshot` message. An encrypted slot rides the encrypted image
+    /// ref; a plain (unencrypted) avatar rides the plain `image` URL. Returns
+    /// nil when the inbox id is not valid hex and so cannot be put on the wire.
     var snapshotMemberProfile: MemberProfile? {
         let encryptedImage: EncryptedProfileImageRef? = encryptedImageRef.map(EncryptedProfileImageRef.init)
+        let plainImage: String? = encryptedImage == nil && hasPlainAvatar ? avatar : nil
         guard var profile = MemberProfile(
             inboxIdString: inboxId,
             name: name,
             encryptedImage: encryptedImage,
+            image: plainImage,
             metadata: metadata
         ) else {
             return nil
@@ -42,15 +43,17 @@ extension DBMemberProfile {
 extension DBProfile {
     /// Projects the canonical per-inbox identity plus a conversation's avatar
     /// slot into the `MemberProfile` used inside a `ProfileSnapshot` message.
-    /// Mirrors `DBMemberProfile.snapshotMemberProfile`: only encrypted image
-    /// refs go on the wire, so a plain avatar is represented by name with the
-    /// image omitted. Returns nil when the inbox id is not valid hex.
+    /// Mirrors `DBMemberProfile.snapshotMemberProfile`: an encrypted slot rides
+    /// the encrypted image ref, a plain slot rides the plain `image` URL.
+    /// Returns nil when the inbox id is not valid hex.
     func snapshotMemberProfile(avatar: DBProfileAvatar?) -> MemberProfile? {
         let encryptedImage: EncryptedProfileImageRef? = avatar?.snapshotEncryptedImageRef
+        let plainImage: String? = encryptedImage == nil ? avatar?.snapshotPlainImageURL : nil
         guard var profile = MemberProfile(
             inboxIdString: inboxId,
             name: name,
             encryptedImage: encryptedImage,
+            image: plainImage,
             metadata: metadata
         ) else {
             return nil
@@ -70,10 +73,12 @@ extension DBMyProfile {
     /// Returns nil when the inbox id is not valid hex.
     func snapshotMemberProfile(avatar: DBProfileAvatar?) -> MemberProfile? {
         let encryptedImage: EncryptedProfileImageRef? = avatar?.snapshotEncryptedImageRef
+        let plainImage: String? = encryptedImage == nil ? avatar?.snapshotPlainImageURL : nil
         return MemberProfile(
             inboxIdString: inboxId,
             name: name,
             encryptedImage: encryptedImage,
+            image: plainImage,
             metadata: metadata
         )
     }
@@ -81,7 +86,8 @@ extension DBMyProfile {
 
 extension DBProfileAvatar {
     /// The wire-format encrypted image ref for a snapshot, or nil when the slot
-    /// is a plain/absent avatar (only encrypted refs are put on the wire).
+    /// is a plain/absent avatar (an encrypted slot rides this; a plain one rides
+    /// `snapshotPlainImageURL`).
     var snapshotEncryptedImageRef: EncryptedProfileImageRef? {
         guard hasValidEncryptedAvatar, let url, let salt, let nonce else { return nil }
         var ref = EncryptedProfileImageRef()
@@ -89,6 +95,14 @@ extension DBProfileAvatar {
         ref.salt = salt
         ref.nonce = nonce
         return ref
+    }
+
+    /// The plain (cleartext) avatar URL for a snapshot, or nil when the slot is
+    /// encrypted or absent. Peers now publish plain avatars; a plain slot has a
+    /// URL and no crypto.
+    var snapshotPlainImageURL: String? {
+        guard !hasValidEncryptedAvatar, let url, !url.isEmpty else { return nil }
+        return url
     }
 }
 

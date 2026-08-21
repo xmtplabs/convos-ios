@@ -20,8 +20,8 @@ enum ProfileInboundApplier {
     /// addresses it (absent image means "cleared"); a `ProfileSnapshot` or a
     /// history replay only fills it (absent image leaves the slot untouched).
     enum AvatarDisposition {
-        case addressed(EncryptedProfileImageRef?)
-        case fillIfPresent(EncryptedProfileImageRef?)
+        case addressed(InboundProfileImage?)
+        case fillIfPresent(InboundProfileImage?)
     }
 
     /// One inbound identity + avatar event for a member, before merge. Bundled so
@@ -132,11 +132,26 @@ enum ProfileInboundApplier {
             // that does not re-send the image - a regression we must not
             // introduce. When the protocol gains a deliberate-clear flag, restore
             // `.explicitClear` for the true-clear case here (and only here).
-            guard let image, image.isValid else { return .silent }
-            return .set(url: image.url, salt: image.salt, nonce: image.nonce, key: existingKey ?? fallbackKey)
+            guard let image else { return .silent }
+            return incomingAvatar(from: image, existingKey: existingKey, fallbackKey: fallbackKey)
         case let .fillIfPresent(image):
-            guard let image, image.isValid else { return .silent }
-            return .set(url: image.url, salt: image.salt, nonce: image.nonce, key: existingKey ?? fallbackKey)
+            guard let image else { return .silent }
+            return incomingAvatar(from: image, existingKey: existingKey, fallbackKey: fallbackKey)
+        }
+    }
+
+    /// Maps a resolved inbound image to a merge event. An encrypted ref carries
+    /// its crypto (resolving the decrypt key from the existing slot or the
+    /// conversation fallback); a plain URL becomes a crypto-less set that a plain
+    /// avatar renders directly - never attaching a key to a plain image.
+    private static func incomingAvatar(from image: InboundProfileImage, existingKey: Data?, fallbackKey: Data?) -> IncomingAvatar {
+        switch image {
+        case let .encrypted(ref):
+            guard ref.isValid else { return .silent }
+            return .set(url: ref.url, salt: ref.salt, nonce: ref.nonce, key: existingKey ?? fallbackKey)
+        case let .plain(url):
+            guard !url.isEmpty else { return .silent }
+            return .set(url: url, salt: nil, nonce: nil, key: nil)
         }
     }
 

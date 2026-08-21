@@ -246,6 +246,13 @@ extension DBMemberProfile {
         return salt.count == 32 && nonce.count == 12
     }
 
+    /// A plain (cleartext) avatar: a URL with no encryption material at all.
+    /// Peers now publish these on the write side; the read path renders them
+    /// directly.
+    var hasPlainAvatar: Bool {
+        avatar != nil && avatarSalt == nil && avatarNonce == nil && avatarKey == nil
+    }
+
     var encryptedImageRef: EncryptedImageRef? {
         guard hasValidEncryptedAvatar,
               let url = avatar,

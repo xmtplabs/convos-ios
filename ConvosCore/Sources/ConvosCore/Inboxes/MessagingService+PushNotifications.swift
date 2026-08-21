@@ -963,7 +963,7 @@ extension MessagingService {
                         inboxId: senderInboxId,
                         source: .profileUpdate,
                         name: update.hasName ? update.name : nil,
-                        avatar: .addressed(update.hasEncryptedImage ? update.encryptedImage : nil),
+                        avatar: .addressed(update.inboundImage),
                         memberKind: update.memberKind.dbMemberKind,
                         // Authoritative whole map; empty propagates as a clear
                         // (matches the stream path).
@@ -1005,7 +1005,7 @@ extension MessagingService {
                             inboxId: inboxId,
                             source: .profileSnapshot,
                             name: memberProfile.hasName ? memberProfile.name : nil,
-                            avatar: .fillIfPresent(memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil),
+                            avatar: .fillIfPresent(memberProfile.inboundImage),
                             memberKind: memberProfile.memberKind.dbMemberKind,
                             metadata: metadata.isEmpty ? nil : metadata,
                             receivedAt: receivedAt
