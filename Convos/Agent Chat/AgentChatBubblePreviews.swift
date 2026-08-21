@@ -28,6 +28,38 @@ private struct PreviewTranscript<Content: View>: View {
     }
 }
 
+/// Short and wrapped bubbles on both sides, together in the same transcript,
+/// so an accidental flexible frame is immediately visible.
+@MainActor
+@ViewBuilder
+private func previewBubbleSizing() -> some View {
+    AgentUserBubble(text: "Yo")
+    AgentReplyBubble(message: "Yo", links: [], onOpenLink: { _ in })
+    AgentUserBubble(
+        text: "Plan the full launch-day schedule, including handoffs, travel time, and a fallback for every dependency."
+    )
+    AgentReplyBubble(
+        message: "I mapped the launch from the morning briefing through the evening review. Each handoff has an owner, buffer time, and a fallback path if a dependency slips.",
+        links: [],
+        onOpenLink: { _ in }
+    )
+    AgentUserBubble(text: "And lunch?")
+    AgentReplyBubble(
+        message: "Booked near the venue, with enough time before the afternoon handoff to absorb a delayed morning session.",
+        links: [],
+        onOpenLink: { _ in }
+    )
+}
+
+#Preview("Bubble sizing") {
+    PreviewTranscript { previewBubbleSizing() }
+}
+
+#Preview("Bubble sizing, dark") {
+    PreviewTranscript { previewBubbleSizing() }
+        .preferredColorScheme(.dark)
+}
+
 /// Every bubble the transcript can show, in the order a real session meets
 /// them: a finished answer with a link, a turn being waited on with its
 /// second counter, one past the watch deadline, one the user stopped waiting

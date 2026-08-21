@@ -62,6 +62,7 @@ struct AgentChatBubble<Content: View>: View {
                 spacer
             }
         }
+        .bubbleRowWidthCap(alignment: isOutgoing ? .trailing : .leading)
     }
 }
 
@@ -85,7 +86,6 @@ struct AgentUserBubble: View {
             Text(text)
                 .font(.callout)
                 .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -111,7 +111,6 @@ struct AgentReplyBubble: View {
                     AgentLinkRow(link: link, action: action)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -180,7 +179,6 @@ struct AgentStatusBubble<Actions: View>: View {
                 }
                 actions()
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -242,7 +240,6 @@ struct AgentPendingBubble: View {
                 workingDot
                 ticking
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -267,7 +264,6 @@ struct AgentPendingBubble: View {
                         .font(.subheadline)
                         .foregroundStyle(.colorTextSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: DesignConstants.Spacing.step2x)
                     elapsed(seconds)
                 }
                 Text(Constant.stopWaitingHint)
