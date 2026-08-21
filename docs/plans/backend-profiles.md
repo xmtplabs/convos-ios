@@ -363,7 +363,9 @@ Each phase is independently shippable and leaves the app working.
 | 3 | ✅ **Done** — View cutover: `ConversationMember` and every avatar/name site read the per-inbox profile; plain-URL avatars | ios | PR #1348. The visible change; largest single PR. Ships the "resolved only via v1" counter — the retirement trigger needs a baseline from day one |
 | 4 | ✅ **Done** — Write path: upload → `PUT` → fan-out; `ProfileUpdate` v2 encode/decode. The appData write stops here | ios, convos-cli | PR #1387 (iOS) + convos-cli #137. v1 read kept; nothing is mirrored any more. The CLI reads v2 but keeps *sending* v1 — see below |
 | 5 | ✅ **Done (agent parity)** — `AgentProfile` + `POST /v2/profiles/agent`, worker registers at join, container proxy denied | backend, assistants | Agent avatars were already plain URLs, so nothing to unwind. `herald-lite` + `convos-cli` move to phase 4 with the rest of the wire format |
-| 6 | Delete: publish queue, `ProfileSnapshot`, `ProfileBackfill`, `ProfileMerge`, `ProfileSource`, `DBProfileAvatar*`, the contact identity mirror, `PostPairProfileSnapshotBroadcaster` | ios | The bulk of the removal |
+| 6a | ✅ **Done** — Stop relaying `ProfileSnapshot`: all four send sites, `ProfileSnapshotBuilder`, `PostPairProfileSnapshotBroadcaster`. Inbound snapshots still read | ios | PR #1388 |
+| 6b | Delete `DBProfileAvatar*`, shrink `ProfileMerge`/`ProfileSource` to the two tiers that survive the snapshot retirement | ios | The bulk of the removal |
+| 6c | Delete `ProfileBackfill` + the contact identity mirror | ios | **Rollout-gated, not free** — see below |
 | 7 | Delete the v1 avatar read and the encrypted-image profile stack | ios | Gated on ~90% of active sessions on the cutover build |
 | 8 | Delete the v1 name read + appData profile parsing; retire legacy `DBMemberProfile` (344 references) | ios | Gated on the counter, not a date. Mechanical PR |
 
@@ -440,6 +442,26 @@ is what makes phases 6–8 a straight demolition rather than a staged one.
 
 If support starts seeing "Somebody" reports at volume, the mirror is a small, well-understood patch to
 add back — the code exists today and would only need its avatar half removed.
+
+### Correction: `ProfileBackfill` is rollout-gated, not a phase-6 freebie
+
+The original phase-6 line listed `ProfileBackfill` alongside the snapshot relay, as
+if both were dead weight. They are not the same kind of thing.
+
+`Profile.from` reads the name from `DBProfile` and nothing else — there is no
+fallback to legacy `DBMemberProfile`. For a peer who predates the profile tables
+and has not since sent a profile event or written to the backend, the *only*
+thing that ever puts a row in `DBProfile` is the backfill. Delete it and those
+names go blank on upgrade.
+
+It is a one-time migration, so it does become dead — once every active install
+has launched the build that contains it. That is the same rollout gate phases 7
+and 8 carry, and it belongs on this deletion too.
+
+`ProfileMerge` and `ProfileSource` are a related but smaller correction: with the
+snapshot tier gone and the appData write stopped, the precedence engine is down
+to two live tiers instead of four. It shrinks; it does not vanish, because the
+v1 sources that remain still need ordering against each other.
 
 ### Decided: the CLI reads v2 but keeps sending v1
 
