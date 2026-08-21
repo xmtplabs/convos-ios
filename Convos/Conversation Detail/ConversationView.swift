@@ -110,6 +110,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// floating sheet so browsing never leaves the conversation screen.
     /// While non-empty, the top bar swaps the system back button for one
     /// that pops pages, and hides the add-members item.
+    @State private var groupEmptyStateSettled: Bool = false
     @State private var homeBrowserEntries: [HomeBrowserEntry] = []
     @State private var showingDebugInjector: Bool = false
     /// Consent surface for agent ability-use asks, managed by
@@ -1294,6 +1295,7 @@ private extension ConversationView {
     var conversationLayout: some View {
         ZStack(alignment: .top) {
             pageHost
+            groupEmptyStateOverlay
             // The wash is its own layer, not the chrome's background: it runs
             // taller than the chrome's frame and a background would clip it.
             ConversationChromeScrim(topSafeAreaInset: windowSafeAreaInsets.top)
@@ -1396,6 +1398,38 @@ private extension ConversationView {
 
     private var groupPage: some View {
         messagesView(focus: $focusState)
+            .task {
+                // Messages arrive just after the page appears, so an
+                // isEmpty-only gate would flash the empty state open and shut
+                // on every conversation that has any. Wait for the first
+                // emission to settle before it is allowed to show at all;
+                // fading out afterwards is instant either way.
+                try? await Task.sleep(for: .milliseconds(300))
+                groupEmptyStateSettled = true
+            }
+    }
+
+    /// Gated on `groupEmptyStateSettled` so it can only fade in once the
+    /// transcript has had a chance to deliver its first messages.
+    private var showsGroupEmptyState: Bool {
+        selectedTab == .group && groupEmptyStateSettled && viewModel.messages.isEmpty
+    }
+
+    /// Sits in the screen-filling layer rather than over the transcript: the
+    /// design centres it on the screen, and the transcript's own box stops
+    /// above the composer, which would land it ~46pt low.
+    private var groupEmptyStateOverlay: some View {
+        GroupEmptyStateView(
+            isInviteEnabled: messagesTopBarTrailingItemEnabled && !effectiveReadOnly,
+            onInvite: handleAddFromContactsTap
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The design centres it on the screen; the page's own box is inset at
+        // the top, which lands the block ~43pt low.
+        .ignoresSafeArea()
+        .opacity(showsGroupEmptyState ? 1.0 : 0.0)
+        .allowsHitTesting(showsGroupEmptyState)
+        .animation(.easeInOut(duration: 0.25), value: showsGroupEmptyState)
     }
 
     @ViewBuilder

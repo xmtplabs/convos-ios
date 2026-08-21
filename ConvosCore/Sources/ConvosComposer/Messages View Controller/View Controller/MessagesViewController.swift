@@ -1127,7 +1127,8 @@ extension MessagesViewController {
                 && !conversation.hidesInviteCard
                 && headerMode == .standard
             if hostsInviteHeader {
-                cells.insert(.invite(invite), at: 0)
+                // No leading cell: the Group tab's empty state carries the
+                // invite CTA now, and it is not part of the list.
             } else if !conversation.isDraft, headerMode == .standard {
                 cells.insert(.conversationInfo(conversation), at: 0)
             }
