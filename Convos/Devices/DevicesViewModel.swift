@@ -96,28 +96,11 @@ final class DevicesViewModel {
         if !didStartObserving {
             didStartObserving = true
             observers.add(for: .pairingDidCompleteSuccessfully) { [weak self] notification in
-                // Default to `.joiner` if the payload is somehow absent: the
-                // joiner side does no broadcast, which is the safe fallback.
-                // Only the initiator broadcasts the profile-snapshot fan-out
-                // (the joiner is the one *receiving* the snapshots).
                 let role = notification.pairingCompletion?.role ?? .joiner
                 Task { @MainActor in
                     guard let self else { return }
                     self.insertOptimisticDevice(named: role.optimisticDeviceName)
-                    // Capture the installation baseline BEFORE the refresh
-                    // waits for the joiner -- otherwise the joiner folds
-                    // into the baseline and the broadcaster's diff finds
-                    // nothing new (so it never broadcasts). `nil` means we
-                    // couldn't read a trustworthy baseline; skip the
-                    // broadcast entirely rather than fire it against an
-                    // empty set (which would diff true on the initiator's
-                    // own installation and broadcast before the joiner
-                    // appears).
-                    let baseline = role.isInitiator ? await self.currentInstallationIds() : nil
                     await self.refreshUntilRealInstallationAppears()
-                    if role.isInitiator, let baseline {
-                        await self.broadcastProfileSnapshotsAfterPair(baseline: baseline)
-                    }
                     // A completed pairing changes the iCloud picture (the
                     // joined device's separate key is retired when it
                     // adopts this account), so refresh the section too.
@@ -172,43 +155,6 @@ final class DevicesViewModel {
     static func shortICloudDeviceName(inboxId: String) -> String {
         let suffix = inboxId.suffix(6)
         return "Device \(suffix)"
-    }
-
-    /// The inbox's currently-known installation IDs (cached, no network
-    /// round-trip) -- used as the pre-refresh baseline for the post-pair
-    /// broadcast so the joiner's not-yet-visible installation is excluded.
-    /// Returns `nil` (not an empty set) when the baseline can't be read,
-    /// so the caller skips the broadcast: an empty baseline would diff
-    /// true against the initiator's own installation and fire the
-    /// broadcast before the joiner ever appears.
-    private func currentInstallationIds() async -> Set<String>? {
-        guard let session else { return nil }
-        do {
-            let snapshot = try await session.messagingService()
-                .installationsSnapshot(refreshFromNetwork: false)
-            return Set(snapshot.installations.map(\.id))
-        } catch {
-            Log.warning("DevicesViewModel: failed to read installation baseline before pairing broadcast: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Initiator-only: once the joiner's installation is visible in our
-    /// inbox, broadcast a fresh `ProfileSnapshot` to every group so the
-    /// joiner's new local DB hydrates each conversation's members
-    /// immediately. `baseline` is the pre-refresh installation set; the
-    /// broadcaster waits for an installation beyond it before sending.
-    /// Falls through silently if the joiner's installation never appears
-    /// within the broadcaster's polling window.
-    private func broadcastProfileSnapshotsAfterPair(baseline: Set<String>) async {
-        guard let session else { return }
-        let broadcaster = PostPairProfileSnapshotBroadcaster(
-            messagingService: session.messagingService()
-        )
-        let didBroadcast = await broadcaster.runAfterPairing(baseline: baseline)
-        if !didBroadcast {
-            Log.warning("DevicesViewModel: post-pair profile broadcast did not run (joiner installation not detected within polling window)")
-        }
     }
 
     /// Inserts a non-self placeholder row with the just-paired device's

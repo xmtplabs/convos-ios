@@ -550,64 +550,6 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         )
     }
 
-    /// Sends a fresh `ProfileSnapshot` (containing the current profile
-    /// metadata for every member) to every group the local user is in.
-    /// Used by the post-pair broadcaster so a newly-paired installation
-    /// has each conversation's member profiles populated locally without
-    /// having to rely on history sync — every group gets one snapshot
-    /// from the initiator immediately after the joiner's installation
-    /// becomes active.
-    ///
-    /// Best-effort per group: a single group's failure is logged and
-    /// skipped so a transient send error doesn't abort the fan-out.
-    /// Returns the count of groups a snapshot was successfully sent to
-    /// (0 when the inbox wasn't ready or the conversation list failed),
-    /// so callers can tell whether the fan-out actually happened.
-    @discardableResult
-    func broadcastProfileSnapshotsToAllGroups() async -> Int {
-        let result: InboxReadyResult
-        do {
-            result = try await sessionStateManager.waitForInboxReadyResult()
-        } catch {
-            Log.warning("MessagingService: broadcastProfileSnapshotsToAllGroups skipped, inbox not ready: \(error)")
-            return 0
-        }
-        let conversations: [XMTPiOS.Conversation]
-        do {
-            conversations = try await result.client.conversationsProvider.list(
-                createdAfterNs: nil,
-                createdBeforeNs: nil,
-                lastActivityBeforeNs: nil,
-                lastActivityAfterNs: nil,
-                limit: nil,
-                consentStates: [.allowed],
-                orderBy: .createdAt
-            )
-        } catch {
-            Log.warning("MessagingService: broadcastProfileSnapshotsToAllGroups list failed: \(error)")
-            return 0
-        }
-        // Sent sequentially rather than via a task group: `XMTPiOS.Group`
-        // is not `Sendable`, so fanning these into concurrent tasks would
-        // trip strict-concurrency errors. Post-pair is a one-time event,
-        // so the sequential cost is acceptable.
-        var sent: Int = 0
-        for conversation in conversations {
-            guard case let .group(group) = conversation else { continue }
-            do {
-                try await ProfileSnapshotBuilder.sendSnapshot(
-                    group: group,
-                    databaseReader: databaseReader
-                )
-                sent += 1
-            } catch {
-                Log.warning("MessagingService: ProfileSnapshot send failed for group \(group.id): \(error.localizedDescription)")
-            }
-        }
-        Log.info("MessagingService: broadcasted ProfileSnapshot to \(sent) group(s) after pairing")
-        return sent
-    }
-
     func installationsSnapshot(refreshFromNetwork: Bool) async throws -> InstallationsSnapshot {
         let result = try await sessionStateManager.waitForInboxReadyResult()
         let installations = try await result.client.listInstallations(refreshFromNetwork: refreshFromNetwork)

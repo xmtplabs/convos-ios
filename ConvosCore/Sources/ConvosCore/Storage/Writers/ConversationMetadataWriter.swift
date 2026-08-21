@@ -567,16 +567,6 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                 }
             }
         }
-
-        do {
-            try await ProfileSnapshotBuilder.sendSnapshot(
-                group: group,
-                databaseReader: databaseWriter
-            )
-            Log.debug("Sent ProfileSnapshot after adding members to \(conversationId)")
-        } catch {
-            Log.warning("Failed to send ProfileSnapshot after adding members: \(error.localizedDescription)")
-        }
     }
 
     func removeMembers(_ memberInboxIds: [String], from conversationId: String) async throws {
