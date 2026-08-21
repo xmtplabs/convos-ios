@@ -1322,6 +1322,9 @@ private extension ConversationView {
     var conversationLayout: some View {
         ZStack(alignment: .top) {
             pageHost
+            // The wash is its own layer, not the chrome's background: it runs
+            // taller than the chrome's frame and a background would clip it.
+            ConversationChromeScrim(topSafeAreaInset: windowSafeAreaInsets.top)
             ConversationTopChrome(topSafeAreaInset: windowSafeAreaInsets.top) {
                 ConversationSegmentedControl(
                     selectedTab: $selectedTab,
