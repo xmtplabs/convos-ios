@@ -16,7 +16,7 @@ struct AgentsHomeView: View {
     @State private var connectedProviders: Set<ExternalAgentProvider> = []
 
     var body: some View {
-        titledContent
+        AgentsHomeContent(connectedProviders: connectedProviders, topPadding: mode.topPadding)
             .background(.colorBackgroundRaisedSecondary)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
@@ -26,24 +26,53 @@ struct AgentsHomeView: View {
             .onAppear { reloadConnections() }
     }
 
-    /// The tab root leaves the navigation title empty on purpose: the shell's
-    /// `AppIndicatorPill` owns that zone on every tab root, exactly as it does
-    /// on Convos and Contacts. Inside the settings sheet an inline title is
-    /// what every sibling sub-page carries.
     @ViewBuilder
-    private var titledContent: some View {
-        if mode.showsNavigationTitle {
-            scroller.navigationTitle("Agents")
+    private func destination(for provider: ExternalAgentProvider) -> some View {
+        if connectedProviders.contains(provider) {
+            AgentChatView(provider: provider, dependencies: dependencies, session: session)
         } else {
-            scroller
+            setup(for: provider)
         }
     }
 
-    private var scroller: some View {
+    @ViewBuilder
+    private func setup(for provider: ExternalAgentProvider) -> some View {
+        switch provider {
+        case .town:
+            TownSetupView(dependencies: dependencies, session: session)
+        case .tasklet:
+            TaskletSetupView(dependencies: dependencies, session: session)
+        }
+    }
+
+    private func reloadConnections() {
+        connectedProviders = Set(ExternalAgentProvider.allCases.filter { provider in
+            (try? dependencies.connectionStore.load(provider: provider)) != nil
+        })
+    }
+}
+
+/// The Agents screen's content, split from the screen so every state it can
+/// be in - nothing connected, one agent connected, a build that cannot reach
+/// a relay - is reachable in a preview without a database, a Keychain entry
+/// or a live backend behind it.
+struct AgentsHomeContent: View {
+    let connectedProviders: Set<ExternalAgentProvider>
+    let topPadding: CGFloat
+
+    private var connected: [ExternalAgentProvider] {
+        ExternalAgentProvider.allCases.filter { connectedProviders.contains($0) }
+    }
+
+    private var available: [ExternalAgentProvider] {
+        ExternalAgentProvider.allCases.filter { !connectedProviders.contains($0) }
+    }
+
+    var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step8x) {
+                header
                 previewBackendNotice
-                introduction
                 connectedSection
                 discoverSection
                 privacyNote
@@ -54,21 +83,23 @@ struct AgentsHomeView: View {
         }
     }
 
-    /// The tab root scrolls under the app-indicator pill, which hangs slightly
-    /// below the navigation bar it shares the zone with.
-    private var topPadding: CGFloat {
-        switch mode {
-        case .tabRoot: DesignConstants.Spacing.step3x
-        case .settingsPage: DesignConstants.Spacing.step2x
+    /// The screen's own title, carried by the content rather than the
+    /// navigation bar - the pattern Connections and Abilities already use, and
+    /// what makes this read as a destination rather than a settings row that
+    /// opened. The sentence under it is the whole idea of the feature, so it
+    /// teaches while the list is empty and stays true once it is not.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+            Text("Agents")
+                .font(.convosTitle)
+                .tracking(Font.convosTitleTracking)
+                .foregroundStyle(.colorTextPrimary)
+            Text(AgentSetupCopy.homeIntroduction)
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-    }
-
-    private var connected: [ExternalAgentProvider] {
-        ExternalAgentProvider.allCases.filter { connectedProviders.contains($0) }
-    }
-
-    private var available: [ExternalAgentProvider] {
-        ExternalAgentProvider.allCases.filter { !connectedProviders.contains($0) }
+        .padding(.horizontal, DesignConstants.Spacing.step2x)
     }
 
     @ViewBuilder
@@ -76,26 +107,6 @@ struct AgentsHomeView: View {
         if ConfigManager.shared.isAgentRelayPreviewBuild {
             AgentComposerNotice(message: AgentSetupCopy.previewBackendNote, onDismiss: {})
                 .accessibilityIdentifier("agents-preview-backend-notice")
-        }
-    }
-
-    /// Shown only while nothing is connected. Once an agent is on the list the
-    /// list is the content, the way the Contacts tab drops its invite-first
-    /// framing once you have contacts.
-    @ViewBuilder
-    private var introduction: some View {
-        if connected.isEmpty {
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
-                Text("Bring your own agent")
-                    .font(.convosTitle)
-                    .tracking(Font.convosTitleTracking)
-                    .foregroundStyle(.colorTextPrimary)
-                Text(AgentSetupCopy.homeIntroduction)
-                    .font(.body)
-                    .foregroundStyle(.colorTextSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
         }
     }
 
@@ -134,31 +145,6 @@ struct AgentsHomeView: View {
             .foregroundStyle(.colorTextTertiary)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, DesignConstants.Spacing.step2x)
-    }
-
-    @ViewBuilder
-    private func destination(for provider: ExternalAgentProvider) -> some View {
-        if connectedProviders.contains(provider) {
-            AgentChatView(provider: provider, dependencies: dependencies, session: session)
-        } else {
-            setup(for: provider)
-        }
-    }
-
-    @ViewBuilder
-    private func setup(for provider: ExternalAgentProvider) -> some View {
-        switch provider {
-        case .town:
-            TownSetupView(dependencies: dependencies, session: session)
-        case .tasklet:
-            TaskletSetupView(dependencies: dependencies, session: session)
-        }
-    }
-
-    private func reloadConnections() {
-        connectedProviders = Set(ExternalAgentProvider.allCases.filter { provider in
-            (try? dependencies.connectionStore.load(provider: provider)) != nil
-        })
     }
 }
 
@@ -220,17 +206,39 @@ struct AgentProviderRow: View {
 
 // MARK: - Previews
 
+#Preview("Nothing connected") {
+    NavigationStack {
+        AgentsHomeContent(connectedProviders: [], topPadding: DesignConstants.Spacing.step3x)
+            .background(.colorBackgroundRaisedSecondary)
+    }
+}
+
+#Preview("Nothing connected, dark") {
+    NavigationStack {
+        AgentsHomeContent(connectedProviders: [], topPadding: DesignConstants.Spacing.step3x)
+            .background(.colorBackgroundRaisedSecondary)
+    }
+    .preferredColorScheme(.dark)
+}
+
+#Preview("One agent connected") {
+    NavigationStack {
+        AgentsHomeContent(connectedProviders: [.tasklet], topPadding: DesignConstants.Spacing.step3x)
+            .background(.colorBackgroundRaisedSecondary)
+    }
+}
+
+#Preview("One agent connected, dark") {
+    NavigationStack {
+        AgentsHomeContent(connectedProviders: [.tasklet], topPadding: DesignConstants.Spacing.step3x)
+            .background(.colorBackgroundRaisedSecondary)
+    }
+    .preferredColorScheme(.dark)
+}
+
 #Preview("Provider rows") {
     VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-        Text("Your agents")
-            .font(.caption)
-            .foregroundStyle(.colorTextSecondary)
-            .padding(.leading, DesignConstants.Spacing.step2x)
         AgentProviderRow(provider: .tasklet, isConnected: true)
-        Text("Discover")
-            .font(.caption)
-            .foregroundStyle(.colorTextSecondary)
-            .padding(.leading, DesignConstants.Spacing.step2x)
         AgentProviderRow(provider: .town, isConnected: false)
     }
     .padding(DesignConstants.Spacing.step4x)

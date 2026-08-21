@@ -51,10 +51,18 @@ struct AgentChatView: View {
         .background(.colorBackgroundSurfaceless)
     }
 
+    /// The bar carries its own background on purpose. `AgentsHomeView` hides
+    /// the toolbar background for the tab root it owns, and without this the
+    /// pushed transcript inherits a bare bar: messages scroll up behind the
+    /// title unblurred and read as a second, ghost title. The tab bar goes for
+    /// the same reason a pushed conversation hides it - a screen with a
+    /// composer owns its own bottom edge.
     private func navigation(_ content: some View) -> some View {
         content
             .navigationTitle(provider.displayName)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar(.hidden, for: .tabBar)
             .toolbar { toolbarContent }
             .onAppear { AgentChatVisibility.isVisible = true }
             .onDisappear { AgentChatVisibility.isVisible = false }
@@ -78,17 +86,11 @@ struct AgentChatView: View {
 
     private func dialogs(_ content: some View) -> some View {
         content
-            .confirmationDialog(
-                "Clear \(provider.displayName) history?",
+            .agentClearHistoryDialog(
                 isPresented: $showingClearHistoryConfirmation,
-                titleVisibility: .visible
-            ) {
-                let action = { viewModel.clearHistory() }
-                Button("Clear history", role: .destructive, action: action)
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(AgentSetupCopy.clearHistoryWarning)
-            }
+                providerName: provider.displayName,
+                onClear: { viewModel.clearHistory() }
+            )
             .confirmationDialog("Disconnect \(provider.displayName)?", isPresented: $showingDisconnectConfirmation) {
                 let action = { disconnect() }
                 Button("Disconnect", role: .destructive, action: action)
@@ -123,7 +125,7 @@ struct AgentChatView: View {
             ScrollView {
                 LazyVStack(spacing: DesignConstants.Spacing.step3x) {
                     if viewModel.turns.isEmpty {
-                        emptyState
+                        AgentTranscriptEmptyState(provider: provider)
                     } else {
                         AgentTranscriptNote(text: AgentSetupCopy.contextBoundary(for: provider))
                     }
@@ -140,16 +142,6 @@ struct AgentChatView: View {
                 withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
             }
         }
-    }
-
-    private var emptyState: some View {
-        ContentUnavailableView(
-            "Send \(provider.displayName) some work",
-            systemImage: provider.symbolName,
-            description: Text(AgentSetupCopy.chatEmptyState)
-        )
-        .padding(.top, DesignConstants.Spacing.step8x)
-        .accessibilityIdentifier("agent-chat-empty-state")
     }
 
     private func turnPair(_ turn: AgentTurn) -> some View {

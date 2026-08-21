@@ -336,6 +336,46 @@ struct AgentTranscriptNote: View {
     }
 }
 
+/// The transcript before anything has been sent. It teaches the one thing
+/// that is different about this chat - the work happens elsewhere and takes
+/// time - rather than reporting that a list is empty.
+struct AgentTranscriptEmptyState: View {
+    let provider: ExternalAgentProvider
+
+    var body: some View {
+        ContentUnavailableView(
+            "Send \(provider.displayName) some work",
+            systemImage: provider.symbolName,
+            description: Text(AgentSetupCopy.chatEmptyState)
+        )
+        .padding(.top, DesignConstants.Spacing.step8x)
+        .accessibilityIdentifier("agent-chat-empty-state")
+    }
+}
+
+extension View {
+    /// The clear-history confirmation, in one place so the transcript and its
+    /// previews ask the question with the same words. It names the agent
+    /// because the scope is that agent's history, says what goes and what
+    /// stays, and says that it cannot be undone.
+    func agentClearHistoryDialog(
+        isPresented: Binding<Bool>,
+        providerName: String,
+        onClear: @escaping () -> Void
+    ) -> some View {
+        confirmationDialog(
+            "Clear \(providerName) history?",
+            isPresented: isPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Clear history", role: .destructive, action: onClear)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(AgentSetupCopy.clearHistoryWarning)
+        }
+    }
+}
+
 /// A send that produced no bubble of its own - the request never reached the
 /// relay, so there is nothing in the transcript to attach the failure to.
 /// Sits above the composer, names the problem and the way out, and can be
@@ -374,73 +414,4 @@ struct AgentComposerNotice: View {
     private enum Constant {
         static let noticeFillOpacity: Double = 0.15
     }
-}
-
-// MARK: - Previews
-
-private func previewLink(_ host: String, title: String?) -> AgentRelayLink {
-    AgentRelayLink(title: title, url: URL(string: "https://\(host)/doc/1") ?? URL(fileURLWithPath: "/"))
-}
-
-#Preview("Transcript states") {
-    ScrollView {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-            AgentUserBubble(text: "Draft the packing list for the Lisbon trip and share the doc.")
-            AgentReplyBubble(
-                message: "Done. I drafted the list from last year's trip and dropped it in a doc.",
-                links: [previewLink("docs.google.com", title: "Lisbon packing list")],
-                onOpenLink: { _ in }
-            )
-            AgentUserBubble(text: "Book the airport transfer too.")
-            AgentPendingBubble(
-                startedAt: Date().addingTimeInterval(-218),
-                deadline: Date().addingTimeInterval(382),
-                workingMessage: AgentSetupCopy.workingNote,
-                pastDeadlineMessage: AgentSetupCopy.stillWorkingNote,
-                onCheckAgain: {},
-                onStopWaiting: {}
-            )
-            AgentPendingBubble(
-                startedAt: Date().addingTimeInterval(-742),
-                deadline: Date().addingTimeInterval(-142),
-                workingMessage: AgentSetupCopy.workingNote,
-                pastDeadlineMessage: AgentSetupCopy.stillWorkingNote,
-                onCheckAgain: {},
-                onStopWaiting: {}
-            )
-            AgentStatusBubble(
-                systemImage: "clock.arrow.circlepath",
-                message: "Stopped waiting on this iPhone. If it replies, the answer arrives here."
-            ) {
-                AgentBubbleAction(title: "Check again", action: {})
-            }
-            AgentStatusBubble(
-                systemImage: "exclamationmark.triangle.fill",
-                message: "Convos is not signed in yet. Try again in a moment.",
-                glyphTint: .colorCaution
-            ) {
-                AgentBubbleAction(title: "Try again", action: {})
-            }
-            AgentStatusBubble(
-                systemImage: "hourglass",
-                message: "This request expired. Send it again."
-            ) {
-                AgentBubbleAction(title: "Try again", action: {})
-            }
-        }
-        .padding(DesignConstants.Spacing.step4x)
-    }
-    .background(.colorBackgroundSurfaceless)
-}
-
-#Preview("Composer notice") {
-    VStack(spacing: DesignConstants.Spacing.step4x) {
-        AgentComposerNotice(message: "Convos is not signed in yet. Try again in a moment.", onDismiss: {})
-        AgentComposerNotice(
-            message: "Town turned down the webhook secret. Copy it again from the routine's webhook settings.",
-            onDismiss: {}
-        )
-    }
-    .padding(DesignConstants.Spacing.step4x)
-    .background(.colorBackgroundSurfaceless)
 }
