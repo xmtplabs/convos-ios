@@ -71,6 +71,9 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
     /// same shape as V1: `<scheme>://connections/callback`.
     private let redirectUri: String?
     private let cache: AbilitiesCatalogDiskCache?
+    /// Bridges catalog-derived provider registrations to the capability
+    /// registry (see `CloudProviderDescriptor`).
+    private let descriptorStore: CloudProviderDescriptorStore
     /// The caller's own inbox id: the disk-cache scope, and the PUT's
     /// optional `extendedByInboxId`. Nil (or a nil resolution) omits the
     /// wire field and bypasses the disk cache.
@@ -125,7 +128,8 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         cache: AbilitiesCatalogDiskCache?,
         myInboxIdProvider: (@Sendable () async -> String?)? = nil,
         shimWriter: (any AbilityV1AwarenessShimWriting)? = nil,
-        isShimEnabled: @escaping @Sendable () -> Bool = { false }
+        isShimEnabled: @escaping @Sendable () -> Bool = { false },
+        descriptorStore: CloudProviderDescriptorStore = .shared
     ) {
         self.apiClient = apiClient
         self.redirectUri = callbackURLScheme.map { "\($0)://connections/callback" }
@@ -133,6 +137,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         self.myInboxIdProvider = myInboxIdProvider
         self.shimWriter = shimWriter
         self.isShimEnabled = isShimEnabled
+        self.descriptorStore = descriptorStore
     }
 
     // MARK: - AbilitiesServiceProtocol
@@ -163,6 +168,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         if catalogScope == scope && sequence > committedFetchSequence && wipeCount == wipeMark {
             committedFetchSequence = sequence
             lastKnownCatalog = catalog
+            descriptorStore.update(CloudProviderDescriptor.descriptors(from: catalog))
             if let scope {
                 cache?.save(catalog, scope: scope)
             }
@@ -414,6 +420,7 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         lastKnownCatalog = nil
         catalogScope = nil
         hasLoadedCache = false
+        descriptorStore.clear()
         cache?.clearAll()
     }
 
@@ -434,6 +441,9 @@ public actor LiveAbilitiesService: AbilitiesServiceProtocol {
         catalogScope = scope
         if let scope {
             lastKnownCatalog = cache?.load(scope: scope)
+            if let loaded = lastKnownCatalog {
+                descriptorStore.update(CloudProviderDescriptor.descriptors(from: loaded))
+            }
         } else {
             lastKnownCatalog = nil
         }
