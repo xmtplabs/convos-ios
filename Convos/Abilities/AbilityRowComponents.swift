@@ -98,6 +98,11 @@ struct AbilityStatusBadge: View {
         Text(label)
             .font(.caption.weight(.medium))
             .foregroundStyle(labelColor)
+            // A one-word status must never hyphenate: at accessibility text
+            // sizes the capsule wrapped "Active" into "Ac-tive". The row's
+            // title column is the flexible one, not this.
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, DesignConstants.Spacing.step2x)
             .padding(.vertical, DesignConstants.Spacing.stepHalf)
             .background(Capsule().fill(Color.colorFillMinimal))
@@ -151,6 +156,11 @@ struct AbilityDelegationStateChip: View {
         Text(label)
             .font(.caption.weight(.medium))
             .foregroundStyle(labelColor)
+            // A one-word status must never hyphenate: at accessibility text
+            // sizes the capsule wrapped "Active" into "Ac-tive". The row's
+            // title column is the flexible one, not this.
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, DesignConstants.Spacing.step2x)
             .padding(.vertical, DesignConstants.Spacing.stepHalf)
             .background(Capsule().fill(Color.colorFillMinimal))

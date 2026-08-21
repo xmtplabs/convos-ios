@@ -48,6 +48,10 @@ struct ConversationAbilityToggleControl: View {
                 .labelsHidden()
                 .tint(.colorGreen)
                 .disabled(isDisabled)
+                // The visible row names the connection; the switch itself
+                // carries no label, so assistive technology would announce
+                // an anonymous switch beside it.
+                .accessibilityLabel("\(row.ability.displayName.resolved()) in this convo")
         }
     }
 
