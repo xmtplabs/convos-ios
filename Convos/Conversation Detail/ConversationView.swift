@@ -81,10 +81,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Window safe-area insets, used to convert the sheet's physical-edge
     /// clearance into the safe-area-relative inset the transcripts take.
     @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
-    /// The scheme the conversation is presented in, sampled while the Agent
-    /// tab is not forcing its own. See `preferredScheme`.
-    @Environment(\.colorScheme) private var presentedColorScheme: ColorScheme
-    @State private var ambientColorScheme: ColorScheme?
     /// Binds the Agent tab to the agent's real DM conversation; shared by the
     /// backing transcript and the sheet's agent composer.
     @State private var agentDmSession: AgentDmSession?
@@ -487,30 +483,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         return badged
     }
 
-    /// The Agent tab is a dark surface, and its composer's materials resolve
-    /// against the UIKit trait collection rather than SwiftUI's environment,
-    /// so the scheme has to be forced rather than set in the environment.
-    ///
-    /// Applied to the pages and the top chrome, not to the whole screen: the
-    /// conversation's title capsule is drawn by `ConversationPresenter` above
-    /// this view and belongs to the conversation, not to the selected tab.
-    ///
-    /// Leaving the group at "no preference" (nil) looks equivalent but isn't:
-    /// the forced trait sticks, and the group chat comes back dark. Handing
-    /// back the scheme the conversation was presented in restores it
-    /// explicitly.
-    private var preferredScheme: ColorScheme? {
-        selectedTab == .agent ? .dark : ambientColorScheme
-    }
-
-    /// Samples the presented scheme, ignoring the value the Agent tab forces -
-    /// sampling that would feed the forced scheme back in as the ambient one
-    /// and leave every tab dark.
-    private func captureAmbientScheme(_ scheme: ColorScheme) {
-        guard selectedTab != .agent else { return }
-        ambientColorScheme = scheme
-    }
-
     /// The layout plus the tab/focus/session observers, split from `body`
     /// to keep each expression inside the type-check budget.
     private var conversationCore: some View {
@@ -569,7 +541,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ensureNavigator()
             navState.markScreenAppeared()
             updateGroupOnScreen(isOnScreen: true)
-            captureAmbientScheme(presentedColorScheme)
             // Seed before the viewed check: a DM-notification open lands
             // straight on the agent page, and the group must not count as
             // viewed (its unread state and read receipts stay untouched
@@ -613,9 +584,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .modifier(metricsObserversPart1)
         .modifier(metricsObserversPart2)
         .modifier(metricsObserversPart3)
-        .onChange(of: presentedColorScheme) { _, scheme in
-            captureAmbientScheme(scheme)
-        }
         .toolbar { topBarTrailing }
         .onDisappear {
             VoiceMemoPlayer.shared.stop()
@@ -1349,10 +1317,14 @@ private extension ConversationView {
             coordinator: agentFocusCoordinator,
             resetToken: viewModel.conversation.id
         )
-        // Scoped here rather than to `body`: the Agent tab's dark surface is the
-        // page's, and the conversation's title capsule above this view keeps the
-        // conversation's own scheme.
-        .preferredColorScheme(preferredScheme)
+        // The Agent tab is a dark surface. Scoped to this screen's own
+        // controller rather than preferred at the window, so the conversations
+        // list behind it is not dark for the length of the pop animation (see
+        // ScreenAppearanceScope).
+        .background {
+            ScreenAppearanceScope(style: selectedTab == .agent ? .dark : .unspecified)
+                .frame(width: 0, height: 0)
+        }
         .onChange(of: focusCoordinator.currentFocus) { _, newFocus in
             handleComposerFocusChanged(newFocus)
         }
