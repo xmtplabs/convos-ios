@@ -81,10 +81,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Window safe-area insets, used to convert the sheet's physical-edge
     /// clearance into the safe-area-relative inset the transcripts take.
     @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
-    /// The scheme the conversation is presented in, sampled while the Agent
-    /// tab is not forcing its own. See `preferredScheme`.
-    @Environment(\.colorScheme) private var presentedColorScheme: ColorScheme
-    @State private var ambientColorScheme: ColorScheme?
+    /// The scheme this conversation was presented in, handed back to the pages
+    /// on every tab but Agent. Reading it here is safe: the override below is
+    /// scoped to the subtree, so it never feeds back into this value.
+    @Environment(\.colorScheme) private var ambientColorScheme: ColorScheme
     /// Binds the Agent tab to the agent's real DM conversation; shared by the
     /// backing transcript and the sheet's agent composer.
     @State private var agentDmSession: AgentDmSession?
@@ -487,30 +487,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         return badged
     }
 
-    /// The Agent tab is a dark surface, and its composer's materials resolve
-    /// against the UIKit trait collection rather than SwiftUI's environment,
-    /// so the scheme has to be forced rather than set in the environment.
-    ///
-    /// Applied to the pages and the top chrome, not to the whole screen: the
-    /// conversation's title capsule is drawn by `ConversationPresenter` above
-    /// this view and belongs to the conversation, not to the selected tab.
-    ///
-    /// Leaving the group at "no preference" (nil) looks equivalent but isn't:
-    /// the forced trait sticks, and the group chat comes back dark. Handing
-    /// back the scheme the conversation was presented in restores it
-    /// explicitly.
-    private var preferredScheme: ColorScheme? {
-        selectedTab == .agent ? .dark : ambientColorScheme
-    }
-
-    /// Samples the presented scheme, ignoring the value the Agent tab forces -
-    /// sampling that would feed the forced scheme back in as the ambient one
-    /// and leave every tab dark.
-    private func captureAmbientScheme(_ scheme: ColorScheme) {
-        guard selectedTab != .agent else { return }
-        ambientColorScheme = scheme
-    }
-
     /// The layout plus the tab/focus/session observers, split from `body`
     /// to keep each expression inside the type-check budget.
     private var conversationCore: some View {
@@ -569,7 +545,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ensureNavigator()
             navState.markScreenAppeared()
             updateGroupOnScreen(isOnScreen: true)
-            captureAmbientScheme(presentedColorScheme)
             // Seed before the viewed check: a DM-notification open lands
             // straight on the agent page, and the group must not count as
             // viewed (its unread state and read receipts stay untouched
@@ -613,9 +588,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .modifier(metricsObserversPart1)
         .modifier(metricsObserversPart2)
         .modifier(metricsObserversPart3)
-        .onChange(of: presentedColorScheme) { _, scheme in
-            captureAmbientScheme(scheme)
-        }
         .toolbar { topBarTrailing }
         .onDisappear {
             VoiceMemoPlayer.shared.stop()
@@ -1324,7 +1296,8 @@ private extension ConversationView {
     /// decided how much Space showed, the geometry the two sides traded, and the
     /// focus host a presentation boundary made necessary. The Space is a tab now.
     var conversationLayout: some View {
-        ZStack(alignment: .top) {
+        let contentScheme: ColorScheme = selectedTab == .agent ? .dark : ambientColorScheme
+        return ZStack(alignment: .top) {
             pageHost
             // The wash is its own layer, not the chrome's background: it runs
             // taller than the chrome's frame and a background would clip it.
@@ -1349,10 +1322,17 @@ private extension ConversationView {
             coordinator: agentFocusCoordinator,
             resetToken: viewModel.conversation.id
         )
-        // Scoped here rather than to `body`: the Agent tab's dark surface is the
-        // page's, and the conversation's title capsule above this view keeps the
-        // conversation's own scheme.
-        .preferredColorScheme(preferredScheme)
+        // The Agent tab's dark surface, scoped to this subtree through the
+        // environment. `preferredColorScheme` would style the same pages, but it
+        // resolves at the window: the conversations list behind this screen
+        // renders dark for a frame while the pop animation runs, before the
+        // popped view is torn down and the preference lifts.
+        //
+        // Handing the ambient scheme back on the other tabs, rather than leaving
+        // the environment alone, keeps the value stable across tab switches - a
+        // conditional modifier here would change the subtree's identity and
+        // remount both transcripts.
+        .environment(\.colorScheme, contentScheme)
         .onChange(of: focusCoordinator.currentFocus) { _, newFocus in
             handleComposerFocusChanged(newFocus)
         }
