@@ -106,7 +106,10 @@ public final class AgentRelayClient: Sendable {
         try await api.listCompleted()
     }
 
-    func acknowledge(requestId: String) async throws {
+    /// Acks one completed mailbox without saving anything locally. Used by
+    /// recovery, and by the app when the user clears history for rows the
+    /// backend is still holding open.
+    public func acknowledge(requestId: String) async throws {
         try await api.ack(requestId: requestId)
     }
 

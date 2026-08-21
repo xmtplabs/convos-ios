@@ -17,7 +17,9 @@ final class AgentChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.composerText, draft.text)
     }
 
-    func testCanSubmitOnlyBlocksForRecentPendingTurn() throws {
+    /// Sending supersedes an in-flight turn instead of waiting for it, so a
+    /// pending turn never disables the composer - only empty text does.
+    func testCanSubmitIsNotBlockedByAPendingTurn() throws {
         let fixture = try AgentChatViewModelFixture()
         let viewModel = fixture.makeViewModel(provider: .town, initialText: "Next request")
 
@@ -27,13 +29,27 @@ final class AgentChatViewModelTests: XCTestCase {
             status: .pending,
             createdAt: Date().addingTimeInterval(-60)
         )]
-        XCTAssertFalse(viewModel.canSubmit)
-
-        viewModel.turns = [makeAgentChatTurn(
-            status: .pending,
-            createdAt: Date().addingTimeInterval(-601)
-        )]
         XCTAssertTrue(viewModel.canSubmit)
+
+        viewModel.composerText = "   "
+        XCTAssertFalse(viewModel.canSubmit)
+    }
+
+    func testSubmitSupersedesTheInFlightTurn() async throws {
+        let fixture = try AgentChatViewModelFixture()
+        let inFlight = makeAgentChatTurn(
+            requestId: "request_in_flight",
+            provider: .town,
+            status: .pending,
+            createdAt: Date().addingTimeInterval(-30)
+        )
+        try fixture.insertPending(inFlight)
+        let viewModel = fixture.makeViewModel(provider: .town, initialText: "A newer request")
+
+        viewModel.submit()
+
+        let status: AgentTurnStatus? = try fixture.repository.turn(requestId: inFlight.requestId)?.status
+        XCTAssertEqual(status, .superseded)
     }
 
     func testCheckAgainCollectsThenRearmsWatch() async throws {

@@ -95,6 +95,31 @@ public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderRe
         }
     }
 
+    /// Stops this device waiting on an in-flight turn because the user sent a
+    /// new one. Deliberately not on `AgentChatWriterProtocol`: it is a
+    /// foreground-only transition the relay client never performs, and the
+    /// protocol is the client's contract.
+    public func markSuperseded(requestId: String) throws {
+        try updateExisting(requestId: requestId) { turn in
+            guard turn.status == .pending else { return }
+            turn.status = .superseded
+            turn.errorCode = nil
+        }
+    }
+
+    /// Removes one provider's settled rows, leaving in-flight turns (pending
+    /// or superseded) alone so a result that is still on its way keeps the
+    /// journal row it has to land in.
+    public func deleteSettledTurns(provider: ExternalAgentProvider) throws {
+        try database.pool.write { db in
+            _ = try AgentTurn
+                .filter(Column("provider") == provider.rawValue)
+                .filter(Column("status") != AgentTurnStatus.pending.rawValue)
+                .filter(Column("status") != AgentTurnStatus.superseded.rawValue)
+                .deleteAll(db)
+        }
+    }
+
     public func deleteAll() throws {
         try database.pool.write { db in
             _ = try AgentTurn.deleteAll(db)

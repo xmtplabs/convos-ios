@@ -41,9 +41,17 @@ enum AgentSetupCopy {
         return [firstParagraph, secondParagraph].joined(separator: "\n\n")
     }
 
+    /// What a user reads when nothing more specific is known. Kept in one
+    /// place so every surface says the same thing.
+    static let genericFailure: String = "Something went wrong. Try again."
+
+    static let stillWorkingNote: String = "Still working. You will get a notification when it replies."
+
+    static let stoppedWaitingNote: String = "Stopped waiting on this iPhone. If it replies, the answer arrives here."
+
     static func errorMessage(_ error: Error, provider: ExternalAgentProvider) -> String {
         guard let relayError = error as? AgentRelayError else {
-            return "Something went wrong. Try again."
+            return genericFailure
         }
         return errorMessage(relayError, provider: provider)
     }
@@ -55,32 +63,83 @@ enum AgentSetupCopy {
         case .validation(let message):
             return message
         case .relayUnreachable:
-            return "Convos could not reach the relay. Try again."
+            return "Convos could not reach its servers. Check your connection and try again."
         case .relayRejected(let status):
-            return "The relay rejected the request (\(status)). Try again."
+            return relayRejection(status: status)
         case let .webhookRejected(rejectedProvider, status):
             return webhookRejection(provider: rejectedProvider, status: status)
         case .webhookUnreachable:
             return "Convos could not reach \(provider.displayName). Check the webhook URL and try again."
         case .unreadableResult:
-            return "The agent reply could not be read. Send it again."
+            return "The agent's reply could not be read. Send it again."
         case .expired:
-            return "This request expired; send it again."
+            return "This request expired. Send it again."
         case .stillWorking:
-            return "Still working after ten minutes; you will get a notification when it replies."
+            return stillWorkingNote
         case .cancelled:
-            return "The request stopped on this device. It may still reply by notification."
+            return stoppedWaitingNote
         }
+    }
+
+    /// Rebuilds the user-facing sentence from the code persisted on a turn.
+    /// Returns nil when the code is not one this app writes.
+    static func errorMessage(forCode code: String, provider: ExternalAgentProvider) -> String? {
+        switch code {
+        case AgentRelayError.notConnected.code:
+            return errorMessage(.notConnected, provider: provider)
+        case AgentRelayError.relayUnreachable.code:
+            return errorMessage(.relayUnreachable, provider: provider)
+        case AgentRelayError.webhookUnreachable.code:
+            return errorMessage(.webhookUnreachable, provider: provider)
+        case AgentRelayError.unreadableResult.code:
+            return errorMessage(.unreadableResult, provider: provider)
+        case AgentRelayError.expired.code:
+            return errorMessage(.expired, provider: provider)
+        case AgentRelayError.stillWorking.code:
+            return stillWorkingNote
+        case AgentRelayError.cancelled.code:
+            return stoppedWaitingNote
+        default:
+            return rejectionMessage(forCode: code, provider: provider)
+        }
+    }
+
+    private static func rejectionMessage(forCode code: String, provider: ExternalAgentProvider) -> String? {
+        let parts: [Substring] = code.split(separator: ":")
+        guard let statusText = parts.last, let status = Int(statusText) else { return nil }
+        if code.hasPrefix("relayRejected:") {
+            return relayRejection(status: status)
+        }
+        if code.hasPrefix("webhookRejected:") {
+            return webhookRejection(provider: provider, status: status)
+        }
+        return nil
+    }
+
+    /// The status code is diagnostics, not product copy: it is already in the
+    /// logs, and a number in a sentence tells the user nothing about what to
+    /// do next. Each band names the problem and the recovery instead.
+    private static func relayRejection(status: Int) -> String {
+        if status == 401 || status == 403 {
+            return "Convos is not signed in yet. Try again in a moment."
+        }
+        if status == 429 {
+            return "Convos is busy right now. Try again in a moment."
+        }
+        if status >= 500 {
+            return "Convos had a problem sending this. Try again."
+        }
+        return "Convos could not send this request. Try again."
     }
 
     private static func webhookRejection(provider: ExternalAgentProvider, status: Int) -> String {
         if provider == .town, status == 401 || status == 403 {
-            return "Town rejected the webhook secret; copy it again from the routine's webhook settings"
+            return "Town turned down the webhook secret. Copy it again from the routine's webhook settings."
         }
         if provider == .tasklet, status == 404 {
-            return "Tasklet did not recognise the webhook URL"
+            return "Tasklet did not recognise the webhook URL. Check it and connect again."
         }
-        return "\(provider.displayName) rejected the webhook (\(status)). Check its setup and try again."
+        return "\(provider.displayName) turned down the request. Check its setup and try again."
     }
 }
 
@@ -189,7 +248,7 @@ final class AgentSetupViewModel {
         case .failed(let error):
             state = .failed(AgentSetupCopy.errorMessage(error, provider: provider))
         case .expired:
-            state = .failed("This request expired; send it again.")
+            state = .failed(AgentSetupCopy.errorMessage(.expired, provider: provider))
         case .stillWorking:
             state = .stillWorking
         case .collectedElsewhere:
@@ -248,11 +307,8 @@ struct AgentConnectionTestStatusView: View {
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .foregroundStyle(.red)
         case .stillWorking:
-            Label(
-                "Still working after ten minutes; you will get a notification when it replies.",
-                systemImage: "clock.badge.exclamationmark"
-            )
-            .foregroundStyle(.secondary)
+            Label(AgentSetupCopy.stillWorkingNote, systemImage: "clock.badge.exclamationmark")
+                .foregroundStyle(.colorTextSecondary)
         }
     }
 }

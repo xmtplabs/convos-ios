@@ -146,40 +146,72 @@ struct AgentChatView: View {
         case .failed:
             retryBubble(message: viewModel.userFacingError(for: turn), turn: turn)
         case .expired:
-            retryBubble(message: "This request expired; send it again.", turn: turn)
+            retryBubble(message: AgentSetupCopy.errorMessage(.expired, provider: turn.provider), turn: turn)
         case .collectedElsewhere:
             retryBubble(message: "This reply was collected on another device.", turn: turn)
+        case .superseded:
+            supersededBubble(turn)
         }
     }
 
+    /// The elapsed time is real and worth showing - these turns legitimately
+    /// run for minutes - but a per-second counter reads as a stall. Whole
+    /// minutes on a slow tick keep the truth and drop the alarm.
     private func pendingBubble(_ turn: AgentTurn) -> some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let elapsed: Int = max(0, Int(context.date.timeIntervalSince(turn.createdAt)))
+        TimelineView(.periodic(from: .now, by: Constant.pendingTick)) { context in
             let stillWorking: Bool = viewModel.isStillWorking(turn, now: context.date)
-            let status: String = pendingStatus(elapsed: elapsed, stillWorking: stillWorking)
-            let systemImage: String = stillWorking ? "clock.badge.exclamationmark" : "ellipsis"
+            let status: String = pendingStatus(turn: turn, now: context.date, stillWorking: stillWorking)
+            let systemImage: String = stillWorking ? "clock.badge.exclamationmark" : "clock"
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
                 Label(status, systemImage: systemImage)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                if stillWorking {
-                    let action = { viewModel.checkAgain(turn: turn) }
-                    Button("Check again", action: action)
-                        .buttonStyle(.bordered)
-                        .tint(.green)
-                }
+                    .foregroundStyle(.colorTextSecondary)
+                pendingActions(turn: turn, stillWorking: stillWorking)
             }
             .padding(DesignConstants.Spacing.step3x)
             .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: 20))
         }
     }
 
-    private func pendingStatus(elapsed: Int, stillWorking: Bool) -> String {
+    @ViewBuilder
+    private func pendingActions(turn: AgentTurn, stillWorking: Bool) -> some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            if stillWorking {
+                let checkAction = { viewModel.checkAgain(turn: turn) }
+                Button("Check again", action: checkAction)
+                    .buttonStyle(.bordered)
+                    .tint(.colorGreen)
+            }
+            let stopAction = { viewModel.stopWaiting(turn: turn) }
+            Button("Stop waiting", action: stopAction)
+                .buttonStyle(.bordered)
+                .tint(.colorTextSecondary)
+                .accessibilityIdentifier("agent-turn-stop-waiting")
+        }
+    }
+
+    private func supersededBubble(_ turn: AgentTurn) -> some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            Label(AgentSetupCopy.stoppedWaitingNote, systemImage: "clock.arrow.circlepath")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
+            let action = { viewModel.checkAgain(turn: turn) }
+            Button("Check again", action: action)
+                .buttonStyle(.bordered)
+                .tint(.colorGreen)
+        }
+        .padding(DesignConstants.Spacing.step3x)
+        .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func pendingStatus(turn: AgentTurn, now: Date, stillWorking: Bool) -> String {
         guard !ConfigManager.shared.isAgentRelayPreviewBuild else {
             return AgentSetupCopy.previewBackendNote
         }
-        guard stillWorking else { return "Working on its own platform - \(elapsed)s" }
-        return "Still working after ten minutes; you will get a notification when it replies."
+        guard !stillWorking else { return AgentSetupCopy.stillWorkingNote }
+        let minutes: Int = Int(max(0, now.timeIntervalSince(turn.createdAt)) / 60)
+        guard minutes >= 1 else { return "Working on its own platform" }
+        return "Working on its own platform - \(minutes) min"
     }
 
     private func completedBubble(_ turn: AgentTurn) -> some View {
@@ -327,6 +359,12 @@ struct AgentChatView: View {
                 userInfo: ["provider": candidate.rawValue]
             )
         }
+    }
+
+    private enum Constant {
+        /// The pending line only counts whole minutes, so a slower tick keeps
+        /// it accurate without redrawing the transcript every second.
+        static let pendingTick: TimeInterval = 15.0
     }
 }
 

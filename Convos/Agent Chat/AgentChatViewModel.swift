@@ -28,14 +28,17 @@ final class AgentChatViewModel {
         observeTurns()
     }
 
+    /// Only the composer's content gates sending. A turn already in flight
+    /// does not: sending supersedes it (see `submit()`), which is the escape
+    /// hatch from a turn that is going nowhere.
     var canSubmit: Bool {
-        let prompt: String = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasRecentPending: Bool = turns.contains { turn in
-            turn.provider == provider
-                && turn.status == .pending
-                && Date().timeIntervalSince(turn.createdAt) < Constant.watchDeadline
-        }
-        return !prompt.isEmpty && !isSubmitting && !hasRecentPending
+        !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The turn this device is currently waiting on, if any. At most one:
+    /// sending stops waiting on the previous one.
+    var inFlightTurn: AgentTurn? {
+        turns.last { $0.status == .pending }
     }
 
     var connectedProviders: [ExternalAgentProvider] {
@@ -48,20 +51,38 @@ final class AgentChatViewModel {
         composerText = text
     }
 
+    /// Stops waiting on whatever is in flight, then sends. The agent on its
+    /// own platform keeps working either way - this device only stops
+    /// watching, and a late answer still lands in the superseded turn's place.
     func submit() {
         let prompt: String = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard canSubmit, !prompt.isEmpty else { return }
+        guard !prompt.isEmpty else { return }
         composerText = ""
+        stopWaitingOnInFlightTurns()
         perform(prompt: prompt)
     }
 
     func retry(turn: AgentTurn) {
-        guard !isSubmitting else { return }
+        stopWaitingOnInFlightTurns()
         perform(prompt: turn.prompt)
     }
 
+    /// Explicit "stop waiting" on one turn, for a user who wants the transcript
+    /// to settle without sending anything new.
+    func stopWaiting(turn: AgentTurn) {
+        guard turn.status == .pending else { return }
+        submissionTask?.cancel()
+        submissionTask = nil
+        isSubmitting = false
+        do {
+            try dependencies.writer.markSuperseded(requestId: turn.requestId)
+        } catch {
+            Log.warning("Agent relay could not stop waiting on a turn")
+        }
+    }
+
     func checkAgain(turn: AgentTurn) {
-        guard turn.status == .pending, !isSubmitting else { return }
+        guard turn.status == .pending || turn.status == .superseded else { return }
         errorMessage = nil
         isSubmitting = true
         let dependencies = dependencies
@@ -74,47 +95,66 @@ final class AgentChatViewModel {
                     provider: provider
                 )
                 guard result == nil else { return }
-                guard try dependencies.repository.turn(requestId: turn.requestId)?.status == .pending else {
-                    return
-                }
+                let currentStatus: AgentTurnStatus? = try dependencies.repository.turn(requestId: turn.requestId)?.status
+                guard currentStatus == .pending else { return }
                 let outcome = try await dependencies.client.watch(requestId: turn.requestId)
                 self?.apply(outcome)
+            } catch is CancellationError {
+                return
             } catch {
                 self?.errorMessage = AgentSetupCopy.errorMessage(error, provider: provider)
             }
         }
     }
 
+    /// Drops this provider's settled transcript rows and releases the mailboxes
+    /// the backend is still holding for them, so a cleared history cannot come
+    /// back on the next launch. Turns still in flight are left alone.
+    func clearHistory() {
+        let unackedIds: [String] = turns.compactMap { turn in
+            guard turn.status == .completed, turn.ackedAt == nil else { return nil }
+            return turn.requestId
+        }
+        do {
+            try dependencies.writer.deleteSettledTurns(provider: provider)
+        } catch {
+            errorMessage = "Convos could not clear this history. Try again."
+            return
+        }
+        guard !unackedIds.isEmpty else { return }
+        let client = dependencies.client
+        Task {
+            for requestId in unackedIds {
+                try? await client.acknowledge(requestId: requestId)
+            }
+        }
+    }
+
     func userFacingError(for turn: AgentTurn) -> String {
         guard let code = turn.errorCode else {
-            return "Something went wrong. Try again."
+            return AgentSetupCopy.genericFailure
         }
-        if code == "notConnected" {
-            return "Connect this agent first."
-        }
-        if code == "relayUnreachable" {
-            return "Convos could not reach the relay. Try again."
-        }
-        if code == "webhookUnreachable" {
-            return "Convos could not reach \(turn.provider.displayName). Check the webhook URL and try again."
-        }
-        if code == "unreadableResult" {
-            return "The agent reply could not be read. Send it again."
-        }
-        if code == "expired" {
-            return "This request expired; send it again."
-        }
-        if code == "stillWorking" {
-            return "Still working after ten minutes; you will get a notification when it replies."
-        }
-        if let message = rejectionMessage(code: code, provider: turn.provider) {
+        if let message = AgentSetupCopy.errorMessage(forCode: code, provider: turn.provider) {
             return message
         }
-        return "Something went wrong. Try again."
+        return AgentSetupCopy.genericFailure
     }
 
     func isStillWorking(_ turn: AgentTurn, now: Date) -> Bool {
         turn.status == .pending && now.timeIntervalSince(turn.createdAt) >= Constant.watchDeadline
+    }
+
+    private func stopWaitingOnInFlightTurns() {
+        submissionTask?.cancel()
+        submissionTask = nil
+        isSubmitting = false
+        for turn in turns where turn.status == .pending {
+            do {
+                try dependencies.writer.markSuperseded(requestId: turn.requestId)
+            } catch {
+                Log.warning("Agent relay could not stop waiting on a turn")
+            }
+        }
     }
 
     private func perform(prompt: String) {
@@ -134,24 +174,24 @@ final class AgentChatViewModel {
                     connection: connection
                 )
                 self?.apply(outcome)
+            } catch is CancellationError {
+                return
             } catch {
                 self?.errorMessage = AgentSetupCopy.errorMessage(error, provider: provider)
             }
         }
     }
 
+    /// The transcript already carries every outcome as its own bubble, so only
+    /// the ones that leave no bubble behind become the composer notice.
     private func apply(_ outcome: AgentTurnOutcome) {
         switch outcome {
         case .completed:
             removeNotificationsForCompletedTurns(turns)
         case .failed(let error):
             errorMessage = AgentSetupCopy.errorMessage(error, provider: provider)
-        case .expired:
-            errorMessage = "This request expired; send it again."
-        case .stillWorking:
-            errorMessage = "Still working after ten minutes; you will get a notification when it replies."
-        case .collectedElsewhere:
-            errorMessage = "This reply was collected on another device."
+        case .expired, .stillWorking, .collectedElsewhere:
+            break
         }
     }
 
@@ -178,21 +218,6 @@ final class AgentChatViewModel {
         for identifier in identifiers {
             ConvosAppDelegate.removeDeliveredAgentRelayNotification(requestId: identifier)
         }
-    }
-
-    private func rejectionMessage(code: String, provider: ExternalAgentProvider) -> String? {
-        let parts: [Substring] = code.split(separator: ":")
-        guard let statusText = parts.last, let status = Int(statusText) else { return nil }
-        if code.hasPrefix("relayRejected:") {
-            return "The relay rejected the request (\(status)). Try again."
-        }
-        if code.hasPrefix("webhookRejected:") {
-            return AgentSetupCopy.errorMessage(
-                .webhookRejected(provider: provider, status: status),
-                provider: provider
-            )
-        }
-        return nil
     }
 
     deinit {
