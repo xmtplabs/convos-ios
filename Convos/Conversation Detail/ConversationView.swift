@@ -81,10 +81,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// Window safe-area insets, used to convert the sheet's physical-edge
     /// clearance into the safe-area-relative inset the transcripts take.
     @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
-    /// The scheme this conversation was presented in, handed back to the pages
-    /// on every tab but Agent. Reading it here is safe: the override below is
-    /// scoped to the subtree, so it never feeds back into this value.
-    @Environment(\.colorScheme) private var ambientColorScheme: ColorScheme
     /// Binds the Agent tab to the agent's real DM conversation; shared by the
     /// backing transcript and the sheet's agent composer.
     @State private var agentDmSession: AgentDmSession?
@@ -1296,8 +1292,7 @@ private extension ConversationView {
     /// decided how much Space showed, the geometry the two sides traded, and the
     /// focus host a presentation boundary made necessary. The Space is a tab now.
     var conversationLayout: some View {
-        let contentScheme: ColorScheme = selectedTab == .agent ? .dark : ambientColorScheme
-        return ZStack(alignment: .top) {
+        ZStack(alignment: .top) {
             pageHost
             // The wash is its own layer, not the chrome's background: it runs
             // taller than the chrome's frame and a background would clip it.
@@ -1322,17 +1317,14 @@ private extension ConversationView {
             coordinator: agentFocusCoordinator,
             resetToken: viewModel.conversation.id
         )
-        // The Agent tab's dark surface, scoped to this subtree through the
-        // environment. `preferredColorScheme` would style the same pages, but it
-        // resolves at the window: the conversations list behind this screen
-        // renders dark for a frame while the pop animation runs, before the
-        // popped view is torn down and the preference lifts.
-        //
-        // Handing the ambient scheme back on the other tabs, rather than leaving
-        // the environment alone, keeps the value stable across tab switches - a
-        // conditional modifier here would change the subtree's identity and
-        // remount both transcripts.
-        .environment(\.colorScheme, contentScheme)
+        // The Agent tab is a dark surface. Scoped to this screen's own
+        // controller rather than preferred at the window, so the conversations
+        // list behind it is not dark for the length of the pop animation (see
+        // ScreenAppearanceScope).
+        .background {
+            ScreenAppearanceScope(style: selectedTab == .agent ? .dark : .unspecified)
+                .frame(width: 0, height: 0)
+        }
         .onChange(of: focusCoordinator.currentFocus) { _, newFocus in
             handleComposerFocusChanged(newFocus)
         }
