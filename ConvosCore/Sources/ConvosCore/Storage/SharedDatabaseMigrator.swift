@@ -223,14 +223,16 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConversationParticipationMode", migrate: Self.addConversationParticipationMode)
         migrator.registerMigration("clearCutListenParticipationMode", migrate: Self.clearCutListenParticipationMode)
         migrator.registerMigration("addConversationSpaceURLString", migrate: Self.addConversationSpaceURLString)
+        migrator.registerMigration("addProfileAvatarSourceUploadedUrl", migrate: Self.addProfileAvatarSourceUploadedUrl)
         migrator.registerMigration("createAppDataPendingChange", migrate: Self.createAppDataPendingChange)
     }
 
     /// Durable outbox for the appData coordinator: one row per
     /// (conversationId, domain, scopeKey) holding the locally-merged metadata
     /// snapshot as raw protobuf bytes plus retry bookkeeping. No foreign key to
-    /// `conversation` - creator metadata is enqueued before the conversation
-    /// row exists; the reconcile pass drops rows for unresolvable groups.
+    /// `conversation` - a row's lifecycle is independent of the local
+    /// conversation record; the reconcile pass drops rows for unresolvable
+    /// groups and `deletePendingChanges` clears them on leave.
     static func createAppDataPendingChange(_ db: Database) throws {
         try db.create(table: "appDataPendingChange") { t in
             t.column("id", .text).notNull().primaryKey()
@@ -407,7 +409,6 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConversationLocalStatePublishedProfileUpdatedAt", migrate: Self.addConversationLocalStatePublishedProfileUpdatedAt)
         Self.registerCatchUpCursorMigrations(on: &migrator)
         migrator.registerMigration("createSelfConversationMetadata", migrate: Self.createSelfConversationMetadata)
-        migrator.registerMigration("addProfileAvatarSourceUploadedUrl", migrate: Self.addProfileAvatarSourceUploadedUrl)
     }
 
     /// Additive, nullable column pinning the `myProfile.updatedAt` current when

@@ -10,12 +10,12 @@ import Foundation
 public struct AppDataChangeHandle: Sendable {
     public let localMerged: ConversationCustomMetadata
     let changeId: String
-    private let waitForPublish: @Sendable (String) async throws -> Void
+    private let waitForPublish: @Sendable (String, TimeInterval?) async throws -> Void
 
     init(
         localMerged: ConversationCustomMetadata,
         changeId: String,
-        waitForPublish: @escaping @Sendable (String) async throws -> Void
+        waitForPublish: @escaping @Sendable (String, TimeInterval?) async throws -> Void
     ) {
         self.localMerged = localMerged
         self.changeId = changeId
@@ -26,8 +26,16 @@ public struct AppDataChangeHandle: Sendable {
     /// throws when the conversation is gone. A change superseded by a newer
     /// same-domain enqueue resolves when the superseding change lands - the
     /// newer intent folded this one in.
-    public func awaitPublished() async throws {
-        try await waitForPublish(changeId)
+    ///
+    /// Pass `timeout` to bound the wait. The reconcile loop retries with capped
+    /// backoff and never gives up, so an unbounded wait parks forever while
+    /// offline; a user-facing flow (lock/unlock) must not. On timeout the
+    /// durable row is untouched - it still publishes later - only this wait is
+    /// abandoned with `publishTimedOut`. The wait also honors task
+    /// cancellation, so tearing down the awaiting task unparks it instead of
+    /// leaking a continuation.
+    public func awaitPublished(timeout: TimeInterval? = nil) async throws {
+        try await waitForPublish(changeId, timeout)
     }
 }
 
@@ -38,14 +46,29 @@ public enum AppDataCoordinatorError: Error {
     case clearedInviteTag(conversationId: String)
     /// The conversation was dropped before the change could publish.
     case conversationGone(conversationId: String)
+    /// `awaitPublished(timeout:)` gave up waiting. The durable change stays
+    /// pending and still publishes; only the caller stopped blocking on it.
+    case publishTimedOut
 }
 
-/// The sole writer and reader of conversation appData. Centralizes what the
+/// The durable, merging writer for the appData domains routed through it -
+/// `expiry`, `participation`, the `agentDm` marker, invite-tag rotation, and
+/// legacy-image cleanup (see `AppDataDomain`). Centralizes what the
 /// per-operation `atomicUpdateMetadata` call sites each approximated: one
 /// merge policy per domain, one 8 KiB cap, one verify, plus what they lacked -
 /// durability across offline/restart, per-subkey merge so no writer clobbers
 /// another domain's field, and strict parsing so a corrupt blob backs off
 /// instead of being treated as empty and written back (clobber-to-empty).
+///
+/// Not yet the *only* writer: a few creation-time seeders still write appData
+/// directly (`ensureCreatorMetadata`'s tag/emoji, `ensureConversationEmoji`,
+/// `restoreInviteTagIfMissing`) and the profile publisher writes the `profiles`
+/// field via `group.updateProfile`. Those touch fields this coordinator never
+/// enqueues (`emoji`, `profiles`) or run at a disjoint time from its only
+/// overlapping domain (creator tag-seed at creation vs. rotation later), so
+/// they do not contend with a coordinator publish today. Folding them in is a
+/// tracked follow-up gated on the attach lifecycle (a seeder on the sync path
+/// can run before `attach`, which `enqueueChange` requires).
 ///
 /// One idempotent reconcile pass handles first publish, retry-after-failure,
 /// foreign-commit re-merge, our own write echoing back, and restart flush:
@@ -75,7 +98,17 @@ public actor AppDataCoordinator {
     private var supersededBy: [String: String] = [:]
     /// Changes dropped because their conversation is gone, by conversation id.
     private var droppedChangeIds: [String: String] = [:]
-    private var waiters: [String: [CheckedContinuation<Void, any Error>]] = [:]
+    /// Insertion order for the two maps above, so a long-lived session can
+    /// evict the oldest entries instead of growing them without bound.
+    private var supersededOrder: [String] = []
+    private var droppedOrder: [String] = []
+    /// One parked `awaitPublished` caller, tokened so a timeout or cancellation
+    /// can unpark just this waiter without disturbing siblings on the same id.
+    private struct PublishWaiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+    private var waiters: [String: [PublishWaiter]] = [:]
 
     init(
         store: any AppDataPendingChangeStoreProtocol,
@@ -182,7 +215,7 @@ public actor AppDataCoordinator {
         // outcome instead of transferring to an id that will never resolve.
         let alreadyResolved = !activeChangeIds.contains(changeId)
         for supersededId in supersededIds {
-            supersededBy[supersededId] = changeId
+            recordSuperseded(supersededId, by: changeId)
             activeChangeIds.remove(supersededId)
             guard let transferred = waiters.removeValue(forKey: supersededId) else { continue }
             if alreadyResolved {
@@ -192,8 +225,8 @@ public actor AppDataCoordinator {
                 } else {
                     outcome = .success(())
                 }
-                for continuation in transferred {
-                    continuation.resume(with: outcome)
+                for waiter in transferred {
+                    waiter.continuation.resume(with: outcome)
                 }
             } else {
                 waiters[changeId, default: []] += transferred
@@ -202,9 +235,9 @@ public actor AppDataCoordinator {
 
         kickBackgroundDrain()
 
-        return AppDataChangeHandle(localMerged: working, changeId: changeId) { [weak self] changeId in
+        return AppDataChangeHandle(localMerged: working, changeId: changeId) { [weak self] changeId, timeout in
             guard let self else { return }
-            try await self.awaitPublished(changeId: changeId)
+            try await self.awaitPublished(changeId: changeId, timeout: timeout)
         }
     }
 
@@ -234,7 +267,7 @@ public actor AppDataCoordinator {
 
     // MARK: - Waiting
 
-    private func awaitPublished(changeId: String) async throws {
+    private func awaitPublished(changeId: String, timeout: TimeInterval?) async throws {
         var resolved = changeId
         while let superseding = supersededBy[resolved] {
             resolved = superseding
@@ -244,20 +277,94 @@ public actor AppDataCoordinator {
         }
         guard activeChangeIds.contains(resolved) else { return }
         let waitId = resolved
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            waiters[waitId, default: []].append(continuation)
+        let waiterId = UUID()
+
+        // Bound the wait so an offline caller does not park forever - the
+        // reconcile loop retries with capped backoff and never gives up. The
+        // durable row is left untouched; only this wait is abandoned.
+        let sleep = self.sleep
+        let timeoutTask: Task<Void, Never>? = timeout.map { seconds in
+            Task { [weak self] in
+                do {
+                    try await sleep(seconds)
+                } catch {
+                    return
+                }
+                await self?.failWaiter(waitId: waitId, waiterId: waiterId, with: AppDataCoordinatorError.publishTimedOut)
+            }
         }
+        defer { timeoutTask?.cancel() }
+
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                waiters[waitId, default: []].append(PublishWaiter(id: waiterId, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.failWaiter(waitId: waitId, waiterId: waiterId, with: CancellationError()) }
+        }
+    }
+
+    /// Unparks a single waiter with a terminal error (timeout or cancellation)
+    /// and removes it, leaving the durable row and any sibling waiters intact.
+    /// A no-op if that waiter already resolved.
+    private func failWaiter(waitId: String, waiterId: UUID, with error: any Error) {
+        guard var entries = waiters[waitId],
+              let index = entries.firstIndex(where: { $0.id == waiterId }) else {
+            return
+        }
+        let waiter = entries.remove(at: index)
+        if entries.isEmpty {
+            waiters[waitId] = nil
+        } else {
+            waiters[waitId] = entries
+        }
+        waiter.continuation.resume(throwing: error)
     }
 
     private func resolveWaiters(changeId: String, with result: Result<Void, any Error>, droppedInConversation: String? = nil) {
         activeChangeIds.remove(changeId)
         if let droppedInConversation {
-            droppedChangeIds[changeId] = droppedInConversation
+            recordDropped(changeId, conversationId: droppedInConversation)
         }
-        guard let continuations = waiters.removeValue(forKey: changeId) else { return }
-        for continuation in continuations {
-            continuation.resume(with: result)
+        guard let entries = waiters.removeValue(forKey: changeId) else { return }
+        for waiter in entries {
+            waiter.continuation.resume(with: result)
         }
+    }
+
+    /// Records a supersede / drop mapping, evicting the oldest entries once the
+    /// map exceeds `bookkeepingCap`. Eviction only ever weakens an
+    /// `awaitPublished` on an id superseded or dropped thousands of changes ago
+    /// - handles are awaited promptly or discarded, so in practice the awaited
+    /// id is always still present. An evicted lookup resolves as success rather
+    /// than following the chain, an acceptable degradation at this cap.
+    private func recordSuperseded(_ supersededId: String, by supersedingId: String) {
+        if supersededBy[supersededId] == nil {
+            supersededOrder.append(supersededId)
+        }
+        supersededBy[supersededId] = supersedingId
+        evictOldest(from: &supersededBy, order: &supersededOrder)
+    }
+
+    private func recordDropped(_ changeId: String, conversationId: String) {
+        if droppedChangeIds[changeId] == nil {
+            droppedOrder.append(changeId)
+        }
+        droppedChangeIds[changeId] = conversationId
+        evictOldest(from: &droppedChangeIds, order: &droppedOrder)
+    }
+
+    private func evictOldest(from map: inout [String: String], order: inout [String]) {
+        guard order.count > Constant.bookkeepingCap else { return }
+        let overflow = order.count - Constant.bookkeepingCap
+        for staleId in order.prefix(overflow) {
+            map[staleId] = nil
+        }
+        order.removeFirst(overflow)
     }
 
     // MARK: - Drain loop
@@ -597,5 +704,10 @@ public actor AppDataCoordinator {
                 actualSize: byteCount
             )
         }
+    }
+
+    private enum Constant {
+        /// Cap on each `awaitPublished` bookkeeping map before oldest-eviction.
+        static let bookkeepingCap: Int = 4_096
     }
 }

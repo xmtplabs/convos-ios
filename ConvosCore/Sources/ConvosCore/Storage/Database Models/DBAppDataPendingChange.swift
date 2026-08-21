@@ -8,11 +8,12 @@ import GRDB
 /// `(conversationId, domain, scopeKey)`; a newer enqueue for the same key
 /// supersedes the older row.
 ///
-/// Deliberately no foreign key to `conversation`: the creator's first appData
-/// change is enqueued before the conversation row exists (the stream processor
-/// publishes creator metadata ahead of persisting the conversation). Rows for
-/// conversations that never materialize are dropped by the reconcile pass when
-/// the group cannot be resolved.
+/// Deliberately no foreign key to `conversation`: a change is keyed only by
+/// conversation id and its lifecycle is independent of the `DBConversation`
+/// row (a row can be enqueued before, or outlive, the local conversation
+/// record). Cleanup is by intent, not cascade: the reconcile pass drops rows
+/// whose group cannot be resolved, and `deletePendingChanges` clears them when
+/// the user leaves a conversation.
 struct DBAppDataPendingChange: Codable, FetchableRecord, PersistableRecord, Hashable {
     static let databaseTableName: String = "appDataPendingChange"
 

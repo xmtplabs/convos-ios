@@ -572,4 +572,56 @@ struct AppDataCoordinatorTests {
         let network = try await session.metadata(conversationId: conversationId)
         #expect(network.expiresAtUnix == 11)
     }
+
+    @Test("awaitPublished(timeout:) gives up while the change stays durable")
+    func awaitPublishedTimesOut() async throws {
+        let session = FakeAppDataSyncSession()
+        // Writes never succeed, so the change can only ever end via the timeout.
+        await session.setWriteFailures(1_000)
+        // The retry timer parks forever (it never sleeps for exactly the timeout
+        // value), so the only sleep that returns is the awaitPublished timeout.
+        let timeoutSeconds: TimeInterval = 999
+        let coordinator = makeCoordinator(sleep: { seconds in
+            guard seconds == timeoutSeconds else {
+                try await Task.sleep(nanoseconds: .max)
+                return
+            }
+        })
+        await coordinator.attach(session: session)
+        let handle = try await coordinator.enqueueChange(conversationId: conversationId, domain: .expiry) { metadata in
+            metadata.expiresAtUnix = 111
+        }
+
+        await #expect(throws: AppDataCoordinatorError.self) {
+            try await handle.awaitPublished(timeout: timeoutSeconds)
+        }
+
+        // The abandoned wait leaves the durable intent intact - it still folds
+        // into the local read and will publish once writes succeed.
+        let folded = try await coordinator.currentAppData(conversationId: conversationId)
+        #expect(folded.expiresAtUnix == 111)
+        await coordinator.detach()
+    }
+
+    @Test("awaitPublished unparks when the awaiting task is cancelled")
+    func awaitPublishedHonorsCancellation() async throws {
+        let session = FakeAppDataSyncSession()
+        await session.setWriteFailures(1_000)
+        let coordinator = makeCoordinator()
+        await coordinator.attach(session: session)
+        let handle = try await coordinator.enqueueChange(conversationId: conversationId, domain: .expiry) { metadata in
+            metadata.expiresAtUnix = 222
+        }
+
+        let waiter = Task { try await handle.awaitPublished() }
+        // Let the waiter park before cancelling (the already-cancelled path is
+        // covered too - both resolve with CancellationError).
+        try await Task.sleep(nanoseconds: 50_000_000)
+        waiter.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await waiter.value
+        }
+        await coordinator.detach()
+    }
 }

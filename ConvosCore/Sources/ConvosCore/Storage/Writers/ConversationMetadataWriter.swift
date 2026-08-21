@@ -725,7 +725,10 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             metadata.tag = newTag
         }
         let rotatedTag = rotation.localMerged.tag
-        try await rotation.awaitPublished()
+        // Bounded so an offline lock/unlock fails fast (and the caller can
+        // retry) instead of parking on the never-give-up reconcile loop. The
+        // rotation stays durable and still publishes once connectivity returns.
+        try await rotation.awaitPublished(timeout: Constant.invitePublishTimeout)
 
         let updatedConversation: DBConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
@@ -763,7 +766,10 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             metadata.tag = newTag
         }
         let rotatedTag = rotation.localMerged.tag
-        try await rotation.awaitPublished()
+        // Bounded so an offline lock/unlock fails fast (and the caller can
+        // retry) instead of parking on the never-give-up reconcile loop. The
+        // rotation stays durable and still publishes once connectivity returns.
+        try await rotation.awaitPublished(timeout: Constant.invitePublishTimeout)
 
         try await group.updateAddMemberPermission(newPermissionOption: .allow)
 
@@ -791,5 +797,12 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         }) else { return nil }
 
         return try await inviteWriter.update(for: conversationId)
+    }
+
+    private enum Constant {
+        /// How long lock/unlock waits for the invite-tag rotation to reach the
+        /// network before failing fast. Covers a normal write plus verify
+        /// re-read; offline it trips and the user retries.
+        static let invitePublishTimeout: TimeInterval = 20
     }
 }
