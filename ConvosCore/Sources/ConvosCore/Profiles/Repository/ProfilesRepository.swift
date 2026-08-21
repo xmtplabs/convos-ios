@@ -21,6 +21,9 @@ public actor ProfilesRepository {
     /// not checked lately. Optional so mocks and previews can leave it out and
     /// simply render whatever is local.
     private let remoteResolver: RemoteProfileResolver?
+    /// The session's API client, for writing this user's own profile. Optional
+    /// so mocks and previews keep working without a backend.
+    private let apiClientProvider: (@Sendable () async -> (any ConvosAPIClientProtocol)?)?
 
     private var identities: [String: DBProfile] = [:]
     private var avatarsByInbox: [String: [String: DBProfileAvatar]] = [:]
@@ -49,9 +52,11 @@ public actor ProfilesRepository {
         databaseReader: any DatabaseReader,
         conversationLocalStateWriter: any ConversationLocalStateWriterProtocol,
         selfInboxIdProvider: @escaping @Sendable () async -> String?,
-        remoteResolver: RemoteProfileResolver? = nil
+        remoteResolver: RemoteProfileResolver? = nil,
+        apiClientProvider: (@Sendable () async -> (any ConvosAPIClientProtocol)?)? = nil
     ) {
         self.remoteResolver = remoteResolver
+        self.apiClientProvider = apiClientProvider
         self.profileStore = profileStore
         self.selfProfileStore = selfProfileStore
         self.databaseReader = databaseReader
@@ -325,8 +330,48 @@ public actor ProfilesRepository {
         if let avatarBytes {
             try await publisher.updateAvatarSource(avatarBytes)
         }
+
+        // The backend is the durable copy, so it is written before anyone is
+        // told. A failure here leaves the local edit in place and announces
+        // nothing, which is recoverable; announcing first would advertise a URL
+        // that does not exist yet.
+        await writeProfileToBackend(avatarBytes: avatarBytes)
+
         if let priorityConversationId {
             try await publishMyProfileToConversation(priorityConversationId)
+        }
+    }
+
+    /// Uploads a new avatar if there is one, writes the profile, and records
+    /// what came back so the fan-out has something to advertise.
+    ///
+    /// Deliberately does not throw: the local edit has already been saved and
+    /// the user has seen it apply. A backend that is unreachable should leave
+    /// the change pending, not fail the edit in front of them - the next
+    /// publish picks it up.
+    private func writeProfileToBackend(avatarBytes: Data?) async {
+        guard let apiClient = await apiClientProvider?() else { return }
+        guard let selfInboxId = await resolveSelfInboxId() else { return }
+        do {
+            let uploadedUrl: String?
+            if let avatarBytes {
+                uploadedUrl = try await apiClient.uploadProfileAvatar(data: avatarBytes, contentType: "image/jpeg")
+            } else {
+                uploadedUrl = nil
+            }
+            let selfProfile = try await selfProfileStore.load()
+            let written = try await apiClient.updateMyProfile(
+                inboxId: selfInboxId,
+                name: .some(selfProfile?.name),
+                avatarUrl: uploadedUrl.map { .some($0) }
+            )
+            try await selfProfileStore.saveRemoteIdentity(
+                avatarUrl: written.avatarUrl,
+                version: written.version,
+                inboxId: selfInboxId
+            )
+        } catch {
+            Log.warning("ProfilesRepository: backend profile write failed: \(error.localizedDescription)")
         }
     }
 

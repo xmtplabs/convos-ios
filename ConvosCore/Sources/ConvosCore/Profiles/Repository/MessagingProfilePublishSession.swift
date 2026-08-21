@@ -1,11 +1,9 @@
 import Foundation
 @preconcurrency import XMTPiOS
 
-/// Concrete `ProfilePublishSession` backed by the XMTP client and upload API.
-/// Encrypts, uploads, and sends the self profile to a conversation, including the
-/// best-effort second channel (writing the profile into group app-data) so
-/// clients that read `ConversationProfile` rather than the `ProfileUpdate`
-/// message still see the identity.
+/// Concrete `ProfilePublishSession` backed by the XMTP client. Sends the self
+/// profile to a conversation as a single message carrying the backend's avatar
+/// URL - no per-conversation encryption, no upload, and no app-data commit.
 ///
 /// This is boundary code (it uses XMTP types directly, like the writers). It is
 /// exercised only once the publisher is fed at the cutover; there is no
@@ -41,7 +39,13 @@ struct MessagingProfilePublishSession: ProfilePublishSession {
         )
     }
 
-    func sendProfileUpdate(name: String?, metadata: ProfileMetadata?, avatar: PublishedAvatar?, conversationId: String) async throws {
+    func sendProfileUpdate(
+        name: String?,
+        metadata: ProfileMetadata?,
+        avatarUrl: String?,
+        version: Int?,
+        conversationId: String
+    ) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -54,12 +58,11 @@ struct MessagingProfilePublishSession: ProfilePublishSession {
         if let name {
             update.name = name
         }
-        if let avatar {
-            var ref = EncryptedProfileImageRef()
-            ref.url = avatar.url
-            ref.salt = avatar.salt
-            ref.nonce = avatar.nonce
-            update.encryptedImage = ref
+        if let avatarUrl {
+            update.avatarURL = avatarUrl
+        }
+        if let version {
+            update.version = UInt64(max(0, version))
         }
         if let resolvedMetadata {
             update.metadata = resolvedMetadata.asProtoMap
@@ -67,23 +70,10 @@ struct MessagingProfilePublishSession: ProfilePublishSession {
         let encoded = try ProfileUpdateCodec().encode(content: update)
         _ = try await group.send(encodedContent: encoded)
 
-        // Second channel: mirror into group app-data (best-effort). `updateProfile`
-        // merges, so a nil avatar preserves the existing app-data image rather
-        // than clearing it.
-        let memberProfile = DBMemberProfile(
-            conversationId: conversationId,
-            inboxId: inboxReady.client.inboxId,
-            name: name,
-            avatar: avatar?.url,
-            avatarSalt: avatar?.salt,
-            avatarNonce: avatar?.nonce,
-            avatarKey: avatar?.key
-        ).with(metadata: resolvedMetadata)
-        do {
-            try await group.updateProfile(memberProfile)
-        } catch {
-            Log.warning("ProfilePublishSession app-data updateProfile failed (best-effort): \(error.localizedDescription)")
-        }
+        // No second channel. This used to mirror the profile into group
+        // app-data as well, which cost an MLS commit per conversation on every
+        // profile change. The backend is the durable copy now, and a client
+        // that misses this message resolves the sender from it instead.
     }
 }
 

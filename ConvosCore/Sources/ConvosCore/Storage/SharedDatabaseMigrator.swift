@@ -367,6 +367,18 @@ extension SharedDatabaseMigrator {
             migrate: Self.addConversationLocalStateHasSharedInvite
         )
         migrator.registerMigration("createProfileTables", migrate: Self.createProfileTables)
+
+        // What the backend holds for this user, as returned by the last write.
+        // The fan-out advertises this URL to other people; `imageData` is the
+        // local source bytes, which nobody else can see.
+        migrator.registerMigration("addMyProfileRemoteIdentity") { db in
+            let existing = try db.columns(in: "myProfile").map(\.name)
+            guard !existing.contains("remoteAvatarUrl") else { return }
+            try db.alter(table: "myProfile") { t in
+                t.add(column: "remoteAvatarUrl", .text)
+                t.add(column: "remoteVersion", .integer)
+            }
+        }
         // Backend-served identity lands on the canonical profile row rather than
         // in a table of its own: one person is one row, which is the whole point
         // of moving profiles off the per-conversation model. The columns are

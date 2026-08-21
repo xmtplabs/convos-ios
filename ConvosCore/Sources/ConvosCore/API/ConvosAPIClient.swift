@@ -100,6 +100,14 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// so callers key by inbox id rather than by position.
     func getProfiles(inboxIds: [String]) async throws -> [ProfilesAPI.Profile]
 
+    /// Writes the caller's own profile. Omitting a field leaves it alone;
+    /// `.some(nil)` clears it.
+    @discardableResult
+    func updateMyProfile(inboxId: String, name: String??, avatarUrl: String??) async throws -> ProfilesAPI.Profile
+
+    /// Uploads an avatar and returns the URL to store on the profile.
+    func uploadProfileAvatar(data: Data, contentType: String) async throws -> String
+
     func requestAgentJoin(
         _ joinRequest: ConvosAPI.AgentJoinRequest,
         forceErrorCode: Int?
@@ -317,6 +325,15 @@ extension ConvosAPIClientProtocol {
 
     func getProfiles(inboxIds: [String]) async throws -> [ProfilesAPI.Profile] {
         []
+    }
+
+    @discardableResult
+    func updateMyProfile(inboxId: String, name: String??, avatarUrl: String??) async throws -> ProfilesAPI.Profile {
+        throw APIError.serverError("profile writes are not available on this client")
+    }
+
+    func uploadProfileAvatar(data: Data, contentType: String) async throws -> String {
+        throw APIError.serverError("profile writes are not available on this client")
     }
 
     func requestAgentJoin(slug: String) async throws -> ConvosAPI.AgentJoinResponse {

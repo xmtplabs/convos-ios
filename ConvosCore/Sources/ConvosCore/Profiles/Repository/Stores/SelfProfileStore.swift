@@ -19,6 +19,11 @@ protocol SelfProfileStoreProtocol: Sendable {
     /// stale row and silently revert each other's field.
     func update(_ edit: SelfProfileEdit, updatedAt: Date) async throws -> DBMyProfile
 
+    /// Records what the backend returned for this user's own profile. Written
+    /// as a read-modify-write in one transaction, like `update`, so it cannot
+    /// clobber a name edit that landed while the request was in flight.
+    func saveRemoteIdentity(avatarUrl: String?, version: Int, inboxId: String) async throws
+
     /// The current user's conversation-scoped metadata map (cloud connection
     /// grants, agent timezone) for one conversation, or nil when none was ever
     /// published there. Scoped keys are merged over the global metadata at send
@@ -92,6 +97,31 @@ final class GRDBSelfProfileStore: SelfProfileStoreProtocol {
         }
     }
 
+    func saveRemoteIdentity(avatarUrl: String?, version: Int, inboxId: String) async throws {
+        try await databaseWriter.write { db in
+            guard let existing = try DBMyProfile
+                .filter(DBMyProfile.Columns.inboxId == inboxId)
+                .fetchOne(db) else { return }
+            // Only the remote fields move. updatedAt is deliberately untouched:
+            // it tracks when the user last edited, and the lazy per-conversation
+            // publish compares against it - bumping it here would make every
+            // conversation look stale after a write that changed nothing they
+            // can see.
+            let updated = DBMyProfile(
+                inboxId: existing.inboxId,
+                name: existing.name,
+                imageData: existing.imageData,
+                imageAssetIdentifier: existing.imageAssetIdentifier,
+                imageContentDigest: existing.imageContentDigest,
+                metadata: existing.metadata,
+                remoteAvatarUrl: avatarUrl,
+                remoteVersion: version,
+                updatedAt: existing.updatedAt
+            )
+            try updated.save(db)
+        }
+    }
+
     func clear() async throws {
         guard let inboxId = await selfInboxIdProvider() else { return }
         try await databaseWriter.write { db in
@@ -145,6 +175,21 @@ actor InMemorySelfProfileStore: SelfProfileStoreProtocol {
 
     func load() -> DBMyProfile? {
         current
+    }
+
+    func saveRemoteIdentity(avatarUrl: String?, version: Int, inboxId: String) {
+        guard let existing = current, existing.inboxId == inboxId else { return }
+        current = DBMyProfile(
+            inboxId: existing.inboxId,
+            name: existing.name,
+            imageData: existing.imageData,
+            imageAssetIdentifier: existing.imageAssetIdentifier,
+            imageContentDigest: existing.imageContentDigest,
+            metadata: existing.metadata,
+            remoteAvatarUrl: avatarUrl,
+            remoteVersion: version,
+            updatedAt: existing.updatedAt
+        )
     }
 
     func update(_ edit: SelfProfileEdit, updatedAt: Date) -> DBMyProfile {

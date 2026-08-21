@@ -10,6 +10,13 @@ enum ProfileStoreTestSupport {
         try db.create(table: "conversation") { t in
             t.column("id", .text).notNull().primaryKey()
         }
+        try makeMyProfileTable(db)
+        try SharedDatabaseMigrator.createProfileTables(db)
+        try SharedDatabaseMigrator.createProfileAvatarLatestView(db)
+        try SharedDatabaseMigrator.createSelfConversationMetadata(db)
+    }
+
+    static func makeMyProfileTable(_ db: Database) throws {
         try db.create(table: "myProfile") { t in
             t.column("inboxId", .text).notNull().primaryKey()
             t.column("name", .text)
@@ -17,11 +24,10 @@ enum ProfileStoreTestSupport {
             t.column("imageAssetIdentifier", .text)
             t.column("imageContentDigest", .text)
             t.column("metadata", .jsonText)
+            t.column("remoteAvatarUrl", .text)
+            t.column("remoteVersion", .integer)
             t.column("updatedAt", .datetime).notNull()
         }
-        try SharedDatabaseMigrator.createProfileTables(db)
-        try SharedDatabaseMigrator.createProfileAvatarLatestView(db)
-        try SharedDatabaseMigrator.createSelfConversationMetadata(db)
     }
 
     static func seedConversations(_ db: Database, ids: [String]) throws {

@@ -51,7 +51,13 @@ struct ProfileMetadataWriterTests {
 
         func upload(_ ciphertext: Data, filename: String) async throws -> String { "" }
 
-        func sendProfileUpdate(name: String?, metadata: ProfileMetadata?, avatar: PublishedAvatar?, conversationId: String) async throws {
+        func sendProfileUpdate(
+            name: String?,
+            metadata: ProfileMetadata?,
+            avatarUrl: String?,
+            version: Int?,
+            conversationId: String
+        ) async throws {
             if failSends {
                 throw RecordingSessionError.send
             }
