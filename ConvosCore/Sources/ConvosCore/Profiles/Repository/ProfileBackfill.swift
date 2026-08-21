@@ -92,7 +92,7 @@ struct ProfileBackfill {
                 }
             }
 
-            guard row.hasValidEncryptedAvatar, let url = row.avatar else { continue }
+            guard row.hasValidEncryptedAvatar || row.hasPlainAvatar, let url = row.avatar else { continue }
             let key = Self.avatarKey(row.inboxId, row.conversationId)
             let existingAvatar = avatarByKey[key]
             let mergedAvatar = ProfileMerge.mergeAvatar(

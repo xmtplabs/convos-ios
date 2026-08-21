@@ -320,6 +320,9 @@ actor MockSyncingManager: SyncingManagerProtocol {
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
     }
 
+    func setAppDataCommitObserver(_ handler: @escaping @Sendable (String) async -> Void) async {
+    }
+
     func requestDiscovery() async {
     }
 

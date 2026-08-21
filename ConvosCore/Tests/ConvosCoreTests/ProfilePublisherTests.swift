@@ -13,41 +13,34 @@ private struct RecordedSend: Sendable {
 /// configured to fail a number of upload/send attempts before succeeding.
 private actor FakeProfilePublishSession: ProfilePublishSession {
     nonisolated let inboxId: String
-    private let imageKeys: [String: Data]
     private let missingConversations: Set<String>
     private var uploadFailuresRemaining: Int
     private var sendFailuresRemaining: Int
     private(set) var uploadAttempts: Int = 0
     private(set) var uploads: [String] = []
+    private(set) var uploadContentTypes: [String] = []
     private(set) var sends: [RecordedSend] = []
 
     init(
         inboxId: String,
-        imageKeys: [String: Data],
         uploadFailures: Int = 0,
         sendFailures: Int = 0,
         missingConversations: Set<String> = []
     ) {
         self.inboxId = inboxId
-        self.imageKeys = imageKeys
         self.uploadFailuresRemaining = uploadFailures
         self.sendFailuresRemaining = sendFailures
         self.missingConversations = missingConversations
     }
 
-    func imageKey(conversationId: String) -> Data? { imageKeys[conversationId] }
-
-    nonisolated func encrypt(_ plaintext: Data, groupKey: Data) -> EncryptedAvatarPayload {
-        EncryptedAvatarPayload(ciphertext: plaintext, salt: Data(repeating: 9, count: 32), nonce: Data(repeating: 8, count: 12))
-    }
-
-    func upload(_ ciphertext: Data, filename: String) throws -> String {
+    func upload(_ data: Data, filename: String, contentType: String) throws -> String {
         uploadAttempts += 1
         if uploadFailuresRemaining > 0 {
             uploadFailuresRemaining -= 1
             throw FakeSessionError.upload
         }
         uploads.append(filename)
+        uploadContentTypes.append(contentType)
         return "https://uploads/\(uploads.count)"
     }
 
@@ -99,6 +92,9 @@ private actor FailingNextReadyPublishStore: ProfilePublishStoreProtocol {
     func setSource(_ source: DBProfileAvatarSource) async throws { try await inner.setSource(source) }
     func bumpAvatarSource(inboxId: String, plaintext: Data, updatedAt: Date) async throws -> Int64 {
         try await inner.bumpAvatarSource(inboxId: inboxId, plaintext: plaintext, updatedAt: updatedAt)
+    }
+    func setSourceUploadedUrl(inboxId: String, version: Int64, url: String) async throws -> Bool {
+        try await inner.setSourceUploadedUrl(inboxId: inboxId, version: version, url: url)
     }
     func source(inboxId: String) async throws -> DBProfileAvatarSource? { try await inner.source(inboxId: inboxId) }
     func clearSource(inboxId: String) async throws { try await inner.clearSource(inboxId: inboxId) }
@@ -159,6 +155,9 @@ private actor GatedClaimPublishStore: ProfilePublishStoreProtocol {
     func setSource(_ source: DBProfileAvatarSource) async throws { try await inner.setSource(source) }
     func bumpAvatarSource(inboxId: String, plaintext: Data, updatedAt: Date) async throws -> Int64 {
         try await inner.bumpAvatarSource(inboxId: inboxId, plaintext: plaintext, updatedAt: updatedAt)
+    }
+    func setSourceUploadedUrl(inboxId: String, version: Int64, url: String) async throws -> Bool {
+        try await inner.setSourceUploadedUrl(inboxId: inboxId, version: version, url: url)
     }
     func source(inboxId: String) async throws -> DBProfileAvatarSource? { try await inner.source(inboxId: inboxId) }
     func clearSource(inboxId: String) async throws { try await inner.clearSource(inboxId: inboxId) }
@@ -243,13 +242,13 @@ struct ProfilePublisherTests {
         #expect(try await condition())
     }
 
-    @Test("publish enqueues, encrypts/uploads/sends per conversation, and writes local slots")
+    @Test("publish uploads the avatar once, fans a plain URL out per conversation, and writes plain local slots")
     func publishAvatar() async throws {
         let publishStore = InMemoryProfilePublishStore()
         let profileStore = InMemoryProfileStore()
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
         let publisher = makePublisher(publishStore: publishStore, profileStore: profileStore, selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key, "c2": key])
+        let session = FakeProfilePublishSession(inboxId: "me")
         await publisher.attach(session: session)
 
         try await publisher.updateAvatarSource(Data([1, 2, 3]))
@@ -260,11 +259,23 @@ struct ProfilePublisherTests {
         #expect(sends.count == 2)
         #expect(Set(sends.map(\.conversationId)) == ["c1", "c2"])
         #expect(sends.allSatisfy { $0.avatarURL != nil })
+        // The same source image is uploaded exactly once for N conversations,
+        // as a plain JPEG, and every send carries that single URL.
         let uploadAttempts = await session.uploadAttempts
-        #expect(uploadAttempts == 2)
+        #expect(uploadAttempts == 1)
+        let contentTypes = await session.uploadContentTypes
+        #expect(contentTypes == ["image/jpeg"])
+        #expect(Set(sends.compactMap(\.avatarURL)).count == 1)
 
+        // The local slot is plain: a URL with no crypto.
         let slot = try await profileStore.avatar(inboxId: "me", conversationId: "c1")
         #expect(slot?.url != nil)
+        #expect(slot?.salt == nil)
+        #expect(slot?.nonce == nil)
+        #expect(slot?.encryptionKey == nil)
+        // The single upload URL is cached on the source for reuse.
+        let source = try await publishStore.source(inboxId: "me")
+        #expect(source?.uploadedUrl != nil)
         let remaining = try await publishStore.activeJobs()
         #expect(remaining.isEmpty)
     }
@@ -274,7 +285,7 @@ struct ProfilePublisherTests {
         let publishStore = InMemoryProfilePublishStore()
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
         let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key], uploadFailures: 1)
+        let session = FakeProfilePublishSession(inboxId: "me", uploadFailures: 1)
         await publisher.attach(session: session)
 
         try await publisher.updateAvatarSource(Data([1]))
@@ -298,12 +309,12 @@ struct ProfilePublisherTests {
         #expect(remaining.isEmpty)
     }
 
-    @Test("a job for a missing conversation is dropped")
+    @Test("an avatar job whose conversation is gone is dropped, not retried")
     func dropsMissingConversation() async throws {
         let publishStore = InMemoryProfilePublishStore()
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
         let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        let session = FakeProfilePublishSession(inboxId: "me", missingConversations: ["c1"])
         await publisher.attach(session: session)
 
         try await publisher.updateAvatarSource(Data([1]))
@@ -326,7 +337,7 @@ struct ProfilePublisherTests {
             nextAttemptAt: clock.current, createdAt: clock.current, updatedAt: clock.current
         ))
         let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key])
+        let session = FakeProfilePublishSession(inboxId: "me")
 
         await publisher.attach(session: session)
 
@@ -348,7 +359,7 @@ struct ProfilePublisherTests {
             encryptionKey: key, profileSource: .profileUpdate, updatedAt: Date(timeIntervalSince1970: 1)
         ))
         let publisher = makePublisher(publishStore: publishStore, profileStore: profileStore, selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key])
+        let session = FakeProfilePublishSession(inboxId: "me")
         await publisher.attach(session: session)
 
         try await publisher.publishConversation("c1")
@@ -370,7 +381,7 @@ struct ProfilePublisherTests {
             nextAttemptAt: clock.current, createdAt: clock.current, updatedAt: clock.current
         ))
         let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key])
+        let session = FakeProfilePublishSession(inboxId: "me")
 
         await publisher.attach(session: session)
 
@@ -392,7 +403,7 @@ struct ProfilePublisherTests {
             publishStore: publishStore, profileStore: InMemoryProfileStore(),
             selfProfileStore: selfProfileStore, clock: clock, conversationLocalStateWriter: localStateWriter
         )
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key])
+        let session = FakeProfilePublishSession(inboxId: "me")
         await publisher.attach(session: session)
 
         try await publisher.publishConversation("c1")
@@ -414,7 +425,7 @@ struct ProfilePublisherTests {
             nextAttemptAt: clock.current, createdAt: clock.current, updatedAt: clock.current
         ))
         let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key])
+        let session = FakeProfilePublishSession(inboxId: "me")
 
         await publisher.attach(session: session)
 
@@ -448,7 +459,7 @@ struct ProfilePublisherTests {
         let selfProfileStore = InMemorySelfProfileStore()
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
         let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: selfProfileStore, clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key, "c2": key])
+        let session = FakeProfilePublishSession(inboxId: "me")
         await publisher.attach(session: session)
 
         // Global identity metadata plus scoped keys for c1 only; the scoped
@@ -485,7 +496,7 @@ struct ProfilePublisherTests {
         let selfProfileStore = InMemorySelfProfileStore()
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
         let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: selfProfileStore, clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        let session = FakeProfilePublishSession(inboxId: "me")
         await publisher.attach(session: session)
         try await selfProfileStore.save(DBMyProfile(inboxId: "me", name: "Me", updatedAt: clock.current))
 
@@ -517,7 +528,7 @@ struct ProfilePublisherTests {
         let selfProfileStore = InMemorySelfProfileStore()
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
         let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: selfProfileStore, clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:], sendFailures: 1)
+        let session = FakeProfilePublishSession(inboxId: "me", sendFailures: 1)
         await publisher.attach(session: session)
 
         await #expect(throws: (any Error).self) {
@@ -565,7 +576,7 @@ struct ProfilePublisherTests {
         try await publisher.publishConversation("c1")
         try await selfProfileStore.save(DBMyProfile(inboxId: "me", name: "Me Edited", updatedAt: editTime))
 
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        let session = FakeProfilePublishSession(inboxId: "me")
         await publisher.attach(session: session)
 
         // The send happened, but the stamp is the enqueue-time value: the
@@ -590,7 +601,7 @@ struct ProfilePublisherTests {
             // deadline, standing in for real elapsed time.
             sleep: { delay in clock.advance(by: delay) }
         )
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: ["c1": key], uploadFailures: 1)
+        let session = FakeProfilePublishSession(inboxId: "me", uploadFailures: 1)
         await publisher.attach(session: session)
 
         try await publisher.updateAvatarSource(Data([1]))
@@ -612,7 +623,7 @@ struct ProfilePublisherTests {
         let publishStore = InMemoryProfilePublishStore()
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
         let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        let session = FakeProfilePublishSession(inboxId: "me")
         await publisher.attach(session: session)
 
         // An older, ready job for another conversation sits at the head of
@@ -650,7 +661,7 @@ struct ProfilePublisherTests {
                 try await Task.sleep(nanoseconds: .max)
             }
         )
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        let session = FakeProfilePublishSession(inboxId: "me")
         await publisher.attach(session: session)
 
         // A ready pending job exists, but every fetch throws. With `try?`
@@ -677,7 +688,7 @@ struct ProfilePublisherTests {
         let store = GatedClaimPublishStore(wrapping: inner)
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
         let publisher = makePublisher(publishStore: store, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:])
+        let session = FakeProfilePublishSession(inboxId: "me")
         await publisher.attach(session: session)
 
         // Park the inline publish inside claimJob, after the row committed to
@@ -703,7 +714,7 @@ struct ProfilePublisherTests {
         let publishStore = InMemoryProfilePublishStore()
         let clock = TestClock(Date(timeIntervalSince1970: 1_000))
         let publisher = makePublisher(publishStore: publishStore, profileStore: InMemoryProfileStore(), selfProfileStore: InMemorySelfProfileStore(), clock: clock)
-        let session = FakeProfilePublishSession(inboxId: "me", imageKeys: [:], missingConversations: ["gone"])
+        let session = FakeProfilePublishSession(inboxId: "me", missingConversations: ["gone"])
         await publisher.attach(session: session)
 
         try await publisher.publishConversation("gone")

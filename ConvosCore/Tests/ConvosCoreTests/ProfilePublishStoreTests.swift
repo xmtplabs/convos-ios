@@ -48,9 +48,20 @@ struct ProfilePublishStoreTests {
         let v2 = try await store.source(inboxId: "me")
         #expect(v2?.version == 2)
 
-        // bumpAvatarSource assigns the next version atomically.
+        // setSourceUploadedUrl caches the upload only at the matching version.
+        let cachedStale = try await store.setSourceUploadedUrl(inboxId: "me", version: 1, url: "https://old")
+        #expect(cachedStale == false)
+        let cached = try await store.setSourceUploadedUrl(inboxId: "me", version: 2, url: "https://cached")
+        #expect(cached == true)
+        let withUrl = try await store.source(inboxId: "me")
+        #expect(withUrl?.uploadedUrl == "https://cached")
+
+        // bumpAvatarSource assigns the next version atomically and resets the
+        // cached upload (a new avatar must re-upload).
         let v3 = try await store.bumpAvatarSource(inboxId: "me", plaintext: Data([3]), updatedAt: past1)
         #expect(v3 == 3)
+        let afterBump = try await store.source(inboxId: "me")
+        #expect(afterBump?.uploadedUrl == nil)
         let v4 = try await store.bumpAvatarSource(inboxId: "me", plaintext: Data([4]), updatedAt: past2)
         #expect(v4 == 4)
         let latestSource = try await store.source(inboxId: "me")

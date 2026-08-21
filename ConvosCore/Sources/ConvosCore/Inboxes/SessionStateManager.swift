@@ -8,11 +8,16 @@ public protocol SessionStateObserver: AnyObject, Sendable {
 public protocol SessionStateManagerProtocol: AnyObject, Sendable {
     var currentState: SessionStateMachine.State { get }
     var isSyncReady: Bool { get async }
+    /// The session-scoped sole reader and writer of conversation appData.
+    var appDataCoordinator: AppDataCoordinator { get }
 
     func waitForInboxReadyResult() async throws -> InboxReadyResult
     func waitForDeletionComplete() async
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async
+    /// Routes observed `app_data` GroupUpdated commits to the appData
+    /// coordinator so it re-drains pending changes against the new blob.
+    func setAppDataCommitObserver(_ handler: @escaping @Sendable (String) async -> Void) async
 
     func requestDiscovery() async
 

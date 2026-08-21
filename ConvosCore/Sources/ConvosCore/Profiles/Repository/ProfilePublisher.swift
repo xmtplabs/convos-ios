@@ -280,8 +280,8 @@ actor ProfilePublisher {
         } catch is ProfilePublishSessionError {
             // The XMTP conversation is gone (deleted or left) - the send can
             // never succeed, so drop the job instead of retrying forever at
-            // the backoff cap. The avatar path already drops via a nil image
-            // key; this covers name-only jobs.
+            // the backoff cap. Covers both avatar and name-only jobs, whose
+            // sends throw `conversationNotFound`.
             Log.warning("ProfilePublisher: dropping job \(job.id) for missing conversation \(job.conversationId)")
             try? await publishStore.deleteJob(id: job.id)
         } catch {
@@ -295,40 +295,31 @@ actor ProfilePublisher {
               source.version == version else {
             throw PublishDropError.staleSource
         }
-        guard let groupKey = try await session.imageKey(conversationId: job.conversationId) else {
-            throw PublishDropError.conversationGone
-        }
 
-        var current = job
-        if current.ciphertext == nil || current.groupKey != groupKey {
-            let payload = try session.encrypt(source.plaintext, groupKey: groupKey)
-            current.ciphertext = payload.ciphertext
-            current.salt = payload.salt
-            current.nonce = payload.nonce
-            current.groupKey = groupKey
-            current.filename = "ep-\(UUID().uuidString).enc"
-            current.uploadedURL = nil
-            current.updatedAt = now()
-            try await publishStore.update(current)
-        }
-
+        // Upload the raw avatar once per version. The serialized drain loop
+        // uploads the first job for a version and caches the plain URL on the
+        // source; every later per-conversation job (and any crash-recovery
+        // re-run) reuses it. A crash between upload and cache costs at most one
+        // orphaned re-upload.
         let url: String
-        if let uploaded = current.uploadedURL {
+        if let uploaded = source.uploadedUrl {
             url = uploaded
         } else {
-            guard let ciphertext = current.ciphertext, let filename = current.filename else {
+            let uploaded = try await session.upload(
+                source.plaintext,
+                filename: "ep-\(UUID().uuidString).jpg",
+                contentType: "image/jpeg"
+            )
+            guard try await publishStore.setSourceUploadedUrl(inboxId: selfInboxId, version: version, url: uploaded) else {
+                // A newer avatar superseded this version mid-upload; drop.
                 throw PublishDropError.staleSource
             }
-            url = try await session.upload(ciphertext, filename: filename)
-            current.uploadedURL = url
-            current.updatedAt = now()
-            try await publishStore.update(current)
+            url = uploaded
         }
 
-        guard let salt = current.salt, let nonce = current.nonce, let key = current.groupKey else {
-            throw PublishDropError.staleSource
-        }
-        let published = PublishedAvatar(url: url, salt: salt, nonce: nonce, key: key)
+        // Image encryption is removed on the write side: publish a plain avatar
+        // slot with no crypto, which renders the URL directly.
+        let published = PublishedAvatar(url: url)
         let selfProfile = try await selfProfileStore.load()
         let metadata = try await outgoingMetadata(for: job.conversationId, selfInboxId: selfInboxId, selfProfile: selfProfile)
         try await session.sendProfileUpdate(name: selfProfile?.name, metadata: metadata, avatar: published, conversationId: job.conversationId)
@@ -336,9 +327,9 @@ actor ProfilePublisher {
             inboxId: selfInboxId,
             conversationId: job.conversationId,
             url: url,
-            salt: salt,
-            nonce: nonce,
-            encryptionKey: key,
+            salt: nil,
+            nonce: nil,
+            encryptionKey: nil,
             profileSource: .profileUpdate,
             updatedAt: now()
         )
@@ -432,18 +423,18 @@ actor ProfilePublisher {
     }
 
     private func publishedAvatar(from slot: DBProfileAvatar?) -> PublishedAvatar? {
-        guard let slot, let url = slot.url, let salt = slot.salt, let nonce = slot.nonce, let key = slot.encryptionKey else {
-            return nil
-        }
-        return PublishedAvatar(url: url, salt: salt, nonce: nonce, key: key)
+        guard let slot, let url = slot.url else { return nil }
+        // Pass the crypto through as-is: a plain slot (nil crypto) re-advertises
+        // as a plain image, a legacy encrypted slot re-advertises encrypted.
+        return PublishedAvatar(url: url, salt: slot.salt, nonce: slot.nonce, key: slot.encryptionKey)
     }
 
     private func reschedule(_ job: DBProfilePublishJob, error: any Error) async {
-        // Re-fetch so the reschedule preserves any ciphertext/uploaded URL cached
-        // during the attempt. If the job is gone - a newer publish superseded and
-        // deleted it while this attempt was in flight - do not re-insert it, or a
-        // superseded (obsolete) profile/avatar would be retried and eventually
-        // sent after a newer publish intent.
+        // Re-fetch so the reschedule sees the latest job state. If the job is
+        // gone - a newer publish superseded and deleted it while this attempt
+        // was in flight - do not re-insert it, or a superseded (obsolete)
+        // profile/avatar would be retried and eventually sent after a newer
+        // publish intent.
         guard var updated = await latestJob(id: job.id) else {
             Log.error("ProfilePublisher job \(job.id) failed but was superseded/deleted, skipping reschedule: \(error)")
             return
@@ -463,7 +454,6 @@ actor ProfilePublisher {
 
     private enum PublishDropError: Error {
         case staleSource
-        case conversationGone
     }
 }
 

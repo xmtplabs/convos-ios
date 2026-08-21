@@ -16,6 +16,7 @@ public protocol SyncingManagerProtocol: Actor {
     func requestDiscovery() async
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async
+    func setAppDataCommitObserver(_ handler: @escaping @Sendable (String) async -> Void) async
 
     /// Temporary diagnostic for agents timing out while joining (suspected
     /// silent message-stream death). Polls for unprocessed join-request DMs
@@ -1190,6 +1191,10 @@ extension SyncingManager {
 
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
         await streamProcessor.setTypingIndicatorHandler(handler)
+    }
+
+    func setAppDataCommitObserver(_ handler: @escaping @Sendable (String) async -> Void) async {
+        await streamProcessor.setAppDataCommitObserver(handler)
     }
 }
 

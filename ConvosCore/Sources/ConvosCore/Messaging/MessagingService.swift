@@ -188,6 +188,17 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         databaseReader: databaseReader
     )
 
+    /// The sole reader and writer of conversation appData, owned by the session
+    /// state machine (so every writer can reach it via `sessionStateManager`).
+    /// `startProfileServices` binds the XMTP-backed session once inbox-ready.
+    private var sharedAppDataCoordinator: AppDataCoordinator {
+        sessionStateManager.appDataCoordinator
+    }
+
+    func appDataCoordinator() -> AppDataCoordinator {
+        sharedAppDataCoordinator
+    }
+
     private lazy var sharedProfilesRepository: ProfilesRepository = ProfilesRepository(
         profileStore: profileStore,
         selfProfileStore: selfProfileStore,
@@ -230,10 +241,19 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                 sessionStateManager: sessionStateManager
             )
         )
+        await sharedAppDataCoordinator.attach(
+            session: MessagingAppDataSyncSession(
+                sessionStateManager: sessionStateManager
+            )
+        )
+        await sessionStateManager.setAppDataCommitObserver { [sharedAppDataCoordinator] conversationId in
+            await sharedAppDataCoordinator.onAppDataCommitObserved(conversationId: conversationId)
+        }
     }
 
     func stopProfileServices() async {
         await sharedProfilesRepository.unbind()
+        await sharedAppDataCoordinator.detach()
     }
 
     // MARK: New Conversation

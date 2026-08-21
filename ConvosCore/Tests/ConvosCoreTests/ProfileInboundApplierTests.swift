@@ -101,7 +101,7 @@ struct ProfileInboundApplierTests {
     @Test("an update writes identity and an avatar slot")
     func updateWritesIdentityAndAvatar() throws {
         let queue = try makeQueue()
-        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(imageRef(url: "u")), fallbackKey: key, sentAt: Date(timeIntervalSince1970: 1))
+        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(.encrypted(imageRef(url: "u"))), fallbackKey: key, sentAt: Date(timeIntervalSince1970: 1))
 
         let alice = try profile(queue, inboxId: "alice")
         #expect(alice?.name == "Alice")
@@ -114,7 +114,7 @@ struct ProfileInboundApplierTests {
     @Test("an event authored by the current user is not written to the profile tables")
     func selfEchoSkipped() throws {
         let queue = try makeQueue()
-        try apply(queue, inboxId: "me", name: "Myself", avatar: .addressed(imageRef(url: "u")), selfInboxId: "me", sentAt: Date(timeIntervalSince1970: 1))
+        try apply(queue, inboxId: "me", name: "Myself", avatar: .addressed(.encrypted(imageRef(url: "u"))), selfInboxId: "me", sentAt: Date(timeIntervalSince1970: 1))
 
         let me = try profile(queue, inboxId: "me")
         #expect(me == nil)
@@ -136,7 +136,7 @@ struct ProfileInboundApplierTests {
     @Test("an update with no image leaves an existing avatar untouched (deferred deliberate-clear)")
     func updateAddressedKeepsAvatarWhenImageAbsent() throws {
         let queue = try makeQueue()
-        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(imageRef(url: "u")), fallbackKey: key, sentAt: Date(timeIntervalSince1970: 1))
+        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(.encrypted(imageRef(url: "u"))), fallbackKey: key, sentAt: Date(timeIntervalSince1970: 1))
         try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(nil), sentAt: Date(timeIntervalSince1970: 2))
 
         // Until the wire format can signal a deliberate clear, an omitted image
@@ -149,12 +149,12 @@ struct ProfileInboundApplierTests {
     @Test("an update with a malformed image ref leaves an existing avatar untouched")
     func updateAddressedKeepsAvatarWhenImageMalformed() throws {
         let queue = try makeQueue()
-        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(imageRef(url: "u")), fallbackKey: key, sentAt: Date(timeIntervalSince1970: 1))
+        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(.encrypted(imageRef(url: "u"))), fallbackKey: key, sentAt: Date(timeIntervalSince1970: 1))
         // A set-but-invalid ref (no url) must never wipe a good avatar.
         var malformed = EncryptedProfileImageRef()
         malformed.salt = salt
         malformed.nonce = nonce
-        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(malformed), sentAt: Date(timeIntervalSince1970: 2))
+        try apply(queue, inboxId: "alice", name: "Alice", avatar: .addressed(.encrypted(malformed)), sentAt: Date(timeIntervalSince1970: 2))
 
         let slot = try avatar(queue, inboxId: "alice")
         #expect(slot?.url == "u")
@@ -194,7 +194,7 @@ struct ProfileInboundApplierTests {
             ).insert(db)
         }
 
-        try apply(queue, inboxId: "alice", name: "New Alice", avatar: .addressed(imageRef(url: "u")), fallbackKey: key, sentAt: Date(timeIntervalSince1970: 1))
+        try apply(queue, inboxId: "alice", name: "New Alice", avatar: .addressed(.encrypted(imageRef(url: "u"))), fallbackKey: key, sentAt: Date(timeIntervalSince1970: 1))
 
         let contact = try queue.read { db in try DBContact.fetchOne(db, key: "alice") }
         #expect(contact?.displayName == "New Alice")

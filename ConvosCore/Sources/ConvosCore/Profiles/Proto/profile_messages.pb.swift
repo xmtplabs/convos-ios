@@ -106,7 +106,7 @@ public struct MetadataValue: Sendable {
 /// The sender's inbox ID is implicit from the XMTP message — only the
 /// sender can author their own profile update, preventing spoofing.
 ///
-/// Sending a ProfileUpdate with no name and no encrypted_image clears the profile.
+/// Sending a ProfileUpdate with no name, no encrypted_image, and no image clears the profile.
 public struct ProfileUpdate: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -134,12 +134,25 @@ public struct ProfileUpdate: Sendable {
 
   public var metadata: Dictionary<String,MetadataValue> = [:]
 
+  /// Plain (unencrypted) avatar URL. Image encryption is removed on the write side;
+  /// new clients set this instead of encrypted_image. Legacy peers still send
+  /// encrypted_image, which continues to decrypt on the read path.
+  public var image: String {
+    get {_image ?? String()}
+    set {_image = newValue}
+  }
+  /// Returns true if `image` has been explicitly set.
+  public var hasImage: Bool {self._image != nil}
+  /// Clears the value of `image`. Subsequent reads from it will return its default value.
+  public mutating func clearImage() {self._image = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _name: String? = nil
   fileprivate var _encryptedImage: EncryptedProfileImageRef? = nil
+  fileprivate var _image: String? = nil
 }
 
 /// ProfileSnapshot is sent by the member who adds new members to a group.
@@ -192,12 +205,23 @@ public struct MemberProfile: Sendable {
 
   public var metadata: Dictionary<String,MetadataValue> = [:]
 
+  /// Plain (unencrypted) avatar URL -- see ProfileUpdate.image.
+  public var image: String {
+    get {_image ?? String()}
+    set {_image = newValue}
+  }
+  /// Returns true if `image` has been explicitly set.
+  public var hasImage: Bool {self._image != nil}
+  /// Clears the value of `image`. Subsequent reads from it will return its default value.
+  public mutating func clearImage() {self._image = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _name: String? = nil
   fileprivate var _encryptedImage: EncryptedProfileImageRef? = nil
+  fileprivate var _image: String? = nil
 }
 
 /// Reference to an encrypted profile image (matches EncryptedImageRef from ConvosAppData
@@ -298,7 +322,7 @@ extension MetadataValue: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
 
 extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ProfileUpdate"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{3}encrypted_image\0\u{3}member_kind\0\u{1}metadata\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{3}encrypted_image\0\u{3}member_kind\0\u{1}metadata\0\u{1}image\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -310,6 +334,7 @@ extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
       case 2: try { try decoder.decodeSingularMessageField(value: &self._encryptedImage) }()
       case 3: try { try decoder.decodeSingularEnumField(value: &self.memberKind) }()
       case 4: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,MetadataValue>.self, value: &self.metadata) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self._image) }()
       default: break
       }
     }
@@ -332,6 +357,9 @@ extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if !self.metadata.isEmpty {
       try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,MetadataValue>.self, value: self.metadata, fieldNumber: 4)
     }
+    try { if let v = self._image {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -340,6 +368,7 @@ extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if lhs._encryptedImage != rhs._encryptedImage {return false}
     if lhs.memberKind != rhs.memberKind {return false}
     if lhs.metadata != rhs.metadata {return false}
+    if lhs._image != rhs._image {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -377,7 +406,7 @@ extension ProfileSnapshot: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
 
 extension MemberProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "MemberProfile"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}inbox_id\0\u{1}name\0\u{3}encrypted_image\0\u{3}member_kind\0\u{1}metadata\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}inbox_id\0\u{1}name\0\u{3}encrypted_image\0\u{3}member_kind\0\u{1}metadata\0\u{1}image\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -390,6 +419,7 @@ extension MemberProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
       case 3: try { try decoder.decodeSingularMessageField(value: &self._encryptedImage) }()
       case 4: try { try decoder.decodeSingularEnumField(value: &self.memberKind) }()
       case 5: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,MetadataValue>.self, value: &self.metadata) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self._image) }()
       default: break
       }
     }
@@ -415,6 +445,9 @@ extension MemberProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if !self.metadata.isEmpty {
       try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,MetadataValue>.self, value: self.metadata, fieldNumber: 5)
     }
+    try { if let v = self._image {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 6)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -424,6 +457,7 @@ extension MemberProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if lhs._encryptedImage != rhs._encryptedImage {return false}
     if lhs.memberKind != rhs.memberKind {return false}
     if lhs.metadata != rhs.metadata {return false}
+    if lhs._image != rhs._image {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -13,7 +13,11 @@ public extension Conversation {
         isMuted: Bool = false,
         invite: Invite? = nil,
         lastMessageText: String = "This is a preview of the last message",
-        wasCreatedFromAgentBuilder: Bool = false
+        wasCreatedFromAgentBuilder: Bool = false,
+        imageURL: URL? = nil,
+        imageSalt: Data? = nil,
+        imageNonce: Data? = nil,
+        imageEncryptionKey: Data? = nil
     ) -> Conversation {
         let mockMembers = members ?? [
             .mock(isCurrentUser: true),
@@ -44,10 +48,10 @@ public extension Conversation {
                 text: lastMessageText,
                 createdAt: Date()
             ) : nil,
-            imageURL: nil,
-            imageSalt: nil,
-            imageNonce: nil,
-            imageEncryptionKey: nil,
+            imageURL: imageURL,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
             conversationEmoji: nil,
             includeInfoInPublicPreview: false,
             isDraft: id.hasPrefix("draft-"),

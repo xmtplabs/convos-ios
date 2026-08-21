@@ -38,6 +38,42 @@ struct ProfileUpdateCodecTests {
         #expect(decoded.encryptedImage.nonce.count == 12)
     }
 
+    @Test("Encode and decode profile update with a plain image URL")
+    func roundTripPlainImage() throws {
+        var update = ProfileUpdate(name: "Bob")
+        update.image = "https://example.com/avatar.jpg"
+
+        let encoded = try codec.encode(content: update)
+        let decoded = try codec.decode(content: encoded)
+
+        #expect(decoded.name == "Bob")
+        #expect(!decoded.hasEncryptedImage)
+        #expect(decoded.hasImage)
+        #expect(decoded.image == "https://example.com/avatar.jpg")
+        // A plain-only update resolves its inbound image to the plain URL.
+        if case let .plain(url) = decoded.inboundImage {
+            #expect(url == "https://example.com/avatar.jpg")
+        } else {
+            Issue.record("expected a plain inbound image")
+        }
+    }
+
+    @Test("A message carrying both images resolves to the valid encrypted ref")
+    func inboundImagePrefersValidEncrypted() throws {
+        var imageRef = EncryptedProfileImageRef()
+        imageRef.url = "https://example.com/avatar.enc"
+        imageRef.salt = Data(repeating: 0xAB, count: 32)
+        imageRef.nonce = Data(repeating: 0xCD, count: 12)
+        var update = ProfileUpdate(name: "Bob", encryptedImage: imageRef)
+        update.image = "https://example.com/avatar.jpg"
+
+        if case let .encrypted(ref) = update.inboundImage {
+            #expect(ref.url == "https://example.com/avatar.enc")
+        } else {
+            Issue.record("expected an encrypted inbound image")
+        }
+    }
+
     @Test("Encode and decode empty profile update (clears profile)")
     func roundTripEmpty() throws {
         let update = ProfileUpdate()
@@ -47,6 +83,8 @@ struct ProfileUpdateCodecTests {
 
         #expect(!decoded.hasName)
         #expect(!decoded.hasEncryptedImage)
+        #expect(!decoded.hasImage)
+        #expect(decoded.inboundImage == nil)
     }
 
     @Test("Should not push")

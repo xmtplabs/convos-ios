@@ -6,6 +6,9 @@ import Foundation
 public final class MockSessionStateManager: SessionStateManagerProtocol, @unchecked Sendable {
     public var currentState: SessionStateMachine.State
     public var isSyncReady: Bool = true
+    public let appDataCoordinator: AppDataCoordinator = AppDataCoordinator(
+        store: InMemoryAppDataPendingChangeStore()
+    )
 
     private var observers: [WeakStateObserver] = []
     private let mockClient: any XMTPClientProvider
@@ -38,6 +41,9 @@ public final class MockSessionStateManager: SessionStateManagerProtocol, @unchec
     }
 
     public func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
+    }
+
+    public func setAppDataCommitObserver(_ handler: @escaping @Sendable (String) async -> Void) async {
     }
 
     public func requestDiscovery() async {

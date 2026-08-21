@@ -40,6 +40,12 @@ protocol StreamProcessorProtocol: Actor {
 
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?)
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void)
+    /// The native XMTP SDK exposes no appData-change stream, so the coordinator
+    /// learns about foreign commits here: when a GroupUpdated commit whose raw
+    /// metadata field name is `app_data` is observed, this fires with the
+    /// conversation id. The payload is not trusted - the handler re-reads the
+    /// group - so duplicate deliveries are harmless.
+    func setAppDataCommitObserver(_ handler: @escaping @Sendable (String) async -> Void)
 }
 
 extension StreamProcessorProtocol {
@@ -88,6 +94,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let consentStates: [ConsentState] = [.allowed, .unknown]
     private var inviteJoinErrorHandler: (any InviteJoinErrorHandler)?
     private var onTypingIndicator: ((String, String, Bool) -> Void)?
+    private var onAppDataCommit: (@Sendable (String) async -> Void)?
     private let invocationRuntime: ConnectionInvocationRuntime?
 
     // MARK: - Initialization
@@ -314,6 +321,8 @@ actor StreamProcessor: StreamProcessorProtocol {
                         inboxId: params.client.inboxId
                     )
 
+                    await notifyAppDataCommitIfNeeded(message, conversationId: conversation.id)
+
                     // Handle ExplodeSettings - skip storing message if this is an explode message
                     let explodeSettings = messageWriter.decodeExplodeSettings(from: message)
                     if let explodeSettings {
@@ -524,7 +533,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                         inboxId: senderInboxId,
                         source: .profileUpdate,
                         name: update.hasName ? update.name : nil,
-                        avatar: .addressed(update.hasEncryptedImage ? update.encryptedImage : nil),
+                        avatar: .addressed(update.inboundImage),
                         memberKind: update.memberKind.dbMemberKind,
                         // A ProfileUpdate's map is authoritative; pass it through
                         // even when empty so a cleared map (e.g. revoked grants)
@@ -565,7 +574,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                             inboxId: inboxId,
                             source: .profileSnapshot,
                             name: memberProfile.hasName ? memberProfile.name : nil,
-                            avatar: .fillIfPresent(memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil),
+                            avatar: .fillIfPresent(memberProfile.inboundImage),
                             memberKind: memberProfile.memberKind.dbMemberKind,
                             metadata: metadata.isEmpty ? nil : metadata,
                             receivedAt: receivedAt
@@ -1044,5 +1053,34 @@ extension StreamProcessor {
             ]
         )
         return true
+    }
+}
+
+// MARK: - AppData commit observation
+
+extension StreamProcessor {
+    func setAppDataCommitObserver(_ handler: @escaping @Sendable (String) async -> Void) {
+        self.onAppDataCommit = handler
+    }
+
+    /// Notifies the appData coordinator when a message is a GroupUpdated commit
+    /// touching `app_data`, so it re-drains pending changes against the new
+    /// blob. The commit payload is never trusted - the coordinator re-reads.
+    func notifyAppDataCommitIfNeeded(_ message: DecodedMessage, conversationId: String) async {
+        guard let onAppDataCommit, messageChangesAppData(message) else { return }
+        await onAppDataCommit(conversationId)
+    }
+
+    /// Whether this message is a GroupUpdated commit whose raw metadata field
+    /// name is `app_data`.
+    private func messageChangesAppData(_ message: DecodedMessage) -> Bool {
+        guard let contentType = try? message.encodedContent.type,
+              contentType == ContentTypeGroupUpdated,
+              let content = try? message.content() as Any,
+              let groupUpdated = content as? GroupUpdated else {
+            return false
+        }
+        let appDataField = ConversationUpdate.MetadataChange.Field.metadata.rawValue
+        return groupUpdated.metadataFieldChanges.contains { $0.fieldName == appDataField }
     }
 }

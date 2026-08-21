@@ -36,20 +36,14 @@ struct ProfileMetadataWriterTests {
         }
     }
 
-    /// Records sends; upload/encrypt are unreachable because the writer path
-    /// never publishes an avatar source.
+    /// Records sends; upload is unreachable because the writer path never
+    /// publishes an avatar source.
     private struct RecordingSession: ProfilePublishSession {
         let inboxId: String
         let sends: RecordedSends
         var failSends: Bool = false
 
-        func imageKey(conversationId: String) async throws -> Data? { nil }
-
-        func encrypt(_ plaintext: Data, groupKey: Data) throws -> EncryptedAvatarPayload {
-            EncryptedAvatarPayload(ciphertext: plaintext, salt: Data(), nonce: Data())
-        }
-
-        func upload(_ ciphertext: Data, filename: String) async throws -> String { "" }
+        func upload(_ data: Data, filename: String, contentType: String) async throws -> String { "" }
 
         func sendProfileUpdate(name: String?, metadata: ProfileMetadata?, avatar: PublishedAvatar?, conversationId: String) async throws {
             if failSends {

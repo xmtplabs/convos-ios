@@ -124,12 +124,18 @@ enum ProfileMerge {
         case .explicitClear:
             setFields = nil
         case let .set(url, salt, nonce, key):
-            // Every profile avatar must be group-encrypted. A set missing any
-            // crypto field is not a valid encrypted avatar; ignore it rather
-            // than store an unencrypted slot or downgrade an existing encrypted
-            // one to plaintext.
-            guard let salt, let nonce, let key else {
-                Log.debug("ProfileMerge: ignoring avatar set missing crypto fields for \(inboxId) in \(conversationId)")
+            // A valid set is one of two shapes: plain (no crypto at all) or fully
+            // encrypted (salt, nonce, and key all present). A partial-crypto set -
+            // an encrypted ref whose decrypt key we never resolved - is not
+            // storable (it would render as an undecryptable slot), so ignore it
+            // and keep the existing slot. A plain set is stored as-is and a newer
+            // one legitimately replaces an existing encrypted slot through the
+            // precedence/recency logic below (image encryption is removed on the
+            // write side; peers now publish plain avatars).
+            let hasAnyCrypto = salt != nil || nonce != nil || key != nil
+            let hasFullCrypto = salt != nil && nonce != nil && key != nil
+            if hasAnyCrypto, !hasFullCrypto {
+                Log.debug("ProfileMerge: ignoring avatar set with partial crypto fields for \(inboxId) in \(conversationId)")
                 return existing
             }
             setFields = AvatarFields(url: url, salt: salt, nonce: nonce, key: key)

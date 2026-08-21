@@ -32,6 +32,9 @@ final class FailedIdentityLoadSessionStateManager: SessionStateManagerProtocol, 
     private let error: any Error
     let currentState: SessionStateMachine.State
     var isSyncReady: Bool { get async { false } }
+    let appDataCoordinator: AppDataCoordinator = AppDataCoordinator(
+        store: InMemoryAppDataPendingChangeStore()
+    )
 
     init(error: any Error) {
         self.error = error
@@ -45,6 +48,7 @@ final class FailedIdentityLoadSessionStateManager: SessionStateManagerProtocol, 
     func waitForDeletionComplete() async {}
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {}
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {}
+    func setAppDataCommitObserver(_ handler: @escaping @Sendable (String) async -> Void) async {}
 
     func requestDiscovery() async {}
 

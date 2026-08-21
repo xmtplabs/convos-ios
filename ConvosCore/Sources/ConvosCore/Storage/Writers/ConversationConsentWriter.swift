@@ -49,6 +49,12 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
     func delete(conversation: Conversation) async throws {
         let targetId = try await resolveDeletionTarget(for: conversation.id)
 
+        // Drop any durable appData intent for the conversation the user is
+        // leaving, so the coordinator stops publishing metadata to a group they
+        // left and does not orphan pending rows (there is no FK cascade). Fails
+        // any in-flight `awaitPublished` waiter with `conversationGone`.
+        await sessionStateManager.appDataCoordinator.deletePendingChanges(conversationId: targetId)
+
         // A pending-invite draft ("verifying") has no XMTP group yet, so a
         // network consent update would throw conversationNotFound before the
         // local denial was written and the conversation would pop back into
@@ -118,6 +124,7 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked S
                     try dbConversation.with(consent: .denied).save(db)
                     Log.info("Updated conversation \(dbConversation.id) consent state to denied")
                 }
+                await sessionStateManager.appDataCoordinator.deletePendingChanges(conversationId: dbConversation.id)
             } catch {
                 errors.append(error)
             }

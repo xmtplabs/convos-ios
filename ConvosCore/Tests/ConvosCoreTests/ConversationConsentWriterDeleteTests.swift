@@ -226,6 +226,7 @@ private final class InboxUnavailableSessionStateManager: SessionStateManagerProt
 
     var currentState: SessionStateMachine.State = .idle
     var isSyncReady: Bool { false }
+    let appDataCoordinator: AppDataCoordinator = AppDataCoordinator(store: InMemoryAppDataPendingChangeStore())
 
     func waitForInboxReadyResult() async throws -> InboxReadyResult {
         throw InboxUnavailableError()
@@ -234,6 +235,7 @@ private final class InboxUnavailableSessionStateManager: SessionStateManagerProt
     func waitForDeletionComplete() async {}
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {}
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {}
+    func setAppDataCommitObserver(_ handler: @escaping @Sendable (String) async -> Void) async {}
     func requestDiscovery() async {}
     func runHistorySyncBackfill() async {}
     func startAgentJoinRequestPolling() async {}

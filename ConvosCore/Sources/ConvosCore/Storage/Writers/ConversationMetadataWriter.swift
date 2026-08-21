@@ -111,14 +111,16 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        let expiresAtUnix = Int64(expiresAt.timeIntervalSince1970)
+        // Durable-eventual: enqueue the appData change and return; the local
+        // mirror below is the immediate truth for the setter's UI, and the
+        // coordinator guarantees delivery across offline/restart.
+        try await sessionStateManager.appDataCoordinator.enqueueChange(
+            conversationId: conversationId,
+            domain: .expiry
+        ) { metadata in
+            metadata.expiresAtUnix = expiresAtUnix
         }
-
-        try await group.updateExpiresAt(date: expiresAt)
 
         let updatedConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
@@ -142,14 +144,15 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     /// written here too so the setter's own control does not wait a round trip
     /// for state their device already knows.
     func updateParticipationMode(_ mode: ConversationParticipationMode, for conversationId: String) async throws {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        // Durable-eventual, like `updateExpiresAt`: the local mirror is the
+        // immediate truth for the setter's own control and the coordinator
+        // delivers the commit other members receive.
+        try await sessionStateManager.appDataCoordinator.enqueueChange(
+            conversationId: conversationId,
+            domain: .participation
+        ) { metadata in
+            metadata.participationMode = mode.proto
         }
-
-        try await group.updateParticipationMode(mode)
 
         try await databaseWriter.write { db in
             guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
@@ -218,66 +221,62 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         let oldPublicImageURL = localConversation.publicImageURLString
         let includePublicPreview = localConversation.includeInfoInPublicPreview
 
-        let groupKey = try await group.ensureImageEncryptionKey()
-        let encryptedPayload = try ImageEncryption.encrypt(
-            imageData: compressedImageData,
-            groupKey: groupKey
-        )
-
-        let encryptedFilename = "eg-\(UUID().uuidString).enc"
-
-        if includePublicPreview {
-            Log.debug("Uploading group image (encrypted + public preview)")
-        } else {
-            Log.debug("Uploading group image (encrypted only, public preview disabled)")
-        }
-
-        let encryptedAssetUrl = try await inboxReady.apiClient.uploadAttachment(
-            data: encryptedPayload.ciphertext,
-            filename: encryptedFilename,
-            contentType: "application/octet-stream",
+        // Upload the raw image (no encryption). The plain URL rides the native
+        // XMTP group-image metadata; peers render it directly. A legacy peer or
+        // group that still carries a key continues to decrypt via the read path.
+        let filename = "eg-\(UUID().uuidString).jpg"
+        let imageUrl = try await inboxReady.apiClient.uploadAttachment(
+            data: compressedImageData,
+            filename: filename,
+            contentType: "image/jpeg",
             acl: "public-read"
         )
-        Log.debug("Encrypted image uploaded: \(encryptedAssetUrl)")
+        Log.debug("Group image uploaded (plain): \(imageUrl)")
 
-        let publicImageUrl: String?
-        if includePublicPreview {
-            let publicFilename = "pg-\(UUID().uuidString).jpg"
-            let uploadedUrl = try await inboxReady.apiClient.uploadAttachment(
-                data: compressedImageData,
-                filename: publicFilename,
-                contentType: "image/jpeg",
-                acl: "public-read"
-            )
-            Log.debug("Public preview image uploaded: \(uploadedUrl)")
-            publicImageUrl = uploadedUrl
-        } else {
-            publicImageUrl = nil
-            Log.debug("Public preview URL: none")
+        // A plain image needs no separate public-preview object: the bytes are
+        // identical and the asset is already public-read, so the invite reuses
+        // the same URL. The toggle still governs whether the invite exposes it.
+        let publicImageUrl: String? = includePublicPreview ? imageUrl : nil
+
+        // Clear any stale `encryptedGroupImage` appData ref left by a prior
+        // encrypted upload. Peers that pair the native URL with appData crypto
+        // unconditionally would otherwise tag this plain URL with a key it can't
+        // be decrypted with. Fire-and-forget durable: the read-side URL-match
+        // guard also protects against this, so a failure here only logs.
+        do {
+            try await sessionStateManager.appDataCoordinator.enqueueChange(
+                conversationId: conversation.id,
+                domain: .legacyImageCleanup
+            ) { metadata in
+                metadata.clearEncryptedGroupImage()
+            }
+        } catch {
+            Log.error("Failed to enqueue encryptedGroupImage cleanup for \(conversation.id): \(error.localizedDescription)")
         }
-
-        var encryptedRef = EncryptedImageRef()
-        encryptedRef.url = encryptedAssetUrl
-        encryptedRef.salt = encryptedPayload.salt
-        encryptedRef.nonce = encryptedPayload.nonce
-
-        try await group.updateEncryptedGroupImage(encryptedRef)
-        try await group.updateImageUrl(imageUrl: encryptedAssetUrl)
+        try await group.updateImageUrl(imageUrl: imageUrl)
 
         let updatedConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
                 .fetchOne(db, key: conversation.id) else {
                 throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
             }
+            // Null the image salt/nonce (this image is plain); keep the group
+            // encryption key, which is also the profile-avatar fallback decrypt
+            // key for legacy peers.
             let updatedConversation = localConversation
-                .with(imageURLString: encryptedAssetUrl)
+                .with(
+                    imageURLString: imageUrl,
+                    imageSalt: nil,
+                    imageNonce: nil,
+                    imageEncryptionKey: localConversation.imageEncryptionKey
+                )
                 .with(publicImageURLString: localConversation.includeInfoInPublicPreview ? publicImageUrl : nil)
             try updatedConversation.save(db)
             return updatedConversation
         }
 
         // Invalidate old cache entries only after all operations succeed
-        if let oldImageURL, oldImageURL != encryptedAssetUrl {
+        if let oldImageURL, oldImageURL != imageUrl {
             ImageCacheContainer.shared.removeImage(for: oldImageURL)
         }
         if let oldPublicImageURL, oldPublicImageURL != publicImageUrl {
@@ -291,7 +290,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         ImageCacheContainer.shared.cacheAfterUpload(
             compressedImageData,
             for: conversation.clientConversationId,
-            url: encryptedAssetUrl
+            url: imageUrl
         )
 
         try await syncInvitePreview(for: updatedConversation)
@@ -299,7 +298,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         if includePublicPreview {
             Log.debug("Public preview URL set for invites")
         }
-        Log.debug("Updated encrypted conversation image for \(conversation.id): \(encryptedAssetUrl)")
+        Log.debug("Updated conversation image (plain) for \(conversation.id): \(imageUrl)")
     }
 
     func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws {
@@ -360,9 +359,17 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         localConversation: DBConversation,
         inboxReady: InboxReadyResult
     ) async -> String? {
-        guard localConversation.imageURLString != nil else {
+        guard let imageURLString = localConversation.imageURLString else {
             Log.debug("No group image to make public")
             return nil
+        }
+
+        // A plain (cleartext) group image is already a public-read object, so
+        // the invite reuses its URL directly - no decrypt-and-re-upload. Only a
+        // legacy encrypted image needs the round trip below.
+        if localConversation.imageSalt == nil, localConversation.imageNonce == nil {
+            Log.debug("Group image is plain; reusing its URL for public preview")
+            return imageURLString
         }
 
         guard let xmtpConversation = try? await inboxReady.client.conversation(with: conversationId),
@@ -446,15 +453,13 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     // MARK: - Member Management
 
     func markAsAgentDm(_ conversationId: String, originConversationId: String?) async throws {
-        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
-
-        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
-              case .group(let group) = conversation else {
-            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
-        }
-
         let originIdData = originConversationId.flatMap { Self.hexDecoded($0) }
-        try await group.markAsAgentDm(originConversationId: originIdData)
+        try await sessionStateManager.appDataCoordinator.enqueueChange(
+            conversationId: conversationId,
+            domain: .agentDm
+        ) { metadata in
+            metadata.markAgentDm(originConversationId: originIdData)
+        }
 
         try await databaseWriter.write { db in
             let updated = try DBConversation
@@ -709,7 +714,21 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         }
 
         try await group.updateAddMemberPermission(newPermissionOption: .deny)
-        try await group.rotateInviteTag()
+        // Rotate the invite tag through the coordinator, then wait for the
+        // commit to land before generating the invite so it never references
+        // an unpublished tag.
+        let newTag = try InviteTag.generate()
+        let rotation = try await sessionStateManager.appDataCoordinator.enqueueChange(
+            conversationId: conversationId,
+            domain: .inviteTag
+        ) { metadata in
+            metadata.tag = newTag
+        }
+        let rotatedTag = rotation.localMerged.tag
+        // Bounded so an offline lock/unlock fails fast (and the caller can
+        // retry) instead of parking on the never-give-up reconcile loop. The
+        // rotation stays durable and still publishes once connectivity returns.
+        try await rotation.awaitPublished(timeout: Constant.invitePublishTimeout)
 
         let updatedConversation: DBConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
@@ -717,7 +736,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             }
             let updated = localConversation
                 .with(isLocked: true)
-                .with(inviteTag: try group.inviteTag)
+                .with(inviteTag: rotatedTag)
             try updated.save(db)
             Log.debug("Locked conversation \(conversationId) in local database")
             return updated
@@ -737,9 +756,20 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
-        // Rotate invite tag first so the new invite is ready before members can add others.
-        // This ensures the invite works immediately when permissions are updated.
-        try await group.rotateInviteTag()
+        // Rotate the invite tag first and wait for the commit to land, so the
+        // new invite is live before members regain the right to add others.
+        let newTag = try InviteTag.generate()
+        let rotation = try await sessionStateManager.appDataCoordinator.enqueueChange(
+            conversationId: conversationId,
+            domain: .inviteTag
+        ) { metadata in
+            metadata.tag = newTag
+        }
+        let rotatedTag = rotation.localMerged.tag
+        // Bounded so an offline lock/unlock fails fast (and the caller can
+        // retry) instead of parking on the never-give-up reconcile loop. The
+        // rotation stays durable and still publishes once connectivity returns.
+        try await rotation.awaitPublished(timeout: Constant.invitePublishTimeout)
 
         try await group.updateAddMemberPermission(newPermissionOption: .allow)
 
@@ -749,7 +779,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             }
             let updated = localConversation
                 .with(isLocked: false)
-                .with(inviteTag: try group.inviteTag)
+                .with(inviteTag: rotatedTag)
             try updated.save(db)
             Log.debug("Unlocked conversation \(conversationId) in local database")
             return updated
@@ -767,5 +797,12 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         }) else { return nil }
 
         return try await inviteWriter.update(for: conversationId)
+    }
+
+    private enum Constant {
+        /// How long lock/unlock waits for the invite-tag rotation to reach the
+        /// network before failing fast. Covers a normal write plus verify
+        /// re-read; offline it trips and the user retries.
+        static let invitePublishTimeout: TimeInterval = 20
     }
 }

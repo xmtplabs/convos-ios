@@ -91,10 +91,14 @@ public enum ProfileSnapshotBuilder {
             if !overlay.hasUsableName, base.hasName {
                 merged.name = base.name
             }
-            // Likewise a set-but-malformed incoming image ref must not clobber
-            // a valid database image.
-            if !overlay.hasUsableEncryptedImage, base.hasEncryptedImage {
-                merged.encryptedImage = base.encryptedImage
+            // Likewise an overlay with no usable image (of either kind) must not
+            // clobber a valid database image; carry whichever kind the base has.
+            if !overlay.hasUsableImage, base.hasUsableImage {
+                if base.hasUsableEncryptedImage {
+                    merged.encryptedImage = base.encryptedImage
+                } else if base.hasImage {
+                    merged.image = base.image
+                }
             }
             if overlay.memberKind == .unspecified, base.memberKind != .unspecified {
                 merged.memberKind = base.memberKind
@@ -122,6 +126,9 @@ public enum ProfileSnapshotBuilder {
         }
         if update.hasEncryptedImage {
             memberProfile.encryptedImage = update.encryptedImage
+        }
+        if update.hasImage {
+            memberProfile.image = update.image
         }
         memberProfile.memberKind = update.memberKind
         if !update.metadata.isEmpty {
@@ -223,10 +230,20 @@ private extension MemberProfile {
         hasEncryptedImage && encryptedImage.isValid
     }
 
+    /// Whether the profile carries a non-empty plain (unencrypted) image URL.
+    var hasUsablePlainImage: Bool {
+        hasImage && !image.isEmpty
+    }
+
+    /// Whether the profile carries any usable image, encrypted or plain.
+    var hasUsableImage: Bool {
+        hasUsableEncryptedImage || hasUsablePlainImage
+    }
+
     /// Whether the profile carries anything worth broadcasting. An inbox-id-only
     /// entry (a cleared profile with no usable name, image, agent kind, or
     /// metadata) conveys nothing to a joiner, so it is dropped from the snapshot.
     var hasSnapshotContent: Bool {
-        hasUsableName || hasUsableEncryptedImage || memberKind != .unspecified || !metadata.isEmpty
+        hasUsableName || hasUsableImage || memberKind != .unspecified || !metadata.isEmpty
     }
 }

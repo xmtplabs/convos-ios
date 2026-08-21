@@ -506,9 +506,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             }
         }
 
-        // Only a valid encrypted image is worth merging; anything else leaves the
-        // slot untouched (silent), so app-data never clears an existing avatar.
-        guard profile.hasValidEncryptedAvatar, let url = profile.avatar else { return }
+        // A valid encrypted image or a plain (cleartext) URL is worth merging;
+        // anything else leaves the slot untouched (silent), so app-data never
+        // clears an existing avatar. app-data is a low-precedence mirror tier, so
+        // the merge never overwrites a wire-sourced slot.
+        guard profile.hasValidEncryptedAvatar || profile.hasPlainAvatar, let url = profile.avatar else { return }
         let existingAvatar = try DBProfileAvatar.fetchOne(db, inboxId: inboxId, conversationId: conversationId)
         let mergedAvatar = ProfileMerge.mergeAvatar(
             existing: existingAvatar,
@@ -821,7 +823,18 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let permissionPolicy = try conversation.permissionPolicySet()
         let isLocked = permissionPolicy.addMemberPolicy == .deny
 
+        let nativeImageURL = try conversation.imageUrl()
         let encryptedRef = try? conversation.encryptedGroupImage
+        // Pair the appData salt/nonce with the native image URL only when they
+        // describe the same object. A group whose image was replaced with a
+        // plain (cleartext) upload keeps a stale `encryptedGroupImage` ref for a
+        // different URL; pairing it here would tag the plain URL with crypto it
+        // can't be decrypted with and the image would render blank. The key is
+        // stored unconditionally - it is also the profile-avatar fallback
+        // decrypt key for legacy peers.
+        let refMatchesNativeURL = encryptedRef?.url == nativeImageURL
+        let imageSalt = refMatchesNativeURL ? encryptedRef?.salt : nil
+        let imageNonce = refMatchesNativeURL ? encryptedRef?.nonce : nil
         let imageEncryptionKey = try? conversation.imageEncryptionKey
         let conversationEmoji = try? conversation.conversationEmoji
         Log.info("extractConversationMetadata: emoji=\(conversationEmoji ?? "nil") for convo: \(conversation.id)")
@@ -851,9 +864,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             kind: .group,
             name: try conversation.name(),
             description: try conversation.description(),
-            imageURLString: try conversation.imageUrl(),
-            imageSalt: encryptedRef?.salt,
-            imageNonce: encryptedRef?.nonce,
+            imageURLString: nativeImageURL,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             conversationEmoji: conversationEmoji,
             expiresAt: try conversation.expiresAt,
@@ -1477,7 +1490,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                             inboxId: inboxId,
                             source: .profileUpdate,
                             name: entry.update.hasName ? entry.update.name : nil,
-                            avatar: .fillIfPresent(entry.update.hasEncryptedImage ? entry.update.encryptedImage : nil),
+                            avatar: .fillIfPresent(entry.update.inboundImage),
                             memberKind: entry.update.memberKind.dbMemberKind,
                             // Authoritative whole map from the newest replayed
                             // update; empty propagates as a clear. The recency
@@ -1502,7 +1515,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                                 inboxId: inboxId,
                                 source: .profileSnapshot,
                                 name: memberProfile.hasName ? memberProfile.name : nil,
-                                avatar: .fillIfPresent(memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil),
+                                avatar: .fillIfPresent(memberProfile.inboundImage),
                                 memberKind: memberProfile.memberKind.dbMemberKind,
                                 metadata: metadata.isEmpty ? nil : metadata,
                                 receivedAt: resolvedSnapshot.sentAt

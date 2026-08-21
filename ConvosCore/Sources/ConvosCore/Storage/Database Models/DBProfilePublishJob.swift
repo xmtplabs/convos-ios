@@ -12,12 +12,14 @@ enum ProfilePublishJobState: String, Codable, Hashable {
 /// A durable unit of work in the profile publish queue: deliver the current
 /// user's profile (name-only, or with an avatar) to one conversation. Survives
 /// process death so an offline edit eventually reaches every conversation
-/// exactly once. Cached crypto fields let a restart re-upload identical bytes;
-/// `sourceVersion` pins the `DBProfileAvatarSource.version` the job publishes so
-/// superseded jobs drop without uploading.
+/// exactly once. `sourceVersion` pins the `DBProfileAvatarSource.version` the
+/// job publishes so superseded jobs drop without uploading; the single plain
+/// upload for that version is cached on the source (`uploadedUrl`), not per job.
 ///
-/// Not wired into publishing yet; introduced ahead of the `ProfilePublisher`
-/// that drains it.
+/// The legacy per-job crypto columns (`ciphertext`, `salt`, `nonce`, `groupKey`,
+/// `filename`, `uploadedURL`) predate the write-side removal of image
+/// encryption. They remain in the table for old rows but are no longer written
+/// or read; GRDB ignores the extra columns.
 struct DBProfilePublishJob: Codable, FetchableRecord, PersistableRecord, Hashable {
     static let databaseTableName: String = "profilePublishJob"
 
@@ -28,12 +30,6 @@ struct DBProfilePublishJob: Codable, FetchableRecord, PersistableRecord, Hashabl
         static let sourceVersion: Column = Column(CodingKeys.sourceVersion)
         static let hasAvatar: Column = Column(CodingKeys.hasAvatar)
         static let state: Column = Column(CodingKeys.state)
-        static let ciphertext: Column = Column(CodingKeys.ciphertext)
-        static let salt: Column = Column(CodingKeys.salt)
-        static let nonce: Column = Column(CodingKeys.nonce)
-        static let groupKey: Column = Column(CodingKeys.groupKey)
-        static let filename: Column = Column(CodingKeys.filename)
-        static let uploadedURL: Column = Column(CodingKeys.uploadedURL)
         static let attemptCount: Column = Column(CodingKeys.attemptCount)
         static let nextAttemptAt: Column = Column(CodingKeys.nextAttemptAt)
         static let lastError: Column = Column(CodingKeys.lastError)
@@ -48,12 +44,6 @@ struct DBProfilePublishJob: Codable, FetchableRecord, PersistableRecord, Hashabl
     var sourceVersion: Int64?
     var hasAvatar: Bool
     var state: ProfilePublishJobState
-    var ciphertext: Data?
-    var salt: Data?
-    var nonce: Data?
-    var groupKey: Data?
-    var filename: String?
-    var uploadedURL: String?
     var attemptCount: Int64
     var nextAttemptAt: Date
     var lastError: String?
@@ -76,12 +66,6 @@ struct DBProfilePublishJob: Codable, FetchableRecord, PersistableRecord, Hashabl
         sourceVersion: Int64? = nil,
         hasAvatar: Bool = false,
         state: ProfilePublishJobState = .pending,
-        ciphertext: Data? = nil,
-        salt: Data? = nil,
-        nonce: Data? = nil,
-        groupKey: Data? = nil,
-        filename: String? = nil,
-        uploadedURL: String? = nil,
         attemptCount: Int64 = 0,
         nextAttemptAt: Date,
         lastError: String? = nil,
@@ -95,12 +79,6 @@ struct DBProfilePublishJob: Codable, FetchableRecord, PersistableRecord, Hashabl
         self.sourceVersion = sourceVersion
         self.hasAvatar = hasAvatar
         self.state = state
-        self.ciphertext = ciphertext
-        self.salt = salt
-        self.nonce = nonce
-        self.groupKey = groupKey
-        self.filename = filename
-        self.uploadedURL = uploadedURL
         self.attemptCount = attemptCount
         self.nextAttemptAt = nextAttemptAt
         self.lastError = lastError
