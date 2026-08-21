@@ -61,7 +61,11 @@ struct NewConversationView: View {
             viewModel: viewModel.conversationViewModel,
             focusCoordinator: focusCoordinator,
             insetsTopSafeArea: insetsTopSafeArea,
-            sidebarColumnWidth: $sidebarWidth
+            sidebarColumnWidth: $sidebarWidth,
+            // The shell renders the centered indicator for this flow (see
+            // `MainTabView.activeConvoVM`). Rendering a second one here would
+            // duplicate the shared matched-geometry id and crash the push.
+            rendersConversationIndicator: false
         ) { focusBinding, coordinator in
             ConditionalNavigationStack(embedsStack: embedsNavigationStack) {
                 @Bindable var viewModel = viewModel
