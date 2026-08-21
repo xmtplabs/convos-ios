@@ -39,9 +39,8 @@ let package = Package(
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.1"),
-        // Temporary pin: the ConvosBridge product only exists on the web-plugins
-        // branch so far; revert to branch: "main" once that PR merges in convos-shared.
-        .package(url: "https://github.com/xmtplabs/convos-shared.git", branch: "mpr/web-plugins"),
+        // Temporary pin: showAgentDm is on this branch until its convos-shared PR lands.
+        .package(url: "https://github.com/xmtplabs/convos-shared.git", branch: "saulmc/bridge-show-agent-dm"),
         .package(path: "../ConvosLogging"),
         .package(path: "../ConvosInvites"),
         .package(path: "../ConvosAppData"),

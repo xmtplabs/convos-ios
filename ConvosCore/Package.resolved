@@ -1,5 +1,5 @@
 {
-  "originHash" : "28dfd1ca67a57621dbd11fe70e5e00d3317acd3a9c2d5c0220582f5b8dfa43f9",
+  "originHash" : "6875eef64b19bd4afbeb4fb2d6ddd6155c00c3ddf1e871e95a7df87facf9620c",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -33,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtplabs/convos-shared.git",
       "state" : {
-        "branch" : "mpr/web-plugins",
-        "revision" : "3638574b2020ab52e73ac18c1af2acb62595d926"
+        "branch" : "saulmc/bridge-show-agent-dm",
+        "revision" : "6d04c55d74e796ee8d059ccf13264051ca8161ba"
       }
     },
     {

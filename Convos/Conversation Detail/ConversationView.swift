@@ -1555,6 +1555,9 @@ private extension ConversationView {
                 presentingAddFromContactsPicker = true
             },
             showMembersList: { viewModel.presentingConversationSettings = true },
+            showAgentDm: {
+                selectTab(.agent)
+            },
             replyToWidget: { id, widget in
                 selectAgentTabForWidgetReply(id: id, widget: widget)
             }

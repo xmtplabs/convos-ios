@@ -15,6 +15,7 @@ struct HomeBridgeNavigation {
     }
     var showInvitePicker: @MainActor @Sendable () -> Void = {}
     var showMembersList: @MainActor @Sendable () -> Void = {}
+    var showAgentDm: @MainActor @Sendable () -> Void = {}
     var replyToWidget: @MainActor @Sendable (String, WidgetRef) -> Void = { _, _ in }
 }
 
@@ -131,6 +132,11 @@ private final class HomeChatPlugin: ChatPlugin, Sendable {
     func showMembersList() {
         let host = host
         Task { @MainActor in host.navigation.showMembersList() }
+    }
+
+    func showAgentDm() {
+        let host = host
+        Task { @MainActor in host.navigation.showAgentDm() }
     }
 
     func getAgentStatus() async throws -> AgentStatus {
