@@ -63,7 +63,11 @@ final class AgentRelayDependencies {
         self.mcpURL = mcpURL
     }
 
-    func collectForegroundPush(_ payload: AgentRelayPushPayload.Parsed) async {
+    func collectForegroundPush(
+        _ payload: AgentRelayPushPayload.Parsed,
+        session: any SessionManagerProtocol
+    ) async {
+        guard await waitForAuthenticatedSession(session) else { return }
         do {
             let result = try await client.collect(requestId: payload.requestId, provider: payload.provider)
             guard result != nil else { return }
@@ -73,12 +77,14 @@ final class AgentRelayDependencies {
         }
     }
 
-    func recoverOnLaunch() async {
+    func recoverOnLaunch(session: any SessionManagerProtocol) async {
+        guard await waitForAuthenticatedSession(session) else { return }
         await recoveryCoordinator.runOnLaunch()
         removeNotificationsForCompletedTurns()
     }
 
-    func recoverOnForeground() async {
+    func recoverOnForeground(session: any SessionManagerProtocol) async {
+        guard await waitForAuthenticatedSession(session) else { return }
         await recoveryCoordinator.runOnForeground()
         removeNotificationsForCompletedTurns()
     }
@@ -96,6 +102,16 @@ final class AgentRelayDependencies {
             throw URLError(.badURL)
         }
         return baseURL.appending(path: "v2/agent-relay/mcp")
+    }
+
+    private func waitForAuthenticatedSession(_ session: any SessionManagerProtocol) async -> Bool {
+        do {
+            _ = try await session.messagingService().sessionStateManager.waitForInboxReadyResult()
+            return true
+        } catch {
+            Log.warning("Agent relay work skipped because the authenticated session is unavailable")
+            return false
+        }
     }
 }
 

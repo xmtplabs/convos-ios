@@ -50,6 +50,7 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
         var ackCount: Int = 0
         var ackFailuresRemaining: Int
         var blocksFetch: Bool
+        var completedListingErrors: [Error] = []
     }
 
     private let lock: NSLock = NSLock()
@@ -93,6 +94,12 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
 
     var ackCount: Int {
         lock.withLock { state.ackCount }
+    }
+
+    func failNextCompletedListings(with errors: [Error]) {
+        lock.withLock {
+            state.completedListingErrors = errors
+        }
     }
 
     func failNextFetches(with errors: [Error]) {
@@ -153,6 +160,13 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
 
     func listCompleted() async throws -> [AgentRelayCompletedEntry] {
         recorder?.append("listCompleted")
+        let error: Error? = lock.withLock {
+            guard !state.completedListingErrors.isEmpty else { return nil }
+            return state.completedListingErrors.removeFirst()
+        }
+        if let error {
+            throw error
+        }
         if let listCompletedError {
             throw listCompletedError
         }

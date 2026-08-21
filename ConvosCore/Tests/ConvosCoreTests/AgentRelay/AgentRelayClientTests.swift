@@ -428,6 +428,62 @@ struct AgentRelayClientTests {
         #expect(try repository.turn(requestId: "request_stale")?.status == .expired)
     }
 
+    @Test("failed recovery listing changes nothing and the next pass recovers")
+    func failedRecoveryListingRetriesCleanly() async throws {
+        let database = try AgentChatDatabase.inMemoryForTests()
+        let writer = AgentChatWriter(database: database)
+        let repository = AgentChatRepository(database: database)
+        let listedResult = makeAgentRelayResult(message: "Listed result")
+        let resumedResult = makeAgentRelayResult(message: "Resumed result")
+        let listedRequestId = "request_listed_after_auth"
+        let resumedRequestId = "request_resumed_after_auth"
+        let staleRequestId = "request_stale_after_auth"
+        try writer.insertPending(makeAgentTurn(requestId: listedRequestId))
+        try writer.insertPending(makeAgentTurn(requestId: resumedRequestId))
+        try writer.insertPending(makeAgentTurn(
+            requestId: staleRequestId,
+            expiresAt: Date().addingTimeInterval(-1)
+        ))
+        let entry = AgentRelayCompletedEntry(
+            requestId: listedRequestId,
+            provider: .town,
+            result: listedResult
+        )
+        let api = ScriptedAgentRelayAPI(
+            fetchOutcomes: [.completed(listedResult), .completed(resumedResult)],
+            completedEntries: [entry]
+        )
+        api.failNextCompletedListings(with: [AgentRelayError.relayRejected(403)])
+        let client = AgentRelayClient(
+            api: api,
+            webhook: ScriptedWebhookTransport(),
+            store: writer,
+            history: StubAgentHistoryBuilder()
+        )
+        let recovery = AgentRelayRecoveryCoordinator(client: client, repository: repository, writer: writer)
+
+        await recovery.runOnLaunch()
+
+        #expect(try repository.turn(requestId: listedRequestId)?.status == .pending)
+        #expect(try repository.turn(requestId: resumedRequestId)?.status == .pending)
+        #expect(try repository.turn(requestId: staleRequestId)?.status == .pending)
+        #expect(api.fetchCount == 0)
+        #expect(api.ackCount == 0)
+
+        await recovery.runOnForeground()
+        while api.ackCount < 2 {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+
+        #expect(try repository.turn(requestId: listedRequestId)?.status == .completed)
+        #expect(try repository.turn(requestId: listedRequestId)?.ackedAt != nil)
+        #expect(try repository.turn(requestId: resumedRequestId)?.status == .completed)
+        #expect(try repository.turn(requestId: resumedRequestId)?.ackedAt != nil)
+        #expect(try repository.turn(requestId: staleRequestId)?.status == .expired)
+        #expect(api.fetchCount == 2)
+        #expect(api.ackCount == 2)
+    }
+
     @Test("collect inserts another-device result and acks once")
     func collectInsertsMissingCompletedRow() async throws {
         let database = try AgentChatDatabase.inMemoryForTests()
