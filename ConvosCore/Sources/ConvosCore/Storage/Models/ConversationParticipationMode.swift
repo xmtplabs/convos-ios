@@ -42,14 +42,28 @@ public enum ConversationParticipationMode: String, CaseIterable, Codable, Sendab
         }
     }
 
-    /// User-visible name of the mode, as it reads in the participation menu and
-    /// in the transcript row a change leaves behind. Note `.mentionsOnly`
-    /// (wire value `"mention"`) reads as "Listen mode" here — the label and the
-    /// wire vocabulary are deliberately different names for one mode.
+    /// User-visible name of the mode, as it reads in the participation menu.
+    /// Note `.mentionsOnly` (wire value `"mention"`) reads as "Listen mode"
+    /// here - the label and the wire vocabulary are deliberately different
+    /// names for one mode.
     public var title: String {
         switch self {
         case .speakFreely: "Speak freely"
         case .mentionsOnly: "Listen mode"
+        case .paused: "Pause"
+        }
+    }
+
+    /// The mode's name as it reads in the transcript row a change leaves
+    /// behind ("Shane set agents to Listen"). Shorter than `title`, which
+    /// carries menu-length wording the sentence does not want.
+    ///
+    /// `.paused` renders its own full sentence rather than this label, so its
+    /// value here is never the one a reader sees.
+    public var transcriptTitle: String {
+        switch self {
+        case .speakFreely: "Chat"
+        case .mentionsOnly: "Listen"
         case .paused: "Pause"
         }
     }
