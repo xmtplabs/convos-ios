@@ -23,7 +23,7 @@ enum ConversationTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .group: "Group"
         case .agent: "Agent"
-        case .context: "Context"
+        case .context: "Things"
         }
     }
 
