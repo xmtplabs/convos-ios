@@ -158,30 +158,16 @@ struct AgentDmPageView: View {
         // An agent that is already a member is only missing its DM, which the
         // agent creates moments later; a join still in flight is the same wait
         // one step earlier. Both read as "preparing".
-        if session.agentInboxId != nil || session.isJoiningAgent {
-            return .preparing
-        }
-        return .noAgent
+        return session.hasNoAgent ? .noAgent : .preparing
     }
 
     /// Offered when the conversation has no agent at all (Figma 7488:14502).
     /// Centered in the band the reader can see, below the floating top chrome.
     private var addAgentState: some View {
-        VStack(spacing: DesignConstants.Spacing.step3x) {
-            Button(action: session.requestAgentJoin) {
-                Text("Add an agent")
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextPrimaryInverted)
-                    .padding(.horizontal, DesignConstants.Spacing.step3x)
-                    .frame(height: Constant.addAgentButtonHeight)
-                    .background(.colorLava, in: .rect(cornerRadius: Constant.addAgentButtonRadius))
-            }
-            .accessibilityIdentifier("agent-dm-add-agent-button")
-            Text("To help the group out")
-                .font(.footnote)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.colorLava)
-        }
+        AddAgentPromptView(
+            onAddAgent: session.requestAgentJoin,
+            accessibilityIdentifier: "agent-dm-add-agent-button"
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Inset past the floating top chrome so this centers in what the
         // reader can see rather than behind the segmented control. The
@@ -547,7 +533,5 @@ struct AgentDmPageView: View {
         static let progressWidth: CGFloat = 120.0
         static let progressHeight: CGFloat = 8.0
         static let progressTrackOpacity: Double = 0.3
-        static let addAgentButtonHeight: CGFloat = 36.0
-        static let addAgentButtonRadius: CGFloat = 24.0
     }
 }

@@ -1443,13 +1443,35 @@ private extension ConversationView {
     }
 
     /// The Context tab's root: the conversation's Space web surface.
+    @ViewBuilder
     var spaceSurface: some View {
-        HomeLayoutView(
-            webURL: viewModel.conversation.spaceURL,
-            onNavigationRequest: { url in
-                pushHomeBrowserPage(for: url)
+        // A Space is something the agent builds, so with no agent there is
+        // nothing here to wait for - the preparing state would spin forever.
+        // The tab offers the same way in as the Agent tab does, from the same
+        // signal, so the two never disagree about whether one is missing.
+        if agentDmSession?.hasNoAgent == true {
+            AddAgentPromptView(
+                onAddAgent: { agentDmSession?.requestAgentJoin() },
+                accessibilityIdentifier: "context-add-agent-button"
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.top, ConversationChromeMetrics.contentClearance)
+            .background {
+                ZStack {
+                    Color.colorBackgroundSurfaceless
+                    Color.colorBackgroundSubtle
+                }
+                .ignoresSafeArea()
             }
-        )
+            .accessibilityIdentifier("context-no-agent")
+        } else {
+            HomeLayoutView(
+                webURL: viewModel.conversation.spaceURL,
+                onNavigationRequest: { url in
+                    pushHomeBrowserPage(for: url)
+                }
+            )
+        }
     }
 
     /// The single host seam for the composer's connections capability: the
