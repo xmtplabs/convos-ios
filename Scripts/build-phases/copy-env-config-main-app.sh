@@ -140,6 +140,7 @@ elif [ "$TARGET_NAME" = "Convos" ] && [ "$CONFIGURATION" = "Dev" ]; then
     AGENT_DEBUG_JWKS=""
     POSTHOG_API_KEY=""
     SENTRY_DSN=""
+    PREVIEW_TOKEN=""
     if [ -f "${SRCROOT}/.env" ]; then
         CONVOS_API_BASE_URL=$(grep -v '^#' "${SRCROOT}/.env" | grep '^CONVOS_API_BASE_URL=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
 
@@ -147,6 +148,9 @@ elif [ "$TARGET_NAME" = "Convos" ] && [ "$CONFIGURATION" = "Dev" ]; then
         POSTHOG_API_KEY=$(grep -v '^#' "${SRCROOT}/.env" | grep '^POSTHOG_API_KEY=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
 
         SENTRY_DSN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^SENTRY_DSN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+
+        # Per-PR preview bundle token; empty for every normal build.
+        PREVIEW_TOKEN=$(grep -v '^#' "${SRCROOT}/.env" | grep '^PREVIEW_TOKEN=' | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
     fi
 
     if [ -n "$FIREBASE_TOKEN" ]; then
@@ -186,6 +190,7 @@ enum Secrets {
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
     static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
     static let AGENT_DEBUG_JWKS: String = "$ESCAPED_AGENT_DEBUG_JWKS"
+    static let PREVIEW_TOKEN: String = "$PREVIEW_TOKEN"
 }
 
 // swiftlint:enable all
@@ -247,6 +252,7 @@ enum Secrets {
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN = "$FIREBASE_TOKEN"
     static let GIT_COMMIT_SHA: String = "$(swift_escape "$GIT_SHA")"
     static let AGENT_DEBUG_JWKS: String = ""
+    static let PREVIEW_TOKEN: String = ""
 }
 
 // swiftlint:enable all

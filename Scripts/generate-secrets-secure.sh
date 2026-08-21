@@ -22,6 +22,8 @@ ensure_secrets_directories
 ESCAPED_API_URL=$(swift_escape "${CONVOS_API_BASE_URL:-}")
 ESCAPED_XMTP_HOST=$(swift_escape "${XMTP_CUSTOM_HOST:-}")
 ESCAPED_GATEWAY_URL=$(swift_escape "${GATEWAY_URL:-}")
+# Per-PR preview bundle token, injected by CI for preview builds only.
+ESCAPED_PREVIEW_TOKEN=$(swift_escape "${PREVIEW_TOKEN:-}")
 
 GIT_SHA=$(get_git_commit_sha)
 ESCAPED_GIT_SHA=$(swift_escape "$GIT_SHA")
@@ -75,6 +77,7 @@ enum Secrets {
     static let CONVOS_API_BASE_URL: String = "$ESCAPED_API_URL"
     static let XMTP_CUSTOM_HOST: String = "$ESCAPED_XMTP_HOST"
     static let GATEWAY_URL: String = "$ESCAPED_GATEWAY_URL"
+    static let PREVIEW_TOKEN: String = "$ESCAPED_PREVIEW_TOKEN"
     static let SENTRY_DSN: String = "$ESCAPED_SENTRY_DSN"
     static let POSTHOG_API_KEY: String = "$ESCAPED_POSTHOG_API_KEY"
     static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = ""

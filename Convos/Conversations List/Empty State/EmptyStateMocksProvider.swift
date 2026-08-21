@@ -47,9 +47,13 @@ final class EmptyStateMocksProvider {
         guard !hasStartedRemoteRefresh else { return }
         hasStartedRemoteRefresh = true
         do {
-            let apiClient = ConvosAPIClientFactory.client(environment: ConfigManager.shared.currentEnvironment)
+            let environment = ConfigManager.shared.currentEnvironment
+            let apiClient = ConvosAPIClientFactory.client(environment: environment)
             let request = try apiClient.request(for: Constant.remotePath, method: "GET", queryParameters: nil)
-            let (data, response) = try await URLSession.shared.data(for: request)
+            // Not URLSession.shared: this is one of ours, so it needs the
+            // preview token on a preview build.
+            let session = PreviewTokenSession.makeSession(for: environment)
+            let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
                 Log.info("EmptyStateMocksProvider: remote mocks unavailable, keeping bundled payload")

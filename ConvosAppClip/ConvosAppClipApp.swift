@@ -10,7 +10,8 @@ struct ConvosAppClipApp: App {
         ConfigManager.configure(overrides: ConvosSecretOverrides(
             apiBaseURL: Secrets.CONVOS_API_BASE_URL,
             xmtpCustomHost: Secrets.XMTP_CUSTOM_HOST,
-            gatewayURL: Secrets.GATEWAY_URL
+            gatewayURL: Secrets.GATEWAY_URL,
+            previewToken: Secrets.PREVIEW_TOKEN
         ))
         let environment = ConfigManager.shared.currentEnvironment
         ConvosLog.configure(environment: environment)
