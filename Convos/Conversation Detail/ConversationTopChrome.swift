@@ -30,9 +30,15 @@ enum ConversationChromeMetrics {
     static let controlHeight: CGFloat = 32.0
     /// Space below the control before a page's content may start.
     static let controlBottomPadding: CGFloat = DesignConstants.Spacing.step3x
-    /// How far the scrim fades past the content it sits behind, so a transcript
-    /// scrolling under it dissolves rather than meeting a hard edge.
-    static let scrimFadeDistance: CGFloat = DesignConstants.Spacing.step12x
+    /// How far the scrim takes to fade from full strength to nothing (Figma
+    /// 8007:27603 draws its wash as a 153pt band).
+    ///
+    /// The design starts that ramp at the status bar's bottom edge, which puts
+    /// the wash at roughly half strength by the time it reaches the segmented
+    /// control - not enough to read the control against a transcript scrolling
+    /// under it. So the length is the design's; the start is not. See
+    /// `scrimHoldFraction`.
+    static let scrimRampLength: CGFloat = 153.0
 
     /// The whole chrome's height below the safe area, for a surface that
     /// reserves all of it.
@@ -48,6 +54,17 @@ enum ConversationChromeMetrics {
     /// where they belong.
     static let controlClearance: CGFloat =
         capsuleControlSpacing + controlHeight + controlBottomPadding
+
+    /// The segmented control's bottom edge, measured from the screen's top.
+    static func controlBottom(topSafeAreaInset: CGFloat) -> CGFloat {
+        topSafeAreaInset + capsuleRowHeight + capsuleControlSpacing + controlHeight
+    }
+
+    /// Everything the scrim covers: the chrome down to the control, plus the
+    /// ramp that fades out below it.
+    static func scrimHeight(topSafeAreaInset: CGFloat) -> CGFloat {
+        controlBottom(topSafeAreaInset: topSafeAreaInset) + scrimRampLength
+    }
 }
 
 /// The conversation's floating top chrome: the segmented control on a scrim
@@ -79,28 +96,76 @@ struct ConversationTopChrome<Control: View>: View {
         .padding(.top, topSafeAreaInset)
         .padding(.bottom, ConversationChromeMetrics.controlBottomPadding)
         .frame(maxWidth: .infinity)
-        .background { scrim }
         .ignoresSafeArea(edges: .top)
     }
+}
 
-    /// White at the top fading to nothing, with a matching fade on the blur
-    /// behind it (Figma 8007:27603: a top-down gradient over a 12pt backdrop
-    /// blur). Both are masked by the same ramp so they disappear together.
-    private var scrim: some View {
-        let fade: LinearGradient = LinearGradient(
-            colors: [Color.black, Color.black.opacity(0)],
+/// The wash behind the conversation's top chrome: a blur with a white tint over
+/// it, running from the screen's top edge (Figma 8007:27603 -
+/// `backdrop-blur: 12` under a white-to-transparent gradient).
+///
+/// The blur is the substance and the tint only colours it. An opaque white over
+/// the top would hide the blur entirely, which is what an earlier version did:
+/// it read as a plain white gradient with a material behind it doing nothing.
+///
+/// Full strength down to the control's bottom edge, then one linear ramp to
+/// nothing. Both halves matter. Holding through the control is what makes it
+/// readable over a transcript - the design's ramp, started at the status bar, is
+/// half gone by the time it reaches the control and the message underneath shows
+/// straight through. Running the ramp over the design's full 153pt after that is
+/// what stops it reading as an edge; a version that held the same distance but
+/// fell over 60pt cut off mid-transcript.
+///
+/// A sibling of the chrome rather than its `.background`. The scrim is taller
+/// than the chrome's own frame, and as a background that overflow is clipped -
+/// measured on device, the wash stopped 69pt short of where it was asked to end.
+struct ConversationChromeScrim: View {
+    /// The window's top safe area, matching the value the chrome lays out to.
+    var topSafeAreaInset: CGFloat
+
+    var body: some View {
+        let height: CGFloat = ConversationChromeMetrics.scrimHeight(
+            topSafeAreaInset: topSafeAreaInset
+        )
+        let hold: CGFloat = holdFraction(in: height)
+        let tintBase: Color = .colorBackgroundSurfaceless
+        let tint: LinearGradient = LinearGradient(
+            stops: [
+                .init(color: tintBase, location: 0.0),
+                .init(color: tintBase, location: hold),
+                .init(color: tintBase.opacity(0), location: 1.0),
+            ],
             startPoint: .top,
             endPoint: .bottom
         )
-        return ZStack {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-            Rectangle()
-                .fill(Color.colorBackgroundSurfaceless)
-        }
-        .mask { fade }
-        .padding(.bottom, -ConversationChromeMetrics.scrimFadeDistance)
-        .allowsHitTesting(false)
+        let fade: LinearGradient = LinearGradient(
+            stops: [
+                .init(color: .black, location: 0.0),
+                .init(color: .black, location: hold),
+                .init(color: .black.opacity(0), location: 1.0),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        return Rectangle()
+            .fill(.ultraThinMaterial)
+            .overlay { tint }
+            .frame(height: height)
+            .mask { fade }
+            .frame(maxWidth: .infinity)
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    /// Where the wash stops holding and starts falling, as a fraction of its own
+    /// height: the control's bottom edge.
+    private func holdFraction(in height: CGFloat) -> CGFloat {
+        guard height > 0 else { return 0.0 }
+        let controlBottom: CGFloat = ConversationChromeMetrics.controlBottom(
+            topSafeAreaInset: topSafeAreaInset
+        )
+        return min(max(controlBottom / height, 0.0), 1.0)
     }
 }
 
@@ -117,6 +182,7 @@ struct ConversationTopChrome<Control: View>: View {
             }
             .padding()
         }
+        ConversationChromeScrim(topSafeAreaInset: 59.0)
         ConversationTopChrome(topSafeAreaInset: 59.0) {
             ConversationSegmentedControl(selectedTab: .constant(.group))
         }
