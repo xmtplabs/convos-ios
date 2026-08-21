@@ -517,6 +517,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                     ParticipationMenuControl(
                         level: participation.level,
                         isLoading: isLoading,
+                        agentName: participation.agentName,
                         onSelect: participation.onSelect
                     )
                     .equatable()
@@ -753,10 +754,11 @@ private struct AttachmentsMenuControl: View, Equatable {
 private struct ParticipationMenuControl: View, Equatable {
     let level: AgentParticipationLevel
     let isLoading: Bool
+    let agentName: String
     let onSelect: (AgentParticipationLevel) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.level == rhs.level && lhs.isLoading == rhs.isLoading
+        lhs.level == rhs.level && lhs.isLoading == rhs.isLoading && lhs.agentName == rhs.agentName
     }
 
     var body: some View {
@@ -787,7 +789,7 @@ private struct ParticipationMenuControl: View, Equatable {
         )
         return Toggle(isOn: isOn) {
             Text(option.title)
-            Text(option.caption)
+            Text(option.caption(agentName: agentName))
             Image(systemName: option.iconSystemName)
         }
         .accessibilityIdentifier("participation-\(option.rawValue)-row")
