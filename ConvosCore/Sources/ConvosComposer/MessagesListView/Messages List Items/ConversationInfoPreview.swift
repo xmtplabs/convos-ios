@@ -20,11 +20,22 @@ struct ConversationInfoPreview: View {
         conversation.computedDisplayName(memberNameOverride: { memberContactOverride($0)?.displayName })
     }
 
+    /// Whether the "earlier messages are hidden" note belongs here.
+    ///
+    /// Not for the creator: they were there from the first message, so there is
+    /// nothing earlier that could have been hidden from them, and telling them
+    /// otherwise is confusing rather than reassuring. Not for a convo started
+    /// from the contacts picker either (`hidesInviteCard`) - the user just made
+    /// it and already knows nothing came before.
+    private var showsBackwardsSecrecyNote: Bool {
+        !conversation.hidesInviteCard && !conversation.creator.isCurrentUser
+    }
+
     private var accessibilityLabelText: String {
         let base = "\(resolvedDisplayName), \(conversation.membersCountString)"
-        return conversation.hidesInviteCard
-            ? base
-            : "\(base). Earlier messages are hidden for privacy"
+        return showsBackwardsSecrecyNote
+            ? "\(base). Earlier messages are hidden for privacy"
+            : base
     }
 
     var body: some View {
@@ -60,13 +71,7 @@ struct ConversationInfoPreview: View {
             .background(.colorFillMinimal)
             .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarger))
 
-            // Convos started from the contacts picker carry
-            // `hidesInviteCard = true` in their local state. The user
-            // already knows nothing was here before the convo opened
-            // (they just created it from the picker), so the "Earlier
-            // messages are hidden" note is noise. Same flag the
-            // messages controller uses to skip the QR invite header.
-            if !conversation.hidesInviteCard {
+            if showsBackwardsSecrecyNote {
                 let infoAction = { presentingInfoSheet = true }
                 Button(action: infoAction) {
                     HStack(spacing: DesignConstants.Spacing.stepX) {

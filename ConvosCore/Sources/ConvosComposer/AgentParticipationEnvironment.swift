@@ -14,11 +14,16 @@ public struct AgentParticipationContext {
     /// only a placeholder until then, so the bubble shows a resting dot instead
     /// of an icon that might be about to change under the member's eyes.
     public let isLoading: Bool
+    /// The agent's display name, shown in the Listen level's caption ("Only
+    /// speak when someone mentions "<agentName>""). A room with several agents
+    /// uses the first one's name to stand for them.
+    public let agentName: String
     public let onSelect: (AgentParticipationLevel) -> Void
 
-    public init(level: AgentParticipationLevel, isLoading: Bool = false, onSelect: @escaping (AgentParticipationLevel) -> Void) {
+    public init(level: AgentParticipationLevel, isLoading: Bool = false, agentName: String, onSelect: @escaping (AgentParticipationLevel) -> Void) {
         self.level = level
         self.isLoading = isLoading
+        self.agentName = agentName
         self.onSelect = onSelect
     }
 }

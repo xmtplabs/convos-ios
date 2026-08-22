@@ -287,9 +287,13 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 }
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
-            // No vertical insets: the conversation sheet's card padding and
-            // its 12pt content gap place the input row directly (Figma
-            // 7156:13775); slot content above supplies its own spacing.
+            // The bar sits directly on the keyboard when one is up, so it
+            // carries its own vertical insets rather than resting flush
+            // against it. These are the values the bar shipped with before
+            // the conversation sheet briefly supplied them from its card
+            // padding instead.
+            .padding(.top, DesignConstants.Spacing.step2x)
+            .padding(.bottom, DesignConstants.Spacing.step4x)
         }
     }
 
@@ -513,6 +517,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                     ParticipationMenuControl(
                         level: participation.level,
                         isLoading: isLoading,
+                        agentName: participation.agentName,
                         onSelect: participation.onSelect
                     )
                     .equatable()
@@ -749,10 +754,11 @@ private struct AttachmentsMenuControl: View, Equatable {
 private struct ParticipationMenuControl: View, Equatable {
     let level: AgentParticipationLevel
     let isLoading: Bool
+    let agentName: String
     let onSelect: (AgentParticipationLevel) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.level == rhs.level && lhs.isLoading == rhs.isLoading
+        lhs.level == rhs.level && lhs.isLoading == rhs.isLoading && lhs.agentName == rhs.agentName
     }
 
     var body: some View {
@@ -783,7 +789,7 @@ private struct ParticipationMenuControl: View, Equatable {
         )
         return Toggle(isOn: isOn) {
             Text(option.title)
-            Text(option.caption)
+            Text(option.caption(agentName: agentName))
             Image(systemName: option.iconSystemName)
         }
         .accessibilityIdentifier("participation-\(option.rawValue)-row")

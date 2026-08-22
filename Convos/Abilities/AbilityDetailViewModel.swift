@@ -2,75 +2,47 @@ import ConvosCore
 import Foundation
 import Observation
 
-/// Drives the ability detail screen: the delegations granted against one
-/// ability across conversations, with owner-initiated revocation.
-/// Pull-only: the list refreshes on appear and after its own mutations,
-/// matching how `ConversationAbilitiesViewModel.refresh()` works.
+/// Drives the connection detail screen: where one connection is in use --
+/// the agents holding it, the people it has been delegated to, and the
+/// conversations it is enabled in. Pull-only: the sections refresh on
+/// appear, matching how `ConversationAbilitiesViewModel.refresh()` works.
+///
+/// People always leads with the owner's own row and holds nothing else for
+/// now (see `ConnectionUsage.people`); delegated people append below it
+/// once the Entitlement Actor Model lands, so filling the section is a
+/// change of source, not of screen.
 @MainActor @Observable
 final class AbilityDetailViewModel {
     let ability: AbilitiesAPI.Ability
 
-    private(set) var delegations: [AbilityDelegation] = []
+    private(set) var usage: ConnectionUsage = .empty
+    /// True when the read reached nothing: either the conversation list
+    /// itself failed, or every conversation refused. The sections then say
+    /// they could not check rather than reporting that nothing uses the
+    /// connection.
+    private(set) var isUnavailable: Bool = false
     private(set) var isLoading: Bool = false
-    private(set) var errorMessage: String?
-    private var isMutating: Bool = false
+    private(set) var hasLoadedOnce: Bool = false
 
-    private let selection: AbilitiesSelection
+    private let usageSource: any ConnectionUsageSourcing
 
-    init(ability: AbilitiesAPI.Ability, selection: AbilitiesSelection) {
+    init(ability: AbilitiesAPI.Ability, usageSource: any ConnectionUsageSourcing) {
         self.ability = ability
-        self.selection = selection
+        self.usageSource = usageSource
     }
 
-    /// Delegations whose derived state is active, newest first.
-    var activeDelegations: [AbilityDelegation] {
-        let now = Date()
-        return delegations
-            .filter { (delegation: AbilityDelegation) -> Bool in delegation.effectiveState(at: now) == .active }
-            .sorted { (lhs: AbilityDelegation, rhs: AbilityDelegation) -> Bool in lhs.grantedAt > rhs.grantedAt }
-    }
-
-    /// Everything consumed, expired, or revoked, newest first.
-    var pastDelegations: [AbilityDelegation] {
-        let now = Date()
-        return delegations
-            .filter { (delegation: AbilityDelegation) -> Bool in delegation.effectiveState(at: now) != .active }
-            .sorted { (lhs: AbilityDelegation, rhs: AbilityDelegation) -> Bool in lhs.grantedAt > rhs.grantedAt }
-    }
+    var agents: [ConnectionUsageAgent] { usage.agents }
+    /// The owner always leads, so the section is never empty; delegated
+    /// people append below once anything writes them.
+    var people: [ConnectionUsagePerson] { [.owner] + usage.people }
+    var conversations: [ConnectionUsageConversation] { usage.conversations }
 
     func refresh() async {
         isLoading = true
-        delegations = await selection.escalation.delegations(abilityId: ability.id)
+        let snapshot: ConnectionUsageSnapshot = await usageSource.usageSnapshot()
+        usage = snapshot.usage(forAbilityId: ability.id)
+        isUnavailable = snapshot.isUnavailable
         isLoading = false
-    }
-
-    /// Mutate-then-refresh, copying `ConversationAbilitiesViewModel`'s
-    /// withdraw shape: the service is the source of truth for the row's
-    /// new state.
-    func revoke(_ delegation: AbilityDelegation) {
-        guard !isMutating else { return }
-        isMutating = true
-        errorMessage = nil
-        Task {
-            do {
-                try await selection.escalation.revoke(delegationId: delegation.id)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isMutating = false
-            await refresh()
-        }
-    }
-
-    /// Resolves bundle ids against the ability's bundle metadata, falling
-    /// back to the raw id for anything the manifest no longer lists.
-    func bundlesSummary(for delegation: AbilityDelegation) -> String {
-        let titlesById: [String: String] = ability.bundles.reduce(into: [:]) { partial, bundle in
-            partial[bundle.id] = bundle.title.resolved()
-        }
-        let titles: [String] = delegation.bundleIds.map { (bundleId: String) -> String in
-            titlesById[bundleId] ?? bundleId
-        }
-        return titles.joined(separator: ", ")
+        hasLoadedOnce = true
     }
 }

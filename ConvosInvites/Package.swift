@@ -26,7 +26,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-log", from: "1.6.0"),
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
-            revision: "ios-4.12.0-nightly.20260820.61114a7"
+            revision: "ios-4.12.0-nightly.20260821.c30ac5f"
         ),
         .package(path: "../ConvosAppData"),
     ],

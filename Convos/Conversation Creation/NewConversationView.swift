@@ -61,8 +61,12 @@ struct NewConversationView: View {
             viewModel: viewModel.conversationViewModel,
             focusCoordinator: focusCoordinator,
             insetsTopSafeArea: insetsTopSafeArea,
-            sidebarColumnWidth: $sidebarWidth
-        ) { _, coordinator in
+            sidebarColumnWidth: $sidebarWidth,
+            // The shell renders the centered indicator for this flow (see
+            // `MainTabView.activeConvoVM`). Rendering a second one here would
+            // duplicate the shared matched-geometry id and crash the push.
+            rendersConversationIndicator: false
+        ) { focusBinding, coordinator in
             ConditionalNavigationStack(embedsStack: embedsNavigationStack) {
                 @Bindable var viewModel = viewModel
                 Group {
@@ -78,6 +82,7 @@ struct NewConversationView: View {
                         ConversationView(
                             viewModel: conversationViewModel,
                             profileSettingsViewModel: profileSettingsViewModel,
+                            focusState: focusBinding,
                             focusCoordinator: coordinator,
                             onScanInviteCode: viewModel.onScanInviteCode,
                             onDeleteConversation: viewModel.deleteConversation,
@@ -114,7 +119,13 @@ struct NewConversationView: View {
                         }
                     }
                 }
-                .navigationBarBackButtonHidden(!embedsNavigationStack && onClose != nil)
+                // `isBrowsingHome` also hides it: while Context has browser
+                // pages pushed, `ConversationView` puts its own pop-a-page
+                // back button in the leading slot. That view's own
+                // `navigationBarBackButtonHidden` can't win here - this
+                // modifier is the outer one on the same destination - so
+                // without the check both back buttons render side by side.
+                .navigationBarBackButtonHidden((!embedsNavigationStack && onClose != nil) || isBrowsingHome)
                 .background(.colorBackgroundSurfaceless)
                 .sheet(isPresented: $viewModel.presentingJoinConversationSheet) {
                     JoinConversationView(viewModel: viewModel.qrScannerViewModel, allowsDismissal: true) { scannedCode in
