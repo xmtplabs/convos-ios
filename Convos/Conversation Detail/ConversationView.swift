@@ -294,8 +294,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
             extraBottomInset: 0,
-            // Clearance for the top chrome the transcript scrolls under.
-            topContentInset: ConversationChromeMetrics.controlClearance,
+            // Clearance for the top chrome the transcript scrolls under. The
+            // full chrome, not just the control: this used to inset by the
+            // control alone because a leading `.invite` / `.conversationInfo`
+            // cell filled the capsule's row, and insetting by both counted it
+            // twice. The invite cell is gone, so an inviter has no leading
+            // cell and the first message came to rest inside the scrim's
+            // full-strength band.
+            topContentInset: ConversationChromeMetrics.contentClearance,
             // The transcript hosts its own composer as a bottom safe-area bar.
             // That is what puts the list at full height with content scrolling
             // under the bar and the keyboard: the controller only turns on
@@ -1295,7 +1301,6 @@ private extension ConversationView {
     var conversationLayout: some View {
         ZStack(alignment: .top) {
             pageHost
-            groupEmptyStateOverlay
             // The wash is its own layer, not the chrome's background: it runs
             // taller than the chrome's frame and a background would clip it.
             ConversationChromeScrim(topSafeAreaInset: windowSafeAreaInsets.top)
@@ -1398,6 +1403,7 @@ private extension ConversationView {
 
     private var groupPage: some View {
         messagesView(focus: $focusState)
+            .overlay { groupEmptyStateOverlay }
             .task {
                 // Messages arrive just after the page appears, so an
                 // isEmpty-only gate would flash the empty state open and shut
@@ -1412,20 +1418,25 @@ private extension ConversationView {
     /// Gated on `groupEmptyStateSettled` so it can only fade in once the
     /// transcript has had a chance to deliver its first messages.
     private var showsGroupEmptyState: Bool {
-        selectedTab == .group && groupEmptyStateSettled && viewModel.messages.isEmpty
+        selectedTab == .group && groupEmptyStateSettled && !viewModel.hasAnyMessages
     }
 
-    /// Sits in the screen-filling layer rather than over the transcript: the
-    /// design centres it on the screen, and the transcript's own box stops
-    /// above the composer, which would land it ~46pt low.
+    /// Rides the group page rather than the screen-level chrome layer, so it
+    /// travels with the horizontal page swipe instead of hanging still over it.
+    ///
+    /// Sized to its own content, never to the page: a full-bleed overlay sits
+    /// on top of the pager and eats the pan, so the tabs cannot be dragged.
+    /// `GroupEmptyStateView` makes its text transparent to touches for the same
+    /// reason - only the button takes them.
     private var groupEmptyStateOverlay: some View {
         GroupEmptyStateView(
             isInviteEnabled: messagesTopBarTrailingItemEnabled && !effectiveReadOnly,
             onInvite: handleAddFromContactsTap
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The design centres it on the screen; the page's own box is inset at
-        // the top, which lands the block ~43pt low.
+        // Centres against the screen rather than the page's inset box, which
+        // would land the block ~46pt low. The frame carries no background, so
+        // its empty area stays transparent to the pager's pan.
         .ignoresSafeArea()
         .opacity(showsGroupEmptyState ? 1.0 : 0.0)
         .allowsHitTesting(showsGroupEmptyState)

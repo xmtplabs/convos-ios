@@ -15,17 +15,25 @@ struct GroupEmptyStateView: View {
     let onInvite: () -> Void
 
     var body: some View {
+        // The copy is marked per-view rather than on the stack: disabling hit
+        // testing on the container would take the button with it, and the
+        // container itself carries no background, so its empty area never took
+        // touches to begin with. Text that did take them swallowed the pager's
+        // pan, so a drag starting on the copy could not change tab.
         VStack(spacing: DesignConstants.Spacing.step3x) {
             inviteButton
             Text("Your group has an agent, too")
                 .font(.body)
                 .foregroundStyle(.colorTextPrimary)
+                .allowsHitTesting(false)
             Text("Mention @agent if you’d like them to speak up. Or pause them and they won’t listen at all.")
                 .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
+                .allowsHitTesting(false)
             Text("Tap @ to control their participation")
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
+                .allowsHitTesting(false)
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, DesignConstants.Spacing.step8x)

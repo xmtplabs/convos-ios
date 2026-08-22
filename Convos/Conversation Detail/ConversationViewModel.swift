@@ -4937,6 +4937,16 @@ extension ConversationViewModel {
     var hasMoreMessages: Bool { messagesListRepository.hasMoreMessages }
 
     var hasLoadedAllMessages: Bool { !messagesListRepository.hasMoreMessages }
+
+    /// Whether the transcript has any real messages. `messages` also carries
+    /// system items - updates, join status, agent presence - so an
+    /// `isEmpty` check reads a transcript that only shows those as non-empty.
+    var hasAnyMessages: Bool {
+        messages.contains { item in
+            guard case .messages(let group) = item else { return false }
+            return !group.messages.isEmpty
+        }
+    }
 }
 
 // MARK: - Reactions

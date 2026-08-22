@@ -60,6 +60,30 @@ struct AgentDmPageView: View {
 
     private var agentName: String { session.agentName }
 
+    @State private var emptyStateSettled: Bool = false
+
+    /// Centred over the page and faded rather than inserted into the list, so
+    /// it never holds a scroll position. Never takes hits - it is only text.
+    @ViewBuilder
+    private var agentDmEmptyStateOverlay: some View {
+        if case .ready(let dmVm) = phase {
+            let shows: Bool = emptyStateSettled && !dmVm.hasAnyMessages
+            let opacity: Double = shows ? 1.0 : 0.0
+            AgentDmEmptyStateView(variant: agentVariant(in: dmVm))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
+                .opacity(opacity)
+                .allowsHitTesting(false)
+                .animation(.easeInOut(duration: 0.25), value: shows)
+        }
+    }
+
+    /// The stamp lives on the agent member's profile, written by the assistants
+    /// worker at join. nil for a default agent, and nil off dev.
+    private func agentVariant(in dmVm: ConversationViewModel) -> AgentVariantStamp? {
+        dmVm.conversation.members.first(where: { $0.isAgent })?.profile.variant
+    }
+
     var body: some View {
         Group {
             switch phase {
@@ -70,6 +94,13 @@ struct AgentDmPageView: View {
             case .noAgent:
                 addAgentState
             }
+        }
+        .overlay { agentDmEmptyStateOverlay }
+        .task {
+            // Messages land just after the page appears; without this the
+            // empty state would flash open and shut on a DM that has any.
+            try? await Task.sleep(for: .milliseconds(300))
+            emptyStateSettled = true
         }
         .environment(\.colorScheme, .dark)
         // The agent-participation ("listen") control governs how much agents
@@ -238,7 +269,7 @@ struct AgentDmPageView: View {
     /// origin-conversation concepts; the DM leads with the disclosure cell
     /// instead (see docs/plans/agent-dms.md).
     private func dmItems(_ dmVm: ConversationViewModel) -> [MessagesListItemType] {
-        var items = dmVm.messagesWithThinkingIndicators.compactMap { (item: MessagesListItemType) -> MessagesListItemType? in
+        let items = dmVm.messagesWithThinkingIndicators.compactMap { (item: MessagesListItemType) -> MessagesListItemType? in
             switch item {
             case .update, .agentPresentInfo, .conversationInfo, .agentJoinStatus:
                 return nil
@@ -253,11 +284,8 @@ struct AgentDmPageView: View {
                 return item
             }
         }
-        // The stamp lives on the agent member's profile, written by the
-        // assistants worker at join. nil for a default agent, and nil off dev,
-        // where the header renders exactly as before.
-        let variant = dmVm.conversation.members.first(where: { $0.isAgent })?.profile.variant
-        items.insert(.agentDmInfo(agentName: agentName, variant: variant), at: 0)
+        // No leading disclosure cell: it is the page's empty state now, centred
+        // over the transcript rather than pinned to the top of it.
         return items
     }
 
@@ -370,8 +398,11 @@ struct AgentDmPageView: View {
             voiceMemoRecorder: dmVm.voiceMemoRecorder,
             onSendVoiceMemo: { dmVm.sendVoiceMemo() },
             extraBottomInset: extraBottomInset,
-            // Clearance for the conversation's floating top chrome.
-            topContentInset: ConversationChromeMetrics.controlClearance,
+            // Clearance for the conversation's floating top chrome. The full
+            // chrome, matching the group transcript: the leading `.agentDmInfo`
+            // cell used to fill the capsule's row, and without it the first
+            // message rode up under the chrome and sat higher than the group's.
+            topContentInset: ConversationChromeMetrics.contentClearance,
             // Same reason as the group transcript: the controller only adjusts
             // for safe area and tracks the keyboard when it owns its bottom bar.
             hostsBottomBar: true,
