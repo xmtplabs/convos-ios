@@ -60,6 +60,8 @@ struct AgentDmPageView: View {
 
     private var agentName: String { session.agentName }
 
+    @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
+    @State private var emptyStateKeyboardHeight: CGFloat = 0.0
     @State private var emptyStateSettled: Bool = false
 
     /// Centred over the page and faded rather than inserted into the list, so
@@ -69,9 +71,15 @@ struct AgentDmPageView: View {
         if case .ready(let dmVm) = phase {
             let shows: Bool = emptyStateSettled && !dmVm.hasAnyMessages
             let opacity: Double = shows ? 1.0 : 0.0
-            AgentDmEmptyStateView(variant: agentVariant(in: dmVm))
+            let chromeInset: CGFloat = windowSafeAreaInsets.top + ConversationChromeMetrics.contentClearance
+            let shift: CGFloat = EmptyStateKeyboard.shift(chromeInset: chromeInset, keyboardHeight: emptyStateKeyboardHeight)
+            AgentDmEmptyStateView(variant: agentVariant(in: dmVm), hidesText: emptyStateKeyboardHeight > 0.0)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea()
+                .offset(y: shift)
+                .trackingKeyboardHeight($emptyStateKeyboardHeight)
+                // `.container` only, same as the group's: the unqualified form
+                // ignores the keyboard too, leaving the block centred behind it.
+                .ignoresSafeArea(.container)
                 .opacity(opacity)
                 .allowsHitTesting(false)
                 .animation(.easeInOut(duration: 0.25), value: shows)
