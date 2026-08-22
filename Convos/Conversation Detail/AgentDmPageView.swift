@@ -464,11 +464,11 @@ struct AgentDmPageView: View {
             .selfSizingSheet(isPresented: $dmVm.presentingCapabilityApproval) {
                 capabilityApprovalSheet(for: dmVm)
             }
-            .alert("Agent is paused", isPresented: $showingPausedAgentAlert) {
+            .alert("\(agentName) is paused", isPresented: $showingPausedAgentAlert) {
                 Button("Unpause") { onUnpauseAgent() }
-                Button("Not now", role: .cancel) {}
+                Button("OK", role: .cancel) {}
             } message: {
-                Text("\(agentName) is paused and won't see new messages right now.")
+                Text("Paused agents cannot see new groupchat messages or receive new 1:1 messages.")
             }
     }
 
