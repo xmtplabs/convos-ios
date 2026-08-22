@@ -84,9 +84,12 @@ struct HomeWebView: UIViewRepresentable {
         // second before it can even start a navigation. See `HomeWebViewPool`.
         let adoption = HomeWebViewPool.shared.adoption(for: url)
         let webView = HomeWebViewPool.shared.acquire()
-        // Temporary: allow Safari Web Inspector to attach to the home/space and
-        // browser sub-page web views while debugging the window.convos bridge.
-        webView.isInspectable = true
+        // Allow Safari Web Inspector to attach to the home/space and browser
+        // sub-page web views while debugging the window.convos bridge. Gated on
+        // a feature flag (off by default) that is reachable in every
+        // environment via the debug menus, so the bridge can be inspected on a
+        // production build without shipping the web views open by default.
+        webView.isInspectable = FeatureFlags.shared.isWebInspectorEnabled
         let coordinator = context.coordinator
         HomeWebViewPool.shared.paintReporter(of: webView)?.onPaint = { source in
             MainActor.assumeIsolated { coordinator.reportPaint(source) }
