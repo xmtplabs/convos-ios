@@ -110,6 +110,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// floating sheet so browsing never leaves the conversation screen.
     /// While non-empty, the top bar swaps the system back button for one
     /// that pops pages, and hides the add-members item.
+    @State private var groupEmptyStateSettled: Bool = false
     @State private var homeBrowserEntries: [HomeBrowserEntry] = []
     @State private var showingDebugInjector: Bool = false
     /// Consent surface for agent ability-use asks, managed by
@@ -293,8 +294,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onSendVoiceMemo: { viewModel.sendVoiceMemo() },
             onDebugAttachmentTap: debugAttachmentTapHandler,
             extraBottomInset: 0,
-            // Clearance for the top chrome the transcript scrolls under.
-            topContentInset: ConversationChromeMetrics.controlClearance,
+            // Clearance for the top chrome the transcript scrolls under. The
+            // full chrome, not just the control: this used to inset by the
+            // control alone because a leading `.invite` / `.conversationInfo`
+            // cell filled the capsule's row, and insetting by both counted it
+            // twice. The invite cell is gone, so an inviter has no leading
+            // cell and the first message came to rest inside the scrim's
+            // full-strength band.
+            topContentInset: ConversationChromeMetrics.contentClearance,
             // The transcript hosts its own composer as a bottom safe-area bar.
             // That is what puts the list at full height with content scrolling
             // under the bar and the keyboard: the controller only turns on
@@ -1396,6 +1403,44 @@ private extension ConversationView {
 
     private var groupPage: some View {
         messagesView(focus: $focusState)
+            .overlay { groupEmptyStateOverlay }
+            .task {
+                // Messages arrive just after the page appears, so an
+                // isEmpty-only gate would flash the empty state open and shut
+                // on every conversation that has any. Wait for the first
+                // emission to settle before it is allowed to show at all;
+                // fading out afterwards is instant either way.
+                try? await Task.sleep(for: .milliseconds(300))
+                groupEmptyStateSettled = true
+            }
+    }
+
+    /// Gated on `groupEmptyStateSettled` so it can only fade in once the
+    /// transcript has had a chance to deliver its first messages.
+    private var showsGroupEmptyState: Bool {
+        selectedTab == .group && groupEmptyStateSettled && !viewModel.hasAnyMessages
+    }
+
+    /// Rides the group page rather than the screen-level chrome layer, so it
+    /// travels with the horizontal page swipe instead of hanging still over it.
+    ///
+    /// Sized to its own content, never to the page: a full-bleed overlay sits
+    /// on top of the pager and eats the pan, so the tabs cannot be dragged.
+    /// `GroupEmptyStateView` makes its text transparent to touches for the same
+    /// reason - only the button takes them.
+    private var groupEmptyStateOverlay: some View {
+        GroupEmptyStateView(
+            isInviteEnabled: messagesTopBarTrailingItemEnabled && !effectiveReadOnly,
+            onInvite: handleAddFromContactsTap
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Centres against the screen rather than the page's inset box, which
+        // would land the block ~46pt low. The frame carries no background, so
+        // its empty area stays transparent to the pager's pan.
+        .ignoresSafeArea()
+        .opacity(showsGroupEmptyState ? 1.0 : 0.0)
+        .allowsHitTesting(showsGroupEmptyState)
+        .animation(.easeInOut(duration: 0.25), value: showsGroupEmptyState)
     }
 
     @ViewBuilder
