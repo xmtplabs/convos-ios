@@ -165,10 +165,19 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
     }
 
     private var sendButton: some View {
-        let usesFilledStyle: Bool = !sendButtonPaused && sendButtonEnabled
         let glyphName: String = sendButtonPaused ? "pause.fill" : "arrow.up"
-        let tintColor: Color = usesFilledStyle ? .colorTextPrimaryInverted : .colorTextPrimary
-        let backgroundColor: Color = usesFilledStyle ? .colorFillPrimary : .colorFillMinimal
+        let tintColor: Color
+        let backgroundColor: Color
+        if sendButtonPaused {
+            tintColor = .colorFillMinimal
+            backgroundColor = .colorFillTertiary
+        } else if sendButtonEnabled {
+            tintColor = .colorTextPrimaryInverted
+            backgroundColor = .colorFillPrimary
+        } else {
+            tintColor = .colorTextPrimary
+            backgroundColor = .colorFillMinimal
+        }
         let interactionDisabled: Bool = !sendButtonPaused && !sendButtonEnabled
         let action: () -> Void = sendButtonPaused ? onPausedSendTap : onSendMessage
         let a11yLabel: String = sendButtonPaused ? "Agent paused" : "Send message"
