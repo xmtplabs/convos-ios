@@ -409,7 +409,18 @@ extension XMTPiOS.DecodedMessage {
 
         let oldMode = oldCustomValue?.conversationParticipationMode
         let newMode = newCustomValue?.conversationParticipationMode
-        if let newMode, newMode != oldMode {
+        // The creator seeds the initial mode (Listen) in the same commit that
+        // first authors the invite tag (see ensureCreatorMetadata). That is the
+        // room's starting state, not a change a member chose, so it must not
+        // leave a "set agents to ..." row. The tag going from unset to set marks
+        // that seed commit; a real mode change always happens with the tag
+        // already set, so it still renders. When suppressed, this falls through
+        // to the silent metadata row, exactly like the tag/key/emoji seeded
+        // alongside it.
+        let tagWasUnset = oldCustomValue.map { $0.tag.isEmpty } ?? true
+        let tagNowSet = newCustomValue.map { !$0.tag.isEmpty } ?? false
+        let isCreatorSeedCommit = tagWasUnset && tagNowSet
+        if let newMode, newMode != oldMode, !isCreatorSeedCommit {
             return .init(
                 field: ConversationUpdate.MetadataChange.Field.participationMode.rawValue,
                 oldValue: oldMode?.rawValue,
