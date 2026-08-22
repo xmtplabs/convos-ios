@@ -19,9 +19,14 @@ import SwiftUI
 /// indistinguishable from a default one until its behavior disagrees.
 public struct AgentDmEmptyStateView: View {
     let variant: AgentVariantStamp?
+    /// Drops the copy while the keyboard is up - same reason as the group's
+    /// empty state. This one is all copy, so it leaves nothing on screen, which
+    /// is the point: there is no room for it over the keyboard.
+    let hidesText: Bool
 
-    public init(variant: AgentVariantStamp? = nil) {
+    public init(variant: AgentVariantStamp? = nil, hidesText: Bool = false) {
         self.variant = variant
+        self.hidesText = hidesText
     }
 
     public var body: some View {
@@ -37,15 +42,17 @@ public struct AgentDmEmptyStateView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .clipShape(Capsule())
             }
-            Text("1:1 with your Agent")
-                .font(.body)
-                .foregroundStyle(.colorTextPrimary)
-            Text("Drop anything here, or ask your agent to privately ping other members")
-                .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
-            Text("Everything shared here can be shared with others in the group, so don’t share anything private.")
-                .font(.footnote)
-                .foregroundStyle(.colorTextSecondary)
+            if !hidesText {
+                Text("1:1 with your Agent")
+                    .font(.body)
+                    .foregroundStyle(.colorTextPrimary)
+                Text("Drop anything here, or ask your agent to privately ping other members")
+                    .font(.subheadline)
+                    .foregroundStyle(.colorTextSecondary)
+                Text("Everything shared here can be shared with others in the group, so don’t share anything private.")
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+            }
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, DesignConstants.Spacing.step8x)

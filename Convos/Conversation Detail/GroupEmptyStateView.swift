@@ -12,6 +12,9 @@ import SwiftUI
 /// padding, a 52pt lava button, then 17/15/13pt text.
 struct GroupEmptyStateView: View {
     let isInviteEnabled: Bool
+    /// Drops the copy, leaving the CTA on its own. While the keyboard is up
+    /// there is not room for it without crowding the composer.
+    let hidesText: Bool
     let onInvite: () -> Void
 
     var body: some View {
@@ -22,18 +25,20 @@ struct GroupEmptyStateView: View {
         // pan, so a drag starting on the copy could not change tab.
         VStack(spacing: DesignConstants.Spacing.step3x) {
             inviteButton
-            Text("Your group has an agent, too")
-                .font(.body)
-                .foregroundStyle(.colorTextPrimary)
-                .allowsHitTesting(false)
-            Text("Mention @agent if you’d like them to speak up. Or pause them and they won’t listen at all.")
-                .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
-                .allowsHitTesting(false)
-            Text("Tap @ to control their participation")
-                .font(.footnote)
-                .foregroundStyle(.colorTextSecondary)
-                .allowsHitTesting(false)
+            if !hidesText {
+                Text("Your group has an agent, too")
+                    .font(.body)
+                    .foregroundStyle(.colorTextPrimary)
+                    .allowsHitTesting(false)
+                Text("Mention @agent if you’d like them to speak up. Or pause them and they won’t listen at all.")
+                    .font(.subheadline)
+                    .foregroundStyle(.colorTextSecondary)
+                    .allowsHitTesting(false)
+                Text("Tap @ to control their participation")
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+                    .allowsHitTesting(false)
+            }
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, DesignConstants.Spacing.step8x)
@@ -65,5 +70,5 @@ struct GroupEmptyStateView: View {
 }
 
 #Preview {
-    GroupEmptyStateView(isInviteEnabled: true, onInvite: {})
+    GroupEmptyStateView(isInviteEnabled: true, hidesText: false, onInvite: {})
 }

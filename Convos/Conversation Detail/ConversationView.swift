@@ -110,6 +110,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// floating sheet so browsing never leaves the conversation screen.
     /// While non-empty, the top bar swaps the system back button for one
     /// that pops pages, and hides the add-members item.
+    @State private var emptyStateKeyboardHeight: CGFloat = 0.0
     @State private var groupEmptyStateSettled: Bool = false
     @State private var homeBrowserEntries: [HomeBrowserEntry] = []
     @State private var showingDebugInjector: Bool = false
@@ -1429,15 +1430,26 @@ private extension ConversationView {
     /// `GroupEmptyStateView` makes its text transparent to touches for the same
     /// reason - only the button takes them.
     private var groupEmptyStateOverlay: some View {
-        GroupEmptyStateView(
+        let chromeInset: CGFloat = windowSafeAreaInsets.top + ConversationChromeMetrics.contentClearance
+        let shift: CGFloat = EmptyStateKeyboard.shift(chromeInset: chromeInset, keyboardHeight: emptyStateKeyboardHeight)
+        return GroupEmptyStateView(
             isInviteEnabled: messagesTopBarTrailingItemEnabled && !effectiveReadOnly,
+            hidesText: emptyStateKeyboardHeight > 0.0,
             onInvite: handleAddFromContactsTap
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .offset(y: shift)
+        .trackingKeyboardHeight($emptyStateKeyboardHeight)
         // Centres against the screen rather than the page's inset box, which
         // would land the block ~46pt low. The frame carries no background, so
         // its empty area stays transparent to the pager's pan.
-        .ignoresSafeArea()
+        //
+        // `.container` only: the unqualified `ignoresSafeArea()` covers every
+        // region, keyboard included, so the block stayed centred on the whole
+        // screen while the keyboard took the bottom half of it. Ignoring only
+        // the container insets keeps the resting position and lets the
+        // keyboard shrink the box it centres in.
+        .ignoresSafeArea(.container)
         .opacity(showsGroupEmptyState ? 1.0 : 0.0)
         .allowsHitTesting(showsGroupEmptyState)
         .animation(.easeInOut(duration: 0.25), value: showsGroupEmptyState)
