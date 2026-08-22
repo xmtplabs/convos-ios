@@ -219,9 +219,12 @@ extension XMTPiOS.Group {
     /// The participation mode is seeded to Listen (`.mentionsOnly`) so a new
     /// conversation's agents stay quiet until addressed. This only reaches group
     /// chats: agent DMs are created by the agent, so their `creatorInboxId` is
-    /// never this client and they never call this creator-only method. An
-    /// already-set mode is left untouched, so a second call (prewarm then a
-    /// later emoji commit) never overwrites a mode a member has since changed.
+    /// never this client and they never call this creator-only method. The seed
+    /// is tied to authoring the invite tag -- the one field written exactly once,
+    /// at creation -- so it never fires when this method re-runs on an already
+    /// established group (e.g. `StreamProcessor` reprocessing a legacy
+    /// creator-owned conversation), which would otherwise flip that room off the
+    /// legacy default and publish a spurious commit.
     ///
     /// Only the conversation creator should call this - it authors the
     /// invite tag (see `ensureInviteTag`).
@@ -230,8 +233,12 @@ extension XMTPiOS.Group {
         let needsTag = current.tag.isEmpty
         let needsKey = !current.hasImageEncryptionKey
         let needsEmoji = emojiSeed != nil && (!current.hasEmoji || current.emoji.isEmpty)
-        let needsParticipationMode = current.conversationParticipationMode == nil
-        guard needsTag || needsKey || needsEmoji || needsParticipationMode else { return }
+        // Only seed the initial mode in the same commit that first authors the
+        // invite tag, i.e. a brand-new group. An established group (tag already
+        // present) that happens to carry no mode must keep rendering as the
+        // legacy default, untouched.
+        let seedsParticipationMode = needsTag && current.conversationParticipationMode == nil
+        guard needsTag || needsKey || needsEmoji else { return }
 
         // Generate the tag only when it's actually missing so a transient
         // SecRandomCopyBytes failure can't abort an emoji- or key-only update.
@@ -259,14 +266,14 @@ extension XMTPiOS.Group {
             if let newEmoji, !metadata.hasEmoji || metadata.emoji.isEmpty {
                 metadata.emoji = newEmoji
             }
-            if metadata.conversationParticipationMode == nil {
+            if seedsParticipationMode, metadata.conversationParticipationMode == nil {
                 metadata.participationMode = ConversationParticipationMode.mentionsOnly.proto
             }
         } verify: { metadata in
             guard !metadata.tag.isEmpty else { return false }
             guard newKey == nil || metadata.hasImageEncryptionKey else { return false }
             guard newEmoji == nil || (metadata.hasEmoji && !metadata.emoji.isEmpty) else { return false }
-            return metadata.conversationParticipationMode != nil
+            return !seedsParticipationMode || metadata.conversationParticipationMode != nil
         }
     }
 
