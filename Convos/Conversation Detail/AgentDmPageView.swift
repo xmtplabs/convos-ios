@@ -112,6 +112,17 @@ struct AgentDmPageView: View {
             emptyStateSettled = true
         }
         .environment(\.colorScheme, .dark)
+        // Attached outside the forced-dark environment above: the system presents
+        // the alert chrome in the device's real appearance, so inheriting `.dark`
+        // here would render the buttons' text for dark mode (white) over a light
+        // alert. Keeping it outside lets the alert follow the app appearance the
+        // way the group transcript's alerts do.
+        .alert("\(agentName) is paused", isPresented: $showingPausedAgentAlert) {
+            Button("Unpause") { onUnpauseAgent() }
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Paused agents cannot see new groupchat messages or receive new 1:1 messages.")
+        }
         // The agent-participation ("listen") control governs how much agents
         // speak in the group room; it has no meaning in a 1:1 agent DM, so clear
         // the inherited participation context to hide the control here.
@@ -463,12 +474,6 @@ struct AgentDmPageView: View {
             }
             .selfSizingSheet(isPresented: $dmVm.presentingCapabilityApproval) {
                 capabilityApprovalSheet(for: dmVm)
-            }
-            .alert("\(agentName) is paused", isPresented: $showingPausedAgentAlert) {
-                Button("Unpause") { onUnpauseAgent() }
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("Paused agents cannot see new groupchat messages or receive new 1:1 messages.")
             }
     }
 
