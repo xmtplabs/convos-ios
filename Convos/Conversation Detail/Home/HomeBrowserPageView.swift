@@ -20,6 +20,11 @@ struct HomeBrowserPageView: View {
     /// Fired when this page requests navigation away from its own URL; the
     /// host pushes another page for it.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
+    /// Native destinations for this page's `window.convos` calls. Threaded
+    /// through from the conversation so a sub-page (e.g. `/members`) can
+    /// present the invite code, members list, etc. - without it these calls
+    /// would hit the no-op default `HomeBridgeNavigation`.
+    var bridgeNavigation: HomeBridgeNavigation = HomeBridgeNavigation()
 
     var body: some View {
         GeometryReader { proxy in
@@ -28,7 +33,8 @@ struct HomeBrowserPageView: View {
                 url: entry.url,
                 topContentInset: topInset,
                 bottomContentInset: proxy.safeAreaInsets.bottom,
-                onNavigationRequest: onNavigationRequest
+                onNavigationRequest: onNavigationRequest,
+                bridgeNavigation: bridgeNavigation
             )
             .ignoresSafeArea(edges: .vertical)
         }

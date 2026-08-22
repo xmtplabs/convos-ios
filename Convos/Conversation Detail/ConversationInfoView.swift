@@ -736,6 +736,16 @@ extension ConversationInfoView {
         } label: {
             Text("Hidden messages")
         }
+        NavigationLink {
+            SpaceURLDebugView(
+                currentURLString: { viewModel.conversation.spaceURL?.absoluteString },
+                updateSpaceURL: { urlString in
+                    try await viewModel.debugOverrideSpaceURL(urlString)
+                }
+            )
+        } label: {
+            Text("Space URL")
+        }
         Button {
             showingRestoreInviteTagAlert = true
         } label: {

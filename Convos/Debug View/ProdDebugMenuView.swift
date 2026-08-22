@@ -20,7 +20,7 @@ import UserNotifications
 //
 // Hard rules enforced here:
 // - No mutating controls (no "Request Now", no "Register Device Again", no
-//   purchase / change-plan CTAs, no mock-credit toggles). Three deliberate
+//   purchase / change-plan CTAs, no mock-credit toggles). Four deliberate
 //   exceptions, each flipping only a local default so a tester can opt this
 //   install into a feature we are dogfooding in production:
 //   - the XMTP bidi streaming opt-in, which selects the stream transport at
@@ -32,6 +32,9 @@ import UserNotifications
 //     per-conversation section from the V1 connections UI to the V2 one and
 //     points them at the live abilities backend. Off by default; nothing
 //     mutates until a tester connects an ability from that surface.
+//   - the Web inspector opt-in, which only decides whether the space/browser
+//     web views set `isInspectable`. Off by default; it mutates nothing and
+//     merely lets Safari Web Inspector attach to debug the window.convos bridge.
 // - The live `BackendAuthProbe` (JWT minter) is never imported or instantiated
 //   here. The identity readout uses `DeviceIdentitySnapshot`, which is
 //   network-free and carries no JWT.
@@ -185,6 +188,7 @@ struct ProdDebugMenuView: View {
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
             Toggle("Abilities v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
             Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
+            Toggle("Web inspector (space/browser web views)", isOn: Bindable(FeatureFlags.shared).isWebInspectorEnabled)
         }
     }
 

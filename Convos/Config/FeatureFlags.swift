@@ -163,6 +163,24 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default -- gates `WKWebView.isInspectable` on the home/space and
+    /// browser sub-page web views so Safari Web Inspector can attach to the
+    /// `window.convos` bridge. Deliberately reachable in every environment so
+    /// the bridge can be inspected on a production build; production users opt
+    /// in from the curated prod debug menu. Default-off keeps the web views
+    /// closed to the inspector for everyone else.
+    var isWebInspectorEnabled: Bool {
+        get {
+            access(keyPath: \.isWebInspectorEnabled)
+            return UserDefaults.standard.bool(forKey: Constant.webInspectorEnabledKey)
+        }
+        set {
+            withMutation(keyPath: \.isWebInspectorEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.webInspectorEnabledKey)
+            }
+        }
+    }
+
     /// Mock credits/subscription state used by the in-app paywall preview surface
     /// in the Debug menu. Non-production only; defaults to `.plusAmple`.
     var mockCreditsPreset: CreditsStatePreset {
@@ -234,5 +252,6 @@ final class FeatureFlags {
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
         static let abilitiesV2EnabledKey: String = "featureFlags.abilitiesV2Enabled"
         static let spaceShareEnabledKey: String = "featureFlags.spaceShareEnabled"
+        static let webInspectorEnabledKey: String = "featureFlags.webInspectorEnabled"
     }
 }

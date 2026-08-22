@@ -13,6 +13,9 @@ struct HomeLayoutView: View {
     /// Fired when the page requests navigation away from the space URL; the
     /// host presents it in the home browser popup.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
+    /// Native destinations for the page's `window.convos` calls; forwarded
+    /// down to the web surface.
+    var bridgeNavigation: HomeBridgeNavigation = HomeBridgeNavigation()
 
     var body: some View {
         // The placeholder page (no URL) skips the insets - it fits the viewport
@@ -28,7 +31,8 @@ struct HomeLayoutView: View {
                 url: webURL,
                 topContentInset: hasPage ? topInset : 0,
                 bottomContentInset: hasPage ? proxy.safeAreaInsets.bottom : 0,
-                onNavigationRequest: onNavigationRequest
+                onNavigationRequest: onNavigationRequest,
+                bridgeNavigation: bridgeNavigation
             )
             .ignoresSafeArea(edges: .vertical)
         }
