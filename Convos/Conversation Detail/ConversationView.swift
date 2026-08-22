@@ -1456,7 +1456,9 @@ private extension ConversationView {
                 isReadOnly: effectiveReadOnly,
                 sendButtonPaused: participation?.level == .paused,
                 onUnpauseAgent: {
-                    guard let participation else { return }
+                    // A removed or stale (read-only) device must not be able to
+                    // change participation, same gate as the composer's sends.
+                    guard !effectiveReadOnly, let participation else { return }
                     Task { await participation.set(.speakFreely) }
                 },
                 isActiveTab: isActive,
