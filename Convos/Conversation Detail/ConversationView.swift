@@ -1454,6 +1454,11 @@ private extension ConversationView {
                 connectionsEnabled: composerConnectionsEnabled,
                 onConnectionsTap: handleComposerConnectionsTap,
                 isReadOnly: effectiveReadOnly,
+                sendButtonPaused: participation?.level == .paused,
+                onUnpauseAgent: {
+                    guard let participation else { return }
+                    Task { await participation.set(.speakFreely) }
+                },
                 isActiveTab: isActive,
                 contextMenuState: agentContextMenuState,
                 focusState: $agentFocus,

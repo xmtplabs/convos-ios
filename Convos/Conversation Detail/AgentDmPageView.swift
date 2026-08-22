@@ -28,6 +28,14 @@ struct AgentDmPageView: View {
     /// Mirrors ConversationView's effectiveReadOnly: a removed or stale
     /// device must not be able to send into agent DMs.
     let isReadOnly: Bool
+    /// True when the conversation's agent participation is paused. The DM's send
+    /// button then shows the paused visual, sends are blocked, and the composer
+    /// hint changes; a blocked attempt raises the paused alert.
+    var sendButtonPaused: Bool = false
+    /// Resumes the agent (participation -> speak freely) from the paused alert's
+    /// Unpause action. Owned by ConversationView, which holds the participation
+    /// store the DM page can't reach.
+    var onUnpauseAgent: () -> Void = {}
     /// True while the Agent tab is the selected tab. The backing views stay
     /// mounted across tab switches, so activation drives the read state and
     /// the active-DM push lane. (Composer focus transfers are owned by
@@ -61,6 +69,7 @@ struct AgentDmPageView: View {
     private var agentName: String { session.agentName }
 
     @State private var emptyStateSettled: Bool = false
+    @State private var showingPausedAgentAlert: Bool = false
 
     /// Centred over the page and faded rather than inserted into the list, so
     /// it never holds a scroll position. Never takes hits - it is only text.
@@ -300,6 +309,9 @@ struct AgentDmPageView: View {
 
     private func dmMessagesView(_ dmVm: ConversationViewModel) -> some View {
         @Bindable var dmVm = dmVm
+        let messagePlaceholder: String = sendButtonPaused
+            ? "\(agentName) is paused"
+            : "Chat with \(agentName)"
         return MessagesView(
             contextMenuState: contextMenuState,
             conversation: dmVm.conversation,
@@ -313,7 +325,7 @@ struct AgentDmPageView: View {
             conversationImage: $dmVm.conversationImage,
             displayName: $dmVm.myProfileViewModel.editingDisplayName,
             messageText: $dmVm.messageText,
-            messagePlaceholder: "Chat with \(agentName)",
+            messagePlaceholder: messagePlaceholder,
             pendingMediaAttachments: dmVm.pendingMediaAttachments,
             composerLinkPreview: dmVm.pastedLinkPreview,
             pendingInviteURL: dmVm.pendingInvite?.fullURL,
@@ -325,6 +337,8 @@ struct AgentDmPageView: View {
             isShowingAgentShareChip: dmVm.pendingAgentShare != nil,
             onClearAgentShare: dmVm.clearPendingAgentShare,
             sendButtonEnabled: dmVm.sendButtonEnabled,
+            sendButtonPaused: sendButtonPaused,
+            onPausedSendTap: { showingPausedAgentAlert = true },
             profileImage: $dmVm.myProfileViewModel.profileImage,
             onboardingCoordinator: dmVm.onboardingCoordinator,
             focusState: $focusState,
@@ -449,6 +463,12 @@ struct AgentDmPageView: View {
             }
             .selfSizingSheet(isPresented: $dmVm.presentingCapabilityApproval) {
                 capabilityApprovalSheet(for: dmVm)
+            }
+            .alert("Agent is paused", isPresented: $showingPausedAgentAlert) {
+                Button("Unpause") { onUnpauseAgent() }
+                Button("Not now", role: .cancel) {}
+            } message: {
+                Text("\(agentName) is paused and won't see new messages right now.")
             }
     }
 

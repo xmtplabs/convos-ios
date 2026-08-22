@@ -69,6 +69,11 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
     var isShowingAgentShareChip: Bool = false
     let sendButtonEnabled: Bool
+    /// When true the send button shows the paused visual, every send path is
+    /// blocked, and taps route to `onPausedSendTap`. Set in the agent DM when
+    /// the agent's participation is paused.
+    var sendButtonPaused: Bool = false
+    var onPausedSendTap: () -> Void = {}
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
@@ -148,6 +153,8 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         onInviteConvoNameEditingEnded: ((String) -> Void)? = nil,
         isShowingAgentShareChip: Bool = false,
         sendButtonEnabled: Bool,
+        sendButtonPaused: Bool = false,
+        onPausedSendTap: @escaping () -> Void = {},
         profileImage: Binding<UIImage?>,
         isPhotoPickerPresented: Binding<Bool>,
         focusState: FocusState<MessagesViewInputFocus?>.Binding,
@@ -192,6 +199,8 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         self.onInviteConvoNameEditingEnded = onInviteConvoNameEditingEnded
         self.isShowingAgentShareChip = isShowingAgentShareChip
         self.sendButtonEnabled = sendButtonEnabled
+        self.sendButtonPaused = sendButtonPaused
+        self.onPausedSendTap = onPausedSendTap
         _profileImage = profileImage
         _isPhotoPickerPresented = isPhotoPickerPresented
         _focusState = focusState
@@ -556,7 +565,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         if isMediaCapacityFull || hasSideConvo {
             disabled.formUnion([.photos, .camera, .files])
         }
-        if hasMedia || hasSideConvo {
+        if hasMedia || hasSideConvo || sendButtonPaused {
             disabled.insert(.voiceNote)
         }
         return disabled
@@ -612,7 +621,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     /// typed property so the solver never has to resolve a conditional
     /// optional closure inside `MessagesInputView`'s argument list.
     private var voiceMemoTapWhenEmpty: (() -> Void)? {
-        guard usesAgentComposerLayout else { return nil }
+        guard usesAgentComposerLayout, !sendButtonPaused else { return nil }
         return { startVoiceMemoRecording() }
     }
 
@@ -648,6 +657,8 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
             onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
             isShowingAgentShareChip: isShowingAgentShareChip,
             sendButtonEnabled: sendButtonEnabled,
+            sendButtonPaused: sendButtonPaused,
+            onPausedSendTap: onPausedSendTap,
             focusState: $focusState,
             messagesTextFieldEnabled: messagesTextFieldEnabled,
             onSendMessage: onSendMessage,
