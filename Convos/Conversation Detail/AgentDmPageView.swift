@@ -69,7 +69,11 @@ struct AgentDmPageView: View {
     @ViewBuilder
     private var agentDmEmptyStateOverlay: some View {
         if case .ready(let dmVm) = phase {
-            let shows: Bool = emptyStateSettled && !dmVm.hasAnyMessages
+            // Hides on any item in the list, including a system item
+            // (join status, agent presence), not just a real message -
+            // matches the group tab's empty-state gate so a system cell
+            // already on screen is never covered by the overlay.
+            let shows: Bool = emptyStateSettled && !dmVm.hasAnyMessagesListItems
             let opacity: Double = shows ? 1.0 : 0.0
             let chromeInset: CGFloat = windowSafeAreaInsets.top + ConversationChromeMetrics.contentClearance
             let shift: CGFloat = EmptyStateKeyboard.shift(chromeInset: chromeInset, keyboardHeight: emptyStateKeyboardHeight)

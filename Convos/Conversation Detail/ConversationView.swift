@@ -1417,9 +1417,12 @@ private extension ConversationView {
     }
 
     /// Gated on `groupEmptyStateSettled` so it can only fade in once the
-    /// transcript has had a chance to deliver its first messages.
+    /// transcript has had a chance to deliver its first messages. Hides on
+    /// any item in the list - including a system item like "you joined" or
+    /// "earlier messages are hidden" - not just a real message, so the
+    /// overlay never renders on top of a system cell already on screen.
     private var showsGroupEmptyState: Bool {
-        selectedTab == .group && groupEmptyStateSettled && !viewModel.hasAnyMessages
+        selectedTab == .group && groupEmptyStateSettled && !viewModel.hasAnyMessagesListItems
     }
 
     /// Rides the group page rather than the screen-level chrome layer, so it
