@@ -37,12 +37,12 @@ public enum AgentParticipationLevel: String, CaseIterable, Identifiable, Sendabl
     }
 
     /// The level's one-line description. `.mentionsOnly` names the agent it
-    /// speaks for, so the caption reads "...mentions "<agent name>"".
+    /// speaks for, so the caption reads "...seeing "<agent name>"".
     public func caption(agentName: String) -> String {
         switch self {
-        case .speakFreely: "Chime in anytime"
-        case .mentionsOnly: "Only speak when someone mentions \"\(agentName)\""
-        case .paused: "Can never see messages, uses no credits"
+        case .speakFreely: "Chimes in anytime"
+        case .mentionsOnly: "Only speaks after seeing \"\(agentName)\""
+        case .paused: "Never sees messages, uses no credits"
         }
     }
 

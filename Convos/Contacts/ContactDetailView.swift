@@ -1038,9 +1038,10 @@ private struct ContactDetailActionRow: View {
 /// their backends land.
 private enum ContactDetailAgentModel: String, CaseIterable, Identifiable {
     case claudeSonnet
-    case chatGPTSol
-    case geminiX
+    case claudeFable
+    case gptSol
     case grok
+    case geminiPro
     case openSource
 
     var id: String {
@@ -1050,10 +1051,11 @@ private enum ContactDetailAgentModel: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .claudeSonnet: return "Claude Sonnet"
-        case .chatGPTSol: return "ChatGPT Sol"
-        case .geminiX: return "Gemini X"
+        case .claudeFable: return "Claude Fable 5"
+        case .gptSol: return "GPT-5.6 Sol"
         case .grok: return "Grok 4.6"
-        case .openSource: return "Open Source Models"
+        case .geminiPro: return "Gemini 3.1 Pro"
+        case .openSource: return "Open source models"
         }
     }
 
