@@ -56,8 +56,15 @@ struct HomeWebView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
-        coordinator.bridge?.detach(from: webView)
-        coordinator.bridge = nil
+        // The bridge stays installed for the pooled view's next surface; only
+        // its host is repointed, so it is not detached here. Reset the host to
+        // defaults so a page still loaded in the released view cannot call back
+        // into this torn-down surface.
+        if let binding = HomeWebViewPool.shared.bridgeBinding(of: webView) {
+            binding.host.navigation = HomeBridgeNavigation()
+            binding.host.onMarkReady = {}
+            binding.bridge.onReady = nil
+        }
         coordinator.bridgeHost = nil
         // Back to the pool with what it is showing, so a page that is still
         // drawn can be handed straight back on re-entry.
@@ -107,20 +114,20 @@ struct HomeWebView: UIViewRepresentable {
         // stack onto the manual indicator insets.
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.scrollView.automaticallyAdjustsScrollIndicatorInsets = false
-        // Expose window.convos before any load: updateUIView performs the
-        // first load only after makeUIView returns, so the document-start
-        // script injection precedes both the placeholder and the space URL.
-        // The bridge registers through a weak proxy, so the coordinator
-        // retains it for the web view's lifetime.
-        let host = HomeBridgeHost()
-        host.navigation = bridgeNavigation
-        host.onMarkReady = onMarkReady
-        let bridge = ConvosWebBridge(plugins: HomeBridgePlugins.dispatchers(host: host))
-        bridge.onReady = { Log.info("HomeWebView: convos.js reported ready (url=\(url?.absoluteString ?? "placeholder"))") }
-        Log.info("HomeWebView.makeUIView attaching bridge (url=\(url?.absoluteString ?? "placeholder"))")
-        bridge.attach(to: webView)
-        context.coordinator.bridge = bridge
-        context.coordinator.bridgeHost = host
+        // The convos bridge is installed on the pooled view, not here: the pool
+        // loads the space URL speculatively before this surface exists, and a
+        // bridge attached on adoption would miss that load - its document-start
+        // `convos.js` runs on the next navigation, and the adopted page is not
+        // reloaded. See `HomeWebViewPool.makeWebView`. Point the host at this
+        // surface so the page's `window.convos` calls reach this conversation.
+        if let binding = HomeWebViewPool.shared.bridgeBinding(of: webView) {
+            binding.host.navigation = bridgeNavigation
+            binding.host.onMarkReady = onMarkReady
+            binding.bridge.onReady = {
+                Log.info("HomeWebView: convos.js reported ready (url=\(url?.absoluteString ?? "placeholder"))")
+            }
+            context.coordinator.bridgeHost = binding.host
+        }
         return webView
     }
 
@@ -200,12 +207,10 @@ struct HomeWebView: UIViewRepresentable {
         /// stale (e.g. the placeholder finishing after the real Space URL
         /// superseded it) and must not flip the interception state.
         var activeNavigation: WKNavigation?
-        /// The window.convos bridge for this web view. Registered through a
-        /// weak proxy, so the coordinator holds the strong reference; detached
-        /// in dismantleUIView.
-        var bridge: ConvosWebBridge?
-        /// Mutable state behind the bridge's plugin implementations; its
-        /// closures are refreshed on every updateUIView pass.
+        /// The pooled view's bridge host, its closures repointed at this surface
+        /// while it holds the view and refreshed on every updateUIView pass. The
+        /// bridge itself is owned by the pool, not the coordinator, so it can
+        /// outlive this surface and keep `window.convos` across a hand-back.
         var bridgeHost: HomeBridgeHost?
 
         init(
