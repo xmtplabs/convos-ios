@@ -370,6 +370,7 @@ struct ContactDetailView: View {
                     // way to interact.
                     canSendMessage: session != nil && (!isVerifiedAgent || isAgentTemplate || canStartAgentDm),
                     showChat: !mode.isCurrentUser,
+                    showModelPicker: !mode.isCurrentUser && (isVerifiedAgent || isAgentTemplate),
                     isAgent: isVerifiedAgent || isAgentTemplate,
                     showShare: agentTemplateShareURL != nil,
                     showRemove: mode.isScopedToConversation
@@ -846,6 +847,9 @@ private struct ContactDetailActions: View {
     let isApplyingBlockChange: Bool
     let canSendMessage: Bool
     let showChat: Bool
+    /// Shows the model dropdown under Chat. Agents only - a human contact
+    /// doesn't run on a model.
+    let showModelPicker: Bool
     /// Drives the chat CTA copy: "New chat" for agents (tapping spawns a
     /// fresh conversation), "Chat" for human members (tapping routes to a
     /// DM with that person).
@@ -890,6 +894,9 @@ private struct ContactDetailActions: View {
             }
             if showChat {
                 chatButton
+            }
+            if showModelPicker {
+                ContactDetailModelRow(contactDisplayName: contactDisplayName)
             }
             if showShare {
                 shareRow
@@ -1020,6 +1027,119 @@ private struct ContactDetailActionRow: View {
                 .foregroundStyle(.colorTextSecondary)
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
         }
+    }
+}
+
+// MARK: - Agent model picker
+
+/// The model an agent runs on. Only `claudeSonnet` is live; the rest are
+/// placeholders the design calls for so the menu reads as a roadmap instead
+/// of a one-item list. They render disabled with a "Soon" subtitle until
+/// their backends land.
+private enum ContactDetailAgentModel: String, CaseIterable, Identifiable {
+    case claudeSonnet
+    case claudeFable
+    case gptSol
+    case grok
+    case geminiPro
+    case openSource
+
+    var id: String {
+        return rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .claudeSonnet: return "Claude Sonnet"
+        case .claudeFable: return "Claude Fable 5"
+        case .gptSol: return "GPT-5.6 Sol"
+        case .grok: return "Grok 4.6"
+        case .geminiPro: return "Gemini 3.1 Pro"
+        case .openSource: return "Open source models"
+        }
+    }
+
+    /// Second line of the menu item: what you get today on the live model,
+    /// "Soon" on the ones that aren't wired up.
+    var subtitle: String {
+        return isAvailable ? "Included" : "Soon"
+    }
+
+    var isAvailable: Bool {
+        return self == .claudeSonnet
+    }
+}
+
+/// The model dropdown under an agent's Chat button: the canonical action-row
+/// shape (rounded fill on top, small grey caption below) wrapping a native
+/// menu instead of a button. Nothing is selectable yet - the agent's model is
+/// fixed and every alternative is disabled - so the row is display-only and
+/// carries no selection state.
+private struct ContactDetailModelRow: View {
+    let contactDisplayName: String
+
+    /// Fixed for now. Becomes real state when the other models land.
+    private let selectedModel: ContactDetailAgentModel = .claudeSonnet
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+            Menu {
+                menuContent
+            } label: {
+                rowLabel
+            }
+            .accessibilityLabel("Model for \(contactDisplayName)")
+            .accessibilityIdentifier("contact-detail-model-menu")
+            Text("Model")
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+        }
+    }
+
+    private var menuContent: some View {
+        return Section("Agent Model") {
+            ForEach(ContactDetailAgentModel.allCases) { model in
+                menuItem(for: model)
+            }
+        }
+    }
+
+    /// The live model gets the selected checkmark and an empty action - it's
+    /// already what the agent runs on, so tapping it is intentionally inert.
+    /// Everything else is disabled.
+    @ViewBuilder
+    private func menuItem(for model: ContactDetailAgentModel) -> some View {
+        let noop = {}
+        if model == selectedModel {
+            Button(action: noop) {
+                Text(model.title)
+                Text(model.subtitle)
+                Image(systemName: "checkmark")
+            }
+        } else {
+            Button(action: noop) {
+                Text(model.title)
+                Text(model.subtitle)
+            }
+            .disabled(true)
+        }
+    }
+
+    private var rowLabel: some View {
+        return HStack(spacing: DesignConstants.Spacing.step2x) {
+            Text(selectedModel.title)
+                .font(.body)
+                .foregroundStyle(.colorTextPrimary)
+            Spacer(minLength: 0.0)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, DesignConstants.Spacing.step4x)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .background(Capsule().fill(.colorFillMinimal))
     }
 }
 

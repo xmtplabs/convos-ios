@@ -89,6 +89,14 @@ final class AgentDmSession {
     /// pending flag is `@ObservationIgnored` and only turns over once the join
     /// registers, so on its own the tab would sit on the offer for a beat
     /// after the tap.
+    /// True while the conversation has no agent to talk to and none on the way.
+    ///
+    /// The Agent tab and the Context tab both offer to add one, and they must
+    /// agree about when: this is the single definition they share.
+    var hasNoAgent: Bool {
+        dmViewModel == nil && agentInboxId == nil && !isJoiningAgent
+    }
+
     var isJoiningAgent: Bool {
         isRequestingAgent || isProvisioningDefaultAgent || originViewModel.isAgentJoinPending
     }

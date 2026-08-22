@@ -28,11 +28,8 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             let item = sections[indexPath.section].cells[indexPath.item]
             let width = messagesLayout.layoutFrame.width
             switch item {
-            case .noComments:
-                // Exact, not estimated: the sheet's ceiling is the transcript's
-                // height, so this cell's height decides how far a fresh
-                // conversation opens. An estimate would let that wander.
-                return .exact(CGSize(width: width, height: NoCommentsCellContent.height))
+            case .invite:
+                return .estimated(CGSize(width: width, height: 348.0))
             case .conversationInfo:
                 return .estimated(CGSize(width: width, height: 300.0))
             case .date:

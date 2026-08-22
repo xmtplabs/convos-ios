@@ -53,21 +53,28 @@ enum ConnectionsBrowserMode: Hashable, Identifiable {
     }
 
     /// The browser's header subtitle. The account-level list sells the
-    /// feature; the chat-scoped one names the agent the connections are
-    /// being turned on for.
+    /// feature; the chat-scoped one says what this screen is for.
     ///
-    /// A blank name falls back to a generic phrasing rather than leaving a
-    /// gap mid-sentence. Empty is a real value here, not a defensive
-    /// hypothetical: the display name is whatever the profile had resolved
-    /// to when the modal was presented, and `AbilitiesListScreen` already
-    /// builds its agent descriptor with `mode.agentDisplayName ?? ""`.
+    /// The chat-scoped copy is fixed and names no agent: the display name is
+    /// whatever the profile had resolved to when the modal was presented, so
+    /// interpolating it made the subtitle change under the reader (and needed
+    /// a fallback branch for the blank case).
     var headerSubtitle: String {
-        guard case .composerModal(_, _, let agentDisplayName) = self else {
-            return "Give agents new powers in your convos"
+        switch self {
+        case .appSettings: "Give agents new powers in your convos"
+        case .composerModal: "Choose your agent's capabilities in this convo"
         }
-        let trimmedName: String = agentDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name: String = trimmedName.isEmpty ? "your agent" : trimmedName
-        return "Choose what \(name) can use in this chat"
+    }
+
+    /// Whether a Connected row shows the app-wide entitlement status tag.
+    /// The account-level list is where that status is the point; the
+    /// chat-scoped browser is about this convo, and the row there already
+    /// carries a toggle and a disclosure.
+    var showsConnectedStatusTag: Bool {
+        switch self {
+        case .appSettings: true
+        case .composerModal: false
+        }
     }
 
     /// Deliberately excludes `agentDisplayName`: the modal is presented

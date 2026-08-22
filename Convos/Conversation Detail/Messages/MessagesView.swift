@@ -108,11 +108,21 @@ struct MessagesView<BottomBarContent: View>: View {
     /// in production); the testtube button stays hidden in any other case.
     var onDebugAttachmentTap: (() -> Void)?
     var extraBottomInset: CGFloat = 0.0
-    /// False when the composer is hosted externally (the conversation
-    /// sheet): the transcript renders no bar of its own and insets purely by
-    /// `extraBottomInset`, which the sheet keeps fed with its measured
-    /// height.
+    /// Clearance at the transcript's top for a host that floats chrome over it.
+    /// The conversation's segmented control sits there; see
+    /// `ConversationChromeMetrics.contentClearance`.
+    var topContentInset: CGFloat = 0.0
+    /// False when the composer is hosted externally: the transcript renders no
+    /// bar of its own and insets purely by `extraBottomInset`.
     var hostsBottomBar: Bool = true
+    /// Agent-style composer: the `+` menu gains `.connections`. Forwarded to
+    /// `MessagesBottomBar`.
+    var usesAgentComposerLayout: Bool = false
+    /// Host gate for the `+` menu's `.connections` row; the composer package
+    /// cannot read the app's feature flags.
+    var connectionsEnabled: Bool = false
+    /// Presents the host's Connections browser; the composer only emits the tap.
+    var onConnectionsTap: (() -> Void)?
     /// True when the host renders the message long-press menu itself, so this
     /// view renders none. Set by the conversation sheet, which layers the menu
     /// at its own root: this view is clipped to the sheet's current detent, and
@@ -129,8 +139,11 @@ struct MessagesView<BottomBarContent: View>: View {
 
     /// Set by a host that shows less of this view than the frame it hands over -
     /// the conversation sheet. Zero for every other host.
-    @Environment(\.transcriptClippedTopOverflow) private var clippedTopOverflow: CGFloat
     @State private var bottomBarHeight: CGFloat = 0.0
+    /// See the `ignoresSafeArea` call in `body`.
+    private var ignoredSafeAreaRegions: SafeAreaRegions {
+        hostsBottomBar ? .all : .container
+    }
     @State private var isPhotoPickerPresented: Bool = false
     @State private var scrollToBottom: ((Bool) -> Void)?
     @State private var notifyMessageInputFocused: (() -> Void)?
@@ -254,7 +267,7 @@ struct MessagesView<BottomBarContent: View>: View {
             // bottom-bar measurement before applying its initial state and
             // revealing the list.
             hasBottomBar: !isReadOnly && hostsBottomBar,
-            clippedTopOverflow: clippedTopOverflow,
+            topContentInset: topContentInset,
             onContentHeightChanged: onContentHeightChanged,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn
@@ -264,14 +277,21 @@ struct MessagesView<BottomBarContent: View>: View {
                 notifyMessageInputFocused = fn
             }
         )
-        // `.container` only. The list draws under the chrome above it - the
-        // host's bar, or the conversation sheet's composer and tab bar - and
-        // under the home indicator, so it ignores the container's safe area.
-        // The keyboard is different: the chrome rises above it, and a list that
-        // ignored it would keep its frame behind the keyboard while the chrome
-        // moved, so the two would no longer share a bottom edge and the list's
-        // clearance would be short by the keyboard's height.
-        .ignoresSafeArea(.container)
+        // Which safe areas the list ignores follows who owns the bottom bar,
+        // because that is also who owns the keyboard math.
+        //
+        // Hosting its own bar (the full-screen chat path) means the controller
+        // measures the keyboard's overlap itself - see
+        // `MessagesViewController.calculateNewBottomInset`. SwiftUI must not
+        // inset for the keyboard as well, or the clearance is counted twice and
+        // the newest message sits a keyboard's height above the composer.
+        //
+        // An external bar (a host that positions its own chrome against the
+        // keyboard and rises with it) is the opposite case: the controller
+        // skips the keyboard math, so the list has to be inset for the keyboard
+        // here or it would keep its frame behind one while the chrome moved,
+        // and the two would no longer share a bottom edge.
+        .ignoresSafeArea(ignoredSafeAreaRegions)
         .onChange(of: focusState) { oldValue, newValue in
             if newValue == .message && oldValue != .message {
                 notifyMessageInputFocused?()
@@ -318,6 +338,9 @@ struct MessagesView<BottomBarContent: View>: View {
                     voiceMemoRecorder: voiceMemoRecorder,
                     onSendVoiceMemo: onSendVoiceMemo,
                     onDebugAttachmentTap: onDebugAttachmentTap,
+                    usesAgentComposerLayout: usesAgentComposerLayout,
+                    connectionsEnabled: connectionsEnabled,
+                    onConnectionsTap: onConnectionsTap,
                     onBaseHeightChanged: { height in
                         bottomBarHeight = height
                     },

@@ -46,6 +46,10 @@ enum AbilitiesServices {
     /// the actor-based service handles its own concurrency.
     nonisolated(unsafe) private static var liveService: LiveAbilitiesService?
     nonisolated(unsafe) private static var catalogCache: AbilitiesCatalogDiskCache?
+    /// The session's conversations, read fresh on every call. Captured as a
+    /// closure rather than a retained repository so the read happens off the
+    /// main actor at the moment the detail screen asks for it.
+    nonisolated(unsafe) private static var conversationsProvider: (@Sendable () async throws -> [Conversation])?
     private static let mockService: MockAbilitiesService = MockAbilitiesService()
     /// One escalation mock app-wide so grants made in a conversation are
     /// visible in the ability detail's delegations list. Both selection
@@ -71,6 +75,20 @@ enum AbilitiesServices {
         )
     }
 
+    /// Where the connection detail screen's Agents and Convos sections come
+    /// from. Live mode fans out over the session's conversations (the
+    /// backend serves no inverse of the per-conversation opt-in read); mock
+    /// mode and any surface reached before `configure` use the fixture
+    /// source, so the screen never renders another account's rows.
+    @MainActor
+    static var connectionUsageSource: any ConnectionUsageSourcing {
+        guard useLiveBackend, let liveService else {
+            return PreviewConnectionUsageSource(service: mockService)
+        }
+        guard let conversationsProvider else { return EmptyConnectionUsageSource() }
+        return ConversationConnectionUsageSource(service: liveService, conversations: conversationsProvider)
+    }
+
     /// Wires the live service to the backend and the session's messaging
     /// stack. Called once from `ConvosApp.init`; built eagerly so flipping
     /// the mock/live toggle later picks it up without a relaunch. The V1
@@ -86,6 +104,10 @@ enum AbilitiesServices {
         )
         let cache = AbilitiesCatalogDiskCache(environmentName: environment.name)
         catalogCache = cache
+        conversationsProvider = {
+            let repository = session.conversationsRepository(for: [.allowed, .unknown])
+            return try await repository.fetchAll()
+        }
         liveService = LiveAbilitiesService(
             apiClient: ConvosAPIClientFactory.client(environment: environment),
             callbackURLScheme: ConfigManager.shared.appUrlScheme,
