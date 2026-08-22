@@ -236,7 +236,7 @@ struct ParticipationModeSyncTests {
             ]
         )
 
-        #expect(update.summary == "Shane set the participation mode to \"Listen mode\"")
+        #expect(update.summary == "Shane set agents to Listen")
     }
 
     @Test("a paused update warns that messages will not be seen later")
@@ -254,6 +254,6 @@ struct ParticipationModeSyncTests {
             ]
         )
 
-        #expect(update.summary == "Shane paused the agents. They'll never see messages sent while paused")
+        #expect(update.summary == "Shane paused agents, so they'll never see the following messages")
     }
 }

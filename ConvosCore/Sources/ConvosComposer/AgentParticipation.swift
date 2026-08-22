@@ -18,25 +18,31 @@ public enum AgentParticipationLevel: String, CaseIterable, Identifiable, Sendabl
 
     public var id: String { rawValue }
 
-    /// The levels the menu offers — every level there is.
-    public static var selectableCases: [AgentParticipationLevel] { allCases }
+    /// The levels the menu offers, in the order the menu draws them: Listen
+    /// first, then Chat, then Pause. This is the menu's own order and is
+    /// deliberately not `allCases` order (which the wire/default logic keeps).
+    public static var selectableCases: [AgentParticipationLevel] {
+        [.mentionsOnly, .speakFreely, .paused]
+    }
 
     /// User-visible name of the level. `.mentionsOnly` (wire value `"mention"`)
-    /// reads as "Listen mode" — the label and the wire value are the same mode
-    /// under two names; there is no separate `listen` mode.
+    /// reads as "Listen" — the label and the wire value are the same mode under
+    /// two names; there is no separate `listen` mode.
     public var title: String {
         switch self {
-        case .speakFreely: "Speak freely"
-        case .mentionsOnly: "Listen mode"
+        case .speakFreely: "Chat"
+        case .mentionsOnly: "Listen"
         case .paused: "Pause"
         }
     }
 
-    public var caption: String {
+    /// The level's one-line description. `.mentionsOnly` names the agent it
+    /// speaks for, so the caption reads "...mentions "<agent name>"".
+    public func caption(agentName: String) -> String {
         switch self {
-        case .speakFreely: "Chime in any time"
-        case .mentionsOnly: "Only speaks if you @mention or say name"
-        case .paused: "Won't see messages sent while paused, even later"
+        case .speakFreely: "Chime in anytime"
+        case .mentionsOnly: "Only speak when someone mentions \"\(agentName)\""
+        case .paused: "Can never see messages, uses no credits"
         }
     }
 

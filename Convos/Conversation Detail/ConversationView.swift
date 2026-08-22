@@ -1886,10 +1886,18 @@ private extension ConversationView {
         guard let participation else { return nil }
         return AgentParticipationContext(
             level: participation.level,
-            isLoading: !participation.hasLoaded
+            isLoading: !participation.hasLoaded,
+            agentName: participationAgentName
         ) { level in
             Task { await participation.set(level) }
         }
+    }
+
+    /// The name shown in the Listen level's caption. A room with several agents
+    /// uses the first one's name to stand for them; falls back to "Agent" when
+    /// no agent member is resolved yet.
+    var participationAgentName: String {
+        viewModel.conversation.members.first(where: \.isAgent)?.displayName ?? "Agent"
     }
 
     /// Keys the participation `.task` on the conversation AND on whether it has
