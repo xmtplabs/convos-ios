@@ -142,6 +142,26 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// Overwrites the Space web URL in appData, or clears it when nil. The
+    /// Assistant Worker is the value's authority (see `spaceURL`); this setter
+    /// exists only for the debug override in conversation info, and the worker
+    /// may replace whatever it writes on its next publish.
+    public func updateSpaceURL(_ urlString: String?) async throws {
+        try await atomicUpdateMetadata(operation: "updateSpaceURL") { metadata in
+            if let urlString {
+                metadata.spaceURL = urlString
+            } else {
+                metadata.clearSpaceURL()
+            }
+        } verify: { metadata in
+            if let urlString {
+                return metadata.spaceURL == urlString
+            } else {
+                return !metadata.hasSpaceURL
+            }
+        }
+    }
+
     /// Stamps this conversation as a private DM with an agent. Called once by
     /// the device that creates the DM conversation, before adding the agent.
     public func markAsAgentDm(originConversationId: Data? = nil) async throws {
