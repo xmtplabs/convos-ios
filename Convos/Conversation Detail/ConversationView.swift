@@ -1459,7 +1459,8 @@ private extension ConversationView {
                     // A removed or stale (read-only) device must not be able to
                     // change participation, same gate as the composer's sends.
                     guard !effectiveReadOnly, let participation else { return }
-                    Task { await participation.set(.speakFreely) }
+                    // Unpause resumes into listen mode, not full speak-freely.
+                    Task { await participation.set(.mentionsOnly) }
                 },
                 isActiveTab: isActive,
                 contextMenuState: agentContextMenuState,
