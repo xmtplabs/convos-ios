@@ -171,6 +171,22 @@ struct ParticipationModeSyncTests {
         #expect(ConversationUpdate.MetadataChange.Field.participationMode.showsInMessagesList)
     }
 
+    @Test("the creator seed (tag and mode set together) leaves no participation row")
+    func creatorSeedStaysSilent() throws {
+        let before = ConversationCustomMetadata()
+        var after = before
+        after.tag = "tag"
+        after.participationMode = ConversationParticipationMode.mentionsOnly.proto
+
+        let change = XMTPiOS.DecodedMessage.appDataMetadataChange(
+            oldValue: try before.toCompactString(),
+            newValue: try after.toCompactString()
+        )
+
+        #expect(change.field == ConversationUpdate.MetadataChange.Field.metadata.rawValue)
+        #expect(!ConversationUpdate.MetadataChange.Field.metadata.showsInMessagesList)
+    }
+
     @Test("appData changes that are not the mode stay out of the transcript")
     func otherAppDataChangesStaySilent() throws {
         var before = ConversationCustomMetadata()
