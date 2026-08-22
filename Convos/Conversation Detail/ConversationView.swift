@@ -1491,6 +1491,12 @@ private extension ConversationView {
     private var homeBridgeNavigation: HomeBridgeNavigation {
         HomeBridgeNavigation(
             showShareSheet: {
+                // Same gate as the native invite controls: a stale/removed
+                // device or pending-invite conversation can't mint or share.
+                guard inviteActionsEnabled else {
+                    Log.warning("HomeBridgeNavigation showShareSheet ignored; invite actions disabled")
+                    return
+                }
                 // Same routing as the composer's "Invite friends": a full
                 // conversation can't mint invites and explains itself instead.
                 if viewModel.isFull {
@@ -1501,10 +1507,20 @@ private extension ConversationView {
             },
             showScan: { onScanInviteCode() },
             showInviteCode: {
+                guard inviteActionsEnabled else {
+                    Log.warning("HomeBridgeNavigation showInviteCode ignored; invite actions disabled")
+                    return
+                }
                 Log.info("HomeBridgeNavigation wired showInviteCode closure invoked; forwarding to viewModel")
                 viewModel.showInviteCode()
             },
-            showInvitePicker: { presentingAddFromContactsPicker = true },
+            showInvitePicker: {
+                guard inviteActionsEnabled else {
+                    Log.warning("HomeBridgeNavigation showInvitePicker ignored; invite actions disabled")
+                    return
+                }
+                presentingAddFromContactsPicker = true
+            },
             showMembersList: { viewModel.presentingConversationSettings = true }
         )
     }
@@ -1778,6 +1794,15 @@ extension ConversationView {
     /// view it (e.g. it was open when the removal landed).
     private var effectiveReadOnly: Bool {
         isReadOnly || viewModel.conversation.wasRemoved
+    }
+
+    /// Whether the invite/share affordances may fire. Mirrors the exact gate
+    /// the native `inviteButton` uses (`.disabled(!messagesTopBarTrailingItemEnabled
+    /// || effectiveReadOnly)`), so a stale/removed device or a pending-invite
+    /// conversation can't mint or share invites. The Home web bridge routes its
+    /// invite closures through this same read rather than re-deriving the rule.
+    private var inviteActionsEnabled: Bool {
+        messagesTopBarTrailingItemEnabled && !effectiveReadOnly
     }
 
     /// Read-only surfaces suppress every leading affordance. The inline
