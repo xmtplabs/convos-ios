@@ -30,7 +30,7 @@ struct GroupEmptyStateView: View {
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
                     .allowsHitTesting(false)
-                Text("Mention \"Agent\" by name if you’d like them to speak up. Or pause them and they won’t listen at all.")
+                Text("Mention \"Agent\" by name, and they’ll chime in. Or Pause them, and they can’t see a thing.")
                     .font(.subheadline)
                     .foregroundStyle(.colorTextSecondary)
                     .allowsHitTesting(false)
