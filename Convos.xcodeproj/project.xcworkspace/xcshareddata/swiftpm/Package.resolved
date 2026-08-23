@@ -1,5 +1,5 @@
 {
-  "originHash" : "e3a7fb703b300f5795218a1468302f5997f7528cc66dd7de616c5acb6cde7a14",
+  "originHash" : "e48dce065f2fbaa058b5c66e388240cc8b2184047ee2355a1d710237363402f8",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -20,6 +20,15 @@
       }
     },
     {
+      "identity" : "bezelkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/markbattistella/BezelKit",
+      "state" : {
+        "revision" : "6cd571cd2e07dc6c597cfb9e1281cc0335ecb797",
+        "version" : "26.5.26"
+      }
+    },
+    {
       "identity" : "connect-swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/bufbuild/connect-swift",
@@ -33,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtplabs/convos-shared.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "da310944a7c7ec3aa40369a22951e114749e5474"
+        "branch" : "mpr/web-plugins",
+        "revision" : "3638574b2020ab52e73ac18c1af2acb62595d926"
       }
     },
     {
@@ -159,8 +168,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/libxmtp.git",
       "state" : {
-        "branch" : "ios-4.12.0-nightly.20260731.66944e2",
-        "revision" : "65c27c95d8ff29efa2ae24cf894a1b36e166a231"
+        "branch" : "ios-4.12.0-nightly.20260822.a53a97e",
+        "revision" : "e5f29a646cf6eef7a29a932e459e31d46428c168"
       }
     },
     {

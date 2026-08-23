@@ -178,7 +178,7 @@ enum ElementInfoBuilder {
 
         if depth < maxDepth {
             let childElements = element.children(matching: .any)
-            if !childElements.isEmpty && childElements.count < 50 {
+            if (1..<50).contains(childElements.count) {
                 children = (0..<childElements.count).compactMap { i in
                     let child = childElements.element(boundBy: i)
                     guard child.exists else { return nil }

@@ -55,6 +55,8 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             case .agentActivating:
                 // Avatar + name + description + progress bar + caption.
                 return .estimated(CGSize(width: width, height: 280.0))
+            case .groupEmptyState, .agentDmInfo:
+                return .exact(CGSize(width: width, height: messagesLayout.visibleBounds.height))
             case .typingIndicator:
                 return .estimated(CGSize(width: width, height: 48.0))
             }

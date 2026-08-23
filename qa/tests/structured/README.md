@@ -53,8 +53,9 @@ prevents flaky test starts caused by leftover navigation state.
 | `settings` | A settings row such as `my-info-row` or `delete-all-data-button` is visible | Tap `app-indicator-pill` from `conversations_list` (no settings tab / gear icon). Dismiss with a swipe-down. |
 | `profile_editor` | `profile-setup-name-field` is visible (the "Hello / My name is" sheet) | Open from settings (`my-info-row`) or your own member row / avatar in a conversation. Save with `profile-setup-save-button`; dismiss with a swipe-down. Self-presents on first launch (see test 01). |
 
-> Shell note: the home is a standard `TabView` with **Chats** and **Things**
-> tabs (Search was removed). Settings opens from the `app-indicator-pill`,
+> Shell note: the home is a standard `TabView` with **Convos** and
+> **Contacts** tabs (Search and Things were removed). Settings opens from
+> the `app-indicator-pill`,
 > not a tab. See `qa/RULES.md` "Home Shell & Navigation" for the full map.
 
 If `screen` is omitted, the agent checks current state and navigates as

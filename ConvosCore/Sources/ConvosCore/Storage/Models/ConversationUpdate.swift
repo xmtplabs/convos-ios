@@ -8,6 +8,10 @@ public struct ConversationUpdate: Hashable, Codable, Sendable {
                  image = "group_image_url_square",
                  expiresAt = "expiresAt",
                  metadata = "app_data",
+                 // Synthesized while decoding an `app_data` change: that blob
+                 // carries every custom field, and only a mode change in it
+                 // earns a transcript row.
+                 participationMode = "participation_mode",
                  unknown
 
             var showsInMessagesList: Bool {

@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import ConvosCore
 import SwiftUI
 
 // MARK: - Agent participation
@@ -17,19 +18,31 @@ public enum AgentParticipationLevel: String, CaseIterable, Identifiable, Sendabl
 
     public var id: String { rawValue }
 
+    /// The levels the menu offers, in the order the menu draws them: Listen
+    /// first, then Chat, then Pause. This is the menu's own order and is
+    /// deliberately not `allCases` order (which the wire/default logic keeps).
+    public static var selectableCases: [AgentParticipationLevel] {
+        [.mentionsOnly, .speakFreely, .paused]
+    }
+
+    /// User-visible name of the level. `.mentionsOnly` (wire value `"mention"`)
+    /// reads as "Listen" — the label and the wire value are the same mode under
+    /// two names; there is no separate `listen` mode.
     public var title: String {
         switch self {
-        case .speakFreely: "Speak freely"
-        case .mentionsOnly: "Mentions only"
+        case .speakFreely: "Chat"
+        case .mentionsOnly: "Listen"
         case .paused: "Pause"
         }
     }
 
-    public var caption: String {
+    /// The level's one-line description. `.mentionsOnly` names the agent it
+    /// speaks for, so the caption reads "...seeing "<agent name>"".
+    public func caption(agentName: String) -> String {
         switch self {
-        case .speakFreely: "Chime in any time"
-        case .mentionsOnly: "Speak when you see your name"
-        case .paused: "Go offline, use no credits"
+        case .speakFreely: "Chimes in anytime"
+        case .mentionsOnly: "Only speaks after seeing \"\(agentName)\""
+        case .paused: "Never sees messages, uses no credits"
         }
     }
 
@@ -44,12 +57,27 @@ public enum AgentParticipationLevel: String, CaseIterable, Identifiable, Sendabl
         }
     }
 
-    /// Wire value for the control plane (speak / mention / paused).
+    /// Wire value for the control plane, and the value carried in the group's
+    /// appData - one vocabulary, so the mode reads the same wherever it travels.
     public var wireMode: String {
+        mode.rawValue
+    }
+
+    /// The synced mode this level renders. `ConversationParticipationMode` is the
+    /// stored and transmitted form; this enum is how the composer draws it.
+    public var mode: ConversationParticipationMode {
         switch self {
-        case .speakFreely: "speak"
-        case .mentionsOnly: "mention"
-        case .paused: "paused"
+        case .speakFreely: .speakFreely
+        case .mentionsOnly: .mentionsOnly
+        case .paused: .paused
+        }
+    }
+
+    public init(mode: ConversationParticipationMode) {
+        switch mode {
+        case .speakFreely: self = .speakFreely
+        case .mentionsOnly: self = .mentionsOnly
+        case .paused: self = .paused
         }
     }
 
@@ -59,12 +87,8 @@ public enum AgentParticipationLevel: String, CaseIterable, Identifiable, Sendabl
     public static let `default`: AgentParticipationLevel = .speakFreely
 
     public init?(wireMode: String) {
-        switch wireMode {
-        case "speak": self = .speakFreely
-        case "mention": self = .mentionsOnly
-        case "paused": self = .paused
-        default: return nil
-        }
+        guard let mode = ConversationParticipationMode(rawValue: wireMode) else { return nil }
+        self.init(mode: mode)
     }
 }
 

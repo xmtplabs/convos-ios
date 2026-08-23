@@ -2,10 +2,16 @@
 # subsequent PR runs hit on first try. Without this, GHA-style caches are
 # branch-scoped: a cache populated by a PR run is only visible to that PR.
 #
+# Seeds two caches: the pinned Xcode nix store and the SPM package clones
+# (the latter keyed on Package.resolved; libxmtp alone is ~2 GiB of git
+# history, and a cold fetch of it is what used to blow the Firebase PR
+# job's timeout).
+#
 # Runs:
 #   - On a daily schedule (cheap insurance against eviction).
-#   - When this workflow itself or the firebase-pr workflow changes (so
-#     cache-key drift on Xcode bumps gets re-warmed without waiting a day).
+#   - When this workflow, the firebase-pr workflow, or any Package.resolved
+#     changes (so cache-key drift on Xcode or dependency bumps gets
+#     re-warmed without waiting a day).
 #   - On manual dispatch.
 
 name: Warm Xcode Cache
@@ -20,6 +26,10 @@ on:
     paths:
       - .github/workflows/warm-xcode-cache.yml
       - .github/workflows/firebase-pr.yml
+      # A dependency bump changes the SwiftPM cache key, so the entry has to be
+      # rebuilt immediately rather than at the next daily run - otherwise every
+      # PR opened in between pays the cold libxmtp clone.
+      - '**/Package.resolved'
   workflow_dispatch:
 
 concurrency:
@@ -30,7 +40,9 @@ jobs:
   warm:
     name: Pin Xcode and seed WarpBuilds cache
     runs-on: warp-macos-latest-arm64-12x
-    timeout-minutes: 10
+    # A cold seed of the SPM clones has been observed at 17+ minutes when
+    # GitHub's pack generation for libxmtp is slow.
+    timeout-minutes: 40
     permissions:
       id-token: write
       contents: read
@@ -49,3 +61,117 @@ jobs:
         with:
           xcode-path: /Applications/Xcode_26.3.app
           xcode-nix-path: /nix/store/x9hdz5mfp44i9b05sswp271jdv68r8vx-Xcode.app
+
+      # Same path/key the Firebase PR job restores (convos-releases
+      # ios-firebase-pr.yml). Seeding it here, on the default branch, is what
+      # makes fresh PRs hit on first try.
+      # Saves as `post-if: success()`, so a resolve that dies partway through
+      # leaves the previous key intact rather than publishing a half-cloned
+      # directory.
+      - name: Restore SPM package clones
+        uses: WarpBuilds/cache@v1
+        with:
+          path: .spm-clones
+          key: spm-clones-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            spm-clones-
+
+      # Resolution only fetches the package graph; no build. Uses the runner's
+      # stock Xcode directly so this job stays independent of the nix shell.
+      - name: Resolve SPM dependencies into the clone cache
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Convos.xcodeproj \
+            -scheme "Convos (PR Preview)" \
+            -configuration "PR Preview" \
+            -clonedSourcePackagesDirPath .spm-clones
+
+  # The ConvosCore test jobs restore the SwiftPM repository cache but only ever
+  # save it from a dev push. When that entry is absent - evicted by the repo's
+  # 10GB quota, aged out, or simply not yet written after a dependency bump -
+  # both the exact key and the `macOS-spm-` fallback miss, and SwiftPM clones
+  # libxmtp's ~165k-object repository from scratch. That has been measured at
+  # 2493s (41 minutes) in a single run, and is the sole cause of every 40-60
+  # minute Integration Tests job, including one that hit the 60 minute timeout.
+  #
+  # Resolving dependencies daily on dev keeps the entry present and recent, so
+  # the cold clone never lands on someone's PR.
+  warm-swiftpm:
+    name: Seed SwiftPM repository cache
+    runs-on: warp-macos-26-arm64-12x
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Restore Swift Package cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Resolve dependencies
+        run: |
+          for pkg in ConvosCore ConvosAppData ConvosInvites; do
+            echo "==> Resolving $pkg"
+            swift package --package-path "$pkg" resolve
+          done
+
+      # A same-key entry already existing is the healthy steady state, and
+      # `cache/save` treats that as a failure. Nothing to do about it here.
+      - name: Save Swift Package cache
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
+
+      # Each of these entries is ~3GB and nothing ever deleted the stale ones.
+      # Three had accumulated against the repo's 10GB quota (8.85GB of a
+      # measured 9.52GB total, against 0.66GB for every other cache in the
+      # repo), so writing a new one evicts a live entry by LRU - which is what
+      # produces the total cache miss and the 41 minute libxmtp clone behind
+      # it. Keeping exactly one keeps the quota clear for everything else.
+      - name: Prune superseded SwiftPM caches
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP: ${{ runner.os }}-spm-${{ hashFiles('ConvosCore/Package.resolved', 'ConvosAppData/Package.resolved', 'ConvosInvites/Package.resolved') }}
+        run: |
+          echo "Keeping: $KEEP"
+          # One listing serves both the guard and the loop below.
+          CACHES="$(gh api "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" --paginate \
+            -q '.actions_caches[] | [.key, .size_in_bytes] | @tsv')"
+
+          # The save step is continue-on-error (a same-key entry already
+          # existing reads as a failure), so a save that failed for a real
+          # reason lands here with $KEEP never written. Pruning then deletes
+          # every fallback entry and leaves the next job with no cache at all -
+          # precisely the total miss, and the 41 minute libxmtp clone behind
+          # it, that this workflow exists to prevent. Only prune once the entry
+          # being kept is known to exist.
+          if ! cut -f1 <<<"$CACHES" | grep -Fxq "$KEEP"; then
+            echo "Cache entry not present (save did not land); skipping prune"
+            exit 0
+          fi
+
+          while IFS=$'\t' read -r key size; do
+            case "$key" in
+              "${RUNNER_OS}-spm-"*)
+                if [[ "$key" != "$KEEP" ]]; then
+                  echo "Deleting $key ($(( size / 1000000 ))MB)"
+                  gh api -X DELETE \
+                    "repos/${GITHUB_REPOSITORY}/actions/caches?key=${key}" >/dev/null \
+                    || echo "  (delete failed, continuing)"
+                fi
+                ;;
+            esac
+          done <<<"$CACHES"

@@ -21,8 +21,21 @@ struct ConvosApp: App {
     /// of the value-type App.
     private let timezoneForegroundGuard: ForegroundOnceGuard = ForegroundOnceGuard()
 
+    /// Deletes the cache the home's snapshot cover used to write.
+    ///
+    /// The feature is gone, so nothing reads these files and nothing else would
+    /// ever delete them: one full-screen PNG per conversation ever opened,
+    /// sitting in `Caches/` until the OS evicts it. Safe to delete this along
+    /// with the directory it clears, a release or two after everyone has
+    /// launched a build containing it.
+    private static func removeHomeSnapshotCache() {
+        guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+        try? FileManager.default.removeItem(at: caches.appendingPathComponent("HomeSnapshots", isDirectory: true))
+    }
+
     init() {
         FileDescriptorDiagnostics.raiseSoftLimit(to: 512)
+        Self.removeHomeSnapshotCache()
 
         ConfigManager.configure(overrides: ConvosSecretOverrides(
             apiBaseURL: Secrets.CONVOS_API_BASE_URL,
@@ -82,27 +95,8 @@ struct ConvosApp: App {
         QAEvent.emit(.app, "launched", ["environment": environment.name])
         QALaunchHooks.run(environment: environment)
 
-        // Firebase must be configured before ConvosClient is created so AppCheck is ready when auth begins
-        switch environment {
-        case .tests:
-            Log.info("Running in test environment, skipping Firebase config...")
-        default:
-            let configManager = ConfigManager.shared
-            let overrideURL: URL? = configManager.firebaseConfigOverride.flatMap {
-                Bundle.main.url(forResource: $0, withExtension: "plist")
-            }
-            if let url = overrideURL ?? configManager.currentEnvironment.firebaseConfigURL {
-                let debugToken: String? = environment.isProduction ? nil : Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN
-                FirebaseHelperCore.configure(with: url, debugToken: debugToken)
-                // Extensions can't App Attest, so the main app hands them its
-                // current App Check token via the shared app group (refreshed
-                // again on every foreground in handleScenePhaseActive).
-                let appGroupIdentifier = environment.appGroupIdentifier
-                Task { await FirebaseHelperCore.mirrorTokenToAppGroup(appGroupIdentifier) }
-            } else {
-                Log.error("Missing Firebase plist URL for current environment")
-            }
-        }
+        Self.wireDefaultAgentVariantProvider()
+        Self.configureFirebase(environment: environment)
 
         #if DEBUG
         let debugFallbackKey = DebugAgentKeysetOverride.parse(jwksJSON: Secrets.AGENT_DEBUG_JWKS)
@@ -135,6 +129,8 @@ struct ConvosApp: App {
             MockCreditsService.shared.setPreset(persistedPreset)
             MockSubscriptionService.shared.setPreset(persistedPreset)
         }
+
+        Self.configureAbilities(session: convos.session, environment: environment)
 
         let dbWriter = convos.databaseWriter
         Task {
@@ -172,10 +168,29 @@ struct ConvosApp: App {
             profileViewModel.bind(session: profileSession)
         }
 
-        let metricsSession = convos.session
+        Self.startMetricsIdentification(
+            session: convos.session,
+            environment: environment,
+            coreMetrics: coreMetrics,
+            metricsDelegate: metricsDelegate
+        )
+
+        HomeWebViewPrewarmer.prewarmIfNeeded(session: convos.session)
+
+        Self.configureTabBarItemColors()
+    }
+
+    /// Identifies the metrics stack once the inbox is ready and streams
+    /// user properties into it; runs entirely off the launch path.
+    private static func startMetricsIdentification(
+        session: any SessionManagerProtocol,
+        environment: AppEnvironment,
+        coreMetrics: CoreMetrics,
+        metricsDelegate: PostHogCollector
+    ) {
         Task {
             do {
-                let messagingService = metricsSession.messagingService()
+                let messagingService = session.messagingService()
                 let inboxReady = try await messagingService.sessionStateManager.waitForInboxReadyResult()
                 coreMetrics.identify(privateKey: Data(inboxReady.client.inboxId.utf8))
                 // The backend accountId (not the XMTP inbox id) lets product
@@ -186,7 +201,7 @@ struct ConvosApp: App {
                 let accountId = await DeviceIdentitySnapshot.current(identityStore: identityStore).accountId
                 let builder = UserPropertiesBuilder(
                     contactsRepository: messagingService.contactsRepository(),
-                    conversationsRepository: metricsSession.conversationsRepository(for: .all),
+                    conversationsRepository: session.conversationsRepository(for: .all),
                     accountId: accountId
                 )
                 metricsDelegate.userPropertiesCancellable = builder.publisher()
@@ -197,8 +212,48 @@ struct ConvosApp: App {
                 Log.warning("Metrics identify failed: \(error.localizedDescription)")
             }
         }
+    }
 
-        Self.configureTabBarItemColors()
+    /// Configures Firebase before ConvosClient is created, so AppCheck is
+    /// ready by the time auth begins.
+    private static func configureFirebase(environment: AppEnvironment) {
+        if case .tests = environment {
+            Log.info("Running in test environment, skipping Firebase config...")
+            return
+        }
+        let configManager = ConfigManager.shared
+        let overrideURL: URL? = configManager.firebaseConfigOverride.flatMap {
+            Bundle.main.url(forResource: $0, withExtension: "plist")
+        }
+        guard let url = overrideURL ?? configManager.currentEnvironment.firebaseConfigURL else {
+            Log.error("Missing Firebase plist URL for current environment")
+            return
+        }
+        let debugToken: String? = environment.isProduction ? nil : Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN
+        FirebaseHelperCore.configure(with: url, debugToken: debugToken)
+        // Extensions can't App Attest, so the main app hands them its current
+        // App Check token via the shared app group (refreshed again on every
+        // foreground in handleScenePhaseActive).
+        let appGroupIdentifier = environment.appGroupIdentifier
+        Task { await FirebaseHelperCore.mirrorTokenToAppGroup(appGroupIdentifier) }
+    }
+
+    /// Wires the live abilities service (mock/live selection happens per
+    /// read via the Debug sub-toggle) and seeds the last-known catalog on
+    /// cold launch; the scene-phase handler covers later foregrounds and
+    /// the surfaces refresh again on appear.
+    private static func configureAbilities(session: any SessionManagerProtocol, environment: AppEnvironment) {
+        AbilitiesServices.configure(session: session, environment: environment)
+        // Auto-enable mirrors the v1 connections toggle, so it runs exactly
+        // when that surface renders: whenever the abilities v2 flag is off.
+        // The flag is re-read on every agent add, so a debug-menu flip takes
+        // effect without a relaunch.
+        session.configureAutoEnableAbilities {
+            await MainActor.run { !FeatureFlags.shared.isAbilitiesV2Enabled }
+        }
+        if FeatureFlags.shared.isAbilitiesV2Enabled {
+            Task { await AbilitiesServices.refreshCatalogInBackground() }
+        }
     }
 
     /// Tints the unselected tab items tertiary. The selected color is
@@ -217,6 +272,29 @@ struct ConvosApp: App {
             }
         }
         bar.unselectedItemTintColor = inactive
+    }
+
+    /// Routes cache-time default-agent joins to the same variant as every other
+    /// agent call: the conversation's own binding first, the global selector
+    /// only as a fallback. Read live at join time; hops to the main actor
+    /// because the resolution is main-actor-isolated.
+    private static func wireDefaultAgentVariantProvider() {
+        SessionManager.defaultAgentVariantIdProvider = { conversationId in
+            await MainActor.run { AgentVariantResolution.slug(for: conversationId) }
+        }
+        // With the selector on, a conversation's agent has to wait for the pick
+        // that conversation was created under; the warm cache would otherwise
+        // build it before the picker is even on screen.
+        SessionManager.deferCacheTimeDefaultAgent = {
+            await MainActor.run { FeatureFlags.shared.isAgentVariantSelectorEnabled }
+        }
+        // Records the pick against the conversation the claim actually handed
+        // back, while that conversation's agent is still unprovisioned.
+        SessionManager.claimedConversationVariantBinder = { conversationId, slug in
+            await MainActor.run {
+                AgentVariantAssignmentStore.shared.assign(slug: slug, to: conversationId)
+            }
+        }
     }
 
     var body: some Scene {
@@ -256,6 +334,13 @@ struct ConvosApp: App {
             await FirebaseHelperCore.mirrorTokenToAppGroup(
                 ConfigManager.shared.currentEnvironment.appGroupIdentifier
             )
+        }
+
+        // Abilities V2 foreground refresh: updates the live service's
+        // last-known catalog so the next screen-appear fetch merges against
+        // fresh state. No-op in mock mode or with the flag off.
+        if FeatureFlags.shared.isAbilitiesV2Enabled {
+            Task { await AbilitiesServices.refreshCatalogInBackground() }
         }
 
         // Messages the share extension wrote to the shared database from its

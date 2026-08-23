@@ -20,6 +20,8 @@ public enum ConnectionServiceIcon {
         switch serviceId {
         case "googlecalendar":
             return "connectionGoogleCalendar"
+        case "googledocs":
+            return "connectionGoogleDocs"
         default:
             return nil
         }

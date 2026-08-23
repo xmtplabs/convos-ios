@@ -73,7 +73,7 @@ You have direct access to simulator tools for interacting with the Convos iOS ap
 
 - **Double-tap** (e.g., to react to a message with ❤️): Run two `idb` taps in parallel. First find the element's center coordinates, then:
   ```bash
-  IDB=/Users/jarod/Library/Python/3.9/bin/idb
+  IDB=$(command -v idb)
   UDID=<simulator-udid>
   $IDB ui tap <x> <y> --udid $UDID & $IDB ui tap <x> <y> --udid $UDID & wait
   ```
@@ -109,9 +109,12 @@ test's `screen` prerequisite or a navigation step doesn't match the screen.
 
 ### Tabs
 
-- Three tabs in the system tab bar: **Convos**, **Things**, and
-  **Contacts**. Select a tab by tapping its label. Steps that reference a
-  "Chats" tab are stale - the conversations list lives in the Convos tab.
+- Two tabs in the system tab bar: **Convos** and **Contacts**. Select a
+  tab by tapping its label. Steps that reference a "Chats" tab are stale -
+  the conversations list lives in the Convos tab.
+- The **Things** tab was removed. Any step that taps it is stale; agent
+  files and links now live only inside a conversation, under its info
+  sheet ("Files & Links").
 - The **Search** tab was removed. Any step that taps a search tab or
   `search-tab` is stale - there is no search entry point right now.
 - On iPhone the tab bar is at the bottom; on iPad it is at the top.

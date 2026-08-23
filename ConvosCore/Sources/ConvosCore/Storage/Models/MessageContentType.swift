@@ -20,7 +20,6 @@ public enum MessageContentType: String, Codable, Sendable {
         case .update,
              .assistantJoinRequest,
              .connectionGrantRequest,
-             .capabilityRequest,
              .capabilityRequestResult,
              .connectionEvent,
              .connectionInvocation,
@@ -28,6 +27,9 @@ public enum MessageContentType: String, Codable, Sendable {
              .connectionPayload:
             false
         default:
+            // capabilityRequest deliberately marks unread: a connect request
+            // in the member's 1:1 agent conversation is discovered through
+            // the Agent tab's unread dot, so the pill arriving must light it.
             true
         }
     }

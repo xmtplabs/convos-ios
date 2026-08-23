@@ -5,6 +5,15 @@ import Foundation
 final class FeatureFlags {
     static let shared: FeatureFlags = FeatureFlags()
 
+    // Every flag here is a computed property over UserDefaults, and the
+    // Observable macro only instruments stored properties. Each accessor
+    // therefore registers with the observation registrar by hand --
+    // `access(keyPath:)` in get, `withMutation(keyPath:)` around the write
+    // -- so views whose bodies read a flag (for example the debug menu's
+    // dependent rows) re-evaluate as soon as it is toggled. Without the
+    // registrar calls a flip only shows up after the view is rebuilt for
+    // some other reason.
+
     // Reaching a flag in a production build takes two changes, not one, and
     // missing either looks identical from the device: the control just is not
     // there.
@@ -21,12 +30,15 @@ final class FeatureFlags {
     /// value somehow leaks in from a dev build with the same bundle id.
     var isDebugInjectorEnabled: Bool {
         get {
+            access(keyPath: \.isDebugInjectorEnabled)
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
             return UserDefaults.standard.bool(forKey: Constant.debugInjectorEnabledKey)
         }
         set {
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
-            UserDefaults.standard.set(newValue, forKey: Constant.debugInjectorEnabledKey)
+            withMutation(keyPath: \.isDebugInjectorEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.debugInjectorEnabledKey)
+            }
         }
     }
 
@@ -35,12 +47,15 @@ final class FeatureFlags {
     /// locked off in production so the selector can never surface for end users.
     var isAgentVariantSelectorEnabled: Bool {
         get {
+            access(keyPath: \.isAgentVariantSelectorEnabled)
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
             return UserDefaults.standard.bool(forKey: Constant.agentVariantSelectorEnabledKey)
         }
         set {
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
-            UserDefaults.standard.set(newValue, forKey: Constant.agentVariantSelectorEnabledKey)
+            withMutation(keyPath: \.isAgentVariantSelectorEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.agentVariantSelectorEnabledKey)
+            }
             // Clear any cached selection when the feature is turned off so a
             // stale variant can't resurface on re-enable. Reads are already
             // gated on this flag; clearing keeps the persisted state honest too.
@@ -50,20 +65,32 @@ final class FeatureFlags {
         }
     }
 
-    /// Off by default -- gates the per-conversation agent participation control
-    /// ("Listen"): Speak freely / Mentions only / Paused. Toggle from
-    /// App Settings -> Debug in non-production builds, or from the curated prod
-    /// debug menu in production. Deliberately not prod-locked like the flags
-    /// above: the control is opt-in per install and exists to dogfood Listen in
-    /// TestFlight. Default-off keeps it out of every other build.
+    /// Gates the per-conversation agent participation control ("Listen"):
+    /// Speak freely / Listen mode / Paused. Toggle from App Settings -> Debug
+    /// in non-production builds, or from the curated prod debug menu in
+    /// production. Deliberately not prod-locked like the flags above: the
+    /// control is reachable everywhere so Listen can be dogfooded in TestFlight.
+    ///
+    /// On by default in every build, production included, so the control is
+    /// there without anyone having to find a debug menu first. An explicit
+    /// toggle in either direction is remembered and wins over the default, so
+    /// turning it off from the prod debug menu still sticks.
     var isListenParticipationEnabled: Bool {
         get {
-            return UserDefaults.standard.bool(forKey: Constant.listenParticipationEnabledKey)
+            access(keyPath: \.isListenParticipationEnabled)
+            guard let stored = UserDefaults.standard.object(forKey: Constant.listenParticipationEnabledKey) as? Bool else {
+                return Self.listenParticipationDefault
+            }
+            return stored
         }
         set {
-            UserDefaults.standard.set(newValue, forKey: Constant.listenParticipationEnabledKey)
+            withMutation(keyPath: \.isListenParticipationEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.listenParticipationEnabledKey)
+            }
         }
     }
+
+    private static let listenParticipationDefault: Bool = true
 
     /// Off by default -- opts libxmtp streams onto the shared bidi wire by
     /// exporting `XMTP_BIDI_STREAMS_ENABLED` at launch (see `ConvosApp.init`;
@@ -73,10 +100,84 @@ final class FeatureFlags {
     /// Default-off keeps everyone else on the legacy stream path.
     var isXMTPBidiStreamsEnabled: Bool {
         get {
+            access(keyPath: \.isXMTPBidiStreamsEnabled)
             return UserDefaults.standard.bool(forKey: Constant.xmtpBidiStreamsEnabledKey)
         }
         set {
-            UserDefaults.standard.set(newValue, forKey: Constant.xmtpBidiStreamsEnabledKey)
+            withMutation(keyPath: \.isXMTPBidiStreamsEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.xmtpBidiStreamsEnabledKey)
+            }
+        }
+    }
+
+    /// Off by default -- gates the V2 abilities surfaces (the abilities
+    /// catalog list in App Settings and the per-conversation abilities
+    /// section), backed by the live abilities backend once enabled (see
+    /// `AbilitiesServices.useLiveBackend`, which reports live unconditionally
+    /// whenever this flag is on). Toggle from App Settings -> Debug in
+    /// non-production builds, or from the curated prod debug menu in
+    /// production. Deliberately not prod-locked like most flags above: the
+    /// control is reachable everywhere so V2 can be dogfooded in production,
+    /// same posture as `isListenParticipationEnabled`. Default stays off in
+    /// every environment -- enabling it in production points the client at
+    /// whatever the production abilities backend currently serves, which may
+    /// lag what dev has.
+    ///
+    /// Coupled to `AbilitiesServices.useLiveBackend` in both directions so
+    /// V2 running against the mock (instead of the live backend) can never
+    /// be reached: turning this on forces the live backend on too
+    /// (write-time, below). `AbilitiesServices.useLiveBackend`'s getter
+    /// enforces the same invariant independent of what is in storage, which
+    /// is what actually keeps a value restored from persistence at launch
+    /// from resurfacing the invalid combination -- and in production that
+    /// getter reports live regardless of storage, so the coupling holds
+    /// there without needing a production guard of its own.
+    var isAbilitiesV2Enabled: Bool {
+        get {
+            access(keyPath: \.isAbilitiesV2Enabled)
+            return UserDefaults.standard.bool(forKey: Constant.abilitiesV2EnabledKey)
+        }
+        set {
+            withMutation(keyPath: \.isAbilitiesV2Enabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.abilitiesV2EnabledKey)
+            }
+            if newValue {
+                AbilitiesServices.setUseLiveBackend(true)
+            }
+        }
+    }
+
+    /// Off by default -- gates the internal action that copies a Space share
+    /// message to the clipboard so another conversation's agent can import
+    /// the Space. Deliberately reachable in every environment; production
+    /// users opt in from the curated prod debug menu.
+    var isSpaceShareEnabled: Bool {
+        get {
+            access(keyPath: \.isSpaceShareEnabled)
+            return UserDefaults.standard.bool(forKey: Constant.spaceShareEnabledKey)
+        }
+        set {
+            withMutation(keyPath: \.isSpaceShareEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.spaceShareEnabledKey)
+            }
+        }
+    }
+
+    /// Off by default -- gates `WKWebView.isInspectable` on the home/space and
+    /// browser sub-page web views so Safari Web Inspector can attach to the
+    /// `window.convos` bridge. Deliberately reachable in every environment so
+    /// the bridge can be inspected on a production build; production users opt
+    /// in from the curated prod debug menu. Default-off keeps the web views
+    /// closed to the inspector for everyone else.
+    var isWebInspectorEnabled: Bool {
+        get {
+            access(keyPath: \.isWebInspectorEnabled)
+            return UserDefaults.standard.bool(forKey: Constant.webInspectorEnabledKey)
+        }
+        set {
+            withMutation(keyPath: \.isWebInspectorEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.webInspectorEnabledKey)
+            }
         }
     }
 
@@ -84,12 +185,15 @@ final class FeatureFlags {
     /// in the Debug menu. Non-production only; defaults to `.plusAmple`.
     var mockCreditsPreset: CreditsStatePreset {
         get {
+            access(keyPath: \.mockCreditsPreset)
             let raw = UserDefaults.standard.string(forKey: Constant.mockCreditsPresetKey)
                 ?? CreditsStatePreset.plusAmple.rawValue
             return CreditsStatePreset(compatibleRawValue: raw) ?? .plusAmple
         }
         set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: Constant.mockCreditsPresetKey)
+            withMutation(keyPath: \.mockCreditsPreset) {
+                UserDefaults.standard.set(newValue.rawValue, forKey: Constant.mockCreditsPresetKey)
+            }
         }
     }
 
@@ -101,18 +205,42 @@ final class FeatureFlags {
     /// can never route an end user to a variant runtime.
     var selectedAgentVariant: ConvosAPI.AgentVariant? {
         get {
+            access(keyPath: \.selectedAgentVariant)
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return nil }
             guard let data = UserDefaults.standard.data(forKey: Constant.selectedAgentVariantKey) else { return nil }
             return try? JSONDecoder().decode(ConvosAPI.AgentVariant.self, from: data)
         }
         set {
             guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
-            guard let newValue, let data = try? JSONEncoder().encode(newValue) else {
-                UserDefaults.standard.removeObject(forKey: Constant.selectedAgentVariantKey)
-                return
+            withMutation(keyPath: \.selectedAgentVariant) {
+                guard let newValue, let data = try? JSONEncoder().encode(newValue) else {
+                    UserDefaults.standard.removeObject(forKey: Constant.selectedAgentVariantKey)
+                    return
+                }
+                UserDefaults.standard.set(data, forKey: Constant.selectedAgentVariantKey)
             }
-            UserDefaults.standard.set(data, forKey: Constant.selectedAgentVariantKey)
         }
+    }
+
+    /// The agent variant slug every agent call routes to: the join itself, the
+    /// join-status poll, and the participation read and mirror.
+    ///
+    /// No environment pins a variant today, so this is the dev selector's pick
+    /// and the default worker whenever the selector is off or empty. A config
+    /// `pinnedAgentVariantSlug` wins outright when an environment does set one,
+    /// so that build lands on the same worker no matter what the selector holds.
+    ///
+    /// A pin is a registry *slug*, not a worker host: the backend builds the
+    /// host as `ephemeral-<slug>.convos.fun`, so pinning the host name instead
+    /// misses the registry lookup. Either way the variant is stripped on
+    /// production by the API client, and an unknown slug degrades to the
+    /// default worker rather than failing the join.
+    var effectiveAgentVariantSlug: String? {
+        if let pinned = ConfigManager.shared.pinnedAgentVariantSlug {
+            return pinned
+        }
+        guard isAgentVariantSelectorEnabled else { return nil }
+        return selectedAgentVariant?.slug
     }
 
     private enum Constant {
@@ -122,5 +250,8 @@ final class FeatureFlags {
         static let agentVariantSelectorEnabledKey: String = "featureFlags.agentVariantSelectorEnabled"
         static let listenParticipationEnabledKey: String = "featureFlags.listenParticipationEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
+        static let abilitiesV2EnabledKey: String = "featureFlags.abilitiesV2Enabled"
+        static let spaceShareEnabledKey: String = "featureFlags.spaceShareEnabled"
+        static let webInspectorEnabledKey: String = "featureFlags.webInspectorEnabled"
     }
 }

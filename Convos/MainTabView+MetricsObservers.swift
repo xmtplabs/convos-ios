@@ -11,31 +11,25 @@ extension MainTabView {
     struct MetricsObservers: ViewModifier {
         let activeTab: ConvosTab
         let scenePhase: ScenePhase
-        let thingsPushedItemId: String?
         let contactsPushedItemId: String?
         let presentingAppSettings: Bool
         let selectedConversationId: String?
-        let agentBuilderPresenting: Bool
         let newConversationPresenting: Bool
 
         let onActiveTabChanged: (ConvosTab, ConvosTab) -> Void
         let onScenePhaseChanged: (ScenePhase) -> Void
-        let onThingsPushChanged: (String?, String?) -> Void
         let onContactsPushChanged: (String?, String?) -> Void
         let onAppSettingsPresented: (Bool) -> Void
         let onSelectedConversationChanged: (String?, String?) -> Void
-        let onAgentBuilderPresented: (Bool, Bool) -> Void
         let onNewConversationPresented: (Bool, Bool) -> Void
 
         func body(content: Content) -> some View {
             content
                 .onChange(of: activeTab) { o, n in onActiveTabChanged(o, n) }
                 .onChange(of: scenePhase) { _, n in onScenePhaseChanged(n) }
-                .onChange(of: thingsPushedItemId) { o, n in onThingsPushChanged(o, n) }
                 .onChange(of: contactsPushedItemId) { o, n in onContactsPushChanged(o, n) }
                 .onChange(of: presentingAppSettings) { _, n in onAppSettingsPresented(n) }
                 .onChange(of: selectedConversationId) { o, n in onSelectedConversationChanged(o, n) }
-                .onChange(of: agentBuilderPresenting) { o, n in onAgentBuilderPresented(n, o) }
                 .onChange(of: newConversationPresenting) { o, n in onNewConversationPresented(n, o) }
         }
     }

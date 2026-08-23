@@ -8,12 +8,16 @@ struct LinkPreviewBubbleView: View {
     let isOutgoing: Bool
     let profile: Profile
     var messageId: String?
+    /// When the message carrying this link was sent, which is when the page it
+    /// points at was last written. Drives the "Updated ..." line on a link
+    /// home; nil elsewhere, and the card falls back to the host.
+    var sentAt: Date?
 
     @Environment(\.messagePressed) private var isPressed: Bool
 
     var body: some View {
         MessageContainer(style: style, isOutgoing: isOutgoing) {
-            LinkPreviewCardView(preview: preview, messageId: messageId)
+            LinkPreviewCardView(preview: preview, messageId: messageId, sentAt: sentAt)
                 .opacity(isPressed ? 0.7 : 1.0)
                 .animation(.easeOut(duration: 0.15), value: isPressed)
         }
@@ -23,6 +27,10 @@ struct LinkPreviewBubbleView: View {
 struct LinkPreviewCardView: View {
     let preview: LinkPreview
     var messageId: String?
+    var sentAt: Date?
+    /// The conversation's own Space, injected at the cell. Present only inside
+    /// a conversation that has one.
+    @Environment(\.conversationSpaceURL) private var conversationSpaceURL: URL?
     @State private var ogTitle: String?
     @State private var ogImageURL: String?
     @State private var ogSiteName: String?
@@ -37,6 +45,32 @@ struct LinkPreviewCardView: View {
 
     private var displayTitle: String {
         ogTitle ?? preview.title ?? preview.displayHost
+    }
+
+    /// Whether this card has an image on the way, and so should hold a place
+    /// for one.
+    ///
+    /// Only a preview that already names an image reserves the slot. The
+    /// placeholder used to stand in for every unfetched card and was taken away
+    /// again when the fetch found nothing, which shrank the card by the height
+    /// of the placeholder after it had been measured. A Space page names no
+    /// image today, so that was every card an agent posts.
+    private var expectsImage: Bool {
+        preview.imageURL != nil || ogImageURL != nil
+    }
+
+    /// Whether this card points at the group's own Space, which is the page
+    /// the Home is showing rather than somewhere out on the web.
+    private var isSpacePage: Bool {
+        guard let space = conversationSpaceURL, let url = preview.resolvedURL else { return false }
+        return SpaceLink.matches(url, space: space)
+    }
+
+    /// The Space's host is a random-looking subdomain nobody can read, and it
+    /// is the same string on every card from this group. When the page is the
+    /// group's own, what is worth knowing instead is how fresh it is.
+    private var showsLastUpdated: Bool {
+        isSpacePage && sentAt != nil
     }
 
     private var displaySubtitle: String {
@@ -55,14 +89,14 @@ struct LinkPreviewCardView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .blendMode(.multiply)
-                } else if hasFetchedMetadata {
-                    EmptyView()
-                } else {
+                } else if expectsImage {
                     Image(systemName: "link")
                         .font(.largeTitle)
                         .foregroundStyle(.colorTextSecondary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 100.0)
+                } else {
+                    EmptyView()
                 }
             }
             .frame(maxWidth: .infinity)
@@ -77,10 +111,16 @@ struct LinkPreviewCardView: View {
                     .foregroundStyle(.colorTextPrimary)
                     .font(.callout.weight(.medium))
                     .truncationMode(.tail)
-                Text(displaySubtitle)
-                    .font(.caption)
-                    .multilineTextAlignment(.leading)
-                    .foregroundStyle(.colorTextSecondary)
+                Group {
+                    if let sentAt, showsLastUpdated {
+                        LastUpdatedLabel(date: sentAt)
+                    } else {
+                        Text(displaySubtitle)
+                    }
+                }
+                .font(.caption)
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(.colorTextSecondary)
             }
             .padding(.vertical, DesignConstants.Spacing.step3x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -91,7 +131,7 @@ struct LinkPreviewCardView: View {
         .background(.colorFillSubtle)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Link preview: \(displayTitle)")
-        .accessibilityHint("Opens \(preview.displayHost)")
+        .accessibilityHint(isSpacePage ? "Opens this page in the group's space" : "Opens \(preview.displayHost)")
         .task {
             await fetchOpenGraphMetadata()
         }
@@ -150,6 +190,54 @@ struct LinkPreviewCardView: View {
             ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
             cachedImage = image
             imageAspectRatio = image.size.width / image.size.height
+        }
+    }
+}
+
+/// "Updated just now" / "Updated 5 minutes ago" for a link into the group's
+/// own Space, kept honest while the card stays on screen.
+///
+/// Re-ticks on the same schedule as the transcript's own timestamps
+/// (`RelativeDateLabel`) rather than on a fixed interval: a card read a second
+/// after it arrived must not still claim "just now" ten minutes later.
+private struct LastUpdatedLabel: View {
+    let date: Date
+
+    @State private var phrase: String
+
+    init(date: Date) {
+        self.date = date
+        // Seeded here rather than filled in on appear. An empty first frame
+        // measures a line shorter than the settled one, so the cell's height
+        // changes after the collection view has already measured it - which is
+        // the inconsistent self-sizing its feedback-loop debugger traps on.
+        _phrase = State(initialValue: Self.text(for: date))
+    }
+
+    var body: some View {
+        Text(phrase)
+            .task(id: date) {
+                phrase = Self.text(for: date)
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(Self.nextUpdateInterval(for: date)))
+                    guard !Task.isCancelled else { break }
+                    phrase = Self.text(for: date)
+                }
+            }
+    }
+
+    private static func text(for date: Date) -> String {
+        "Updated \(date.relativeLong())"
+    }
+
+    private static func nextUpdateInterval(for date: Date) -> TimeInterval {
+        let secondsAgo = abs(Date().timeIntervalSince(date))
+        if secondsAgo < 60 {
+            return 30.0
+        } else if secondsAgo < 3600 {
+            return 60.0
+        } else {
+            return 3600.0
         }
     }
 }

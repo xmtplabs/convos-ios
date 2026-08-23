@@ -16,7 +16,7 @@ public struct TextTitleContentView: View {
     }
 
     public var body: some View {
-        let content = HStack(spacing: DesignConstants.Spacing.stepX) {
+        let content = HStack(alignment: .top, spacing: DesignConstants.Spacing.stepX) {
             if let profile {
                 MessageAvatarView(
                     profile: profile,
@@ -26,9 +26,10 @@ public struct TextTitleContentView: View {
             }
 
             Text(title)
-                .lineLimit(1)
                 .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .transition(.blurReplace)
         .frame(maxWidth: .infinity, alignment: .center)

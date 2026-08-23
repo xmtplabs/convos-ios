@@ -273,6 +273,41 @@ All dependencies managed through SPM. See `ConvosCore/Package.swift` for current
 - Environments: Production, Development, Local
 - Firebase configuration per environment
 
+### Adding a secret / env key
+
+Secrets are a **generated, git-ignored `Secrets.swift`** (`Convos/Config/Secrets.swift`,
+with separate copies for `ConvosAppClip/` and `ShareExtension/`), regenerated on every
+build from root `.env`. Each target has its own build-phase generator:
+`Scripts/build-phases/copy-env-config-main-app.sh` for the app,
+`copy-env-config-share-extension.sh` for the extension. Non-secret per-environment runtime
+config lives in the bundled `config.{local,dev,pr,prod}.json` (read by `ConfigManager`);
+the `.xcconfig` files select which one and set bundle ids. There is **no Infisical here**
+(that's the convos-assistants stack) — this repo uses `.env` + 1Password + GitHub Actions
+secrets.
+
+To add a new key `NEW_KEY`:
+1. Add `NEW_KEY=` to root **`.env`** and document it in **`.env.example`**. **Only the
+   Local configuration auto-appends** arbitrary `.env` keys to `Secrets.swift`, so
+   `Secrets.NEW_KEY` is readable immediately in a Local build.
+2. **Every other build — Dev, CI, TestFlight, Prod — needs the key wired explicitly;** a
+   value in your local `.env` does nothing there. The Dev/CI path emits only its hard-coded
+   key list, so add `NEW_KEY` to `Scripts/generate-secrets-secure.sh` and add the matching
+   GitHub Actions repo secret/var (see the headers in `.github/workflows/testflight-dev.yml`
+   / `testflight-prod.yml`). Missing this is the classic "works in a Local build, empty
+   everywhere else" trap.
+3. If the **ShareExtension** (or App Clip) needs the key, wire it into that target's
+   generator too (`copy-env-config-share-extension.sh` currently emits only
+   `FIREBASE_APP_CHECK_DEBUG_TOKEN`) — the main-app generator does not cover it.
+4. Read it in Swift via `Secrets.NEW_KEY`. A URL/host override that should flow through
+   `ConfigManager` goes via `ConvosSecretOverrides`; other values are read directly.
+
+- **Footgun:** a fresh clone/worktree has **no `.env`** (git-ignored), so the app builds
+  with empty secrets and silently ships without an App Check token or backend override.
+  Copy `.env` from an existing checkout (or `.env.example` + `make secrets`) first.
+- App Check debug tokens are **per bundle id** and sourced from 1Password; sync/rotate via
+  the `/firebase-token` command. Code signing is fastlane `match` (repo
+  `convos-certificates`, `MATCH_PASSWORD`).
+
 ## Deep Linking
 
 ### URL Handling Architecture
@@ -300,7 +335,8 @@ Logger.error("Error message")
 
 ### Test Organization
 - Unit tests in `ConvosTests`
-- Core logic tests in `ConvosCoreTests`
+- Core logic tests in `ConvosCoreTests` (stub/mock-based, no network)
+- Backend-dependent core tests in `ConvosCoreIntegrationTests` — suites that create real XMTP clients via `TestFixtures`; new suites that talk to an XMTP node belong here, and CI runs this target only in the integration job
 - UI tests in separate target
 
 ## Security Best Practices
@@ -415,6 +451,60 @@ Or Force Quit it from Activity Monitor. The Memory Pressure bar should return to
 
 The leak has no permanent fix on Apple's end — `killall` is the workaround. If you find yourself doing it every couple of hours, alias it: `alias xclean='killall lldb-rpc-server'`.
 
+## End-to-End Local Testing
+
+Running this app against a locally-running backend works, but nearly every
+failure points somewhere other than its cause. The setup that works:
+
+```
+app ──► ngrok (https) ──► convos-backend :4000 ──► assistants worker ──► herald
+```
+
+The app only ever talks to the backend. The agent is what lives on Cloudflare,
+so "point the app at my local stack" means pointing it at a local *backend* and
+nothing else.
+
+Configure through `.env` at the repo root — not `Convos/Config/config.*.json`:
+
+```
+FIREBASE_APP_CHECK_DEBUG_TOKEN=<the token registered for this bundle id>
+CONVOS_API_BASE_URL=https://<ngrok-id>.ngrok.app/api
+XMTP_CUSTOM_HOST=USE_CONFIG
+GATEWAY_URL=USE_CONFIG
+```
+
+Then build **`Convos (Dev)`**. ngrok is what makes a physical device work on
+this scheme: it gives the backend an HTTPS URL, and `Info.Dev.plist` carries no
+ATS exception, so plain HTTP to a LAN IP is refused.
+
+`Convos (Local)` is the other route, and it needs no tunnel at all: its plist
+sets `NSAllowsLocalNetworking`, and a blank `CONVOS_API_BASE_URL` auto-detects
+the Mac's LAN IP — reachable from a simulator and from a device on the same
+network. It costs an App Check token registered for `org.convos.ios-local`,
+which is the trade-off against the scheme you already use.
+
+**Build the scheme whose App Check token you already have.** Debug tokens are
+registered per bundle id — `Convos (Dev)` is `org.convos.ios-preview`,
+`Convos (Local)` is `org.convos.ios-local`. Building a scheme you have never
+used produces a bundle Firebase does not recognise: the client never obtains a
+token, every authenticated call 401s, and the app shows a generic "Something
+went wrong" with no auth error anywhere. `ENVIRONMENTS.md` covers this; it is
+worth reading before concluding the backend is down.
+
+**A worktree has no `.env`.** It is gitignored, so a build from a fresh
+worktree silently ships without an App Check token or a backend override.
+Nothing warns — the build succeeds and the app fails at runtime. Copy `.env`
+from the canonical checkout first.
+
+The backend side needs `SIWE_DOMAIN=dev.convos.org`, `SIWE_URI=https://dev.convos.org`,
+`SIWE_ALLOWED_CHAIN_IDS=1` and a `NONCE_HMAC_SECRET`. The `.env.example`
+defaults are not these, and what they produce is `/auth/nonce` 200 followed by
+`/auth/token` 401 "Invalid nonce".
+
+Compiling is not installing. `xcodebuild` succeeding changes nothing on the
+device — install and launch, and target simulators by UDID rather than
+`booted` when several are running.
+
 ## Build & Release
 
 ### Build Commands
@@ -437,6 +527,10 @@ xcodebuild build -scheme "Convos (Local)" -configuration Local
 # Clean build folder
 xcodebuild clean -scheme "Convos (Local)" -configuration Local
 ```
+
+### Scripted and Worktree Builds
+- Use `-configuration Dev` for xcodebuild - the Debug configuration breaks NotificationService module resolution (see issues #843 and #1019)
+- Use a concrete arm64 simulator destination (e.g. `platform=iOS Simulator,name=iPhone 17`), not `generic/platform=iOS Simulator` - libxmtp ships no x86_64 slice
 
 ### Xcode Project Settings
 - Minimum iOS version: 26.0

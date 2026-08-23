@@ -110,11 +110,19 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
 
 class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
     let syncBehavior: TestableMockClient.SyncBehavior
-    let streamBehavior: TestableMockClient.StreamBehavior
 
     private var _syncCallCount: Int = 0
     private var _streamCallCount: Int = 0
+    private var _streamBehavior: TestableMockClient.StreamBehavior
     private let lock: OSAllocatedUnfairLock<Void> = OSAllocatedUnfairLock()
+
+    /// Settable mid-test so a test can let the streams start succeeding again,
+    /// the way they would once connectivity comes back. Read on every stream
+    /// creation rather than captured once at init.
+    var streamBehavior: TestableMockClient.StreamBehavior {
+        get { lock.withLock { _streamBehavior } }
+        set { lock.withLock { _streamBehavior = newValue } }
+    }
 
     var syncCallCount: Int {
         lock.withLock { _syncCallCount }
@@ -126,7 +134,7 @@ class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
 
     init(syncBehavior: TestableMockClient.SyncBehavior, streamBehavior: TestableMockClient.StreamBehavior) {
         self.syncBehavior = syncBehavior
-        self.streamBehavior = streamBehavior
+        self._streamBehavior = streamBehavior
     }
 
     // swiftlint:disable:next function_parameter_count
@@ -459,7 +467,7 @@ struct SyncingManagerTests {
         interval: Duration = .milliseconds(50),
         condition: () async -> Bool
     ) async throws {
-        let deadline = ContinuousClock.now + timeout
+        let deadline = ContinuousClock.now + max(timeout, .seconds(30)) * testTimeoutScale
         while ContinuousClock.now < deadline {
             if await condition() {
                 return
@@ -1149,10 +1157,11 @@ struct SyncingManagerTests {
         let readyDuringStart = await syncingManager.isSyncReady
         #expect(!readyDuringStart, "Should not be ready while starting (sync in progress)")
 
-        // Wait for sync to complete
-        try await Task.sleep(for: .milliseconds(600))
+        // Poll rather than sleeping a fixed 600ms against the mock's 500ms
+        // delay: 100ms of margin does not survive the whole suite running
+        // concurrently, and this was the single most frequent CI failure.
+        try await waitUntil { await syncingManager.isSyncReady }
 
-        // Now should be ready
         let readyAfterSync = await syncingManager.isSyncReady
         #expect(readyAfterSync, "Should be ready after sync completes")
 
@@ -1330,6 +1339,62 @@ struct SyncingManagerTests {
         // Final state should be ready
         let isReady = await syncingManager.isSyncReady
         #expect(isReady, "Should be ready after multiple cycles")
+
+        // Clean up
+        await syncingManager.stop()
+        try? await fixtures.cleanup()
+    }
+
+    /// Regression: a sync layer that exhausted its stream retries used to be
+    /// stuck in `.error` for the life of the process. Both of the app's
+    /// recovery triggers - returning to the foreground and the network
+    /// monitor reconnecting - call `resume()`, and `.resume` was only handled
+    /// from `.paused`, so it was dropped. The streams stayed cancelled while
+    /// the session layer stayed `.ready`, so the app kept looking healthy and
+    /// silently received nothing - including the join-request DMs that admit
+    /// someone into a conversation.
+    @Test("Resume recovers a sync layer that exhausted its stream retries")
+    func testResumeRecoversFromStreamRetryExhaustion() async throws {
+        let fixtures = TestFixtures()
+        let mockClient = TestableMockClient()
+        mockClient.streamBehavior = .throwImmediately
+        let mockAPIClient = TestableMockAPIClient()
+
+        // A budget of 1 exhausts on the first failure, so the error state is
+        // reached without the production backoff ladder.
+        let syncingManager = SyncingManager(
+            identityStore: fixtures.identityStore,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter(),
+            maxStreamRetries: 1,
+            coreActions: NoOpCoreActions()
+        )
+
+        await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
+
+        // Streams give up and the manager lands in `.error`. Checked via the
+        // terminal state rather than `!isSyncReady`, which is also true while
+        // `.starting` and would pass before anything had actually failed.
+        try await waitUntil(timeout: .seconds(10)) {
+            await syncingManager.hasGivenUpOnStreams
+        }
+
+        // Let the streams succeed again, as they would once connectivity is back.
+        (mockClient.conversationsProvider as? TestableMockConversations)?.streamBehavior = .neverClose
+
+        // This is the call the foreground and network-reconnect paths both make.
+        await syncingManager.resume()
+
+        try await waitUntil(timeout: .seconds(10)) {
+            await syncingManager.isSyncReady
+        }
+
+        let recovered = await syncingManager.isSyncReady
+        let stillGivenUp = await syncingManager.hasGivenUpOnStreams
+        #expect(recovered, "Resume should restart a sync layer stuck in the error state")
+        #expect(!stillGivenUp, "Sync should no longer be in the error state after recovering")
 
         // Clean up
         await syncingManager.stop()

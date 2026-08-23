@@ -25,6 +25,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @Binding var conversationImage: UIImage?
     @Binding var displayName: String
     @Binding var messageText: String
+    var messagePlaceholder: String = "Chat"
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
@@ -58,6 +59,11 @@ struct MessagesView<BottomBarContent: View>: View {
     let onTapAvatar: (ConversationMember) -> Void
     let onTapInvite: (MessageInvite) -> Void
     var onTapAgentShare: (MessageAgentShare) -> Void = { _ in }
+    /// Offered every link tapped in the transcript before the in-app browser
+    /// gets it; see `MessageLinkRouter`.
+    var messageLinkRouter: MessageLinkRouter = { _ in false }
+    /// The conversation's own Space; see `SpaceLink`.
+    var conversationSpaceURL: URL?
     var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
     var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
     let onReaction: (String, String) -> Void
@@ -87,9 +93,8 @@ struct MessagesView<BottomBarContent: View>: View {
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAgentJoin: () -> Void
-    let onCopyInviteLink: () -> Void
-    let onConvoCode: () -> Void
     let onInviteAgent: () -> Void
+    var onInvitePeople: () -> Void = {}
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
     let memberContactOverride: (String) -> Contact?
@@ -104,19 +109,44 @@ struct MessagesView<BottomBarContent: View>: View {
     /// in production); the testtube button stays hidden in any other case.
     var onDebugAttachmentTap: (() -> Void)?
     var extraBottomInset: CGFloat = 0.0
-    /// When true the index-0 `.invite` cell renders the full inline
-    /// Invite/Scan card (`InviteCodeBody`) for an active hosted session.
-    /// Mirrors `ConversationView.showsTopOfConvoInvite`.
-    var showsInviteScanCard: Bool = false
-    var inviteScanMode: InviteCodeMode = .inConvo
-    var inviteScanInitialSegment: ScanInviteSegment = .invite
-    var onScannedInviteCode: ((String) -> Void)?
-    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
+    /// Clearance at the transcript's top for a host that floats chrome over it.
+    /// The conversation's segmented control sits there; see
+    /// `ConversationChromeMetrics.contentClearance`.
+    var topContentInset: CGFloat = 0.0
+    /// False when the composer is hosted externally: the transcript renders no
+    /// bar of its own and insets purely by `extraBottomInset`.
+    var hostsBottomBar: Bool = true
+    /// Agent-style composer: the `+` menu gains `.connections`. Forwarded to
+    /// `MessagesBottomBar`.
+    var usesAgentComposerLayout: Bool = false
+    /// Host gate for the `+` menu's `.connections` row; the composer package
+    /// cannot read the app's feature flags.
+    var connectionsEnabled: Bool = false
+    /// Presents the host's Connections browser; the composer only emits the tap.
+    var onConnectionsTap: (() -> Void)?
+    /// True when the host renders the message long-press menu itself, so this
+    /// view renders none. Set by the conversation sheet, which layers the menu
+    /// at its own root: this view is clipped to the sheet's current detent, and
+    /// a menu inside that clip would be cropped.
+    var hostRendersContextMenu: Bool = false
+    /// Surfaces the transcript's scroll-to-bottom trigger to an external
+    /// composer host, which fires it on send (the internal bar wires this
+    /// itself).
+    /// Surfaces the transcript's content height to the host, which sizes the
+    /// conversation sheet's detents to it.
+    var onContentHeightChanged: ((CGFloat) -> Void)?
+    var onScrollToBottomAvailable: ((@escaping (Bool) -> Void) -> Void)?
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
+    /// Set by a host that shows less of this view than the frame it hands over -
+    /// the conversation sheet. Zero for every other host.
     @State private var bottomBarHeight: CGFloat = 0.0
+    /// See the `ignoresSafeArea` call in `body`.
+    private var ignoredSafeAreaRegions: SafeAreaRegions {
+        hostsBottomBar ? .all : .container
+    }
     @State private var isPhotoPickerPresented: Bool = false
-    @State private var scrollToBottom: (() -> Void)?
+    @State private var scrollToBottom: ((Bool) -> Void)?
     @State private var notifyMessageInputFocused: (() -> Void)?
     /// Drives the SwiftUI sheet presentation of `AttachmentPreviewSheet`
     /// for HTML attachments. Non-HTML previews still go through the
@@ -181,6 +211,8 @@ struct MessagesView<BottomBarContent: View>: View {
             onLoadPreviousMessages: onLoadPreviousMessages,
             onTapInvite: onTapInvite,
             onTapAgentShare: onTapAgentShare,
+            messageLinkRouter: messageLinkRouter,
+            conversationSpaceURL: conversationSpaceURL,
             agentShareResolver: agentShareResolver,
             inviteMembershipResolver: inviteMembershipResolver,
             onReaction: onReaction,
@@ -201,9 +233,8 @@ struct MessagesView<BottomBarContent: View>: View {
             onRetryMessage: onRetryMessage,
             onDeleteMessage: onDeleteMessage,
             onRetryAgentJoin: onRetryAgentJoin,
-            onCopyInviteLink: onCopyInviteLink,
-            onConvoCode: onConvoCode,
             onInviteAgent: onInviteAgent,
+            onInvitePeople: onInvitePeople,
             onRetryTranscript: onRetryTranscript,
             profileSheetForMember: profileSheetForMember,
             memberContactOverride: memberContactOverride,
@@ -228,28 +259,41 @@ struct MessagesView<BottomBarContent: View>: View {
                     sentAt: sentAt
                 )
             },
-            showsInviteScanCard: showsInviteScanCard,
-            inviteScanMode: inviteScanMode,
-            inviteScanInitialSegment: inviteScanInitialSegment,
-            onScannedInviteCode: onScannedInviteCode,
-            onInviteShareCompleted: onInviteShareCompleted,
             agentBuilderSummaryProvider: representableAgentBuilderSummaryProvider,
             currentUserProfileImage: { ProfileSettingsViewModel.shared.profileImage },
             backwardsSecrecyInfoSheet: { AnyView(BackwardsSecrecyInfoView()) },
             bottomBarHeight: bottomBarHeight + extraBottomInset,
             // Read-only hosts never render the composer (see the
-            // `safeAreaBar` below), so the controller must not wait for a
+            // `safeAreaBar` below), and external-composer hosts render it in
+            // the conversation sheet, so the controller must not wait for a
             // bottom-bar measurement before applying its initial state and
             // revealing the list.
-            hasBottomBar: !isReadOnly,
+            hasBottomBar: !isReadOnly && hostsBottomBar,
+            topContentInset: topContentInset,
+            onContentHeightChanged: onContentHeightChanged,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn
+                onScrollToBottomAvailable?(scrollFn)
             },
             messageInputFocusTrigger: { fn in
                 notifyMessageInputFocused = fn
             }
         )
-        .ignoresSafeArea()
+        // Which safe areas the list ignores follows who owns the bottom bar,
+        // because that is also who owns the keyboard math.
+        //
+        // Hosting its own bar (the full-screen chat path) means the controller
+        // measures the keyboard's overlap itself - see
+        // `MessagesViewController.calculateNewBottomInset`. SwiftUI must not
+        // inset for the keyboard as well, or the clearance is counted twice and
+        // the newest message sits a keyboard's height above the composer.
+        //
+        // An external bar (a host that positions its own chrome against the
+        // keyboard and rises with it) is the opposite case: the controller
+        // skips the keyboard math, so the list has to be inset for the keyboard
+        // here or it would keep its frame behind one while the chrome moved,
+        // and the two would no longer share a bottom edge.
+        .ignoresSafeArea(ignoredSafeAreaRegions)
         .onChange(of: focusState) { oldValue, newValue in
             if newValue == .message && oldValue != .message {
                 notifyMessageInputFocused?()
@@ -257,7 +301,7 @@ struct MessagesView<BottomBarContent: View>: View {
         }
         .environment(\.isConversationReadOnly, isReadOnly)
         .safeAreaBar(edge: .bottom) {
-            if !isReadOnly {
+            if !isReadOnly && hostsBottomBar {
                 MessagesBottomBar(
                     profile: profile,
                     displayName: $displayName,
@@ -279,8 +323,9 @@ struct MessagesView<BottomBarContent: View>: View {
                     focusState: $focusState,
                     focusCoordinator: focusCoordinator,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
+                    messagePlaceholder: messagePlaceholder,
                     onSendMessage: {
-                        scrollToBottom?()
+                        scrollToBottom?(true)
                         onSendMessage()
                     },
                     onClearInvite: onClearInvite,
@@ -295,6 +340,9 @@ struct MessagesView<BottomBarContent: View>: View {
                     voiceMemoRecorder: voiceMemoRecorder,
                     onSendVoiceMemo: onSendVoiceMemo,
                     onDebugAttachmentTap: onDebugAttachmentTap,
+                    usesAgentComposerLayout: usesAgentComposerLayout,
+                    connectionsEnabled: connectionsEnabled,
+                    onConnectionsTap: onConnectionsTap,
                     onBaseHeightChanged: { height in
                         bottomBarHeight = height
                     },
@@ -331,23 +379,33 @@ struct MessagesView<BottomBarContent: View>: View {
             }
         }
         .overlay {
-            MessageContextMenuOverlay(
-                state: contextMenuState,
-                isReadOnly: isReadOnly,
-                onReaction: onReaction,
-                onReply: { message in
-                    onReply(message)
-                },
-                onCopy: { text in
-                    UIPasteboard.general.string = text
-                }
-            )
-            // The overlay renders in a separate tree from the message cells,
-            // so it doesn't inherit the cell's resolver injection. Provide it
-            // here so an agent-share card preview resolves real data, not the
-            // env-default mock.
-            .environment(\.agentShareResolver, agentShareResolver)
-            .environment(\.inviteMembershipResolver, inviteMembershipResolver)
+            // Suppressed when the host layers the menu itself. Inside the
+            // conversation sheet this view is clipped to the detent's height,
+            // which would crop a screen-level menu, so the sheet renders it at
+            // its own root instead.
+            if !hostRendersContextMenu {
+                MessageContextMenuOverlay(
+                    state: contextMenuState,
+                    isReadOnly: isReadOnly,
+                    onReaction: onReaction,
+                    onReply: { message in
+                        onReply(message)
+                    },
+                    onCopy: { text in
+                        UIPasteboard.general.string = text
+                    }
+                )
+                // The overlay renders in a separate tree from the message
+                // cells, so it doesn't inherit the cell's resolver injection.
+                // Provide it here so an agent-share card preview resolves real
+                // data, not the env-default mock.
+                .environment(\.agentShareResolver, agentShareResolver)
+                .environment(\.inviteMembershipResolver, inviteMembershipResolver)
+                // Same reason: a link tapped in a bubble's menu preview should
+                // route where the bubble's own tap routes.
+                .environment(\.messageLinkRouter, messageLinkRouter)
+                .environment(\.conversationSpaceURL, conversationSpaceURL)
+            }
         }
         .sheet(item: $htmlAttachmentPreview) { item in
             AttachmentPreviewSheet(

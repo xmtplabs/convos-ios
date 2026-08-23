@@ -20,6 +20,8 @@ final class MessagesCollectionViewDataSource: NSObject {
     var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
     var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
     var onTapAgentShare: ((MessageAgentShare) -> Void)?
+    var messageLinkRouter: MessageLinkRouter = { _ in false }
+    var conversationSpaceURL: URL?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onTapReadReceipts: ((MessagesGroup) -> Void)?
     var onTapThinkingIndicator: ((ThinkingSessionDescriptor) -> Void)?
@@ -39,25 +41,17 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryAgentJoin: (() -> Void)?
-    var onCopyInviteLink: (() -> Void)?
-    var onConvoCode: (() -> Void)?
     var onInviteAgent: (() -> Void)?
+    var onInvitePeople: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var memberContactOverride: ((String) -> Contact?)?
     var isAgentJoinPending: Bool = false
     var headerMode: MessagesHeaderMode = .standard
     var agentBuilderTransitionNamespace: Namespace.ID?
     var htmlAttachmentTransitionNamespace: Namespace.ID?
-    var hidesInviteCard: Bool = false
     var agentBuilderSummaryProvider: ((AgentBuilderCardContent) -> AnyView)?
     var currentUserProfileImage: (() -> UIImage?)?
     var backwardsSecrecyInfoSheet: (() -> AnyView)?
-    var showsInviteScanCard: Bool = false
-    var inviteScanConversation: Conversation?
-    var inviteScanMode: InviteCodeMode = .inConvo
-    var inviteScanInitialSegment: ScanInviteSegment = .invite
-    var onScannedInviteCode: ((String) -> Void)?
-    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
 
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] {
         sections.flatMap(\.cells).reduce(into: [:]) { result, item in
@@ -107,6 +101,10 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onTapAgentShare: { [weak self] agentShare in
                 self?.onTapAgentShare?(agentShare)
             },
+            messageLinkRouter: { [weak self] url in
+                self?.messageLinkRouter(url) ?? false
+            },
+            conversationSpaceURL: conversationSpaceURL,
             onTapAvatar: { [weak self] message in
                 self?.onTapAvatar?(message.sender)
             },
@@ -164,14 +162,11 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onDeleteMessage: { [weak self] message in
                 self?.onDeleteMessage?(message)
             },
-            onCopyInviteLink: { [weak self] in
-                self?.onCopyInviteLink?()
-            },
-            onConvoCode: { [weak self] in
-                self?.onConvoCode?()
-            },
             onInviteAgent: { [weak self] in
                 self?.onInviteAgent?()
+            },
+            onInvitePeople: { [weak self] in
+                self?.onInvitePeople?()
             },
             onRetryTranscript: { [weak self] item in
                 self?.onRetryTranscript?(item)
@@ -179,7 +174,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             allVoiceMemoTranscripts: allVoiceMemoTranscripts,
             isAgentJoinPending: isAgentJoinPending,
             headerMode: headerMode,
-            hidesInviteCard: hidesInviteCard,
             agentBuilderTransitionNamespace: agentBuilderTransitionNamespace,
             htmlAttachmentTransitionNamespace: htmlAttachmentTransitionNamespace,
             memberContactOverride: { [weak self] inboxId in
@@ -188,16 +182,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             agentBuilderSummaryProvider: agentBuilderSummaryProvider,
             currentUserProfileImage: currentUserProfileImage,
             backwardsSecrecyInfoSheet: backwardsSecrecyInfoSheet,
-            showsInviteScanCard: showsInviteScanCard,
-            inviteScanConversation: inviteScanConversation,
-            inviteScanMode: inviteScanMode,
-            inviteScanInitialSegment: inviteScanInitialSegment,
-            onScannedInviteCode: { [weak self] code in
-                self?.onScannedInviteCode?(code)
-            },
-            onInviteShareCompleted: { [weak self] activityType, completed, error in
-                self?.onInviteShareCompleted?(activityType, completed, error)
-            }
         )
         return CellFactory.createCell(
             in: collectionView,

@@ -199,18 +199,71 @@ extension SharedDatabaseMigrator {
         Self.registerTailMigrations(on: &migrator)
         Self.registerMemberDepartureMigrations(on: &migrator)
 
-        // Registration is append-only across releases: new migrations go here,
-        // after every already-shipped one. Inserting earlier (e.g. into a
-        // register* group above) reorders the registered list relative to
-        // databases that already applied the later migrations, which the DEBUG
-        // eraseDatabaseOnSchemaChange replay treats as a schema change and
-        // erases an upgrading user's database.
+        Self.registerAppendOnlyMigrations(on: &migrator)
+
+        return migrator
+    }
+
+    /// Registration is append-only across releases: new migrations go here, at
+    /// the bottom, after every already-shipped one. Inserting earlier (e.g. into
+    /// a register* group above) reorders the registered list relative to
+    /// databases that already applied the later migrations, which the DEBUG
+    /// eraseDatabaseOnSchemaChange replay treats as a schema change and erases
+    /// an upgrading user's database.
+    ///
+    /// Grouped into a helper to keep `createMigrator` under the function-length
+    /// budget, the same way `registerTailMigrations` is.
+    private static func registerAppendOnlyMigrations(on migrator: inout DatabaseMigrator) {
         migrator.registerMigration("addAgentTemplateGenerationJoinIdempotencyKey",
                                    migrate: Self.addAgentTemplateGenerationJoinIdempotencyKey)
         migrator.registerMigration("addProfilePublishJobProfileUpdatedAt", migrate: Self.addProfilePublishJobProfileUpdatedAt)
         migrator.registerMigration("addConversationLastMessagePointers", migrate: Self.addConversationLastMessagePointers)
+        Self.registerAgentDmMigrations(on: &migrator)
+        migrator.registerMigration("addConversationAddedById", migrate: Self.addConversationAddedById)
+        migrator.registerMigration("addConversationParticipationMode", migrate: Self.addConversationParticipationMode)
+        migrator.registerMigration("clearCutListenParticipationMode", migrate: Self.clearCutListenParticipationMode)
+        migrator.registerMigration("addConversationSpaceURLString", migrate: Self.addConversationSpaceURLString)
+    }
 
-        return migrator
+    /// The deployed Space web URL for the conversation, mirrored from the
+    /// group's appData (the Assistant Worker publishes it; clients only read).
+    /// Nullable with no default: a null column is a conversation no Space has
+    /// been published for yet, which the Home tab renders as a placeholder.
+    static func addConversationSpaceURLString(_ db: Database) throws {
+        try db.alter(table: "conversation") { t in
+            t.add(column: "spaceURLString", .text)
+        }
+    }
+
+    /// The conversation's agent participation mode, mirrored from the group's
+    /// appData so the composer control and the transcript observe one synced
+    /// value instead of re-reading it per surface. Nullable with no default: a
+    /// null column is a conversation no member has set a mode on, which readers
+    /// resolve to `ConversationParticipationMode.default` - distinct from an
+    /// explicit Speak freely only in that nobody authored it. Extracted as an
+    /// internal static helper so the migration test can drive the real upgrade
+    /// path without tripping the DEBUG `eraseDatabaseOnSchemaChange`.
+    static func addConversationParticipationMode(_ db: Database) throws {
+        try db.alter(table: "conversation") { t in
+            t.add(column: "participationMode", .text)
+        }
+    }
+
+    /// Clears the `listen` mode that shipped briefly before the level was cut.
+    ///
+    /// The enum no longer has a case for it, and GRDB throws rather than
+    /// shrugging at a raw value it cannot map — so a single stale row would
+    /// fail the whole `DBConversation` fetch and take the conversation with it.
+    /// Null is the honest replacement: the column is nullable exactly so "no
+    /// mode set" is representable, and that is what a level this build no
+    /// longer understands amounts to. Readers resolve null to the product
+    /// default, which is also what the control plane now does with a
+    /// `LISTEN_ONLY` still arriving on the wire.
+    static func clearCutListenParticipationMode(_ db: Database) throws {
+        try db.execute(
+            sql: "UPDATE conversation SET participationMode = NULL WHERE participationMode = ?",
+            arguments: ["listen"]
+        )
     }
 
     /// Per-conversation catch-up cursor (see DBConversationCatchUpCursor).
@@ -388,6 +441,32 @@ extension SharedDatabaseMigrator {
                 WHERE conversationId = conversation.id AND contentType = 'assistantJoinRequest'
                 ORDER BY dateNs DESC LIMIT 1
             )
+            """)
+    }
+
+    /// Records the XMTP welcome sender (`Group.addedByInboxId()`) on the
+    /// conversation row, plus how that value was arrived at.
+    ///
+    /// `creatorId` is the group's original creator, which is *not* necessarily
+    /// whoever invited the local user: anyone with add permission can pull a
+    /// new member into a group somebody else created. Consent for an inbound
+    /// welcome (`StreamProcessor`), the consent reconciler, and the
+    /// block-driven demote all keyed on `creatorId` alone, so a contact adding
+    /// you to a stranger's group left the conversation at `.unknown` -
+    /// persisted, but invisible in the `.allowed`-scoped feed, and eventually
+    /// reclaimed by the stale-stranger GC.
+    ///
+    /// `adderStatus` carries what a nullable `addedById` cannot: whether NULL
+    /// means "nobody added us" or "the lookup failed". Existing rows default to
+    /// `notRecorded`, which adjudicates on the creator alone exactly as before
+    /// this migration; they upgrade on the next write, since
+    /// `ConversationWriter` rebuilds the row from XMTP on every welcome and
+    /// message. The CHECK keeps the pair consistent.
+    static func addConversationAddedById(_ db: Database) throws {
+        try db.execute(sql: "ALTER TABLE conversation ADD COLUMN addedById TEXT")
+        try db.execute(sql: """
+            ALTER TABLE conversation ADD COLUMN adderStatus TEXT NOT NULL DEFAULT 'not_recorded'
+                CHECK ((adderStatus = 'resolved') = (addedById IS NOT NULL))
             """)
     }
 
@@ -1216,6 +1295,29 @@ extension SharedDatabaseMigrator {
                 t.column("nextRefreshAt", .datetime).notNull()
                 t.column("periodLabel", .text).notNull()
                 t.column("updatedAt", .datetime).notNull()
+            }
+        }
+    }
+
+    // Registered last: migrations must only ever be appended to the chain --
+    // inserting into an earlier group runs after already-shipped identifiers
+    // on upgraded installs and diverges fresh-install/upgrade schema order.
+    private static func registerAgentDmMigrations(on migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("addConversationIsAgentDm") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "isAgentDm", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        // Maps an agent DM's own conversation id to its parent group, so a DM
+        // notification tap can open the parent and select the DM page. The link
+        // is authoritative in the DM's XMTP metadata; this mirrors it locally
+        // (see DBAgentDmOrigin).
+        migrator.registerMigration("createAgentDmOrigin") { db in
+            try db.create(table: "agent_dm_origin") { t in
+                t.column("conversationId", .text).notNull().primaryKey()
+                    .references("conversation", onDelete: .cascade)
+                t.column("originConversationId", .text).notNull()
             }
         }
     }

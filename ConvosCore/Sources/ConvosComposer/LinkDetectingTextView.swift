@@ -34,6 +34,8 @@ public struct LinkDetectingTextView: View {
     private let linkColor: Color?
     private let foregroundColor: Color
     private let font: UIFont
+    /// The host's first refusal on a tapped link - see `MessageLinkRouter`.
+    @Environment(\.messageLinkRouter) private var messageLinkRouter: MessageLinkRouter
 
     public init(
         _ text: String,
@@ -52,7 +54,8 @@ public struct LinkDetectingTextView: View {
             text: text,
             font: font,
             textColor: UIColor(foregroundColor),
-            linkColor: linkColor.map { UIColor($0) }
+            linkColor: linkColor.map { UIColor($0) },
+            router: messageLinkRouter
         )
     }
 }
@@ -62,6 +65,7 @@ private struct LinkTextViewRepresentable: UIViewRepresentable {
     let font: UIFont
     let textColor: UIColor
     let linkColor: UIColor?
+    let router: MessageLinkRouter
 
     func makeUIView(context: Context) -> LinkTextView {
         let view = LinkTextView()
@@ -75,6 +79,9 @@ private struct LinkTextViewRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: LinkTextView, context: Context) {
+        // Refreshed on every pass: the coordinator outlives the view value the
+        // router was captured from.
+        context.coordinator.router = router
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = 0
 
@@ -110,14 +117,19 @@ private struct LinkTextViewRepresentable: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
+        var router: MessageLinkRouter = { _ in false }
+
         func textView(
             _ textView: UITextView,
             primaryActionFor textItem: UITextItem,
             defaultAction: UIAction
         ) -> UIAction? {
             guard case .link(let url) = textItem.content else { return defaultAction }
+            // Captured by value rather than through `self`: the action is built
+            // fresh per tap, and the text view holds it.
+            let router = router
             return UIAction { _ in
-                InAppBrowser.open(url)
+                MessageLinkOpener.open(url, router: router)
             }
         }
     }

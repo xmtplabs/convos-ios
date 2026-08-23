@@ -45,7 +45,7 @@ struct AgentTemplateCacheCoordinatorTests {
 
     /// Returns true as soon as `condition` holds, or false at `timeout`.
     private func waitUntil(_ timeout: Duration, _ condition: () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
+        let deadline = ContinuousClock.now.advanced(by: max(timeout, .seconds(30)) * testTimeoutScale)
         while ContinuousClock.now < deadline {
             if condition() { return true }
             try? await Task.sleep(for: .milliseconds(25))

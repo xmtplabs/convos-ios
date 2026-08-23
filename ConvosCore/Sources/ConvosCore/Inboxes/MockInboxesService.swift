@@ -21,7 +21,7 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
     public private(set) var discardedConversationIds: [String] = []
     public private(set) var discardedIfUnengagedConversationIds: [String] = []
 
-    public func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?) {
+    public func prepareNewConversation(variantSlug: String?) async -> (service: AnyMessagingService, conversationId: String?) {
         (service: mockMessagingService, conversationId: nil)
     }
 
@@ -41,6 +41,17 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
 
     public func discardClaimedConversationIfUnengaged(id conversationId: String) async {
         discardedIfUnengagedConversationIds.append(conversationId)
+    }
+
+    public func ensureDefaultAgentConversationReady(id conversationId: String) async {
+    }
+
+    public func isProvisioningDefaultAgent(id conversationId: String) async -> Bool {
+        false
+    }
+
+    public nonisolated func peekPreparedConversationId() -> String? {
+        nil
     }
 
     public func deleteAllInboxes() async throws {
@@ -90,6 +101,10 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
 
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
         MockConversationsRepository()
+    }
+
+    public func conversationsPager(for consent: [Consent]) -> any ConversationsPagerProtocol {
+        MockConversationsPager()
     }
 
     public func conversationsCountRepo(for consent: [Consent], kinds: [ConversationKind]) -> any ConversationsCountRepositoryProtocol {
@@ -242,8 +257,13 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
         InMemoryCapabilityResolver(registry: mockCapabilityRegistry)
     }
 
+    /// Test hook: when set, `capabilityRequestRepository(for:)` returns this
+    /// instead of the inert mock, so view-model tests can control grant-scope
+    /// resolutions (timing included).
+    public var capabilityRequestRepositoryOverride: (any CapabilityRequestRepositoryProtocol)?
+
     public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
-        MockCapabilityRequestRepository()
+        capabilityRequestRepositoryOverride ?? MockCapabilityRequestRepository()
     }
 
     public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
@@ -273,5 +293,13 @@ private struct MockDeviceConnectionAuthorizer: DeviceConnectionAuthorizer {
 }
 
 private final class MockCapabilityRequestRepository: CapabilityRequestRepositoryProtocol, @unchecked Sendable {
+    func resolveGrantScope(
+        isAgentDm: Bool,
+        askerInboxId: String,
+        liveMarkerOrigin: @escaping @Sendable () async -> String?
+    ) async -> CapabilityGrantScopeResolution {
+        CapabilityGrantScopeResolution(scope: .conversation("mock"), scopeDisplayName: "Mock Group")
+    }
+
     let pendingRequestPublisher: AnyPublisher<CapabilityRequest?, Never> = Just(nil).eraseToAnyPublisher()
 }

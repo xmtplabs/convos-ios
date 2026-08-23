@@ -87,28 +87,13 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     MessagesListItemTypeCell.messagesGroupContent(group: group, config: config)
 
                 case .invite(let invite):
-                    if config.showsInviteScanCard, let conversation = config.inviteScanConversation {
-                        MessagesListItemTypeCell.inviteScanCardContent(
-                            invite: invite,
-                            conversation: conversation,
-                            config: config
-                        )
-                    } else {
-                        VStack(spacing: DesignConstants.Spacing.step4x) {
-                            if config.headerMode == .standard, !config.hidesInviteCard {
-                                InviteView(invite: invite)
-                            }
-                            NewConvoIdentityView(
-                                onCopyLink: config.onCopyInviteLink,
-                                onConvoCode: config.onConvoCode,
-                                onInviteAgent: config.onInviteAgent,
-                                isAgentJoinPending: config.isAgentJoinPending
-                            )
-                        }
-                        .padding(.vertical, DesignConstants.Spacing.step4x)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
-                    }
-
+                    // The QR alone. The `NewConvoIdentityView` that used to sit
+                    // under it - the copy-link / convo-code row - is gone;
+                    // adding people is the top bar's invite button now.
+                    // Whether the card belongs here at all is decided upstream,
+                    // where the conversation is in scope - see the insertion in
+                    // `MessagesViewController.processUpdates`.
+                    InviteView(invite: invite)
                 case .conversationInfo(let conversation):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
                         ConversationInfoPreview(
@@ -175,6 +160,12 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         .padding(.vertical, DesignConstants.Spacing.step4x)
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
 
+                case .groupEmptyState, .agentDmInfo:
+                    MessagesEmptyStateCellContent(
+                        item: item,
+                        onInvitePeople: config.onInvitePeople
+                    )
+
                 case .typingIndicator:
                     EmptyView()
                 }
@@ -185,6 +176,8 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             .environment(\.agentShareResolver, config.agentShareResolver)
             .environment(\.inviteMembershipResolver, config.inviteMembershipResolver)
             .environment(\.onTapAgentShare, config.onTapAgentShare)
+            .environment(\.messageLinkRouter, config.messageLinkRouter)
+            .environment(\.conversationSpaceURL, config.conversationSpaceURL)
         }
         .margins(.horizontal, 0.0)
         .margins(.vertical, 0.0)
@@ -207,25 +200,6 @@ class MessagesListItemTypeCell: UICollectionViewCell {
     /// `InviteCodeBody` the full-screen `InviteCodeOverlay` composes, so the
     /// toggle + tabs don't fork. Extracted to keep the `setup` switch body
     /// under the type-check budget.
-    @ViewBuilder
-    fileprivate static func inviteScanCardContent(
-        invite: Invite,
-        conversation: Conversation,
-        config: CellConfig
-    ) -> some View {
-        InviteCodeBody(
-            conversation: conversation,
-            encodedURLString: invite.inviteURLString,
-            mode: config.inviteScanMode,
-            initialSegment: config.inviteScanInitialSegment,
-            isInviteReady: !invite.isEmpty,
-            onScannedCode: config.onScannedInviteCode,
-            onShareCompleted: config.onInviteShareCompleted
-        )
-        .padding(.vertical, DesignConstants.Spacing.step4x)
-        .frame(maxWidth: .infinity)
-    }
-
     @ViewBuilder
     fileprivate static func messagesGroupContent(group: MessagesGroup, config: CellConfig) -> some View {
         MessagesGroupView(
@@ -285,6 +259,9 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 /// profile when the inbox is a known contact, so a row like "Alice
 /// joined" renders Alice's actual avatar instead of an "S" monogram
 /// derived from the placeholder per-conversation profile.
+/// The empty transcript's stand-in, styled like a conversation update so it reads
+/// as something the room is telling you rather than a message someone sent.
+
 private struct UpdateCellContent: View {
     let update: ConversationUpdate
     let config: CellConfig

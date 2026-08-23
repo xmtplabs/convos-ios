@@ -464,8 +464,20 @@ open class MessagesCollectionLayout: UICollectionViewLayout {
             return true
         }
 
+        // An exact size is the delegate's answer, and `itemSize(with:)` writes
+        // it over whatever the cell measured. Letting the cell's preferred
+        // height invalidate the layout as well pits the two against each other
+        // with no way to settle: the delegate's number is written back, the
+        // cell reports its own again, and the pass repeats until UIKit traps it
+        // as a recursive layout loop. The empty-state cell is exactly sized -
+        // its height is what a fresh conversation's sheet opens to - and its
+        // hosted content measures taller than the number the delegate fixes,
+        // so every empty conversation opened was one of these loops.
+        let isExactlySized = isExactlySized(preferredMessageAttributes.kind,
+                                            at: preferredAttributes.indexPath)
+
         let shouldInvalidateLayout = item.calculatedSize == nil
-        || (_supportSelfSizingInvalidation
+        || (_supportSelfSizingInvalidation && !isExactlySized
             ? (item.size.height - preferredMessageAttributes.size.height).rounded() != 0 : false)
         || item.alignment != preferredMessageAttributes.alignment
         || item.interItemSpacing != preferredMessageAttributes.interItemSpacing
@@ -1043,6 +1055,16 @@ extension MessagesCollectionLayout {
         case let .exact(size):
             return (estimated: size, exact: size)
         }
+    }
+
+    /// Whether the delegate fixes this item's size outright, rather than
+    /// offering an estimate for the cell to self-size away from.
+    private func isExactlySized(_ kind: ItemKind, at indexPath: IndexPath) -> Bool {
+        guard let delegate else { return false }
+        if case .exact = delegate.sizeForItem(self, of: kind, at: indexPath) {
+            return true
+        }
+        return false
     }
 
     private func itemSize(with preferredAttributes: MessagesLayoutAttributes) -> CGSize {

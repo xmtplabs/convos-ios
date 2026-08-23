@@ -82,6 +82,13 @@ class MessagesRepository: MessagesRepositoryProtocol {
     private let conversationIdSubject: CurrentValueSubject<String, Never>
     private var conversationIdCancellable: AnyCancellable?
 
+    /// Coalesces observation re-emissions during write bursts (catch-up
+    /// sync) so the transcript reprocesses at most once per interval
+    /// instead of once per landed message. Leading-edge, so a message
+    /// sent into a quiet conversation still echoes immediately. Pass 0
+    /// to disable (tests that need synchronous emissions).
+    private let throttleInterval: TimeInterval
+
     // Pagination properties
     private let pageSize: Int
     private let currentLimitSubject: CurrentValueSubject<Int, Never>
@@ -146,13 +153,15 @@ class MessagesRepository: MessagesRepositoryProtocol {
         dbReader: any DatabaseReader,
         conversationId: String,
         currentInboxId: String,
-        pageSize: Int = 50
+        pageSize: Int = 50,
+        throttleInterval: TimeInterval = 0.3
     ) {
         self.dbReader = dbReader
         self.conversationIdSubject = .init(conversationId)
         self.currentInboxId = currentInboxId
         self.pageSize = pageSize
         self.currentLimitSubject = .init(pageSize)
+        self.throttleInterval = throttleInterval
     }
 
     init(
@@ -160,13 +169,15 @@ class MessagesRepository: MessagesRepositoryProtocol {
         conversationId: String,
         currentInboxId: String,
         conversationIdPublisher: AnyPublisher<String, Never>,
-        pageSize: Int = 25
+        pageSize: Int = 25,
+        throttleInterval: TimeInterval = 0.3
     ) {
         self.dbReader = dbReader
         self.conversationIdSubject = .init(conversationId)
         self.currentInboxId = currentInboxId
         self.pageSize = pageSize
         self.currentLimitSubject = .init(pageSize)
+        self.throttleInterval = throttleInterval
         conversationIdCancellable = conversationIdPublisher
             .dropFirst()
             .sink { [weak self] conversationId in
@@ -351,7 +362,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
     lazy var conversationMessagesResultPublisher: AnyPublisher<ConversationMessagesResult, Never> = {
         let dbReader = dbReader
         let stateQueue = stateQueue
-        return Publishers.CombineLatest(
+        let base: AnyPublisher<ConversationMessagesResult, Never> = Publishers.CombineLatest(
             conversationIdSubject.removeDuplicates(),
             currentLimitSubject.removeDuplicates()
         )
@@ -421,6 +432,10 @@ class MessagesRepository: MessagesRepositoryProtocol {
         }
         .switchToLatest()
         .eraseToAnyPublisher()
+        guard throttleInterval > 0 else { return base }
+        return base
+            .throttle(for: .seconds(throttleInterval), scheduler: DispatchQueue.main, latest: true)
+            .eraseToAnyPublisher()
     }()
 
     static func fetchMemberProfiles(_ db: Database, conversationId: String) throws -> [String: MemberProfileInfo] {
@@ -572,6 +587,7 @@ extension Array where Element == DBMessage {
             return resolveCapabilityConnectContent(
                 jsonText: dbMessage.text,
                 resultsByRequestId: capabilityResultsByRequestId,
+                viewerInboxId: currentInboxId,
                 latestPendingRequestId: latestPendingCapabilityRequestId
             )
         case .capabilityRequestResult:
@@ -597,6 +613,7 @@ extension Array where Element == DBMessage {
     private static func resolveCapabilityConnectContent(
         jsonText: String?,
         resultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]],
+        viewerInboxId: String,
         latestPendingRequestId: String?
     ) -> MessageContent? {
         guard let jsonText,
@@ -606,6 +623,7 @@ extension Array where Element == DBMessage {
         let prompt = CapabilityConnectPrompt.make(
             request: request,
             results: resultsByRequestId[request.requestId] ?? [],
+            viewerInboxId: viewerInboxId,
             isLatestUnresolvedRequest: request.requestId == latestPendingRequestId
         )
         return .capabilityConnect(prompt: prompt)
@@ -1024,7 +1042,9 @@ private extension LightweightConversationDetails {
             isLocked: conversation.isLocked,
             agentJoinStatus: nil,
             hasHadVerifiedAgent: conversation.hasHadVerifiedAgent,
-            wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil
+            wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil,
+            isAgentDm: conversation.isAgentDm,
+            participationMode: conversation.participationMode ?? .default
         )
     }
 }
@@ -1148,13 +1168,13 @@ fileprivate extension Database {
         // ValueObservation: the main message query already tracks the table,
         // so a late-arriving result row still re-fires composition.
         //
-        // First decision wins, in message-time order: one capability request
-        // is one connection ask for the whole conversation — the earliest
-        // validated (non-asker) result flips the pill for every member; the
-        // agent re-requests under a new requestId if it needs more. Both the
-        // resolution rule and the latest-pending computation are shared with
-        // CapabilityRequestRepository (the tap path), so a pill rendered
-        // `.pending` is always the request the approval sheet would open for.
+        // Resolution is per viewer: only the current member's own validated
+        // (non-asker) result rows flip the pill they see — the earliest of
+        // their decisions wins, and other members' decisions leave their pill
+        // actionable. Both the resolution rule and the latest-pending
+        // computation are shared with CapabilityRequestRepository (the tap
+        // path), so a pill rendered `.pending` is always the request the
+        // approval sheet would open for.
         var capabilityResultsByRequestId: [String: [CapabilityConnectPrompt.ResultRecord]] = [:]
         var latestPendingCapabilityRequestId: String?
         if rawMessages.contains(where: { $0.contentType == .capabilityRequest }) {
@@ -1164,6 +1184,7 @@ fileprivate extension Database {
             )
             latestPendingCapabilityRequestId = try CapabilityRequestRepository.computeLatestPendingRequest(
                 conversationId: conversationId,
+                viewerInboxId: currentInboxId,
                 db: self,
                 resultsByRequestId: capabilityResultsByRequestId
             )?.requestId

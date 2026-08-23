@@ -83,42 +83,96 @@ extension XMTPiOS.Group {
         }
     }
 
-    // MARK: - Connections (per-sender-profile)
-
-    /// Returns the JSON grants payload stored on a specific sender's profile.
-    /// The runtime reads grants from `profile.metadata.connections` per sender,
-    /// so each member's grants live under their own profile entry.
-    public func senderConnections(forInboxId inboxId: String) throws -> String? {
-        let metadata = try currentCustomMetadata
-        guard let profile = metadata.findProfile(inboxId: inboxId),
-              profile.hasConnections,
-              !profile.connections.isEmpty else {
-            return nil
-        }
-        return profile.connections
-    }
-
-    public func updateSenderConnections(_ json: String, senderInboxId: String) async throws {
-        guard let seedProfile = ConversationProfile(inboxIdString: senderInboxId) else {
-            throw ConversationCustomMetadataError.invalidInboxIdHex(senderInboxId)
-        }
-        try await atomicUpdateMetadata(operation: "updateSenderConnections") { metadata in
-            var profile = metadata.findProfile(inboxId: senderInboxId) ?? seedProfile
-            profile.connections = json
-            metadata.upsertProfile(profile)
-        } verify: { metadata in
-            metadata.findProfile(inboxId: senderInboxId)?.connections == json
+    /// The conversation's agent participation mode, or nil while no member has
+    /// set one. Read from synced group state, so a member who just joined sees
+    /// the mode the conversation is already in without asking a server.
+    public var participationMode: ConversationParticipationMode? {
+        get throws {
+            try currentCustomMetadata.conversationParticipationMode
         }
     }
 
-    public func clearSenderConnections(senderInboxId: String) async throws {
-        try await atomicUpdateMetadata(operation: "clearSenderConnections") { metadata in
-            guard var profile = metadata.findProfile(inboxId: senderInboxId) else { return }
-            profile.clearConnections()
-            metadata.upsertProfile(profile)
+    /// Sets the mode for every agent in the conversation. Any member may call
+    /// this - the mode is conversation state, not an owner-only setting - and
+    /// MLS metadata's last-writer-wins resolution settles two members changing
+    /// it at once.
+    public func updateParticipationMode(_ mode: ConversationParticipationMode) async throws {
+        try await atomicUpdateMetadata(operation: "updateParticipationMode") { metadata in
+            metadata.participationMode = mode.proto
         } verify: { metadata in
-            let profile = metadata.findProfile(inboxId: senderInboxId)
-            return profile == nil || !(profile?.hasConnections ?? false)
+            metadata.conversationParticipationMode == mode
+        }
+    }
+
+    /// Whether this conversation carries the agent-DM marker. The agent's
+    /// identity comes from the membership itself (member kind plus
+    /// attestation), not from the marker; callers gating UI should also
+    /// require exactly 2 members with an agent as the other member.
+    public var isAgentDm: Bool {
+        get throws {
+            try currentCustomMetadata.hasAgentDm
+        }
+    }
+
+    /// The parent ("origin") conversation this agent DM was created from, as a
+    /// hex conversation id, or nil when not recorded. Written once in
+    /// `markAsAgentDm`; read back so a DM notification tap can route to its
+    /// parent group (the DM is only viewable as a page inside that group), and
+    /// so auto-allow can gate on the user still sharing that primary (the marker
+    /// itself is member-writable appData).
+    public var agentDmOriginConversationId: String? {
+        get throws {
+            let metadata = try currentCustomMetadata
+            guard metadata.hasAgentDm, metadata.agentDm.hasOriginConversationID else {
+                return nil
+            }
+            let data = metadata.agentDm.originConversationID
+            return data.isEmpty ? nil : data.toHexString()
+        }
+    }
+
+    /// The deployed Space web URL for this conversation, or nil while none has
+    /// been published. The Assistant Worker writes it into appData and is the
+    /// sole authority; clients never construct or write this value.
+    public var spaceURL: String? {
+        get throws {
+            let metadata = try currentCustomMetadata
+            guard metadata.hasSpaceURL, !metadata.spaceURL.isEmpty else { return nil }
+            return metadata.spaceURL
+        }
+    }
+
+    /// Overwrites the Space web URL in appData, or clears it when nil. The
+    /// Assistant Worker is the value's authority (see `spaceURL`); this setter
+    /// exists only for the debug override in conversation info, and the worker
+    /// may replace whatever it writes on its next publish.
+    public func updateSpaceURL(_ urlString: String?) async throws {
+        try await atomicUpdateMetadata(operation: "updateSpaceURL") { metadata in
+            if let urlString {
+                metadata.spaceURL = urlString
+            } else {
+                metadata.clearSpaceURL()
+            }
+        } verify: { metadata in
+            if let urlString {
+                return metadata.spaceURL == urlString
+            } else {
+                return !metadata.hasSpaceURL
+            }
+        }
+    }
+
+    /// Stamps this conversation as a private DM with an agent. Called once by
+    /// the device that creates the DM conversation, before adding the agent.
+    public func markAsAgentDm(originConversationId: Data? = nil) async throws {
+        try await atomicUpdateMetadata(operation: "markAsAgentDm") { metadata in
+            var info = AgentDmInfo()
+            if let originConversationId {
+                info.originConversationID = originConversationId
+            }
+            metadata.agentDm = info
+        } verify: { metadata in
+            metadata.hasAgentDm
         }
     }
 
@@ -172,6 +226,74 @@ extension XMTPiOS.Group {
             metadata.encryptedGroupImage.url == encryptedRef.url &&
             metadata.encryptedGroupImage.salt == encryptedRef.salt &&
             metadata.encryptedGroupImage.nonce == encryptedRef.nonce
+        }
+    }
+
+    /// Seeds every piece of creator-authored metadata in one commit: the
+    /// invite tag, the image encryption key, (when a seed is provided) the
+    /// conversation emoji, and the initial participation mode. Each individual
+    /// `ensure*` call publishes its own MLS commit with a network round trip,
+    /// so the creation path calls this instead of chaining them. No-ops without
+    /// a commit when every field is already present.
+    ///
+    /// The participation mode is seeded to Listen (`.mentionsOnly`) so a new
+    /// conversation's agents stay quiet until addressed. This only reaches group
+    /// chats: agent DMs are created by the agent, so their `creatorInboxId` is
+    /// never this client and they never call this creator-only method. The seed
+    /// is tied to authoring the invite tag -- the one field written exactly once,
+    /// at creation -- so it never fires when this method re-runs on an already
+    /// established group (e.g. `StreamProcessor` reprocessing a legacy
+    /// creator-owned conversation), which would otherwise flip that room off the
+    /// legacy default and publish a spurious commit.
+    ///
+    /// Only the conversation creator should call this - it authors the
+    /// invite tag (see `ensureInviteTag`).
+    public func ensureCreatorMetadata(emojiSeed: String? = nil) async throws {
+        let current = try currentCustomMetadata
+        let needsTag = current.tag.isEmpty
+        let needsKey = !current.hasImageEncryptionKey
+        let needsEmoji = emojiSeed != nil && (!current.hasEmoji || current.emoji.isEmpty)
+        // Only seed the initial mode in the same commit that first authors the
+        // invite tag, i.e. a brand-new group. An established group (tag already
+        // present) that happens to carry no mode must keep rendering as the
+        // legacy default, untouched.
+        let seedsParticipationMode = needsTag && current.conversationParticipationMode == nil
+        guard needsTag || needsKey || needsEmoji else { return }
+
+        // Generate the tag only when it's actually missing so a transient
+        // SecRandomCopyBytes failure can't abort an emoji- or key-only update.
+        let newTag: String? = needsTag ? try generateSecureRandomString(length: 10) : nil
+        // Key generation failure stays non-fatal, matching how callers treat
+        // `ensureImageEncryptionKey`: the key is retried on first image
+        // upload, while a missing invite tag breaks joins.
+        var newKey: Data?
+        if needsKey {
+            do {
+                newKey = try ImageEncryption.generateGroupKey()
+            } catch {
+                Log.warning("Failed to generate image encryption key: \(error). Will retry on first image upload.")
+            }
+        }
+        let newEmoji: String? = emojiSeed.map { EmojiSelector.emoji(for: $0) }
+
+        try await atomicUpdateMetadata(operation: "ensureCreatorMetadata") { metadata in
+            if let newTag, metadata.tag.isEmpty {
+                metadata.tag = newTag
+            }
+            if let newKey, !metadata.hasImageEncryptionKey {
+                metadata.imageEncryptionKey = newKey
+            }
+            if let newEmoji, !metadata.hasEmoji || metadata.emoji.isEmpty {
+                metadata.emoji = newEmoji
+            }
+            if seedsParticipationMode, metadata.conversationParticipationMode == nil {
+                metadata.participationMode = ConversationParticipationMode.mentionsOnly.proto
+            }
+        } verify: { metadata in
+            guard !metadata.tag.isEmpty else { return false }
+            guard newKey == nil || metadata.hasImageEncryptionKey else { return false }
+            guard newEmoji == nil || (metadata.hasEmoji && !metadata.emoji.isEmpty) else { return false }
+            return !seedsParticipationMode || metadata.conversationParticipationMode != nil
         }
     }
 

@@ -18,7 +18,9 @@ public enum SupportedConnections {
     public static let supportedDeviceKinds: Set<ConnectionKind> = []
 
     public static let supportedCloudServiceIds: Set<String> = [
+        "gmail",
         "googlecalendar",
+        "googledocs",
     ]
 
     public static func isSupported(_ kind: ConnectionKind) -> Bool {

@@ -41,9 +41,15 @@ enum ShareSuggestionDonator {
         Task { @MainActor in
             donationGeneration += 1
             let generation: Int = donationGeneration
-            let current: [(conversation: Conversation, fingerprint: String)] = targetable.prefix(maxSuggestions).map {
-                ($0, fingerprint(for: $0))
-            }
+            // Deduplicated by id before the cap, so one conversation reaching
+            // us twice cannot take two suggestion slots -- and, more sharply,
+            // cannot crash: the donation record below is keyed by id, and a
+            // repeated key traps.
+            var seenIds: Set<String> = []
+            let current: [(conversation: Conversation, fingerprint: String)] = targetable
+                .filter { seenIds.insert($0.id).inserted }
+                .prefix(maxSuggestions)
+                .map { ($0, fingerprint(for: $0)) }
             let currentIds: Set<String> = Set(current.map(\.conversation.id))
 
             let removedIds: [String] = lastDonated.keys.filter { !currentIds.contains($0) }
@@ -62,7 +68,10 @@ enum ShareSuggestionDonator {
                 let avatar: INImage? = renderAvatar(for: conversation, photo: photo)
                 submit(conversation: conversation, avatar: avatar)
             }
-            lastDonated = Dictionary(uniqueKeysWithValues: current.map { ($0.conversation.id, $0.fingerprint) })
+            lastDonated = Dictionary(
+                current.map { ($0.conversation.id, $0.fingerprint) },
+                uniquingKeysWith: { first, _ in first }
+            )
         }
     }
 

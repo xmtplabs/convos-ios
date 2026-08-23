@@ -29,7 +29,11 @@ services:
     environment:
       MINIO_ROOT_USER: "${MINIO_USER:-convos}"
       MINIO_ROOT_PASSWORD: "${MINIO_PASSWORD:-assistants}"
-      MINIO_DEFAULT_BUCKETS: "${MINIO_BUCKET:-assistants-private-dev}"
+      # Virtual-host-style S3 for the backend's vanilla S3Client (no
+      # forcePathStyle): bucket.localhost resolves to loopback for both the
+      # host and the simulator. attachments-local backs PUBLIC_ASSETS_BUCKET.
+      MINIO_DOMAIN: "localhost"
+      MINIO_DEFAULT_BUCKETS: "${MINIO_BUCKET:-assistants-private-dev},attachments-local"
     volumes:
       - convos_miniodata:/bitnami/minio/data
     healthcheck:

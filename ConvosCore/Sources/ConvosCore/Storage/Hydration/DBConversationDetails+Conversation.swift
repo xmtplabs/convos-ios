@@ -83,7 +83,10 @@ extension DBConversationDetails {
             isLocked: conversation.isLocked,
             agentJoinStatus: agentJoinStatus,
             hasHadVerifiedAgent: conversation.hasHadVerifiedAgent,
-            wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil
+            wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil,
+            isAgentDm: conversation.isAgentDm,
+            participationMode: conversation.participationMode ?? .default,
+            spaceURL: conversation.spaceURLString.flatMap { URL(string: $0) }
         )
     }
 

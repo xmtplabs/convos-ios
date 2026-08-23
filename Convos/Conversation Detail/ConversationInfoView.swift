@@ -72,10 +72,20 @@ struct FeatureRowItem<AccessoryView: View>: View {
 }
 
 struct ConversationInfoView: View {
+    /// Which agent-access section this view renders, latched once per view
+    /// lifetime from the Abilities V2 flag so a flag flip while the view
+    /// survives cannot switch rendering mid-flight.
+    private enum AgentAccessMode {
+        case abilitiesV2
+        case connectionsV1
+    }
+
     @Bindable var viewModel: ConversationViewModel
     let focusCoordinator: FocusCoordinator
 
+    @State private var agentAccessMode: AgentAccessMode?
     @State private var connectionsViewModel: ConversationConnectionsViewModel?
+    @State private var abilitiesViewModel: ConversationAbilitiesViewModel?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.openURL) private var openURL: OpenURLAction
@@ -87,26 +97,25 @@ struct ConversationInfoView: View {
     @State private var presentingEditView: Bool = false
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
-    @State private var presentingShareView: Bool = false
+    /// Drives the invite-code sheet the "Convo code" row presents.
+    @State private var presentingInviteCode: Bool = false
+    /// Drives the system share sheet behind the menu's "Invite friends" row.
+    @State private var presentingInviteShareSheet: Bool = false
+
+    /// This conversation's signed invite link. Empty until the invite
+    /// hydrates, which is also when there is nothing to share.
+    private var inviteShareItems: [Any] {
+        let invite = viewModel.invite
+        guard !invite.isEmpty else { return [] }
+        return [invite.inviteURLString]
+    }
     @State private var presentingAddFromContactsPicker: Bool = false
-    /// Invite code scanned from the in-sheet Scan/Invite overlay, parked until
-    /// this sheet finishes dismissing so the join sheet (presented by
-    /// `ConversationView` beneath) isn't dropped mid-dismissal. Delivered by
-    /// `onDisappear` via `deliverPendingScannedCodeIfNeeded`.
-    @State private var pendingScannedCode: String?
     @State private var exportedLogsURL: URL?
     @State private var metadataDebugText: String = "Loading…"
     @State private var showingRestoreInviteTagAlert: Bool = false
     @State private var restoreInviteTagText: String = ""
     @State private var showingLeaveConfirmation: Bool = false
-    /// "New Agent" builder, presented from here so it stacks on top of the
-    /// Info sheet rather than racing the chat view's own builder sheet.
-    @State private var presentingAgentBuilder: AgentBuilderViewModel?
-    /// First-run agents explainer shown before the builder; its "Make an agent"
-    /// button sets `pendingAgentBuilderAfterIntro` and the sheet's onDismiss
-    /// then opens the builder.
-    @State private var presentingAgentsIntro: Bool = false
-    @State private var pendingAgentBuilderAfterIntro: Bool = false
+    @State private var spaceShareCoordinator: ConversationSpaceShareCoordinator = .init()
     @State private var navState: ConversationInfoNavigatorImpl = .init()
     @State private var navigator: ConversationInfoCollector?
 
@@ -378,79 +387,15 @@ struct ConversationInfoView: View {
         }
     }
 
-    /// Routes a code scanned from the in-sheet Scan/Invite overlay. The
-    /// overlay is shown on this view's local `@State`, but the view model
-    /// handler only flips its own flag, so the local overlay is dismissed here
-    /// too. A regular invite code then opens the join flow via
-    /// `presentingNewConversationForInvite`, whose sheet hangs off
-    /// `ConversationView` beneath this sheet and cannot present while the info
-    /// sheet is up (setting it mid-dismissal gets dropped by SwiftUI too) --
-    /// so the code is parked in `pendingScannedCode`, the info sheet is
-    /// dismissed, and `onDisappear` hands the code over once the dismissal has
-    /// fully settled. Agent-template codes join in place with no
-    /// presentation, so the info sheet stays.
-    private func handleOverlayScannedCode(_ code: String) {
-        presentingShareView = false
-        let isAgentTemplate = URL(string: code).flatMap(DeepLinkHandler.agentTemplateId(from:)) != nil
-        guard !isAgentTemplate else {
-            viewModel.handleScannedCodeInCurrentConversation(code)
-            return
-        }
-        pendingScannedCode = code
-        dismiss()
-    }
-
-    /// Hands a parked scanned code to the view model once this sheet has left
-    /// the hierarchy, so the resulting join sheet presents cleanly.
-    private func deliverPendingScannedCodeIfNeeded() {
-        guard let code = pendingScannedCode else { return }
-        pendingScannedCode = nil
-        viewModel.handleScannedCodeInCurrentConversation(code)
-    }
-
-    /// Opens the agent builder from this sheet's own `.sheet(item:)` so it
-    /// stacks on top -- the chat view's builder sheet
-    /// (`viewModel.presentAgentBuilder()`) would present beneath this
-    /// still-visible sheet. On the first-ever tap, shows the agents explainer
-    /// first (local mirror of the chat view's intro flow).
-    private func presentAgentBuilderLocally() {
-        if viewModel.consumeAgentsIntroGate() {
-            presentingAgentsIntro = true
-        } else {
-            presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
-        }
-    }
-
-    /// Local share-overlay presentation binding. Resets the requested initial
-    /// segment on dismissal (mirroring `ConversationPresenter`'s binding) so
-    /// the next plain convo-code open lands on the Invite tab, not a stale
-    /// Scan request from the contacts picker.
-    private var localShareOverlayBinding: Binding<Bool> {
-        Binding(
-            get: { presentingShareView },
-            set: { newValue in
-                presentingShareView = newValue
-                if !newValue {
-                    viewModel.shareViewInitialSegment = .invite
-                }
-            }
-        )
-    }
-
     var body: some View {
         infoContent
             .addFromContactsPicker(
                 viewModel: viewModel,
-                isPresented: $presentingAddFromContactsPicker,
-                // This view is itself a presented sheet: the presenter-level
-                // overlay (viewModel.presentingShareView) would open beneath
-                // it, so route the picker's Show-invite-code / Scan rows to
-                // the local in-sheet overlay instead.
-                onPresentShareOverlay: { presentingShareView = true },
-                // Same stacking rule for "Make an agent": the chat view's
-                // builder sheet (viewModel.presentingAgentBuilder) would
-                // present beneath this sheet, so drive the local one.
-                onPresentAgentBuilder: presentAgentBuilderLocally
+                isPresented: $presentingAddFromContactsPicker
+            )
+            .shareSheet(
+                isPresented: $presentingInviteShareSheet,
+                items: inviteShareItems
             )
             .onAppear {
                 ensureNavigator()
@@ -458,7 +403,6 @@ struct ConversationInfoView: View {
             }
             .onDisappear {
                 navigator?.closed(context: navState.closeContext())
-                deliverPendingScannedCodeIfNeeded()
             }
             .onChange(of: presentingEditView) { oldValue, newValue in
                 handleEditViewChanged(from: oldValue, to: newValue)
@@ -487,10 +431,7 @@ struct ConversationInfoView: View {
 
             preferencesSection
 
-            if viewModel.conversation.hasAgent,
-               let connectionsViewModel {
-                ConversationConnectionsSection(viewModel: connectionsViewModel)
-            }
+            agentAccessSection
 
             if viewModel.canLeaveConversation {
                 leaveSection
@@ -498,6 +439,73 @@ struct ConversationInfoView: View {
 
             debugInfoSection
         }
+    }
+
+    /// The per-conversation agent access rows: the V2 abilities section or
+    /// the V1 connections section, chosen by the mode latched in
+    /// `prepareAgentAccessViewModels` -- never by which optional view model
+    /// happens to exist.
+    @ViewBuilder
+    private var agentAccessSection: some View {
+        if viewModel.conversation.hasAgent {
+            switch agentAccessMode {
+            case .abilitiesV2:
+                if let abilitiesViewModel {
+                    ConversationAbilitiesSection(viewModel: abilitiesViewModel)
+                }
+            case .connectionsV1:
+                if let connectionsViewModel {
+                    ConversationConnectionsSection(viewModel: connectionsViewModel)
+                }
+            case nil:
+                EmptyView()
+            }
+        }
+    }
+
+    /// Latches the agent access mode from the Abilities V2 flag on first
+    /// run and creates that mode's view model. Rendering always follows
+    /// the latched mode, so a flag flip while this view identity survives
+    /// changes nothing until the next presentation.
+    private func prepareAgentAccessViewModels() {
+        guard viewModel.conversation.hasAgent else { return }
+        let mode: AgentAccessMode
+        if let agentAccessMode {
+            mode = agentAccessMode
+        } else if FeatureFlags.shared.isAbilitiesV2Enabled {
+            mode = .abilitiesV2
+        } else {
+            mode = .connectionsV1
+        }
+        agentAccessMode = mode
+        switch mode {
+        case .abilitiesV2:
+            connectionsViewModel = nil
+            if abilitiesViewModel == nil {
+                abilitiesViewModel = makeConversationAbilitiesViewModel()
+            }
+        case .connectionsV1:
+            abilitiesViewModel = nil
+            if connectionsViewModel == nil {
+                connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
+            }
+        }
+    }
+
+    /// Snapshot of the conversation's agents at construction, mirroring
+    /// `makeConversationConnectionsViewModel`; the section is recreated per
+    /// conversation-info presentation, so membership changes pick up then.
+    private func makeConversationAbilitiesViewModel() -> ConversationAbilitiesViewModel {
+        let agents: [ConversationAgentDescriptor] = viewModel.conversation.members
+            .filter { $0.isAgent }
+            .map { (member: ConversationMember) -> ConversationAgentDescriptor in
+                ConversationAgentDescriptor(inboxId: member.profile.inboxId, displayName: member.profile.displayName)
+            }
+        return ConversationAbilitiesViewModel(
+            conversationId: viewModel.conversation.id,
+            agents: agents,
+            selection: AbilitiesServices.selection
+        )
     }
 
     private var leaveSection: some View {
@@ -541,11 +549,10 @@ struct ConversationInfoView: View {
                             if viewModel.isFull {
                                 showingFullInfo = true
                             } else {
-                                presentingShareView = true
+                                presentingInviteShareSheet = true
                             }
                         },
-                        onInviteAgent: presentAgentBuilderLocally,
-                        onAddFromContacts: {
+                            onAddFromContacts: {
                             presentingAddFromContactsPicker = true
                         }
                     )
@@ -559,10 +566,13 @@ struct ConversationInfoView: View {
         NavigationStack {
             infoList
                 .task {
-                    if viewModel.conversation.hasAgent, connectionsViewModel == nil {
-                        connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
-                    }
+                    prepareAgentAccessViewModels()
                 }
+                // Hosted here rather than on the abilities Section: a sheet
+                // modifier attached to the Section resolves the wrong
+                // presentation context from inside this presented sheet and
+                // dismisses it instead of presenting.
+                .modifier(ConversationAbilitiesSheetsModifier(viewModel: abilitiesViewModel))
                 .alert("Restore invite tag", isPresented: $showingRestoreInviteTagAlert) {
                     TextField("Invite tag", text: $restoreInviteTagText)
                     Button("Cancel", role: .cancel) {
@@ -614,38 +624,11 @@ struct ConversationInfoView: View {
                         showingFullInfo = false
                     })
                 }
-                .sheet(item: $presentingAgentBuilder) { builderViewModel in
-                    AgentBuilderView(
-                        viewModel: builderViewModel,
-                        profileSettingsViewModel: .shared
+                .sheet(isPresented: $presentingInviteCode) {
+                    InviteCodeSheet(
+                        conversation: viewModel.conversation,
+                        invite: viewModel.invite
                     )
-                }
-                .selfSizingSheet(isPresented: $presentingAgentsIntro, onDismiss: {
-                    guard pendingAgentBuilderAfterIntro else { return }
-                    pendingAgentBuilderAfterIntro = false
-                    presentingAgentBuilder = viewModel.makeAgentBuilderViewModel()
-                }, content: {
-                    AgentsInfoView(onMakeAgent: { pendingAgentBuilderAfterIntro = true })
-                        .padding(.top, 20)
-                })
-                .overlay {
-                    if presentingShareView {
-                        ConversationShareOverlay(
-                            conversation: viewModel.conversation,
-                            invite: viewModel.invite,
-                            isPresented: localShareOverlayBinding,
-                            topSafeAreaInset: 0,
-                            coreActions: viewModel.coreActions,
-                            // Honors the segment the contacts picker's rows
-                            // request (Show invite code -> .invite, Scan ->
-                            // .scan); the toolbar convo-code path leaves the
-                            // view model default (.invite) untouched.
-                            initialSegment: viewModel.shareViewInitialSegment,
-                            onScannedCode: { code in
-                                handleOverlayScannedCode(code)
-                            }
-                        )
-                    }
                 }
                 .background {
                     Color.clear
@@ -676,13 +659,16 @@ struct ConversationInfoView: View {
 // MARK: - Support and debug section
 
 extension ConversationInfoView {
-    // The support rows ship in every environment so production users can
-    // send on-device diagnostics to support; the remaining rows are internal
-    // debugging tools and stay out of production builds.
+    // The support rows ship in every environment so production users can send
+    // on-device diagnostics to support. The Space share row follows its
+    // explicit opt-in flag; the remaining debug rows stay out of production.
     @ViewBuilder
     private var debugInfoSection: some View {
         let isProduction = ConfigManager.shared.currentEnvironment.isProduction
         Section {
+            if FeatureFlags.shared.isSpaceShareEnabled {
+                spaceShareRow
+            }
             if !isProduction {
                 internalDebugRows
             }
@@ -750,11 +736,65 @@ extension ConversationInfoView {
         } label: {
             Text("Hidden messages")
         }
+        NavigationLink {
+            SpaceURLDebugView(
+                currentURLString: { viewModel.conversation.spaceURL?.absoluteString },
+                updateSpaceURL: { urlString in
+                    try await viewModel.debugOverrideSpaceURL(urlString)
+                }
+            )
+        } label: {
+            Text("Space URL")
+        }
         Button {
             showingRestoreInviteTagAlert = true
         } label: {
             Text("Restore invite tag")
         }
+    }
+
+    private var spaceShareRow: some View {
+        Button {
+            Task {
+                await spaceShareCoordinator.share(
+                    conversationId: viewModel.conversation.id,
+                    variantId: viewModel.conversationAgentVariantSlug
+                )
+            }
+        } label: {
+            HStack {
+                Text("Share Space")
+                    .foregroundStyle(.colorTextPrimary)
+                Spacer()
+                if spaceShareCoordinator.isBusy {
+                    ProgressView()
+                }
+            }
+        }
+        .disabled(spaceShareCoordinator.isBusy)
+        .accessibilityIdentifier("share-space-button")
+        .accessibilityLabel("Copy Space share message")
+        .accessibilityHint("Creates a share link that works for 7 days and copies it to the clipboard")
+        .alert(
+            spaceShareCoordinator.alert?.title ?? "",
+            isPresented: spaceShareAlertIsPresented,
+            presenting: spaceShareCoordinator.alert
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { payload in
+            Text(payload.message)
+        }
+    }
+
+    private var spaceShareAlertIsPresented: Binding<Bool> {
+        Binding(
+            get: { spaceShareCoordinator.alert != nil },
+            set: { isPresented in
+                if !isPresented {
+                    spaceShareCoordinator.alert = nil
+                }
+            }
+        )
     }
 
     @ViewBuilder

@@ -43,17 +43,8 @@ struct ContactsView: View {
     /// Whether to render the contacts-scoped compose button. The Contacts
     /// tab hides it because the shell's shared toolbar already provides a
     /// compose button (whose `onStartConvo` opens the same contacts picker),
-    /// so the tab's top bar matches Chats and Things exactly.
+    /// so the tab's top bar matches Chats exactly.
     private let showsComposeButton: Bool
-    /// Optional request from the shell to scroll the list to a given section
-    /// id once it appears. Used by the "See suggested agents" button in the
-    /// empty Things state; consumed (set back to nil) after the scroll lands.
-    private let scrollTarget: Binding<String?>?
-    /// Launches the agent builder for the "Make an agent" top-three action.
-    /// Make-agent presents from the shell (`MainTabView`), which can't be
-    /// presented from under this tab's stack, so the shell injects a closure
-    /// that calls `ConversationsViewModel.onStartAgent()`. Nil hides the row.
-    private let onMakeAgent: (() -> Void)?
     /// A code scanned inside a presented new-convo sheet resolved to a joined
     /// conversation. That conversation lives under the Chats tab, which this
     /// tab can't reach on its own, so the shell injects a closure that
@@ -75,31 +66,22 @@ struct ContactsView: View {
         coreActions: any CoreActions = NoOpCoreActions(),
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsComposeButton: Bool = true,
-        suggestedAgentsService: (any SuggestedAgentsServiceProtocol)? = nil,
-        scrollTarget: Binding<String?>? = nil,
-        onMakeAgent: (() -> Void)? = nil,
         onScanJoinedConversation: ((String) -> Void)? = nil,
         hasPushedContactDetail: Bool = false
     ) {
-        _viewModel = State(initialValue: ContactsViewModel(
-            contactsRepository: contactsRepository,
-            suggestedAgentsService: suggestedAgentsService
-        ))
+        _viewModel = State(initialValue: ContactsViewModel(contactsRepository: contactsRepository))
         self.contactsRepository = contactsRepository
         self.contactsWriter = contactsWriter
         self.session = session
         self.coreActions = coreActions
         self.profileSettingsViewModel = profileSettingsViewModel
         self.showsComposeButton = showsComposeButton
-        self.scrollTarget = scrollTarget
-        self.onMakeAgent = onMakeAgent
         self.onScanJoinedConversation = onScanJoinedConversation
         self.hasPushedContactDetail = hasPushedContactDetail
     }
 
     var body: some View {
         contactsContent
-        .task { await viewModel.loadSuggestedAgentsIfNeeded() }
         .onDisappear(perform: discardUnenteredInviteConversation)
         .onChange(of: invite?.urlSlug) { _, slug in
             handleInviteSlugChanged(slug)
@@ -141,44 +123,30 @@ struct ContactsView: View {
     /// Same `safeAreaBar` treatment the contacts picker and chat
     /// composer use. The search bar floats at the top with iOS 26 glass
     /// blur, and the underlying list's scroll inset is auto-adjusted so
-    /// rows scroll cleanly under the bar. Wrapped in a `ScrollViewReader`
-    /// so the shell can scroll the list to a section (see `scrollTarget`).
+    /// rows scroll cleanly under the bar.
     @ViewBuilder
     private var contactsContent: some View {
-        ScrollViewReader { proxy in
-            listOrFilteredEmptyState
-                .background(.colorBackgroundRaisedSecondary)
-                .safeAreaBar(edge: .top) {
-                    ContactsSearchBar(
-                        query: $viewModel.searchQuery,
-                        placeholder: "People and agents",
-                        accessibilityIdentifier: "contacts-search-field",
-                        filter: $viewModel.filter,
-                        showBlocked: $viewModel.showBlocked
-                    )
-                }
-                .onChange(of: incomingScrollTarget) { _, target in
-                    handleScrollTargetChange(target, proxy: proxy)
-                }
-                .onChange(of: sectionIDs, initial: true) { _, _ in
-                    scrollToTargetIfPresent(incomingScrollTarget, proxy: proxy)
-                }
-        }
+        listOrFilteredEmptyState
+            .background(.colorBackgroundRaisedSecondary)
+            .safeAreaBar(edge: .top) {
+                ContactsSearchBar(
+                    query: $viewModel.searchQuery,
+                    placeholder: "People",
+                    accessibilityIdentifier: "contacts-search-field",
+                    showBlocked: $viewModel.showBlocked
+                )
+            }
     }
 
-    /// Shows the filtered empty state when a search or filter matches nothing
-    /// (keeping the search bar above so the user can clear it), a spinner while
-    /// the suggested-agents first page is in flight for a user with no
-    /// contacts, and otherwise the contacts list. There is no full-screen
-    /// onboarding empty state: with zero saved contacts the list simply renders
-    /// the suggested-agents section.
+    /// Shows the filtered empty state when a search or the blocked toggle
+    /// matches nothing (keeping the search bar above so the user can clear it),
+    /// and otherwise the contacts list. A user with no contacts still gets the
+    /// invite actions rather than a full-screen onboarding state.
     @ViewBuilder
     private var listOrFilteredEmptyState: some View {
         if viewModel.sections.isEmpty {
             if viewModel.isFiltering {
                 filteredEmptyState
-            } else if viewModel.isLoadingSuggestedAgents {
-                emptyStateWithInviteActions { loadingState }
             } else {
                 emptyStateWithInviteActions { Color.colorBackgroundRaisedSecondary }
             }
@@ -192,8 +160,7 @@ struct ContactsView: View {
     /// they need them. The contacts list renders the same actions via its
     /// `leadingContent`; this covers the branches that don't reach the list.
     /// The explicit padding mirrors the list's default row insets so the
-    /// actions don't shift when the list takes over (e.g. once the
-    /// suggested-agents page lands).
+    /// actions don't shift when the list takes over.
     @ViewBuilder
     private func emptyStateWithInviteActions<Body: View>(@ViewBuilder body: () -> Body) -> some View {
         if let actions = inviteActionsContent {
@@ -223,43 +190,6 @@ struct ContactsView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: - Scroll to section
-
-    /// The section id the shell has asked us to scroll to, if any.
-    private var incomingScrollTarget: String? {
-        scrollTarget.flatMap(\.wrappedValue)
-    }
-
-    /// Section ids in render order. Watched so a pending scroll request can
-    /// fire once an async-loaded section (e.g. suggested agents) appears.
-    private var sectionIDs: [String] {
-        viewModel.sections.map(\.id)
-    }
-
-    /// Reacts to a new scroll request from the shell. For the suggested-agents
-    /// target, first clears any filter/search that would keep the section
-    /// hidden, then scrolls if it's already present; otherwise the `sectionIDs`
-    /// handler scrolls once the section loads.
-    private func handleScrollTargetChange(_ target: String?, proxy: ScrollViewProxy) {
-        guard let target else { return }
-        if target == SuggestedAgentsSection.id {
-            if !viewModel.filter.includesAgents { viewModel.filter = .all }
-            if !viewModel.searchQuery.isEmpty { viewModel.searchQuery = "" }
-        }
-        scrollToTargetIfPresent(target, proxy: proxy)
-    }
-
-    /// Scrolls to `target` when a matching section exists, then clears the
-    /// request. Deferred one runloop hop so a freshly-inserted section is laid
-    /// out before the scroll.
-    private func scrollToTargetIfPresent(_ target: String?, proxy: ScrollViewProxy) {
-        guard let target, viewModel.sections.contains(where: { $0.id == target }) else { return }
-        Task { @MainActor in
-            withAnimation { proxy.scrollTo(target, anchor: .top) }
-            scrollTarget?.wrappedValue = nil
-        }
     }
 
     @ViewBuilder
@@ -297,8 +227,7 @@ struct ContactsView: View {
     /// Bundles the available top-three closures. "Show an invite code" and
     /// "Send an invite" are always available with a live session -- nothing is
     /// claimed until they're tapped, so the rows are stable from first render
-    /// (no hydration-driven flicker); "Make an agent" only when the shell
-    /// injected a launcher.
+    /// (no hydration-driven flicker).
     private var inviteActions: ContactsPickerActions? {
         var showInviteCode: (() -> Void)?
         var sendInvite: (() -> Void)?
@@ -306,11 +235,10 @@ struct ContactsView: View {
             showInviteCode = handleShowInviteCode
             sendInvite = handleSendInvite
         }
-        guard showInviteCode != nil || sendInvite != nil || onMakeAgent != nil else { return nil }
+        guard showInviteCode != nil || sendInvite != nil else { return nil }
         return ContactsPickerActions(
             onShowInviteCode: showInviteCode,
             onSendInvite: sendInvite,
-            onMakeAgent: onMakeAgent,
             sendInviteShowsProgress: isPreparingInviteShare
         )
     }
@@ -320,20 +248,11 @@ struct ContactsView: View {
         NavigationLink(value: row.contact) {
             ContactRowView(contact: row.contact, subtitle: row.subtitle)
         }
-        .onAppear {
-            guard row.isSuggestedAgent else { return }
-            let rowId = row.id
-            Task { await viewModel.suggestedAgentRowAppeared(id: rowId) }
-        }
     }
 
     @ViewBuilder
     private func contactsSectionHeader(for section: ContactsListSection<ContactsViewModel.Row>) -> some View {
-        if section.id == SuggestedAgentsSection.id {
-            SuggestedAgentsSectionHeader()
-        } else {
-            ContactsListSectionHeader(title: section.title)
-        }
+        ContactsListSectionHeader(title: section.title)
     }
 
     /// Detail pushed when a contact row is tapped. Built here (rather than
@@ -351,15 +270,6 @@ struct ContactsView: View {
             showsCloseButton: false,
             pushedConversationInsetsTopSafeArea: true
         )
-    }
-
-    /// Shown while the suggested-agents first page is in flight and the user
-    /// has no contacts yet, so the list area doesn't flash empty before the
-    /// suggestions arrive.
-    private var loadingState: some View {
-        ProgressView()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.colorBackgroundRaisedSecondary)
     }
 
     // MARK: - Toolbar
@@ -414,7 +324,6 @@ struct ContactsView: View {
         inviteConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation,
-            showsEmbeddedInvite: true,
             defersInviteVisibilityUntilEntered: true,
             coreActions: coreActions
         )

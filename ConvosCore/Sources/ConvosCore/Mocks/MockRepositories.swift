@@ -29,6 +29,14 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
     /// positives. The production `ConversationsRepository` enforces
     /// the scope via the `WHERE consent IN (...)` clause in
     /// `composeOneToOne`.
+    public func findAgentDm(with inboxId: String) throws -> Conversation? {
+        nil
+    }
+
+    public func agentDmTapRouting(forConversationId conversationId: String) throws -> AgentDmTapRouting? {
+        nil
+    }
+
     public func findOneToOne(with inboxId: String, excluding excludedConversationId: String?) throws -> Conversation? {
         mockConversations.first { conversation in
             guard conversation.id != excludedConversationId else { return false }
@@ -57,6 +65,40 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
             addedByOthers: addedByOthers
         )
         return Just(partition).eraseToAnyPublisher()
+    }
+}
+
+// MARK: - Mock Conversations Pager
+
+/// Mock implementation of ConversationsPagerProtocol for testing
+public final class MockConversationsPager: ConversationsPagerProtocol, @unchecked Sendable {
+    public var mockPage: ConversationsPage {
+        didSet { pageSubject.send(mockPage) }
+    }
+    public var filter: ConversationsListFilter = .all
+    public private(set) var loadMoreCallCount: Int = 0
+
+    private let pageSubject: CurrentValueSubject<ConversationsPage, Never>
+
+    public init(page: ConversationsPage = .empty) {
+        self.mockPage = page
+        self.pageSubject = CurrentValueSubject(page)
+    }
+
+    public var pagePublisher: AnyPublisher<ConversationsPage, Never> {
+        pageSubject.eraseToAnyPublisher()
+    }
+
+    public func loadMore() {
+        loadMoreCallCount += 1
+    }
+
+    public func fetchInitialPage() throws -> ConversationsPage {
+        mockPage
+    }
+
+    public func fetchConversation(id: String) throws -> Conversation? {
+        (mockPage.pinned + mockPage.unpinned).first { $0.id == id }
     }
 }
 

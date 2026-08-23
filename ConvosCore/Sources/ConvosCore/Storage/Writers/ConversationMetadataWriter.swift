@@ -12,12 +12,15 @@ public protocol ConversationMetadataWriterProtocol: Sendable {
     func updateImageUrl(_ imageURL: String, for conversationId: String) async throws
     func addMembers(_ memberInboxIds: [String], to conversationId: String) async throws
     func removeMembers(_ memberInboxIds: [String], from conversationId: String) async throws
+    func markAsAgentDm(_ conversationId: String, originConversationId: String?) async throws
     func promoteToAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func demoteFromAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func promoteToSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func demoteFromSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func updateImage(_ image: ImageType, for conversation: Conversation) async throws
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws
+    func updateParticipationMode(_ mode: ConversationParticipationMode, for conversationId: String) async throws
+    func updateSpaceURL(_ urlString: String?, for conversationId: String) async throws
     func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws
     func lockConversation(for conversationId: String) async throws
     func unlockConversation(for conversationId: String) async throws
@@ -131,6 +134,58 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         try await syncInvitePreview(for: updatedConversation)
 
         Log.info("Updated conversation expiresAt for \(conversationId): \(expiresAt)")
+    }
+
+    /// Writes the conversation's participation mode to the group's appData, the
+    /// same rail `updateName` / `updateExpiresAt` ride. The commit is what other
+    /// members receive: their `ConversationWriter` re-reads appData on the
+    /// resulting update message and their composer follows. The local row is
+    /// written here too so the setter's own control does not wait a round trip
+    /// for state their device already knows.
+    func updateParticipationMode(_ mode: ConversationParticipationMode, for conversationId: String) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+
+        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
+              case .group(let group) = conversation else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+
+        try await group.updateParticipationMode(mode)
+
+        try await databaseWriter.write { db in
+            guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
+                throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+            }
+            try localConversation.with(participationMode: mode).save(db)
+        }
+
+        Log.info("Updated conversation participation mode for \(conversationId): \(mode.rawValue)")
+        QAEvent.emit(.conversation, "participation_mode_updated", ["id": conversationId, "mode": mode.rawValue])
+    }
+
+    /// Debug override for the Space web URL. The Assistant Worker is the
+    /// value's normal authority (see `XMTPGroup.spaceURL`); this writes the
+    /// override into the group's appData so it survives resyncs and reaches
+    /// other members, and mirrors it into the local row so the home surface
+    /// reloads without waiting a round trip. Pass nil to clear.
+    func updateSpaceURL(_ urlString: String?, for conversationId: String) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+
+        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
+              case .group(let group) = conversation else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+
+        try await group.updateSpaceURL(urlString)
+
+        try await databaseWriter.write { db in
+            guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
+                throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+            }
+            try localConversation.with(spaceURLString: urlString).save(db)
+        }
+
+        Log.info("Updated conversation space URL for \(conversationId): \(urlString ?? "nil")")
     }
 
     func updateDescription(_ description: String, for conversationId: String) async throws {
@@ -415,6 +470,54 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
     }
 
     // MARK: - Member Management
+
+    func markAsAgentDm(_ conversationId: String, originConversationId: String?) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+
+        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
+              case .group(let group) = conversation else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+
+        let originIdData = originConversationId.flatMap { Self.hexDecoded($0) }
+        try await group.markAsAgentDm(originConversationId: originIdData)
+
+        try await databaseWriter.write { db in
+            let updated = try DBConversation
+                .filter(key: conversationId)
+                .updateAll(db, DBConversation.Columns.isAgentDm.set(to: true))
+            guard updated > 0 else {
+                // The local row may not exist yet (marker written before the
+                // first store). Not fatal -- extraction re-derives the flag and
+                // the DM -> parent link from the on-wire marker on the next save.
+                // Recording the link now would violate agent_dm_origin's foreign
+                // key to conversation, so defer it and just log the miss.
+                Log.warning("markAsAgentDm updated no local rows for \(conversationId)")
+                return
+            }
+            // Mirror the DM -> parent link locally on the creating device too, so
+            // a tap routes correctly before the next full save re-extracts it.
+            // Safe only now that the conversation row is known to exist.
+            try DBAgentDmOrigin.record(
+                conversationId: conversationId,
+                originConversationId: originConversationId,
+                in: db
+            )
+        }
+    }
+
+    private static func hexDecoded(_ hex: String) -> Data? {
+        guard hex.count.isMultiple(of: 2) else { return nil }
+        var data = Data(capacity: hex.count / 2)
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            guard let byte = UInt8(hex[index..<next], radix: 16) else { return nil }
+            data.append(byte)
+            index = next
+        }
+        return data
+    }
 
     func addMembers(_ memberInboxIds: [String], to conversationId: String) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()

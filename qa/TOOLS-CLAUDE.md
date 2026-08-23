@@ -14,7 +14,7 @@ Three layers are available; prefer them in this order:
 
 ```bash
 UDID=$(cat .claude/.simulator_id)
-IDB=/Users/jarod/Library/Python/3.9/bin/idb   # not on PATH by default
+IDB=$(command -v idb)   # see the idb install note under "Known gotchas"
 BUNDLE_ID=org.convos.ios-preview
 
 # App group log file — the authoritative source for [EVENT] and [error] lines
@@ -207,7 +207,7 @@ $IDB ui tap $X $Y --udid $UDID
 - **`log show --start "<ISO UTC>"` silently returns no rows.** Use the app group `convos.log` file with byte-offset markers. If you must use `log show`, use `--last <duration>` instead.
 - **CLI `explode` may return `[GroupError::Sync]`.** Transient; the conversation is still gone once the error clears on retry. Teardown explodes are marked `optional: true` in most YAMLs for this reason.
 - **`cxdb.sh log-error`'s 6th arg is `is_xmtp`** (1=XMTP, 0=app), despite RULES historically phrasing it as `is_app_error`. The script is authoritative; RULES has been reconciled.
-- **`idb` not on PATH.** Full path: `/Users/jarod/Library/Python/3.9/bin/idb`. Set `IDB=` once at session start.
+- **`idb` resolution.** Resolve from PATH (`IDB=$(command -v idb)`) once at session start. On a fresh machine, run `Scripts/outpost-bootstrap.sh` first — it installs `idb-companion` (Homebrew) and the `fb-idb` client into a Python 3.13 venv (the client crashes under Python >= 3.14, where `asyncio.get_event_loop` was removed), plus the convos CLI, and prints the `PATH`/`DEVELOPER_DIR` exports to load.
 - **The Bash tool shell is zsh: unquoted `$VAR` does not word-split.** Passing `"$X $Y"` captured into one variable to `idb ui tap $COORDS` sends a single argument and fails with `invalid int value: '201 786'`. Capture x and y into separate variables (or use `${=VAR}`).
 - **`idb ui tap` rejects float coordinates.** Always `| floor` the x/y in jq, or use `$(( ))` in Bash to coerce.
 - **`xcrun simctl erase` fails on a booted simulator.** Shutdown first: `xcrun simctl shutdown $UDID; xcrun simctl erase $UDID; xcrun simctl boot $UDID`.

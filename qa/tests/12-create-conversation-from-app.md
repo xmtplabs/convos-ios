@@ -18,10 +18,8 @@ Verify that a conversation can be created from the app, an invite can be generat
 
 ### Generate and share an invite
 
-5. Tap the "+" button in the conversation toolbar (accessibility identifier: "add-to-conversation-button"). This opens the "Invite members" menu.
-6. To show the QR code share view, tap "Convo code" (accessibility identifier: "context-menu-convo-code").
-7. To copy the invite link to the clipboard, tap "Link" (accessibility identifier: "context-menu-copy-link").
-8. The share view (if opened) should display a QR code and an invite URL.
+5. Tap the share button in the conversation toolbar (accessibility identifier: "share-invite-button"). This opens the system share sheet carrying the conversation's invite link.
+6. Copy the link from the share sheet, or dismiss it and read the invite URL from the QR card at the top of the conversation.
 
 ### Join from CLI
 

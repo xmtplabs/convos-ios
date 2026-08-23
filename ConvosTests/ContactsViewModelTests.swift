@@ -10,11 +10,10 @@ import XCTest
 final class ContactsViewModelTests: XCTestCase {
     // MARK: - Agents in the browse list
 
-    /// Only template-backed agents appear in the browse list (tagged with
-    /// the trailing Agent pill). Humans always show; agents without a
-    /// template id - legacy verified assistants and unverified agents -
-    /// stay in `DBContact` for chat-side resolution but are hidden here.
-    func testSectionsShowOnlyTemplateBackedAgents() {
+    /// The tab browses people. Every shape of agent - template-backed,
+    /// legacy verified, unverified - stays in `DBContact` for chat-side
+    /// resolution and for the contacts picker, but none of them appear here.
+    func testSectionsShowPeopleOnly() async {
         let alice = Contact.mock(displayName: "Alice")
         let coffeeAgent = Contact.mock(
             displayName: "Americano",
@@ -29,20 +28,19 @@ final class ContactsViewModelTests: XCTestCase {
             displayName: "Unverified Bot",
             agentVerification: .unverified
         )
-        let repo = MockContactsRepository(contacts: [alice, coffeeAgent, legacyAssistant, unverifiedAgent])
 
-        let viewModel = ContactsViewModel(contactsRepository: repo)
+        let viewModel = await makeLoadedViewModel(
+            contacts: [alice, coffeeAgent, legacyAssistant, unverifiedAgent]
+        )
 
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
-        // Human + template-backed agent show; template-less agents hidden.
-        XCTAssertEqual(allIds.sorted(), [alice.inboxId, coffeeAgent.inboxId].sorted())
+        XCTAssertEqual(allIds, [alice.inboxId], "no agent of any shape is browsable here")
     }
 
     /// `contactCount` drives the empty-state vs list-state branch in the
     /// `ContactsView` body and the compose button's enabled flag. It counts
-    /// only browsable rows - humans and template-backed agents - so a
-    /// template-less agent does not inflate the total.
-    func testContactCountCountsBrowsableRowsOnly() {
+    /// only browsable rows, so agents do not inflate the total.
+    func testContactCountCountsBrowsableRowsOnly() async {
         let alice = Contact.mock(displayName: "Alice")
         let coffeeAgent = Contact.mock(
             displayName: "Americano",
@@ -53,30 +51,28 @@ final class ContactsViewModelTests: XCTestCase {
             displayName: "Legacy Assistant",
             agentVerification: .verified(.convos)
         )
-        let repo = MockContactsRepository(contacts: [alice, coffeeAgent, legacyAssistant])
 
-        let viewModel = ContactsViewModel(contactsRepository: repo)
+        let viewModel = await makeLoadedViewModel(contacts: [alice, coffeeAgent, legacyAssistant])
 
-        XCTAssertEqual(viewModel.contactCount, 2)
-        XCTAssertEqual(viewModel.sections.flatMap { $0.rows }.count, 2)
+        XCTAssertEqual(viewModel.contactCount, 1)
+        XCTAssertEqual(viewModel.sections.flatMap { $0.rows }.count, 1)
     }
 
     // MARK: - Search
 
-    func testSearchQueryFiltersResultsCaseInsensitively() {
+    func testSearchQueryFiltersResultsCaseInsensitively() async {
         let alice = Contact.mock(displayName: "Alice")
         let bob = Contact.mock(displayName: "Bob")
         let charlie = Contact.mock(displayName: "Charlie")
-        let repo = MockContactsRepository(contacts: [alice, bob, charlie])
 
-        let viewModel = ContactsViewModel(contactsRepository: repo)
+        let viewModel = await makeLoadedViewModel(contacts: [alice, bob, charlie])
 
         viewModel.searchQuery = "ALI"
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
         XCTAssertEqual(allIds, [alice.inboxId])
     }
 
-    func testSearchMatchesHumansAndTemplateAgentsAlike() {
+    func testSearchMatchesPeopleOnly() async {
         let alice = Contact.mock(displayName: "Alice")
         let aliceAssistant = Contact.mock(
             displayName: "Alice Assistant",
@@ -84,23 +80,21 @@ final class ContactsViewModelTests: XCTestCase {
             agentTemplateId: "tmpl-alice"
         )
         let bob = Contact.mock(displayName: "Bob")
-        let repo = MockContactsRepository(contacts: [alice, aliceAssistant, bob])
 
-        let viewModel = ContactsViewModel(contactsRepository: repo)
+        let viewModel = await makeLoadedViewModel(contacts: [alice, aliceAssistant, bob])
 
-        // Search spans template-backed agents too: both Alice and the
-        // (template-backed) Alice Assistant match "alice"; Bob does not.
+        // The agent shares her name but is not browsable, so only Alice matches.
         viewModel.searchQuery = "alice"
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
-        XCTAssertEqual(allIds.sorted(), [alice.inboxId, aliceAssistant.inboxId].sorted())
+        XCTAssertEqual(allIds, [alice.inboxId])
     }
 
     // MARK: - Filtered empty state
 
-    /// `isFiltering` distinguishes "nothing matched the search/filter" from
-    /// "no contacts at all", so the view keeps the search bar and shows the
+    /// `isFiltering` distinguishes "nothing matched the search" from "no
+    /// contacts at all", so the view keeps the search bar and shows the
     /// "Show all" empty state instead of the onboarding empty state.
-    func testIsFilteringReflectsSearchAndAudienceFilter() {
+    func testIsFilteringReflectsSearch() {
         let repo = MockContactsRepository(contacts: [.mock(displayName: "Alice")])
         let viewModel = ContactsViewModel(contactsRepository: repo)
 
@@ -114,18 +108,15 @@ final class ContactsViewModelTests: XCTestCase {
 
         viewModel.searchQuery = ""
         XCTAssertFalse(viewModel.isFiltering)
-
-        viewModel.filter = .agents
-        XCTAssertTrue(viewModel.isFiltering)
     }
 
-    /// "Show all" clears both the text search and the audience filter, so the
-    /// full list comes back and `isFiltering` reads false again.
-    func testClearFiltersRestoresFullList() {
+    /// "Show all" clears the text search, so the full list comes back and
+    /// `isFiltering` reads false again.
+    func testClearFiltersRestoresFullList() async {
         let alice = Contact.mock(displayName: "Alice")
         let bob = Contact.mock(displayName: "Bob")
-        let repo = MockContactsRepository(contacts: [alice, bob])
-        let viewModel = ContactsViewModel(contactsRepository: repo)
+
+        let viewModel = await makeLoadedViewModel(contacts: [alice, bob])
 
         viewModel.searchQuery = "zzz"
         XCTAssertTrue(viewModel.sections.isEmpty)
@@ -142,23 +133,21 @@ final class ContactsViewModelTests: XCTestCase {
 
     /// Default state hides blocked contacts; the user opts back in via the
     /// `showBlocked` toggle.
-    func testBlockedContactsHiddenByDefault() {
+    func testBlockedContactsHiddenByDefault() async {
         let alice = Contact.mock(displayName: "Alice")
         let blockedBob = Contact.mock(displayName: "Bob", isBlocked: true)
-        let repo = MockContactsRepository(contacts: [alice, blockedBob])
 
-        let viewModel = ContactsViewModel(contactsRepository: repo)
+        let viewModel = await makeLoadedViewModel(contacts: [alice, blockedBob])
 
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
         XCTAssertEqual(allIds, [alice.inboxId])
     }
 
-    func testShowBlockedToggleRevealsBlockedRows() {
+    func testShowBlockedToggleRevealsBlockedRows() async {
         let alice = Contact.mock(displayName: "Alice")
         let blockedBob = Contact.mock(displayName: "Bob", isBlocked: true)
-        let repo = MockContactsRepository(contacts: [alice, blockedBob])
 
-        let viewModel = ContactsViewModel(contactsRepository: repo)
+        let viewModel = await makeLoadedViewModel(contacts: [alice, blockedBob])
         viewModel.showBlocked = true
 
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
@@ -169,21 +158,20 @@ final class ContactsViewModelTests: XCTestCase {
     /// about. Hiding blocked from the list does not change it -- the
     /// onboarding empty state stays correct for users whose only contacts
     /// happen to all be blocked.
-    func testContactCountIgnoresShowBlockedToggle() {
+    func testContactCountIgnoresShowBlockedToggle() async {
         let alice = Contact.mock(displayName: "Alice")
         let blockedBob = Contact.mock(displayName: "Bob", isBlocked: true)
-        let repo = MockContactsRepository(contacts: [alice, blockedBob])
 
-        let viewModel = ContactsViewModel(contactsRepository: repo)
+        let viewModel = await makeLoadedViewModel(contacts: [alice, blockedBob])
 
         XCTAssertEqual(viewModel.contactCount, 2)
         viewModel.showBlocked = true
         XCTAssertEqual(viewModel.contactCount, 2)
     }
 
-    /// Show-blocked composes with the audience filter: with both on,
-    /// only blocked contacts in that audience appear.
-    func testShowBlockedComposesWithAudienceFilter() {
+    /// Show-blocked reveals blocked people and no one else: a blocked agent is
+    /// still not browsable here.
+    func testShowBlockedRevealsBlockedPeopleOnly() async {
         let alice = Contact.mock(displayName: "Alice")
         let blockedHuman = Contact.mock(displayName: "Bob", isBlocked: true)
         let blockedAgent = Contact.mock(
@@ -192,15 +180,13 @@ final class ContactsViewModelTests: XCTestCase {
             agentVerification: .verified(.convos),
             agentTemplateId: "tmpl-coffee"
         )
-        let repo = MockContactsRepository(contacts: [alice, blockedHuman, blockedAgent])
 
-        let viewModel = ContactsViewModel(contactsRepository: repo)
+        let viewModel = await makeLoadedViewModel(contacts: [alice, blockedHuman, blockedAgent])
         viewModel.showBlocked = true
-        viewModel.filter = .agents
 
         let allIds: [String] = viewModel.sections.flatMap { $0.rows.map(\.contact.inboxId) }
-        // Show-blocked + agents-only -> only the blocked agent appears.
-        XCTAssertEqual(allIds, [blockedAgent.inboxId])
+        XCTAssertEqual(allIds.sorted(), [alice.inboxId, blockedHuman.inboxId].sorted())
+        XCTAssertFalse(allIds.contains(blockedAgent.inboxId))
     }
 
     /// `isFiltering` should fire on the show-blocked toggle alone, so the
@@ -217,19 +203,38 @@ final class ContactsViewModelTests: XCTestCase {
     }
 
     /// `clearFilters()` is invoked from the filtered-empty-state "Show all"
-    /// button. It must reset the show-blocked toggle alongside the audience
-    /// filter and search query so "Show all" matches the default load.
+    /// button. It must reset the show-blocked toggle alongside the search
+    /// query so "Show all" matches the default load.
     func testClearFiltersResetsShowBlocked() {
         let viewModel = ContactsViewModel(contactsRepository: MockContactsRepository())
 
         viewModel.showBlocked = true
-        viewModel.filter = .agents
         viewModel.searchQuery = "alice"
 
         viewModel.clearFilters()
 
         XCTAssertFalse(viewModel.showBlocked)
-        XCTAssertEqual(viewModel.filter, .all)
         XCTAssertTrue(viewModel.searchQuery.isEmpty)
+    }
+
+    // MARK: - Helpers
+
+    /// The first contact load is asynchronous: the repository publisher
+    /// delivers on the main queue and the first-paint fetch runs detached, so
+    /// `sections` and `contactCount` are empty until one of them lands.
+    /// Anything asserting on rows has to wait for that.
+    private func makeLoadedViewModel(
+        contacts: [Contact],
+        timeout: TimeInterval = 2
+    ) async -> ContactsViewModel {
+        let viewModel = ContactsViewModel(
+            contactsRepository: MockContactsRepository(contacts: contacts)
+        )
+        let deadline = Date().addingTimeInterval(timeout)
+        while viewModel.isLoading, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertFalse(viewModel.isLoading, "contacts never loaded")
+        return viewModel
     }
 }

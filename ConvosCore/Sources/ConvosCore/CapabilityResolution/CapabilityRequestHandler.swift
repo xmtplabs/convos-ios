@@ -23,6 +23,11 @@ public struct CapabilityRequestHandler: Sendable {
     /// seed its toggles from the granted state (and treat unchecking as a revoke).
     /// Pass `[]` when grants can't be read — the sheet then seeds its default-ON
     /// posture and a re-approve is a harmless upsert.
+    ///
+    /// Returns nil when this client has nothing honest to offer for the request —
+    /// no provider it knows both satisfies the request's named providers and
+    /// supports the requested verb. The caller shows no card at all rather than a
+    /// card for some other provider registered under the same subject.
     public func computeLayout(
         request: CapabilityRequest,
         registry: any CapabilityProviderRegistry,
@@ -30,12 +35,21 @@ public struct CapabilityRequestHandler: Sendable {
         conversationId: String,
         services: [CloudConnectionsAPI.ServiceConfig] = [],
         existingGrants: [CloudConnectionGrant] = []
-    ) async -> CapabilityPickerLayout {
-        let providersForSubject = await registry.providers(for: request.subject)
+    ) async -> CapabilityPickerLayout? {
+        let registered = await registry.providers(for: request.subject)
+        let providersForSubject = Self.matchingRequestedProviders(registered, request: request)
         let summaries = await Self.summarize(
             providers: providersForSubject,
             requestedCapability: request.capability
         )
+        guard summaries.contains(where: \.supportsCapability) else {
+            Log.warning(
+                "[CapabilityResolution] ignoring capability_request requestId=\(request.requestId) "
+                    + "subject=\(request.subject.rawValue) capability=\(request.capability.rawValue) — "
+                    + "no registered provider matches requested=\(Self.describe(request.preferredProviders))"
+            )
+            return nil
+        }
         // Linked AND supports the requested verb. A provider that's linked but doesn't
         // implement the verb (e.g. Strava is read-only and the agent asks for
         // writeCreate) shouldn't be eligible for default-approve / pre-selection.
@@ -160,6 +174,26 @@ public struct CapabilityRequestHandler: Sendable {
     }
 
     // MARK: - Internals
+
+    /// Narrow the subject's registered providers to the ones the request actually
+    /// named. A request's `preferredProviders` is the toolkit the asking agent will
+    /// exec against, so another provider registered under the same subject is not a
+    /// substitute for it: approving one writes a grant the agent cannot use, for a
+    /// service the user was never asked about. When the request names nothing, every
+    /// provider registered for the subject stays eligible.
+    private static func matchingRequestedProviders(
+        _ providers: [any CapabilityProvider],
+        request: CapabilityRequest
+    ) -> [any CapabilityProvider] {
+        guard let requested = request.preferredProviders, !requested.isEmpty else { return providers }
+        let requestedIds = Set(requested)
+        return providers.filter { requestedIds.contains($0.id) }
+    }
+
+    private static func describe(_ providers: [ProviderID]?) -> String {
+        guard let providers, !providers.isEmpty else { return "<any>" }
+        return providers.map(\.rawValue).joined(separator: ",")
+    }
 
     private static func summarize(
         providers: [any CapabilityProvider],
@@ -324,6 +358,10 @@ public struct CapabilityRequestHandler: Sendable {
         }
     }
 
+    /// Pre-selection within the card's rows. `linked` has already been narrowed to the
+    /// request's named providers by `matchingRequestedProviders`, so this only decides
+    /// how many of them start checked: one on a single-select card, all of them on a
+    /// federating multi-select card.
     private func honorPreferredProviders(
         request: CapabilityRequest,
         linked: [CapabilityPickerLayout.ProviderSummary],

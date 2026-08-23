@@ -50,6 +50,11 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let imageLastRenewed: Column = Column(CodingKeys.imageLastRenewed)
         static let isUnused: Column = Column(CodingKeys.isUnused)
         static let hasHadVerifiedAgent: Column = Column(CodingKeys.hasHadVerifiedAgent)
+        static let isAgentDm: Column = Column(CodingKeys.isAgentDm)
+        static let participationMode: Column = Column(CodingKeys.participationMode)
+        static let spaceURLString: Column = Column(CodingKeys.spaceURLString)
+        static let addedById: Column = Column(CodingKeys.addedById)
+        static let adderStatus: Column = Column(CodingKeys.adderStatus)
     }
 
     let id: String
@@ -74,6 +79,31 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let imageLastRenewed: Date?
     let isUnused: Bool
     let hasHadVerifiedAgent: Bool
+    let isAgentDm: Bool
+    /// The conversation's agent participation mode, carried in the group's
+    /// appData and mirrored here so the composer control and the transcript can
+    /// observe it. Nil while no member has set one, which reads as
+    /// `ConversationParticipationMode.default`.
+    let participationMode: ConversationParticipationMode?
+    /// The deployed Space web URL for this conversation, carried in the
+    /// group's appData. The Assistant Worker is the sole authority; clients
+    /// only read it. Nil while no Space has been published.
+    let spaceURLString: String?
+    /// Storage for `adder` - read that instead, and set it through `init`.
+    /// The pair is kept consistent by a CHECK constraint: `addedById` is
+    /// non-null exactly when `adderStatus` is `resolved`.
+    let addedById: String?
+    let adderStatus: AdderStatus
+
+    /// The inbox that added the local user, which is *not* necessarily
+    /// `creatorId` - anyone with add permission can pull a member into a group
+    /// somebody else created. Persisted so the passes that run long after the
+    /// welcome (`ConversationConsentReconciler`, the block demote in
+    /// `ContactsWriter`) key on the same identity `StreamProcessor` used when
+    /// it decided whether to consent on the user's behalf.
+    var adder: AdderResolution {
+        .init(status: adderStatus, addedById: addedById)
+    }
 
     init(
         id: String,
@@ -97,7 +127,11 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         conversationEmoji: String?,
         imageLastRenewed: Date?,
         isUnused: Bool,
-        hasHadVerifiedAgent: Bool
+        hasHadVerifiedAgent: Bool,
+        isAgentDm: Bool = false,
+        participationMode: ConversationParticipationMode? = nil,
+        spaceURLString: String? = nil,
+        adder: AdderResolution = .notRecorded
     ) {
         self.id = id
         self.clientConversationId = clientConversationId
@@ -121,6 +155,11 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.imageLastRenewed = imageLastRenewed
         self.isUnused = isUnused
         self.hasHadVerifiedAgent = hasHadVerifiedAgent
+        self.isAgentDm = isAgentDm
+        self.participationMode = participationMode
+        self.spaceURLString = spaceURLString
+        self.addedById = adder.knownInboxId
+        self.adderStatus = adder.status
     }
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
@@ -304,7 +343,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -331,7 +374,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -358,7 +405,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -385,7 +436,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -412,7 +467,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -441,7 +500,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -468,7 +531,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -495,7 +562,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -522,7 +593,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -549,7 +624,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -576,7 +655,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -603,7 +686,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -630,7 +717,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -657,7 +748,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -684,7 +779,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -711,7 +810,11 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -738,7 +841,103 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString
+        )
+    }
+
+    func with(participationMode: ConversationParticipationMode?) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
+        )
+    }
+
+    func with(spaceURLString: String?) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
+        )
+    }
+
+    func with(isAgentDm: Bool) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 
@@ -765,7 +964,42 @@ extension DBConversation {
             conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            hasHadVerifiedAgent: hasHadVerifiedAgent
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
+        )
+    }
+
+    func with(adder: AdderResolution) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            adder: adder
         )
     }
 

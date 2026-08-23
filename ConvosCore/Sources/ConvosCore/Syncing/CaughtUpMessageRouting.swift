@@ -31,7 +31,7 @@ enum CaughtUpMessageKind {
     case regular
 
     static func of(_ message: XMTPiOS.DecodedMessage) -> CaughtUpMessageKind {
-        if message.isProfileMessage || message.isTypingIndicator {
+        if message.isProfileMessage || message.isTypingIndicator || message.isConversationReady {
             return .ignore
         }
         if message.isReadReceipt {
@@ -56,17 +56,19 @@ enum CaughtUpMessageKind {
 /// Whether a newly-persisted message should mark its conversation unread,
 /// applied identically by every ingest path. A message marks unread when its
 /// content type is user-visible (`marksConversationAsUnread`), it came from
-/// someone other than us, and it isn't the conversation the user is currently
-/// viewing. Pass `activeConversationId: nil` from contexts with no active
-/// conversation (push, conversation discovery).
+/// someone other than us, and it isn't a conversation the user is currently
+/// viewing. `activeConversationIds` is a set because the conversation screen
+/// can have two live surfaces at once: the group and its folded agent DM
+/// (the Agent tab); each registers separately. Pass `[]` from contexts with
+/// no active conversation (push, conversation discovery).
 func marksConversationUnread(
     contentType: MessageContentType,
     senderInboxId: String,
     currentInboxId: String,
     conversationId: String,
-    activeConversationId: String?
+    activeConversationIds: Set<String>
 ) -> Bool {
     contentType.marksConversationAsUnread
         && senderInboxId != currentInboxId
-        && conversationId != activeConversationId
+        && !activeConversationIds.contains(conversationId)
 }

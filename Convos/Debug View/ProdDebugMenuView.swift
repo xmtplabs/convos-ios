@@ -20,14 +20,21 @@ import UserNotifications
 //
 // Hard rules enforced here:
 // - No mutating controls (no "Request Now", no "Register Device Again", no
-//   purchase / change-plan CTAs, no mock-credit toggles). Two deliberate
-//   exceptions, both flipping only a local default so a tester can opt this
+//   purchase / change-plan CTAs, no mock-credit toggles). Four deliberate
+//   exceptions, each flipping only a local default so a tester can opt this
 //   install into a feature we are dogfooding in production:
 //   - the XMTP bidi streaming opt-in, which selects the stream transport at
 //     next launch -- nothing account- or network-mutating.
 //   - the Listen opt-in, which only decides whether the participation control
 //     is built. Turning it on mutates nothing by itself; the writes happen
 //     later, in the control, when a member actually picks a level.
+//   - the Abilities v2 opt-in, which swaps the abilities catalog list and
+//     per-conversation section from the V1 connections UI to the V2 one and
+//     points them at the live abilities backend. Off by default; nothing
+//     mutates until a tester connects an ability from that surface.
+//   - the Web inspector opt-in, which only decides whether the space/browser
+//     web views set `isInspectable`. Off by default; it mutates nothing and
+//     merely lets Safari Web Inspector attach to debug the window.convos bridge.
 // - The live `BackendAuthProbe` (JWT minter) is never imported or instantiated
 //   here. The identity readout uses `DeviceIdentitySnapshot`, which is
 //   network-free and carries no JWT.
@@ -46,7 +53,7 @@ struct ProdDebugMenuView: View {
     @State private var identity: DeviceIdentitySnapshot?
     @State private var installations: InstallationsSnapshot?
     @State private var debugModeEnabled: Bool = DebugMenuFlagStore.isEnabled()
-    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var creditBalance: CreditBalance?
     @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
 
     var body: some View {
@@ -175,10 +182,13 @@ struct ProdDebugMenuView: View {
         let injectorEnabled: Bool = FeatureFlags.shared.isDebugInjectorEnabled
         Section("Feature flags") {
             labeledRow("Debug injector", injectorEnabled ? "On" : "Off")
-            // The two interactive controls in this curated menu; see the
+            // The interactive controls in this curated menu; see the
             // module overview for why they are allowed here.
             Toggle("Listen (agent participation)", isOn: Bindable(FeatureFlags.shared).isListenParticipationEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
+            Toggle("Abilities v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
+            Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
+            Toggle("Web inspector (space/browser web views)", isOn: Bindable(FeatureFlags.shared).isWebInspectorEnabled)
         }
     }
 

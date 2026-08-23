@@ -14,6 +14,11 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onLoadPreviousMessages: () -> Void
     let onTapInvite: (MessageInvite) -> Void
     var onTapAgentShare: (MessageAgentShare) -> Void = { _ in }
+    /// Offered every link tapped in a bubble before the in-app browser gets
+    /// it; see `MessageLinkRouter`.
+    var messageLinkRouter: MessageLinkRouter = { _ in false }
+    /// The conversation's own Space; see `SpaceLink`.
+    var conversationSpaceURL: URL?
     var agentShareResolver: any AgentShareResolving = MockAgentShareResolver()
     var inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver()
     let onReaction: (String, String) -> Void
@@ -42,9 +47,8 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAgentJoin: () -> Void
-    let onCopyInviteLink: () -> Void
-    let onConvoCode: () -> Void
     let onInviteAgent: () -> Void
+    var onInvitePeople: () -> Void = {}
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
     let memberContactOverride: (String) -> Contact?
@@ -61,11 +65,6 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// When true the index-0 `.invite` cell renders the full inline
     /// Invite/Scan card (`InviteCodeBody`) for an active hosted session,
     /// instead of the regular inviter QR + menu.
-    var showsInviteScanCard: Bool = false
-    var inviteScanMode: InviteCodeMode = .inConvo
-    var inviteScanInitialSegment: ScanInviteSegment = .invite
-    var onScannedInviteCode: ((String) -> Void)?
-    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
     let bottomBarHeight: CGFloat
     /// Hosts that intentionally have no composer (the thinking detail sheet)
     /// pass `false` so the controller doesn't wait for a non-existent bottom
@@ -76,11 +75,18 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     /// `MessagesViewController.topContentInset`. Default 0 keeps the chat
     /// path on its existing layout.
     var topContentInset: CGFloat = 0.0
-    let scrollToBottomTrigger: (@escaping () -> Void) -> Void
+    /// How much of the list's top the host clips away. See
+    /// `MessagesViewController.clippedTopOverflow`. Default 0 is a host that
+    /// shows the whole frame it hands over.
+    var clippedTopOverflow: CGFloat = 0.0
+    /// Called with the transcript's content height when it changes, for a host
+    /// that will not offer a detent taller than there is transcript to fill it.
+    var onContentHeightChanged: ((CGFloat) -> Void)?
+    let scrollToBottomTrigger: (@escaping (Bool) -> Void) -> Void
     let messageInputFocusTrigger: (@escaping () -> Void) -> Void
 
     public class Coordinator {
-        var scrollToBottomFunction: (() -> Void)?
+        var scrollToBottomFunction: ((Bool) -> Void)?
         var messageInputFocusFunction: (() -> Void)?
     }
 
@@ -99,6 +105,8 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onLoadPreviousMessages: @escaping () -> Void,
         onTapInvite: @escaping (MessageInvite) -> Void,
         onTapAgentShare: @escaping (MessageAgentShare) -> Void = { _ in },
+        messageLinkRouter: @escaping MessageLinkRouter = { _ in false },
+        conversationSpaceURL: URL? = nil,
         agentShareResolver: any AgentShareResolving = MockAgentShareResolver(),
         inviteMembershipResolver: any InviteMembershipResolving = NoopInviteMembershipResolver(),
         onReaction: @escaping (String, String) -> Void,
@@ -119,9 +127,8 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onRetryMessage: @escaping (AnyMessage) -> Void,
         onDeleteMessage: @escaping (AnyMessage) -> Void,
         onRetryAgentJoin: @escaping () -> Void,
-        onCopyInviteLink: @escaping () -> Void,
-        onConvoCode: @escaping () -> Void,
         onInviteAgent: @escaping () -> Void,
+        onInvitePeople: @escaping () -> Void = {},
         onRetryTranscript: @escaping (VoiceMemoTranscriptListItem) -> Void,
         profileSheetForMember: @escaping (ConversationMember) -> AnyView,
         memberContactOverride: @escaping (String) -> Contact?,
@@ -132,18 +139,15 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         htmlAttachmentTransitionNamespace: Namespace.ID? = nil,
         onPresentHTMLAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)? = nil,
         onPresentFileAttachmentPreview: ((HydratedAttachment, URL, ConversationMember, Date) -> Void)? = nil,
-        showsInviteScanCard: Bool = false,
-        inviteScanMode: InviteCodeMode = .inConvo,
-        inviteScanInitialSegment: ScanInviteSegment = .invite,
-        onScannedInviteCode: ((String) -> Void)? = nil,
-        onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)? = nil,
         agentBuilderSummaryProvider: ((AgentBuilderCardContent) -> AnyView)? = nil,
         currentUserProfileImage: (() -> UIImage?)? = nil,
         backwardsSecrecyInfoSheet: (() -> AnyView)? = nil,
         bottomBarHeight: CGFloat,
         hasBottomBar: Bool = true,
         topContentInset: CGFloat = 0.0,
-        scrollToBottomTrigger: @escaping (@escaping () -> Void) -> Void,
+        clippedTopOverflow: CGFloat = 0.0,
+        onContentHeightChanged: ((CGFloat) -> Void)? = nil,
+        scrollToBottomTrigger: @escaping (@escaping (Bool) -> Void) -> Void,
         messageInputFocusTrigger: @escaping (@escaping () -> Void) -> Void
     ) {
         self.conversation = conversation
@@ -156,6 +160,8 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.onLoadPreviousMessages = onLoadPreviousMessages
         self.onTapInvite = onTapInvite
         self.onTapAgentShare = onTapAgentShare
+        self.messageLinkRouter = messageLinkRouter
+        self.conversationSpaceURL = conversationSpaceURL
         self.agentShareResolver = agentShareResolver
         self.inviteMembershipResolver = inviteMembershipResolver
         self.onReaction = onReaction
@@ -173,9 +179,8 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.onRetryMessage = onRetryMessage
         self.onDeleteMessage = onDeleteMessage
         self.onRetryAgentJoin = onRetryAgentJoin
-        self.onCopyInviteLink = onCopyInviteLink
-        self.onConvoCode = onConvoCode
         self.onInviteAgent = onInviteAgent
+        self.onInvitePeople = onInvitePeople
         self.onRetryTranscript = onRetryTranscript
         self.profileSheetForMember = profileSheetForMember
         self.memberContactOverride = memberContactOverride
@@ -189,17 +194,14 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.onOpenMessageDetail = onOpenMessageDetail
         self.expandedMessageIds = expandedMessageIds
         self.onToggleMessageExpanded = onToggleMessageExpanded
-        self.showsInviteScanCard = showsInviteScanCard
-        self.inviteScanMode = inviteScanMode
-        self.inviteScanInitialSegment = inviteScanInitialSegment
-        self.onScannedInviteCode = onScannedInviteCode
-        self.onInviteShareCompleted = onInviteShareCompleted
         self.agentBuilderSummaryProvider = agentBuilderSummaryProvider
         self.currentUserProfileImage = currentUserProfileImage
         self.backwardsSecrecyInfoSheet = backwardsSecrecyInfoSheet
         self.bottomBarHeight = bottomBarHeight
         self.hasBottomBar = hasBottomBar
         self.topContentInset = topContentInset
+        self.clippedTopOverflow = clippedTopOverflow
+        self.onContentHeightChanged = onContentHeightChanged
         self.scrollToBottomTrigger = scrollToBottomTrigger
         self.messageInputFocusTrigger = messageInputFocusTrigger
     }
@@ -207,13 +209,13 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     public func makeUIViewController(context: Context) -> MessagesViewController {
         let viewController = MessagesViewController()
         viewController.contextMenuState = contextMenuState
-        context.coordinator.scrollToBottomFunction = { [weak viewController] in
-            viewController?.scrollToBottomForSend()
+        context.coordinator.scrollToBottomFunction = { [weak viewController] animated in
+            viewController?.scrollToBottomForSend(animated: animated)
         }
         context.coordinator.messageInputFocusFunction = { [weak viewController] in
             viewController?.messageInputDidBecomeFocused()
         }
-        scrollToBottomTrigger { context.coordinator.scrollToBottomFunction?() }
+        scrollToBottomTrigger { animated in context.coordinator.scrollToBottomFunction?(animated) }
         messageInputFocusTrigger { context.coordinator.messageInputFocusFunction?() }
         return viewController
     }
@@ -223,6 +225,8 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onUserInteraction = onUserInteraction
         messagesViewController.hasBottomBar = hasBottomBar
         messagesViewController.topContentInset = topContentInset
+        messagesViewController.clippedTopOverflow = clippedTopOverflow
+        messagesViewController.onContentHeightChanged = onContentHeightChanged
         // Assign bottomBarHeight before state: its deferred inset update must be
         // enqueued ahead of the initial load's scroll-to-bottom completion.
         messagesViewController.bottomBarHeight = bottomBarHeight
@@ -232,6 +236,10 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onLoadPreviousMessages = onLoadPreviousMessages
         messagesViewController.onTapInvite = onTapInvite
         messagesViewController.onTapAgentShare = onTapAgentShare
+        messagesViewController.applySpaceLinkHandling(
+            router: messageLinkRouter,
+            spaceURL: conversationSpaceURL
+        )
         messagesViewController.agentShareResolver = agentShareResolver
         messagesViewController.inviteMembershipResolver = inviteMembershipResolver
         messagesViewController.onReaction = onReaction
@@ -264,9 +272,8 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
             self.onDeleteMessage(message)
         }
         messagesViewController.onRetryAgentJoin = onRetryAgentJoin
-        messagesViewController.onCopyInviteLink = onCopyInviteLink
-        messagesViewController.onConvoCode = onConvoCode
         messagesViewController.onInviteAgent = onInviteAgent
+        messagesViewController.onInvitePeople = onInvitePeople
         messagesViewController.onRetryTranscript = onRetryTranscript
         messagesViewController.profileSheetForMember = profileSheetForMember
         messagesViewController.memberContactOverride = memberContactOverride
@@ -283,11 +290,6 @@ let menuPresented = contextMenuState.isPresented
         }
         messagesViewController.onPresentHTMLAttachmentPreview = onPresentHTMLAttachmentPreview
         messagesViewController.onPresentFileAttachmentPreview = onPresentFileAttachmentPreview
-        messagesViewController.showsInviteScanCard = showsInviteScanCard
-        messagesViewController.inviteScanMode = inviteScanMode
-        messagesViewController.inviteScanInitialSegment = inviteScanInitialSegment
-        messagesViewController.onScannedInviteCode = onScannedInviteCode
-        messagesViewController.onInviteShareCompleted = onInviteShareCompleted
         messagesViewController.state = .init(
             conversation: conversation,
             messages: messages,

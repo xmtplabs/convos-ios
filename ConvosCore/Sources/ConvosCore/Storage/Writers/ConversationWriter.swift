@@ -33,6 +33,12 @@ extension DecodedMessage {
         return contentType.authorityID == ContentTypeBuilderBundleManifest.authorityID
             && contentType.typeID == ContentTypeBuilderBundleManifest.typeID
     }
+
+    var isConversationReady: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        return contentType.authorityID == ContentTypeConversationReady.authorityID
+            && contentType.typeID == ContentTypeConversationReady.typeID
+    }
 }
 
 enum ConversationWriterError: Error {
@@ -194,7 +200,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 conversationEmoji: signedInvite.emoji,
                 imageLastRenewed: nil,
                 isUnused: false,
-                hasHadVerifiedAgent: false
+                hasHadVerifiedAgent: false,
+                isAgentDm: false
             )
             try conversation.save(db)
             let memberProfile = DBMemberProfile(
@@ -252,16 +259,31 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let dbConversation: DBConversation
         let dbMembers: [DBConversationMember]
         let memberProfiles: [DBMemberProfile]
+        /// The DM's parent group id, when this conversation is an agent DM that
+        /// recorded one; persisted to `agent_dm_origin` in `persist`.
+        var originConversationId: String?
     }
 
     /// Async, network-bound, transaction-free. Safe to call concurrently for
     /// many conversations.
+    ///
+    /// `syncFirst` controls the per-group network `conversation.sync()`.
+    /// Callers with no other freshness source (the NSE message paths, the
+    /// stream processor) must leave it on: it is the only thing pulling new
+    /// commits before the group's roster and metadata are read. The batch
+    /// catch-up path passes `false` when its client-wide
+    /// `syncAllConversations` completed - the per-group sync would be
+    /// redundant network work multiplied by every conversation in the
+    /// batch - and `true` when that sync failed or timed out.
     func prepare(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        clientConversationId: String? = nil
+        clientConversationId: String? = nil,
+        syncFirst: Bool = true
     ) async throws -> PreparedConversation {
-        try await conversation.sync()
+        if syncFirst {
+            try await conversation.sync()
+        }
         try await denyConsentIfInviteWasLocallyDeleted(for: conversation)
         let metadata = try await extractConversationMetadata(from: conversation)
         let members = try await conversation.members
@@ -277,7 +299,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         return PreparedConversation(
             dbConversation: dbConversation,
             dbMembers: dbMembers,
-            memberProfiles: memberProfiles
+            memberProfiles: memberProfiles,
+            originConversationId: metadata.originConversationId
         )
     }
 
@@ -336,7 +359,15 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Save conversation (handle local conversation updates).
         // Also handles imageLastRenewed preservation inside the transaction.
-        let saveResult = try saveConversation(prepared.dbConversation, in: db)
+        let saveResult = try saveConversation(prepared.dbConversation, memberCount: prepared.dbMembers.count, in: db)
+
+        // Mirror the DM -> parent-group link so a DM notification tap can route
+        // to the parent's DM page. No-op for non-DMs and DMs without an origin.
+        try DBAgentDmOrigin.record(
+            conversationId: prepared.dbConversation.id,
+            originConversationId: prepared.originConversationId,
+            in: db
+        )
 
         // Save local state
         let localState = ConversationLocalState(
@@ -774,6 +805,15 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let debugInfo: ConversationDebugInfo
         let isLocked: Bool
         let hasHadVerifiedAgent: Bool
+        let isAgentDm: Bool
+        /// The parent group id, for an agent DM that recorded one in its
+        /// metadata; nil for non-DMs or DMs without a recorded origin.
+        let originConversationId: String?
+        let participationMode: ConversationParticipationMode?
+        /// The deployed Space web URL carried in the group's appData; the
+        /// Assistant Worker is the sole authority. Nil until one is published.
+        let spaceURLString: String?
+        let memberCount: Int
     }
 
     private func extractConversationMetadata(from conversation: XMTPiOS.Group) async throws -> ConversationMetadata {
@@ -785,6 +825,27 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let imageEncryptionKey = try? conversation.imageEncryptionKey
         let conversationEmoji = try? conversation.conversationEmoji
         Log.info("extractConversationMetadata: emoji=\(conversationEmoji ?? "nil") for convo: \(conversation.id)")
+
+        // Classification requires the marker, exactly two members, and the
+        // other member being an attested verified agent. The marker alone is
+        // member-writable appData, so honoring it on any human 1:1 would let a
+        // peer permanently hide that conversation from the victim (list + count
+        // filters key on this flag). Verified-agent status is read from the
+        // per-inbox identity table, where the inbound seam stores the resolved
+        // (attested) member kind -- a value a human peer cannot forge.
+        let hasAgentDmMarker = (try? conversation.currentCustomMetadata.hasAgentDm) ?? false
+        let members = (try? await conversation.members) ?? []
+        let memberCount = members.count
+        let hasVerifiedAgentMember = try await anyMemberIsVerifiedAgent(inboxIds: members.map(\.inboxId))
+        let isAgentDm = hasAgentDmMarker && memberCount == 2 && hasVerifiedAgentMember
+        // Only meaningful for a DM; read the parent link the creating device
+        // stamped. Backs both DM-notification tap routing (open the parent
+        // group's DM page) and the auto-allow gate (user still shares the
+        // origin). `try?` on a throwing optional yields String??; flatMap
+        // collapses it.
+        let originConversationId: String? = isAgentDm
+            ? (try? conversation.agentDmOriginConversationId).flatMap { $0 }
+            : nil
 
         return ConversationMetadata(
             kind: .group,
@@ -798,8 +859,104 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             expiresAt: try conversation.expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked,
-            hasHadVerifiedAgent: false
+            hasHadVerifiedAgent: false,
+            isAgentDm: isAgentDm,
+            originConversationId: originConversationId,
+            participationMode: try? conversation.participationMode,
+            spaceURLString: (try? conversation.spaceURL).flatMap { $0 },
+            memberCount: memberCount
         )
+    }
+
+    /// Whether any of the given inboxes resolves to a verified agent in the
+    /// per-inbox identity table. Backs the agent-DM classification and latch:
+    /// only self plus a verified agent may classify as an agent DM, and self is
+    /// never a verified agent, so a 2-member conversation with a verified-agent
+    /// member is exactly a self+agent DM.
+    private func anyMemberIsVerifiedAgent(inboxIds: [String]) async throws -> Bool {
+        guard !inboxIds.isEmpty else { return false }
+        return try await databaseWriter.read { db in
+            try Self.containsVerifiedAgentProfile(db, inboxIds: inboxIds)
+        }
+    }
+
+    static func containsVerifiedAgentProfile(_ db: Database, inboxIds: [String]) throws -> Bool {
+        try DBProfile
+            .fetchAll(db, inboxIds: inboxIds)
+            .contains { $0.agentVerification.isVerified }
+    }
+
+    static func conversationHasVerifiedAgentMember(_ db: Database, conversationId: String) throws -> Bool {
+        let inboxIds = try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .fetchAll(db)
+            .map(\.inboxId)
+        return try containsVerifiedAgentProfile(db, inboxIds: inboxIds)
+    }
+
+    /// Whether the user still shares the agent DM's origin (primary) group: the
+    /// origin conversation is present locally (not deleted), the user is a
+    /// current member, and they have no recorded departure (didn't leave it).
+    /// Gates auto-allow -- the agentDm marker is member-writable, so this stops a
+    /// verified agent from opening an auto-allowed DM without a shared primary,
+    /// or one whose primary the user has since left or deleted. A nil/empty
+    /// origin (no marker or legacy DM) is not shared.
+    private func userStillSharesOrigin(
+        originConversationId: String?,
+        selfInboxId: String
+    ) async throws -> Bool {
+        guard let originId = originConversationId, !originId.isEmpty else { return false }
+        return try await databaseWriter.read { db in
+            guard try DBConversation.fetchOne(db, id: originId) != nil else { return false }
+            let isCurrentMember = try DBConversationMember
+                .filter(DBConversationMember.Columns.conversationId == originId)
+                .filter(DBConversationMember.Columns.inboxId == selfInboxId)
+                .fetchCount(db) > 0
+            let hasDeparted = try DBMemberDeparture
+                .filter(DBMemberDeparture.Columns.conversationId == originId)
+                .filter(DBMemberDeparture.Columns.inboxId == selfInboxId)
+                .fetchCount(db) > 0
+            return isCurrentMember && !hasDeparted
+        }
+    }
+
+    /// One-way agent-DM latch: concurrent custom-metadata writers at creation
+    /// time (invite tag, emoji) do read-modify-write on the same appData blob
+    /// and can briefly rewrite it without the agent-DM marker, so an
+    /// extraction reading false must not un-mark a row that was ever marked
+    /// locally -- a de-classified DM would leak into the conversations list.
+    ///
+    /// The latch only applies while the conversation still has at most two
+    /// members: a marked DM whose agent left (count 1) stays hidden, but a
+    /// conversation that grew beyond two members must never be re-marked --
+    /// otherwise a transiently marked group could be hidden permanently.
+    ///
+    /// Re-marking also requires the conversation to still hold a verified-agent
+    /// member: the marker is member-writable, so without this a human 1:1 that
+    /// was momentarily marked could be re-latched into permanent hiding.
+    static func applyingAgentDmLatch(
+        incoming: DBConversation,
+        existing: DBConversation?,
+        memberCount: Int,
+        otherMemberIsVerifiedAgent: Bool
+    ) -> DBConversation {
+        guard existing?.isAgentDm == true, !incoming.isAgentDm, memberCount <= 2, otherMemberIsVerifiedAgent else {
+            return incoming
+        }
+        return incoming.with(isAgentDm: true)
+    }
+
+    /// A resolved adder is write-once: it records who invited us, which never
+    /// changes. The invite placeholder path has no XMTP handle and a failed
+    /// libxmtp read yields `.unresolved`; neither may erase a stored adder,
+    /// since the reconciler and the block demote depend on it.
+    static func preservingResolvedAdder(incoming: DBConversation, existing: DBConversation?) -> DBConversation {
+        guard incoming.adderStatus != .resolved,
+              let existing,
+              existing.adderStatus == .resolved else {
+            return incoming
+        }
+        return incoming.with(adder: existing.adder)
     }
 
     private func createDBConversation(
@@ -819,13 +976,30 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             return inbox.clientId
         }
 
+        // Auto-allow the agent-owned DM only when the user still shares the DM's
+        // origin (primary) group. It arrives as a welcome with unknown consent
+        // and the other member is a verified agent, but the agentDm marker is
+        // member-writable appData -- so also require the marker's origin to still
+        // be present locally, the user to be a current member, and no recorded
+        // departure. Without that, a verified agent could open an auto-allowed DM
+        // without a shared primary, or one whose primary the user has since left
+        // or deleted. Anything short keeps the synced (unknown) consent, so the DM
+        // surfaces as a normal request instead of silently allowed. Non-agent-DM
+        // conversations keep their synced consent untouched; re-runs idempotently.
+        let sharesOrigin = try await userStillSharesOrigin(
+            originConversationId: metadata.originConversationId,
+            selfInboxId: inboxId
+        )
+        let syncedConsent: Consent = try conversation.consentState().consent
+        let resolvedConsent: Consent = (metadata.isAgentDm && syncedConsent == .unknown && sharesOrigin) ? .allowed : syncedConsent
+
         return DBConversation(
             id: conversation.id,
             clientConversationId: clientConversationId ?? conversation.id,
             inviteTag: try conversation.inviteTag,
             creatorId: try await conversation.creatorInboxId(),
             kind: metadata.kind,
-            consent: try conversation.consentState().consent,
+            consent: resolvedConsent,
             createdAt: conversation.createdAt,
             name: metadata.name,
             description: metadata.description,
@@ -841,7 +1015,15 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             conversationEmoji: metadata.conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            hasHadVerifiedAgent: metadata.hasHadVerifiedAgent
+            hasHadVerifiedAgent: metadata.hasHadVerifiedAgent,
+            isAgentDm: metadata.isAgentDm,
+            participationMode: metadata.participationMode,
+            spaceURLString: metadata.spaceURLString,
+            // Shares one definition of the empty-vs-throw semantics with the
+            // consent gate (`StreamProcessor.contactsVouch`). A failed read
+            // persists as `.unresolved` rather than being flattened to "no
+            // adder", so the reconciler can fail closed on it.
+            adder: conversation.resolvedAdder()
         )
     }
 
@@ -863,6 +1045,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     /// ensures atomic read-modify-write, preventing concurrent asset renewal from losing timestamps).
     private func saveConversation(
         _ dbConversation: DBConversation,
+        memberCount: Int,
         in db: Database
     ) throws -> ConversationSaveResult {
         let firstTimeSeeingConversationExpired: Bool
@@ -887,6 +1070,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Apply the preserved timestamp
         var conversationToSave = dbConversation.with(imageLastRenewed: imageLastRenewed)
 
+        conversationToSave = Self.applyingAgentDmLatch(
+            incoming: conversationToSave,
+            existing: existingConversation,
+            memberCount: memberCount,
+            otherMemberIsVerifiedAgent: try Self.conversationHasVerifiedAgentMember(db, conversationId: dbConversation.id)
+        )
+
         if dbConversation.inviteTag.isEmpty,
            let existingConversation,
            !existingConversation.inviteTag.isEmpty {
@@ -905,6 +1095,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         if let existingConversation {
             let mergedHasAgent: Bool = existingConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
             conversationToSave = conversationToSave.with(hasHadVerifiedAgent: mergedHasAgent)
+            conversationToSave = Self.preservingResolvedAdder(
+                incoming: conversationToSave,
+                existing: existingConversation
+            )
         }
 
         let existingConversationByTag = try existingConversationMatchingInviteTag(
@@ -964,6 +1158,20 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             // agent flag must carry forward.
             let mergedHasAgentByTag: Bool = localConversation.hasHadVerifiedAgent || conversationToSave.hasHadVerifiedAgent
             conversationToSave = conversationToSave.with(hasHadVerifiedAgent: mergedHasAgentByTag)
+            // Same for the agent-DM latch: the replaced row is the "existing"
+            // one for latch purposes even though the incoming id differs.
+            conversationToSave = Self.applyingAgentDmLatch(
+                incoming: conversationToSave,
+                existing: localConversation,
+                memberCount: memberCount,
+                otherMemberIsVerifiedAgent: try Self.conversationHasVerifiedAgentMember(db, conversationId: localConversation.id)
+            )
+            // Same write-once rule as the by-id branch above: the row being
+            // replaced may hold the adder this read couldn't produce.
+            conversationToSave = Self.preservingResolvedAdder(
+                incoming: conversationToSave,
+                existing: localConversation
+            )
             try conversationToSave.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
             actualClientConversationId = preferredClientConversationId
@@ -1150,7 +1358,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 senderInboxId: message.senderInboxId,
                 currentInboxId: myInboxId,
                 conversationId: conversation.id,
-                activeConversationId: nil
+                activeConversationIds: []
             ) {
                 marksConversationAsUnread = true
             }

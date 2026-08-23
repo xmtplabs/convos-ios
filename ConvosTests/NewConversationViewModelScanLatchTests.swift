@@ -29,10 +29,10 @@ final class NewConversationViewModelScanLatchTests: XCTestCase {
                      "An expired invite is terminal - no retry is offered")
 
         fixtures.viewModel.dismissWithDeletion()
-        await waitFor { fixtures.session.discardedIfUnengagedConversationIds.contains(Constant.claimedId) }
+        await waitFor { fixtures.session.discardedConversationIds.contains(Constant.claimedId) }
 
-        XCTAssertEqual(fixtures.session.discardedIfUnengagedConversationIds, [Constant.claimedId],
-                       "Dismissing the failure must discard the untouched claimed conversation")
+        XCTAssertEqual(fixtures.session.discardedConversationIds, [Constant.claimedId],
+                       "Dismissing the failure must delete the untouched claimed conversation")
     }
 
     func testRetryableFailureKeepsScanLatch() async {
@@ -78,16 +78,19 @@ final class NewConversationViewModelScanLatchTests: XCTestCase {
         await recognizeScan(fixtures)
 
         // No failure state: the join is still in flight when the sheet is
-        // dismissed. The latch must keep the conversation and the dismiss
-        // must not route into any discard.
+        // dismissed. The latch must survive, and the conversation the join is
+        // landing in must be left alone. The claimed row is not that
+        // conversation - the join lands somewhere else and supersedes it - so
+        // dismissing does delete the claimed row it abandoned.
         fixtures.viewModel.dismissWithDeletion()
         try? await Task.sleep(nanoseconds: 200_000_000)
 
         XCTAssertTrue(fixtures.viewModel.engagement.contains(.scannedCode),
                       "A mid-join dismiss must not clear the latch")
-        XCTAssertTrue(fixtures.session.discardedIfUnengagedConversationIds.isEmpty,
-                      "A mid-join dismiss must not discard the conversation")
-        XCTAssertTrue(fixtures.session.discardedConversationIds.isEmpty)
+        XCTAssertFalse(fixtures.session.discardedConversationIds.contains(Constant.joinedId),
+                       "A mid-join dismiss must never touch the conversation being joined")
+        XCTAssertFalse(fixtures.session.discardedIfUnengagedConversationIds.contains(Constant.joinedId),
+                       "A mid-join dismiss must never touch the conversation being joined")
     }
 
     // MARK: - Helpers
@@ -114,16 +117,17 @@ final class NewConversationViewModelScanLatchTests: XCTestCase {
         let viewModel = NewConversationViewModel(
             session: session,
             messagingService: messagingService,
-            showsEmbeddedInvite: true
+            existingConversationId: Constant.claimedId
         )
         return Fixtures(viewModel: viewModel, stateManager: stateManager, session: session)
     }
 
-    /// Embedded auto-create shape: the state machine published a visible
-    /// group and the VM adopts its id as the claimed row at `.ready`.
+    /// Warm-cache shape: the flow claimed a pooled conversation before the
+    /// composer opened, and the state machine resumes that same conversation
+    /// through `useExisting` rather than publishing a second one.
     private func adoptClaimedConversation(_ fixtures: Fixtures) async {
         fixtures.stateManager.setState(
-            .ready(ConversationReadyResult(conversationId: Constant.claimedId, origin: .created))
+            .ready(ConversationReadyResult(conversationId: Constant.claimedId, origin: .existing))
         )
         await waitFor { fixtures.viewModel.claimedConversationId == Constant.claimedId }
         XCTAssertEqual(fixtures.viewModel.claimedConversationId, Constant.claimedId)

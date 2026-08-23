@@ -34,35 +34,6 @@ private struct FilePickerModifier: ViewModifier {
     }
 }
 
-/// Tracks whether the keyboard is on screen. The composer's stored focus is not
-/// a reliable stand-in: the coordinator stops syncing while a focus transition
-/// is open, and an interactive dismissal leaves `@FocusState` set with the
-/// keyboard already gone (see `FocusCoordinator.refocusNonce`), so each signal
-/// lies in one direction. The keyboard itself is the honest one.
-private struct KeyboardVisibilityModifier: ViewModifier {
-    @Binding var isKeyboardVisible: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
-                setVisible(true, matching: notification)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
-                setVisible(false, matching: notification)
-            }
-    }
-
-    /// Carries the keyboard's own duration into the change, so whatever moves
-    /// with it travels at the keyboard's pace instead of a spring of its own.
-    private func setVisible(_ visible: Bool, matching notification: Notification) {
-        let key: String = UIResponder.keyboardAnimationDurationUserInfoKey
-        let duration: Double = notification.userInfo?[key] as? Double ?? 0.25
-        withAnimation(.easeOut(duration: duration)) {
-            isKeyboardVisible = visible
-        }
-    }
-}
-
 /// A single dot breathing in place, holding the participation bubble while the
 /// conversation's level is read. It rests at a visible opacity, so if the
 /// animation never runs the bubble still reads as occupied rather than empty.
@@ -84,6 +55,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     let profile: Profile
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String = "Somebody"
+    let messagePlaceholder: String
     @Binding var messageText: String
     var pendingMediaAttachments: [PendingMediaAttachment] = []
     var composerLinkPreview: LinkPreview?
@@ -133,6 +105,16 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     /// App-provided chip for a staged agent-share link, forwarded to
     /// `MessagesInputView`.
     @ViewBuilder let agentShareChip: () -> AgentChip
+    /// Agent-style composer: the `+` menu gains `.connections`, and an empty
+    /// composer's send slot becomes the voice-memo entry.
+    var usesAgentComposerLayout: Bool = false
+    /// Host gate for the `+` menu's `.connections` row. The composer package
+    /// cannot read the app's feature flags, so the host passes the
+    /// capability (see `ComposerAttachmentAction`).
+    var connectionsEnabled: Bool = false
+    /// Presents the host's Connections browser. The browser lives outside
+    /// this package, so the composer only emits the tap.
+    var onConnectionsTap: (() -> Void)?
 
     @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
@@ -145,7 +127,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     @State private var previousFocus: MessagesViewInputFocus?
     @State private var voiceMemoReturnFocus: MessagesViewInputFocus?
     @State private var didSelectPhotoThisSession: Bool = false
-    @State private var isKeyboardVisible: Bool = false
     @Namespace private var namespace: Namespace.ID
     // Injected by the host on conversations that hold an agent; nil elsewhere,
     // and the bubble simply isn't drawn.
@@ -173,6 +154,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         focusCoordinator: FocusCoordinator,
         pinsExpandedInput: Bool = false,
         messagesTextFieldEnabled: Bool,
+        messagePlaceholder: String = "Chat",
         onSendMessage: @escaping () -> Void,
         onClearInvite: @escaping () -> Void,
         onClearLinkPreview: @escaping () -> Void,
@@ -186,6 +168,9 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         voiceMemoRecorder: VoiceMemoRecorder,
         onSendVoiceMemo: @escaping () -> Void,
         onDebugAttachmentTap: (() -> Void)? = nil,
+        usesAgentComposerLayout: Bool = false,
+        connectionsEnabled: Bool = false,
+        onConnectionsTap: (() -> Void)? = nil,
         onBaseHeightChanged: @escaping (CGFloat) -> Void,
         @ViewBuilder bottomBarContent: @escaping () -> BottomBarContent,
         @ViewBuilder quickEditView: @escaping (String, Binding<Bool>) -> QuickEdit,
@@ -213,6 +198,7 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         self.focusCoordinator = focusCoordinator
         self.pinsExpandedInput = pinsExpandedInput
         self.messagesTextFieldEnabled = messagesTextFieldEnabled
+        self.messagePlaceholder = messagePlaceholder
         self.onSendMessage = onSendMessage
         self.onClearInvite = onClearInvite
         self.onClearLinkPreview = onClearLinkPreview
@@ -226,6 +212,9 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         self.voiceMemoRecorder = voiceMemoRecorder
         self.onSendVoiceMemo = onSendVoiceMemo
         self.onDebugAttachmentTap = onDebugAttachmentTap
+        self.usesAgentComposerLayout = usesAgentComposerLayout
+        self.connectionsEnabled = connectionsEnabled
+        self.onConnectionsTap = onConnectionsTap
         self.onBaseHeightChanged = onBaseHeightChanged
         self.bottomBarContent = bottomBarContent
         self.quickEditView = quickEditView
@@ -240,7 +229,6 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
     public var body: some View {
         bodyContent
             .modifier(filePickerModifier)
-            .modifier(KeyboardVisibilityModifier(isKeyboardVisible: $isKeyboardVisible))
     }
 
     @ViewBuilder
@@ -299,6 +287,11 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
                 }
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
+            // The bar sits directly on the keyboard when one is up, so it
+            // carries its own vertical insets rather than resting flush
+            // against it. These are the values the bar shipped with before
+            // the conversation sheet briefly supplied them from its card
+            // padding instead.
             .padding(.top, DesignConstants.Spacing.step2x)
             .padding(.bottom, DesignConstants.Spacing.step4x)
         }
@@ -493,51 +486,63 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         }
     }
 
-    /// Whether the participation bubble stands aside: it does while the keyboard
-    /// is up, so the member typing gets that width back, and comes back the
-    /// moment it goes down. Keyed to the keyboard rather than to focus, which
-    /// desyncs in both directions - see `KeyboardVisibilityModifier`.
-    private var showsParticipationBubble: Bool {
-        !isKeyboardVisible
-    }
-
     /// The agent-participation control: how much the agents speak in this
     /// conversation. It leads the composer row, outside the input field, since
-    /// it governs the room rather than the message being written — and it steps
-    /// aside entirely once someone starts typing.
+    /// it governs the room rather than the message being written, and stays put
+    /// while someone types so the level is always readable and reachable.
     @ViewBuilder
     private var participationBubble: some View {
-        if let participation = agentParticipation, showsParticipationBubble {
+        if let participation = agentParticipation {
             let bubbleSize: CGFloat = DesignConstants.Spacing.step12x
             let isLoading: Bool = participation.isLoading
             let label: String = isLoading
                 ? "Agent participation, loading"
                 : "Agent participation: \(participation.level.title)"
-            ParticipationMenuControl(
-                level: participation.level,
-                isLoading: isLoading,
-                onSelect: participation.onSelect
-            )
-            .equatable()
-            .disabled(isLoading)
-            .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
-            .frame(width: bubbleSize, height: bubbleSize)
-            .clipShape(.circle)
-            .glassEffect(.regular.interactive(), in: .circle)
-            .transition(.scale.combined(with: .opacity))
-            .animation(.easeInOut(duration: 0.2), value: isLoading)
-            .accessibilityLabel(label)
-            .accessibilityHint("Change how much the agents speak here")
-            .accessibilityIdentifier("agent-participation-button")
+            // The glyph is drawn inert on the glass, with an invisible menu
+            // hit-target over it - the same split the attachments `+` uses.
+            // iOS opens a menu by morphing the glass that holds its label, so a
+            // label that is the glyph gets lifted into that morph. On its own
+            // that is invisible; it shows when this menu and the attachments
+            // menu are worked in quick succession, because the second morph
+            // starts while the first is still unwinding and the glyph jumps
+            // between them. Leaving a beat between the two hid it, which is
+            // what identified the overlap. Out of the menu, the glyph takes
+            // part in neither morph and overlapping presentations can't move
+            // it.
+            ParticipationGlyph(level: participation.level, isLoading: isLoading)
+                .frame(width: bubbleSize, height: bubbleSize)
+                .clipShape(.circle)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .overlay {
+                    ParticipationMenuControl(
+                        level: participation.level,
+                        isLoading: isLoading,
+                        agentName: participation.agentName,
+                        onSelect: participation.onSelect
+                    )
+                    .equatable()
+                }
+                .disabled(isLoading)
+                .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
+                .transition(.scale.combined(with: .opacity))
+                .animation(.easeInOut(duration: 0.2), value: isLoading)
+                .accessibilityLabel(label)
+                .accessibilityHint("Change how much the agents speak here")
+                .accessibilityIdentifier("agent-participation-button")
         }
     }
 
-    /// The rows the menu draws. The debug injector joins them only where the
+    /// The rows the menu draws: the group composer's standard set, or the
+    /// agent composer's set (camera folded in, `.connections` behind the
+    /// host-passed gate). The debug injector joins them only where the
     /// host handed one over, which it does behind `isDebugInjectorEnabled` -
     /// hard-locked off in production, so no member ever sees the row.
     private var offeredAttachmentActions: [ComposerAttachmentAction] {
-        guard onDebugAttachmentTap != nil else { return ComposerAttachmentAction.standard }
-        return ComposerAttachmentAction.standard + [.debugInjector]
+        let base: [ComposerAttachmentAction] = usesAgentComposerLayout
+            ? ComposerAttachmentAction.agentMenu(connectionsEnabled: connectionsEnabled)
+            : ComposerAttachmentAction.standard
+        guard onDebugAttachmentTap != nil else { return base }
+        return base + [.debugInjector]
     }
 
     /// What the composer can't offer right now. The menu greys these rows rather
@@ -588,16 +593,85 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         .equatable()
     }
 
-    /// Runs the picked row. The menu has already dismissed by the time the
-    /// action fires, so a picker can present right away.
+    /// Runs the row picked from the `+` menu. The menu has already
+    /// dismissed by the time the action fires, so a picker can present
+    /// right away.
     private func handleAttachmentSelected(_ action: ComposerAttachmentAction) {
-        switch action {
-        case .photos: isPhotoPickerPresented = true
-        case .camera: isCameraPresented = true
-        case .files: isFilePickerPresented = true
-        case .voiceNote: startVoiceMemoRecording()
+        switch action.dispatch {
+        case .photoPicker: isPhotoPickerPresented = true
+        case .cameraPicker: isCameraPresented = true
+        case .filePicker: isFilePickerPresented = true
+        case .voiceMemo: startVoiceMemoRecording()
+        case .hostConnections: onConnectionsTap?()
         case .debugInjector: onDebugAttachmentTap?()
         }
+    }
+
+    /// The voice-memo entry the agent layout puts in an empty composer's
+    /// send slot; the group composer leaves the slot alone. Hoisted to a
+    /// typed property so the solver never has to resolve a conditional
+    /// optional closure inside `MessagesInputView`'s argument list.
+    private var voiceMemoTapWhenEmpty: (() -> Void)? {
+        guard usesAgentComposerLayout else { return nil }
+        return { startVoiceMemoRecording() }
+    }
+
+    private var inputCapsuleOpacity: Double {
+        messagesTextFieldEnabled ? 1.0 : 0.4
+    }
+
+    /// The `+` menu's invisible hit target, floated over the inert glyph
+    /// inside the capsule (see `attachmentsControl`).
+    private var attachmentsControlOverlay: some View {
+        attachmentsControl
+            .padding(DesignConstants.Spacing.step2x)
+    }
+
+    /// The input capsule, unstyled. Kept in a property of its own so the
+    /// type-checker never solves this argument list and a modifier chain in
+    /// the same expression.
+    private var inputCapsule: some View {
+        MessagesInputView(
+            displayName: $displayName,
+            emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
+            messagePlaceholder: messagePlaceholder,
+            messageText: $messageText,
+            pendingMediaAttachments: pendingMediaAttachments,
+            composerLinkPreview: composerLinkPreview,
+            pendingInviteURL: pendingInviteURL,
+            pendingInviteIsEditable: pendingInviteIsEditable,
+            pendingInviteEmoji: pendingInviteEmoji,
+            pendingInviteConvoName: $pendingInviteConvoName,
+            pendingInviteImage: $pendingInviteImage,
+            pendingInviteExplodeDuration: pendingInviteExplodeDuration,
+            onSetInviteExplodeDuration: onSetInviteExplodeDuration,
+            onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
+            isShowingAgentShareChip: isShowingAgentShareChip,
+            sendButtonEnabled: sendButtonEnabled,
+            focusState: $focusState,
+            messagesTextFieldEnabled: messagesTextFieldEnabled,
+            onSendMessage: onSendMessage,
+            onClearInvite: onClearInvite,
+            onVoiceMemoTapWhenEmpty: voiceMemoTapWhenEmpty,
+            onClearLinkPreview: onClearLinkPreview,
+            onClearMediaAttachment: onClearMediaAttachment,
+            fileAttachmentPreview: fileAttachmentPreview,
+            agentShareChip: agentShareChip,
+            attachmentsButton: { attachmentsGlyph }
+        )
+    }
+
+    /// The capsule's glass styling, split from both the construction above
+    /// and the animation/overlay below so no one expression carries a long
+    /// chain on top of a large call.
+    private var glassStyledInputCapsule: some View {
+        inputCapsule
+            .opacity(inputCapsuleOpacity)
+            .fixedSize(horizontal: false, vertical: true)
+            .clipShape(.rect(cornerRadius: 26.0))
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
+            .glassEffectID("input", in: namespace)
+            .glassEffectTransition(.matchedGeometry)
     }
 
     @ViewBuilder
@@ -605,42 +679,8 @@ public struct MessagesBottomBar<BottomBarContent: View, QuickEdit: View, FilePre
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
             participationBubble
 
-            MessagesInputView(
-                displayName: $displayName,
-                emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
-                messageText: $messageText,
-                pendingMediaAttachments: pendingMediaAttachments,
-                composerLinkPreview: composerLinkPreview,
-                pendingInviteURL: pendingInviteURL,
-                pendingInviteIsEditable: pendingInviteIsEditable,
-                pendingInviteEmoji: pendingInviteEmoji,
-                pendingInviteConvoName: $pendingInviteConvoName,
-                pendingInviteImage: $pendingInviteImage,
-                pendingInviteExplodeDuration: pendingInviteExplodeDuration,
-                onSetInviteExplodeDuration: onSetInviteExplodeDuration,
-                onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
-                isShowingAgentShareChip: isShowingAgentShareChip,
-                sendButtonEnabled: sendButtonEnabled,
-                focusState: $focusState,
-                messagesTextFieldEnabled: messagesTextFieldEnabled,
-                onSendMessage: onSendMessage,
-                onClearInvite: onClearInvite,
-                onClearLinkPreview: onClearLinkPreview,
-                onClearMediaAttachment: onClearMediaAttachment,
-                fileAttachmentPreview: fileAttachmentPreview,
-                agentShareChip: agentShareChip,
-                attachmentsButton: { attachmentsGlyph }
-            )
-            .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
-            .fixedSize(horizontal: false, vertical: true)
-            .clipShape(.rect(cornerRadius: 26.0))
-            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
-            .glassEffectID("input", in: namespace)
-            .glassEffectTransition(.matchedGeometry)
-            .overlay(alignment: .bottomLeading) {
-                attachmentsControl
-                    .padding(DesignConstants.Spacing.step2x)
-            }
+            glassStyledInputCapsule
+                .overlay(alignment: .bottomLeading) { attachmentsControlOverlay }
         }
         .disabled(!messagesTextFieldEnabled)
     }
@@ -714,21 +754,24 @@ private struct AttachmentsMenuControl: View, Equatable {
 private struct ParticipationMenuControl: View, Equatable {
     let level: AgentParticipationLevel
     let isLoading: Bool
+    let agentName: String
     let onSelect: (AgentParticipationLevel) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.level == rhs.level && lhs.isLoading == rhs.isLoading
+        lhs.level == rhs.level && lhs.isLoading == rhs.isLoading && lhs.agentName == rhs.agentName
     }
 
     var body: some View {
         Menu {
             Section("Agent participation") {
-                ForEach(AgentParticipationLevel.allCases) { option in
+                ForEach(AgentParticipationLevel.selectableCases) { option in
                     row(for: option)
                 }
             }
         } label: {
-            glyph
+            Color.clear
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
         }
         .menuOrder(.fixed)
     }
@@ -746,18 +789,25 @@ private struct ParticipationMenuControl: View, Equatable {
         )
         return Toggle(isOn: isOn) {
             Text(option.title)
-            Text(option.caption)
+            Text(option.caption(agentName: agentName))
             Image(systemName: option.iconSystemName)
         }
         .accessibilityIdentifier("participation-\(option.rawValue)-row")
     }
+}
 
-    /// The icon, or the resting dot that stands in for it. The level starts at a
-    /// product default the conversation may not actually be in, so showing an
-    /// icon before the read lands would state something that can change a moment
-    /// later — the dot says "not known yet" instead.
+/// The icon, or the resting dot that stands in for it. The level starts at a
+/// product default the conversation may not actually be in, so showing an
+/// icon before the read lands would state something that can change a moment
+/// later - the dot says "not known yet" instead.
+///
+/// Drawn outside the menu so opening the menu never lifts it into the morph.
+private struct ParticipationGlyph: View {
+    let level: AgentParticipationLevel
+    let isLoading: Bool
+
     @ViewBuilder
-    private var glyph: some View {
+    var body: some View {
         if isLoading {
             ParticipationLoadingDot()
                 .frame(width: 32, height: 32)
@@ -766,8 +816,8 @@ private struct ParticipationMenuControl: View, Equatable {
                 .font(.system(size: 16.0, weight: .medium))
                 .foregroundStyle(Color.colorTextPrimary)
                 .frame(width: 32, height: 32)
-                .contentShape(.circle)
-                .transition(.opacity)
+                .contentTransition(.symbolEffect(.replace))
+                .animation(.easeInOut(duration: 0.2), value: level)
         }
     }
 }

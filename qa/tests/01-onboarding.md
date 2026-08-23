@@ -13,7 +13,7 @@ Verify that a first-time user is offered the first-launch "Hello / My name is" p
 ### Launch into first-launch profile setup
 
 1. Launch the app. It lands on the home shell (Chats tab, compose button visible).
-2. The "Hello / My name is" profile setup sheet self-presents over the Chats tab. Poll for `profile-setup-name-field` with `sim_wait_for_element` (timeout: 20s — the sheet waits for the inbox and global profile load on a cold fresh install). It presents on every launch while the user has no name or photo set — including users who completed onboarding before this sheet existed — and cannot be swiped away while "Come in" is disabled. On a true fresh install it presents immediately; after a reinstall it waits for the restored profile to load.
+2. The "Hello / My name is" profile setup sheet self-presents over the Chats tab. Poll for `profile-setup-name-field` with `sim_wait_for_element` (timeout: 20s — the sheet waits for the inbox and global profile load on a cold fresh install). It presents on every launch while the user has no name or photo set — including users who completed onboarding before this sheet existed — and can never be swiped away: "Come in" is the only way out. On a true fresh install it presents immediately; after a reinstall it waits for the restored profile to load.
 3. Verify the sheet's empty state:
    - A name field (`profile-setup-name-field`) with placeholder "Name", an avatar on the left (`profile-setup-avatar`) showing the `person.crop.circle.fill` icon, and photo/camera buttons on the right (`profile-setup-photo-button`, `profile-setup-camera-button`).
    - The "I agree to Convos Privacy & Terms" row with a toggle (`profile-setup-terms-toggle`), ON by default.
@@ -47,12 +47,13 @@ Verify that a first-time user is offered the first-launch "Hello / My name is" p
 
 ## Dismissal gating (01b)
 
-The sheet cannot be swiped away while "Come in" is disabled, and it re-presents on every launch until a profile is set:
+The first-launch sheet is a required step — it can never be swiped away or
+tapped out of, only completed with "Come in":
 
-1. On a fresh install with the name field empty, try to swipe the sheet down — it must bounce back (interactive dismissal is disabled while the save gate is unsatisfied).
-2. Type a name (terms toggle already on) so "Come in" enables, then swipe the sheet down without saving. Dismissal now succeeds.
-3. Create a conversation. No profile prompt appears in the conversation (the inline "Add your name and pic" flow was removed; the Nametag sheet is the only profile-setup surface) — the user simply chats as "Somebody".
-4. Relaunch the app without ever saving a profile — the sheet self-presents again (it gates on the profile being unset, not on having been shown before). Once a name or photo is saved, it stops appearing.
+1. On a fresh install with the name field empty, try to swipe the sheet down — it must bounce back, and tapping the dimmed area above it must do nothing.
+2. Type a name (terms toggle already on) so "Come in" enables, then try to swipe the sheet down again — it must still bounce back. Only tapping "Come in" dismisses it.
+3. Tap "Come in", then create a conversation. No profile prompt appears in the conversation (the inline "Add your name and pic" flow was removed; the Nametag sheet is the only profile-setup surface).
+4. The edit-mode sheet (Settings > My info) is unchanged: it stays swipe-away-able once a name is present.
 
 ## Pass/Fail Criteria
 
@@ -60,7 +61,8 @@ The sheet cannot be swiped away while "Come in" is disabled, and it re-presents 
 - [ ] First-launch "Hello / My name is" sheet self-presents with name field, terms toggle, and "Come in" button
 - [ ] "Come in" is disabled until a name is entered and the terms toggle is on
 - [ ] Profile can be set via the sheet; the avatar shows a live monogram while typing
-- [ ] Conversation can be created after dismissal
+- [ ] The first-launch sheet cannot be swiped away or tapped out of, at any point
+- [ ] Conversation can be created after completing the sheet
 - [ ] The in-conversation profile prompt does not appear after completing the sheet
 - [ ] Notification permission step is shown in the first conversation
 - [ ] Onboarding completes and the conversation is usable

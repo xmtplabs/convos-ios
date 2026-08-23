@@ -8,6 +8,35 @@ import os
 public extension Notification.Name {
     static let leftConversationNotification: Notification.Name = Notification.Name("LeftConversationNotification")
     static let activeConversationChanged: Notification.Name = Notification.Name("ActiveConversationChanged")
+    /// The agent-DM lane page the user is currently viewing, if any. Posted with
+    /// `userInfo["conversationId"]` = the DM lane's own conversation id when its
+    /// pager page becomes active, and with a nil/absent id when it is paged away
+    /// or the conversation closes. The DM lane is its own conversation, so its id
+    /// never appears in `activeConversationChanged` (which carries the parent
+    /// group id); tracking it separately is what lets a push for the
+    /// currently-viewed DM be suppressed.
+    static let activeDmConversationChanged: Notification.Name = Notification.Name("ActiveDmConversationChanged")
+    /// Requests that an already-open conversation switch its pager to a specific
+    /// agent-DM page. Posted (with `userInfo["conversationId"]` = the parent
+    /// group and `userInfo["agentInboxId"]` = the DM's agent) when a DM
+    /// notification is tapped while its parent group is already on screen —
+    /// selecting the group again is a no-op, so the page can't be seeded the way
+    /// a fresh open is.
+    static let selectAgentDmPageRequested: Notification.Name = Notification.Name("SelectAgentDmPageRequested")
+    /// One conversation arriving on, or leaving, the screen. Posted with
+    /// `userInfo["conversationId"]` and `userInfo["isOnScreen"]`, by each lane for
+    /// itself: a conversation shows its group and its agent DM together, so both
+    /// register, and both stay registered for as long as it is up - whichever tab
+    /// is selected and whatever the sheet is resting at.
+    ///
+    /// Distinct from the two `active...Changed` signals above, which say which
+    /// single lane is *being read* right now and go quiet the moment another tab
+    /// is selected or the sheet collapses over them. The distinction is the
+    /// point: a push for either lane of the conversation in front of the user
+    /// should never raise a banner - the tab's unread dot is the notification -
+    /// while a message arriving in a lane that is not being read still has to
+    /// mark that lane unread, or there would be no dot to show.
+    static let onScreenConversationChanged: Notification.Name = Notification.Name("OnScreenConversationChanged")
 }
 
 public typealias AnyMessagingService = any MessagingServiceProtocol
@@ -23,7 +52,7 @@ public typealias AnyClientProvider = any XMTPClientProvider
 /// @unchecked Sendable: mutable state is protected by `cachedMessagingService`. Long-lived
 /// tasks (initialization, foreground observation, asset renewal) are created
 /// during init and cancelled in deinit.
-public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
+public final class SessionManager: SessionManagerProtocol, @unchecked Sendable { // swiftlint:disable:this type_body_length
     /// Pending invite drafts older than this are removed during cleanup.
     public static let stalePendingInviteInterval: TimeInterval = 24 * 60 * 60
 
@@ -40,6 +69,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var profileServicesTask: Task<Void, Never>?
     private var cloudConnectionsCancellable: AnyCancellable?
     private var activeConversationObserver: NSObjectProtocol?
+    private var activeDmConversationObserver: NSObjectProtocol?
+    private var onScreenConversationsObserver: NSObjectProtocol?
     private var staleStrangerGCTask: Task<Void, Never>?
 
     /// Tracks the user's current screen context. Used by
@@ -50,13 +81,28 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let screenStateLock: OSAllocatedUnfairLock<ScreenState> = .init(initialState: ScreenState())
 
     private struct ScreenState {
+        /// The lane being read right now, when that is a group. Goes nil the
+        /// moment it stops being read - another tab selected, or the sheet
+        /// collapsed over it - because that is what the stream's unread gate
+        /// needs to know.
         var activeConversationId: String?
+        /// The same, for an agent-DM lane. Tracked separately because the DM is
+        /// its own conversation whose id never appears in
+        /// `activeConversationId` (which holds the parent group id).
+        var activeDmConversationId: String?
+        /// Every conversation the current screen has open, whether or not it is
+        /// the one being read: a conversation puts both its group and its DM
+        /// lane here for as long as it is up. This is what silences banners.
+        var onScreenConversationIds: Set<String> = []
         var isOnConversationsList: Bool = false
     }
 
     let databaseWriter: any DatabaseWriter
     let databaseReader: any DatabaseReader
-    private let environment: AppEnvironment
+    // Internal so same-module session services (e.g. the agent-DM reconciler
+    // accessor) can gate on the environment without touching the global
+    // ConfigManager, which traps when unconfigured (unit tests).
+    let environment: AppEnvironment
     private let identityStore: any KeychainIdentityStoreProtocol
     private let coreActions: any CoreActions
     private var initializationTask: Task<Void, Never>?
@@ -66,7 +112,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let notificationChangeReporter: any NotificationChangeReporterType
     private let platformProviders: PlatformProviders
     private let apiClient: any ConvosAPIClientProtocol
-    private let unusedConversationCache: any UnusedConversationCacheProtocol
+    let unusedConversationCache: any UnusedConversationCacheProtocol
+    let defaultAgentCoordinator: DefaultConversationAgentCoordinator = DefaultConversationAgentCoordinator()
     private let agentTemplateRepositoryInstance: any AgentTemplateRepositoryProtocol
 
     /// Single-inbox means a single cached `MessagingService`. The lock
@@ -139,6 +186,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         observe()
         wireAgentTemplateRepository()
+        wireDefaultAgentProvisioner()
 
         guard mode == .fullApp else {
             // Clip bootstrap: skip everything below. The clip writes the
@@ -168,15 +216,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             await self.bootstrapCapabilityProviders()
             guard !Task.isCancelled else { return }
 
-            // Kick off the AgentBuilder grant replayer after the capability
-            // providers have bootstrapped — it relies on the cloud-connection
-            // and enablement stores being ready to query.
-            _ = self.agentBuilderConnectionGrantReplayer()
-
-            // Replay any builder brief whose send a previous process died
-            // holding (the agent-join hold can last 150s; see
-            // UnsentBuilderBriefReplayer).
-            _ = self.unsentBuilderBriefReplayer()
+            // Kick off the session-scoped services after the capability
+            // providers have bootstrapped (the grant replayer relies on the
+            // cloud-connection and enablement stores being ready to query):
+            // the AgentBuilder grant replayer and the unsent-brief replayer
+            // (re-sends briefs a previous process died holding). Agent DMs are
+            // created server-side by the agent now; the client only reflects
+            // them, so there is no client-side creation service to start.
+            _ = (self.agentBuilderConnectionGrantReplayer(), self.unsentBuilderBriefReplayer())
 
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
@@ -213,6 +260,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         if let activeConversationObserver {
             NotificationCenter.default.removeObserver(activeConversationObserver)
         }
+        if let activeDmConversationObserver {
+            NotificationCenter.default.removeObserver(activeDmConversationObserver)
+        }
     }
 
     // MARK: - Private Methods
@@ -237,6 +287,25 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         ) { [weak self] notification in
             let conversationId = notification.userInfo?["conversationId"] as? String
             self?.updateActiveConversation(conversationId)
+        }
+
+        activeDmConversationObserver = NotificationCenter.default.addObserver(
+            forName: .activeDmConversationChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let conversationId = notification.userInfo?["conversationId"] as? String
+            self?.updateActiveDmConversation(conversationId)
+        }
+
+        onScreenConversationsObserver = NotificationCenter.default.addObserver(
+            forName: .onScreenConversationChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let conversationId = notification.userInfo?["conversationId"] as? String
+            let isOnScreen = notification.userInfo?["isOnScreen"] as? Bool ?? false
+            self?.updateOnScreenConversation(conversationId, isOnScreen: isOnScreen)
         }
 
         scheduleStaleStrangerGC()
@@ -278,6 +347,23 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private func updateActiveConversation(_ conversationId: String?) {
         screenStateLock.withLock { state in
             state.activeConversationId = (conversationId?.isEmpty == false) ? conversationId : nil
+        }
+    }
+
+    private func updateActiveDmConversation(_ conversationId: String?) {
+        screenStateLock.withLock { state in
+            state.activeDmConversationId = (conversationId?.isEmpty == false) ? conversationId : nil
+        }
+    }
+
+    private func updateOnScreenConversation(_ conversationId: String?, isOnScreen: Bool) {
+        guard let conversationId, !conversationId.isEmpty else { return }
+        screenStateLock.withLock { state in
+            if isOnScreen {
+                state.onScreenConversationIds.insert(conversationId)
+            } else {
+                state.onScreenConversationIds.remove(conversationId)
+            }
         }
     }
 
@@ -459,11 +545,34 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Inbox Management
 
-    public func prepareNewConversation() async -> (service: AnyMessagingService, conversationId: String?) {
+    public nonisolated func peekPreparedConversationId() -> String? {
+        unusedConversationCache.peekPreparedConversationId()
+    }
+
+    public func prepareNewConversation(
+        variantSlug: String? = nil
+    ) async -> (service: AnyMessagingService, conversationId: String?) {
         let service = loadOrCreateService()
         let conversationId = await unusedConversationCache.consumeUnusedConversationId(
             databaseWriter: databaseWriter
         )
+        if let conversationId {
+            // State the caller's variant for the conversation actually
+            // claimed, before the provision below can read it. The claim
+            // selects an eligible row on its own terms, so the id a caller
+            // guessed beforehand is not necessarily this one — binding here is
+            // what makes the pick land on the conversation the flow received.
+            // Writes unconditionally: a nil slug clears whatever an abandoned
+            // flow left on this row, so a reused conversation can't build its
+            // agent under a variant the user has since dropped.
+            await Self.claimedConversationVariantBinder?(conversationId, variantSlug)
+            // Claim-time backstop: cache-time provisioning is best-effort, so
+            // re-ensure the default agent on the way out. Fire-and-forget; the
+            // ready signal sent at commit awaits the shared provision task.
+            Task { [weak self] in
+                await self?.ensureDefaultAgentInConversation(id: conversationId)
+            }
+        }
         await unusedConversationCache.prepareUnusedConversation(
             service: service,
             databaseWriter: databaseWriter,
@@ -478,6 +587,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             id: conversationId,
             databaseWriter: databaseWriter
         )
+        // The user has entered the conversation; make sure its default agent
+        // actually landed. Nothing cues the agent to speak - it stays silent
+        // until spoken to. Fire-and-forget so committing never blocks on the
+        // network.
+        Task { [weak self] in
+            await self?.ensureDefaultAgentInConversation(id: conversationId)
+        }
     }
 
     public func releaseClaimedConversation(id conversationId: String) async {
@@ -584,6 +700,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     private func tearDownInbox() async throws {
+        // Cancel initialization first so the launch-time service kicks cannot
+        // rebuild session state after the wipe below.
+        initializationTask?.cancel()
+        initializationTask = nil
+
         // Cancel the launch-time bootstrap and the freshly-built profile-services
         // task first so neither can rebuild - and re-register - an inbox after the
         // wipe below clears the keychain and the cached service.
@@ -732,6 +853,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         ConversationsRepository(dbReader: databaseReader, consent: consent)
     }
 
+    public func conversationsPager(for consent: [Consent]) -> any ConversationsPagerProtocol {
+        ConversationsPager(dbReader: databaseReader, consent: consent)
+    }
+
     public func conversationsCountRepo(for consent: [Consent], kinds: [ConversationKind]) -> any ConversationsCountRepositoryProtocol {
         ConversationsCountRepository(databaseReader: databaseReader, consent: consent, kinds: kinds)
     }
@@ -742,16 +867,33 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: Notifications
 
+    /// Whether a push that arrived in the foreground should raise a banner.
+    ///
+    /// Anything already on screen is silent, not just the lane being read: a
+    /// conversation shows its group and its agent DM together, so a banner for
+    /// either is announcing something the user is already looking at, and the
+    /// tab's unread dot says it better. That holds while the sheet is collapsed
+    /// too - the dot is still there to draw the eye, and a banner over a
+    /// conversation the user has deliberately tucked away is noise.
     public func shouldDisplayNotification(for conversationId: String) async -> Bool {
         let state = screenStateLock.withLock { $0 }
         if state.isOnConversationsList { return false }
+        if state.onScreenConversationIds.contains(conversationId) { return false }
         if state.activeConversationId == conversationId { return false }
+        if state.activeDmConversationId == conversationId { return false }
         return true
     }
 
     public func setIsOnConversationsList(_ isOn: Bool) {
         screenStateLock.withLock { state in
             state.isOnConversationsList = isOn
+            if isOn {
+                // Reaching the list means no conversation is on screen, whatever
+                // the per-lane registrations last said. Without this, one missed
+                // deregistration would silence a conversation's banners for the
+                // rest of the run.
+                state.onScreenConversationIds.removeAll()
+            }
         }
     }
 
@@ -888,6 +1030,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// Constructed by the accessor in `SessionManager+UnsentBriefReplayer.swift`.
     let unsentBriefReplayerLock: OSAllocatedUnfairLock<UnsentBuilderBriefReplayer?> = .init(initialState: nil)
 
+    /// Lazily-constructed auto-enable service plus the host-supplied gate it
+    /// consults. Both live behind locks so the accessor in
+    /// `SessionManager+AutoEnableAbilities.swift` can build the service once
+    /// while the gate stays reconfigurable at any time.
+    let autoEnableAbilitiesServiceLock: OSAllocatedUnfairLock<AutoEnableAbilitiesService?> = .init(initialState: nil)
+    let autoEnableAbilitiesEligibilityLock: OSAllocatedUnfairLock<(@Sendable () async -> Bool)?> = .init(initialState: nil)
+
     public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
         capabilityRegistryLock.withLock { registry in
             if let registry { return registry }
@@ -905,7 +1054,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     public func capabilityRequestRepository(for conversationId: String) -> any CapabilityRequestRepositoryProtocol {
-        CapabilityRequestRepository(dbReader: databaseReader, conversationId: conversationId)
+        CapabilityRequestRepository(
+            dbReader: databaseReader,
+            conversationId: conversationId,
+            viewerInboxId: MessagesRepository.currentInboxId(from: databaseReader)
+        )
     }
 
     public func deviceConnectionAuthorizer() -> any DeviceConnectionAuthorizer {
@@ -1438,18 +1591,29 @@ extension SessionManager {
         )
     }
 
-    /// Full direct-add join. `idempotencyKey` is the builder flow's persisted
-    /// join key (stable across retries of one logical join) so the backend
-    /// dedups a retried provision whose response was lost; `nil` (all
-    /// non-builder callers today) keeps the non-deduped behavior. Internal
-    /// because only the agent-template repository's wired join handler
-    /// threads a key; the public protocol surface stays as-is.
+    /// Full direct-add join. `idempotencyKey` is a persisted join key (stable
+    /// across retries of one logical join) so the backend dedups a retried
+    /// provision whose response was lost; `nil` keeps the non-deduped
+    /// behavior. `ownerProfileName` rides on default-agent joins so the
+    /// backend composes the agent's display name. `grantAdmin` promotes the
+    /// agent after the member add - the default agent holds admin from
+    /// creation so it can act as the conversation's always-online admitter
+    /// once agent-admitted joins exist; nothing server-side can exercise the
+    /// bit before then. `autoEnablesCreatorAbilities` controls whether the
+    /// join fans the user's live cloud connections out to the freshly added
+    /// agent; a caller that grants an exact picked set passes false so
+    /// auto-enable cannot widen it. Internal because only the agent-template
+    /// repository's wired join handler and the default-agent coordinator
+    /// thread these; the public protocol surface stays as-is.
     func addAgentToConversation(
         conversationId: String,
         templateId: String?,
         options: ConvosAPI.AgentJoinOptions?,
         forceErrorCode: Int?,
-        idempotencyKey: ConvosAPI.JoinIdempotencyKey?
+        idempotencyKey: ConvosAPI.JoinIdempotencyKey?,
+        ownerProfileName: String? = nil,
+        grantAdmin: Bool = false,
+        autoEnablesCreatorAbilities: Bool = true
     ) async throws -> ConvosAPI.AgentJoinResponse {
         // Capture the creator's device timezone on the main actor before any
         // async hop. This seeds the agent's baseline/default zone (Channel A);
@@ -1467,6 +1631,7 @@ extension SessionManager {
                     ConvosAPI.AgentJoinRequest(
                         conversationId: conversationId.lowercased(),
                         templateId: templateId,
+                        ownerProfileName: ownerProfileName,
                         idempotencyKey: idempotencyKey,
                         options: options,
                         timezone: creatorTimezone
@@ -1498,10 +1663,27 @@ extension SessionManager {
             do {
                 try await messagingService().conversationMetadataWriter()
                     .addMembers([agentInboxId], to: conversationId)
+                if grantAdmin {
+                    // Best-effort: a failed grant must not fail the join — the
+                    // agent works as a plain member, it just cannot admit
+                    // invitees when that capability arrives.
+                    do {
+                        try await messagingService().conversationMetadataWriter()
+                            .promoteToAdmin(agentInboxId, in: conversationId)
+                    } catch {
+                        Log.error(
+                            "Direct-add: promoteToAdmin failed for agent inbox \(agentInboxId) "
+                                + "in conversation \(conversationId): \(error.localizedDescription)"
+                        )
+                    }
+                }
                 // The conversation now has an agent member. Publish this user's
                 // own device timezone into the per-sender ProfileUpdate metadata
                 // (Channel B). Best-effort: a failure must not fail the join.
                 await publishTimezoneForAgentConversation(conversationId: conversationId)
+                if autoEnablesCreatorAbilities {
+                    autoEnableCreatorAbilities(conversationId: conversationId, agentInboxId: agentInboxId)
+                }
                 return resolved.response
             } catch {
                 lastError = error
@@ -1516,6 +1698,20 @@ extension SessionManager {
             }
         }
         throw lastError ?? APIError.invalidResponse
+    }
+
+    /// Fire-and-forget fan-out of the user's live cloud connections to a
+    /// freshly added agent. Detached from the join so a slow or failing
+    /// grant push can never delay or fail adding the agent; the service
+    /// logs every skipped or failed grant. The fan-out keys on the
+    /// provisioned agent inbox id handed over by the join and never reads
+    /// conversation membership, so it doesn't depend on the member add
+    /// having become visible to local observation yet.
+    private func autoEnableCreatorAbilities(conversationId: String, agentInboxId: String) {
+        let service = autoEnableAbilitiesService()
+        Task {
+            await service.autoEnable(conversationId: conversationId, agentInboxId: agentInboxId)
+        }
     }
 
     /// Best-effort per-sender timezone publish (agent-timezone Channel B) for a
@@ -1661,12 +1857,16 @@ extension SessionManager {
             // byte-identical; when set, the same slug carries the join routing
             // and (via options.variantId) the load-bearing join-status poll.
             let options = variantId.map { ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0) }
+            // The builder flow grants exactly the connections the user picked
+            // in the builder (via the grant replayer), so the join must not
+            // auto-enable the user's other live connections on top.
             _ = try await self.addAgentToConversation(
                 conversationId: conversationId,
                 templateId: templateId,
                 options: options,
                 forceErrorCode: nil,
-                idempotencyKey: joinIdempotencyKey
+                idempotencyKey: joinIdempotencyKey,
+                autoEnablesCreatorAbilities: false
             )
         }
         agentTemplateRepositoryInstance.resumePendingGenerations()

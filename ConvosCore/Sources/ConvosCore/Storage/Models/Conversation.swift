@@ -57,6 +57,49 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// -- until a verified agent actually joins. See
     /// `isPendingAgentBuilderDraft`.
     public let wasCreatedFromAgentBuilder: Bool
+    /// True when this conversation carries the agent-DM custom-metadata
+    /// marker: a private 2-member conversation with an agent. Drives DM
+    /// presentation and hides group affordances (add member, invite QR).
+    public var isAgentDm: Bool = false
+    /// How much this conversation's agents may speak. Synced state, carried in
+    /// the group's appData and mirrored on the `conversation` row, so every
+    /// member's device converges on one mode and a member who joins sees the
+    /// mode the room is already in. A conversation nobody has set a mode on
+    /// reads as `ConversationParticipationMode.default` - the unset room and an
+    /// explicit Speak freely behave identically.
+    public var participationMode: ConversationParticipationMode = .default
+    /// The deployed Space web URL for this conversation, mirrored from the
+    /// group's appData. The Assistant Worker publishes it and is the sole
+    /// authority - clients never construct one. Nil while no Space has been
+    /// published; the Home tab shows its placeholder until it lands.
+    public var spaceURL: URL?
+    /// Summary of the separate agent-DM conversation (self + this group's
+    /// verified agent) that folds into this group's row. Populated by the
+    /// conversations list composer for group rows that have a verified
+    /// agent member; nil for rows without a verified agent or when no DM
+    /// exists yet. Lets the list render a combined last-message preview and
+    /// a DM-aware unread indicator without surfacing the DM as its own row.
+    public var agentDm: AgentDmSummary?
+}
+
+// MARK: - AgentDmSummary
+
+public extension Conversation {
+    /// Lightweight snapshot of a group's folded-in agent DM, carried on the
+    /// group's conversations-list row. See `Conversation.agentDm`.
+    struct AgentDmSummary: Codable, Equatable, Hashable, Sendable {
+        public let inboxId: String
+        public let displayName: String
+        public let lastMessage: MessagePreview?
+        public let isUnread: Bool
+
+        public init(inboxId: String, displayName: String, lastMessage: MessagePreview?, isUnread: Bool) {
+            self.inboxId = inboxId
+            self.displayName = displayName
+            self.lastMessage = lastMessage
+            self.isUnread = isUnread
+        }
+    }
 }
 
 public extension Conversation {
@@ -72,16 +115,6 @@ public extension Conversation {
 
     var membersWithoutCurrent: [ConversationMember] {
         members.filter { !$0.isCurrentUser }
-    }
-
-    /// The variant marker of this conversation's variant-built agent member, if
-    /// any. Drives the dev-only 🧪 name badge (conversations list) and header
-    /// badge; `nil` for default agents and human-only conversations. The stamp
-    /// itself is the signal -- only a variant-built agent carries
-    /// `profile.variant` -- so the internal-build gate is applied at the call
-    /// site, not here.
-    var agentVariant: AgentVariantStamp? {
-        members.first(where: { $0.profile.variant != nil })?.profile.variant
     }
 
     /// Copy of this conversation with `leftHostedInviteSession` replaced.
@@ -122,7 +155,11 @@ public extension Conversation {
             isLocked: isLocked,
             agentJoinStatus: agentJoinStatus,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURL: spaceURL,
+            agentDm: agentDm
         )
     }
 
@@ -164,7 +201,11 @@ public extension Conversation {
             isLocked: isLocked,
             agentJoinStatus: agentJoinStatus,
             hasHadVerifiedAgent: hasHadVerifiedAgent,
-            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder
+            wasCreatedFromAgentBuilder: wasCreatedFromAgentBuilder,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURL: spaceURL,
+            agentDm: agentDm
         )
     }
 
@@ -196,12 +237,38 @@ public extension Conversation {
         wasCreatedFromAgentBuilder && !hasHadVerifiedAgent
     }
 
+    /// True while the only other member is a Convos-verified agent - that is,
+    /// the conversation is "just you and the default agent". Every new
+    /// conversation gets that agent provisioned into it silently (see
+    /// `SessionManager.ensureDefaultAgentInConversation`), and until a real
+    /// person arrives the conversation should still read as the untouched
+    /// new convo it is: its own name and emoji rather than the agent's, and
+    /// no member avatars, contact card, or join row for a member the user
+    /// never added.
+    ///
+    /// A conversation built around a specific agent is excluded: the user
+    /// chose that agent, so the chat keeps its name and face. Everything else
+    /// with a lone verified agent is treated as silently provisioned, which is
+    /// approximate - there is no member-level marker distinguishing the
+    /// default agent from one the user picked. That approximation is why this
+    /// lives in one place: give the default agent a marker and only this
+    /// property changes.
+    var isDefaultAgentOnly: Bool {
+        guard !wasCreatedFromAgentBuilder else { return false }
+        let otherMembers = membersWithoutCurrent
+        guard otherMembers.count == 1, let other = otherMembers.first else { return false }
+        return other.isVerifiedConvosAgent
+    }
+
     func computedDisplayName(memberNameOverride: (String) -> String?) -> String {
         if let name, !name.isEmpty {
             return name
         }
         if isPendingAgentBuilderDraft {
             return "New Agent"
+        }
+        if isDefaultAgentOnly {
+            return "New Convo"
         }
         if kind == .dm {
             if let other = otherMember {
@@ -240,6 +307,11 @@ public extension Conversation {
         }
         if imageURL != nil {
             return .customImage
+        }
+        // Just you and the silently-added default agent: keep the
+        // conversation's own emoji instead of adopting the agent's face.
+        if isDefaultAgentOnly {
+            return .emoji(defaultEmoji)
         }
         let otherMembers = membersWithoutCurrent
         if otherMembers.count == 1, let member = otherMembers.first {

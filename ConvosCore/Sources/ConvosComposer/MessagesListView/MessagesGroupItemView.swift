@@ -6,6 +6,8 @@ import SwiftUI
 import UIKit
 
 struct MessagesGroupItemView: View {
+    /// The host's first refusal on a tapped link - see `MessageLinkRouter`.
+    @Environment(\.messageLinkRouter) private var messageLinkRouter: MessageLinkRouter
     let message: AnyMessage
     let conversationId: String
     let bubbleType: MessageBubbleType
@@ -233,14 +235,15 @@ struct MessagesGroupItemView: View {
     private func extractedLinkPreviewBubble(preview: LinkPreview, style: MessageBubbleType, edge: MessageBubbleSegment.Edge) -> some View {
         let openAction: () -> Void = {
             if let url = preview.resolvedURL {
-                InAppBrowser.open(url)
+                MessageLinkOpener.open(url, router: messageLinkRouter)
             }
         }
         LinkPreviewBubbleView(
             preview: TransientLinkPreviewCache.enriched(preview),
             style: style,
             isOutgoing: message.source == .outgoing,
-            profile: message.sender.profile
+            profile: message.sender.profile,
+            sentAt: message.date
         )
         .messageGesture(
             message: message,
@@ -341,7 +344,7 @@ struct MessagesGroupItemView: View {
     private func linkPreviewBubble(preview: LinkPreview) -> some View {
         let openAction: () -> Void = {
             if let url = preview.resolvedURL {
-                InAppBrowser.open(url)
+                MessageLinkOpener.open(url, router: messageLinkRouter)
             }
         }
         LinkPreviewBubbleView(
@@ -349,7 +352,8 @@ struct MessagesGroupItemView: View {
             style: bubbleType,
             isOutgoing: message.source == .outgoing,
             profile: message.sender.profile,
-            messageId: message.messageId
+            messageId: message.messageId,
+            sentAt: message.date
         )
         .messageGesture(
             message: message,

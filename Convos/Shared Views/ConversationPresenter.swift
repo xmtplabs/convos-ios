@@ -64,9 +64,15 @@ struct ConversationPresenter<Content: View>: View {
     /// the matched-geometry interpolation and the blur transition.
     @Namespace private var indicatorNamespace: Namespace.ID
 
-    private var isShowingShareOverlay: Bool {
-        guard let viewModel else { return false }
-        return viewModel.presentingShareView
+    /// Presents the conversation's invite code as a sheet. It used to be a
+    /// full-screen overlay drawn inside this presenter, which meant its own
+    /// nav row sat on top of whatever chrome the presenting surface already
+    /// had - two backs and a close for one screen.
+    private var inviteCodeBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel?.presentingInviteCode ?? false },
+            set: { viewModel?.presentingInviteCode = $0 }
+        )
     }
 
     /// Read-only when the host asks for it (stale/removed device) or when
@@ -79,7 +85,6 @@ struct ConversationPresenter<Content: View>: View {
     var body: some View {
         ZStack {
             content($focusState, focusCoordinator)
-                .toolbar(isShowingShareOverlay ? .hidden : .automatic, for: .navigationBar)
 
             VStack {
                 indicatorOverlay
@@ -89,27 +94,10 @@ struct ConversationPresenter<Content: View>: View {
             .ignoresSafeArea()
             .allowsHitTesting(true)
             .zIndex(1000)
-
-            if let viewModel, viewModel.presentingShareView {
-                ConversationShareOverlay(
-                    conversation: viewModel.conversation,
-                    invite: viewModel.invite,
-                    isPresented: Binding(
-                        get: { viewModel.presentingShareView },
-                        set: { newValue in
-                            viewModel.presentingShareView = newValue
-                            if !newValue {
-                                viewModel.shareViewInitialSegment = .invite
-                            }
-                        }
-                    ),
-                    topSafeAreaInset: insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x,
-                    coreActions: viewModel.coreActions,
-                    initialSegment: viewModel.shareViewInitialSegment,
-                    onScannedCode: { code in viewModel.handleScannedCodeInCurrentConversation(code) }
-                )
-                .ignoresSafeArea()
-                .zIndex(2000)
+        }
+        .sheet(isPresented: inviteCodeBinding) {
+            if let viewModel {
+                InviteCodeSheet(conversation: viewModel.conversation, invite: viewModel.invite)
             }
         }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
@@ -121,40 +109,16 @@ struct ConversationPresenter<Content: View>: View {
             // Update coordinator's horizontal size class when it changes
             focusCoordinator.horizontalSizeClass = newSizeClass
         }
-        .onChange(of: focusCoordinator.currentFocus) { oldFocus, newFocus in
-            Log.info("onChange(of: focusCoordinator.currentFocus) oldFocus: \(String(describing: oldFocus)) newFocus: \(String(describing: newFocus))")
-            // Always sync coordinator to SwiftUI to ensure focus actually changes
-            // The transition flags will prevent race conditions in the opposite direction
-            focusState = newFocus
-        }
-        .onChange(of: focusCoordinator.refocusNonce) { _, _ in
-            reassertFocus()
-        }
-        .onChange(of: focusState) { _, newFocus in
-            // Delegate all synchronization logic to the coordinator
-            focusCoordinator.syncFocusState(newFocus)
-        }
-        .task(id: viewModel?.conversation.id) {
-            // Set default focus when conversation changes
-            focusState = defaultFocusOverride ?? focusCoordinator.defaultFocus
-        }
-    }
-
-    /// Re-applies `@FocusState` for a same-value `moveFocus` request (see
-    /// `FocusCoordinator.refocusNonce`). When `@FocusState` already equals the
-    /// target the real first responder may still be gone, so bounce through nil
-    /// on the next runloop tick to force SwiftUI to re-acquire it; otherwise a
-    /// plain assignment is enough.
-    private func reassertFocus() {
-        let target = focusCoordinator.currentFocus
-        guard focusState == target else {
-            focusState = target
-            return
-        }
-        focusState = nil
-        DispatchQueue.main.async {
-            focusState = target
-        }
+        // This presentation's half of the focus bridge: the shell's
+        // conversation-name and display-name editors. The floating sheet
+        // declares its own and mirrors the same coordinator - see
+        // `FocusCoordinatorSync` for why focus cannot simply live in one place.
+        .focusCoordinatorSync(
+            focusState: $focusState,
+            coordinator: focusCoordinator,
+            resetToken: viewModel?.conversation.id,
+            defaultFocusOverride: defaultFocusOverride
+        )
     }
 
     private var indicatorTopInset: CGFloat {
@@ -170,9 +134,9 @@ struct ConversationPresenter<Content: View>: View {
 
     @ViewBuilder
     private var indicatorOverlay: some View {
-        if let viewModel = viewModel, viewModel.showsInfoView, !isShowingShareOverlay, rendersConversationIndicator {
+        if let viewModel = viewModel, viewModel.showsInfoView, rendersConversationIndicator {
             conversationIndicatorView(for: viewModel)
-        } else if viewModel == nil, !isShowingShareOverlay, let appContext = appIndicatorContext {
+        } else if viewModel == nil, let appContext = appIndicatorContext {
             appIndicatorView(for: appContext)
         }
     }

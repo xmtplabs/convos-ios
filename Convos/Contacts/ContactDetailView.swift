@@ -72,6 +72,11 @@ struct ContactDetailView: View {
     private let coreActions: any CoreActions
     private let profileSettingsViewModel: ProfileSettingsViewModel
     private let onRemove: (() -> Void)?
+    /// When set (member sheets presented from a conversation), Chat on a
+    /// DM-able agent hands the agent inboxId back to the presenter, which
+    /// dismisses this sheet and selects the conversation's agent-DM page.
+    /// When nil, Chat creates/opens the DM conversation directly.
+    private let onStartAgentDm: ((String) -> Void)?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var isBlocked: Bool
@@ -121,7 +126,8 @@ struct ContactDetailView: View {
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsCloseButton: Bool = true,
         pushedConversationInsetsTopSafeArea: Bool = false,
-        onRemove: (() -> Void)? = nil
+        onRemove: (() -> Void)? = nil,
+        onStartAgentDm: ((String) -> Void)? = nil
     ) {
         self.contact = contact
         self.variantStamp = variantStamp
@@ -134,6 +140,7 @@ struct ContactDetailView: View {
         self.showsCloseButton = showsCloseButton
         self.pushedConversationInsetsTopSafeArea = pushedConversationInsetsTopSafeArea
         self.onRemove = onRemove
+        self.onStartAgentDm = onStartAgentDm
         _isBlocked = State(initialValue: contact.isBlocked)
         // Suggested-agent contacts carry the description, so it renders
         // immediately; saved agent contacts seed nil and resolve it on appear.
@@ -210,7 +217,7 @@ struct ContactDetailView: View {
     /// the system back button instead of nesting a second stack. The tab bar
     /// is hidden here (mirroring `ThingDetailView`) because the Contacts tab
     /// entry point pushes onto a tab stack whose shell only hides the bar for
-    /// Chats/Things selections; without this the bar overlaps the composer.
+    /// chats selections; without this the bar overlaps the composer.
     /// Harmless in sheet entry points, which have no tab bar.
     @ViewBuilder
     private func pushedConversationView(_ viewModel: NewConversationViewModel) -> some View {
@@ -354,14 +361,16 @@ struct ContactDetailView: View {
                 ContactDetailActions(
                     isBlocked: isBlocked,
                     isApplyingBlockChange: isApplyingBlockChange,
-                    // A non-template verified agent (Convos / OAuth-verified)
-                    // doesn't accept 1:1 DMs today, so its Chat CTA stays
-                    // disabled - the agent rows below it remain the way to
-                    // interact. A template-backed agent overrides this: Chat
-                    // spawns a fresh instance into a new conversation (see
-                    // `handleChatWithAgentTemplate`).
-                    canSendMessage: session != nil && (!isVerifiedAgent || isAgentTemplate),
+                    // A template-backed agent's Chat spawns a fresh instance
+                    // into a new conversation (see `handleChatWithAgentTemplate`).
+                    // A non-template verified agent gets a private DM with the
+                    // existing instance when the agent-DM prototype is enabled
+                    // (see `handleChatWithAgentDm`); otherwise its Chat CTA
+                    // stays disabled and the agent rows below it remain the
+                    // way to interact.
+                    canSendMessage: session != nil && (!isVerifiedAgent || isAgentTemplate || canStartAgentDm),
                     showChat: !mode.isCurrentUser,
+                    showModelPicker: !mode.isCurrentUser && (isVerifiedAgent || isAgentTemplate),
                     isAgent: isVerifiedAgent || isAgentTemplate,
                     showShare: agentTemplateShareURL != nil,
                     showRemove: mode.isScopedToConversation
@@ -376,7 +385,9 @@ struct ContactDetailView: View {
                     agentVerification: contact.agentVerification,
                     agentTemplateConversations: agentTemplateConversations,
                     onSelectConversation: handleSelectAgentTemplateConversation,
-                    onSendMessage: isAgentTemplate ? handleChatWithAgentTemplate : handleSendMessage,
+                    onSendMessage: canStartAgentDm
+                        ? handleChatWithAgentDm
+                        : (isAgentTemplate ? handleChatWithAgentTemplate : handleSendMessage),
                     onShare: { presentingAgentShareSheet = true },
                     onRemove: handleRemoveTap,
                     onToggleBlock: handleBlockTap
@@ -486,6 +497,48 @@ struct ContactDetailView: View {
     }
 
     // MARK: - Actions
+
+    /// Agent-DM prototype gate: a verified, non-template agent viewed from
+    /// inside a shared conversation can be DM'd directly. Non-production
+    /// only while the runtime side of agent DMs is in development.
+    private var canStartAgentDm: Bool {
+        session != nil
+            && isVerifiedAgent
+            && mode.isScopedToConversation
+            && !ConfigManager.shared.currentEnvironment.isProduction
+    }
+
+    private func handleChatWithAgentDm() {
+        if let onStartAgentDm {
+            onStartAgentDm(contact.inboxId)
+            return
+        }
+        guard let session else { return }
+        Task {
+            do {
+                // The agent owns DM creation now; open the agent-created DM if
+                // it has synced, otherwise no-op (it arrives via sync).
+                guard let conversation = try session
+                    .conversationsRepository(for: [.allowed, .unknown])
+                    .findAgentDm(with: contact.inboxId) else {
+                    return
+                }
+                await MainActor.run {
+                    presentingNewConvo = NewConversationViewModel(
+                        session: session,
+                        mode: .existingConversation(conversationId: conversation.id),
+                        coreActions: coreActions
+                    )
+                }
+            } catch {
+                Log.error("Failed to open agent DM: \(error.localizedDescription)")
+                await MainActor.run {
+                    sendMessageErrorMessage = "We couldn't open a DM with this agent. Please try again."
+                    presentingSendMessageError = true
+                }
+            }
+        }
+    }
 
     private func handleSendMessage() {
         Task {
@@ -794,6 +847,9 @@ private struct ContactDetailActions: View {
     let isApplyingBlockChange: Bool
     let canSendMessage: Bool
     let showChat: Bool
+    /// Shows the model dropdown under Chat. Agents only - a human contact
+    /// doesn't run on a model.
+    let showModelPicker: Bool
     /// Drives the chat CTA copy: "New chat" for agents (tapping spawns a
     /// fresh conversation), "Chat" for human members (tapping routes to a
     /// DM with that person).
@@ -839,6 +895,9 @@ private struct ContactDetailActions: View {
             if showChat {
                 chatButton
             }
+            if showModelPicker {
+                ContactDetailModelRow(contactDisplayName: contactDisplayName)
+            }
             if showShare {
                 shareRow
             }
@@ -874,7 +933,7 @@ private struct ContactDetailActions: View {
 
     private var chatButton: some View {
         let backgroundOpacity: Double = canSendMessage ? 1.0 : 0.4
-        let chatLabel: String = isAgent ? "New chat" : "Chat"
+        let chatLabel: String = "Chat"
         return Button(action: onSendMessage) {
             Text(chatLabel)
                 .font(.body.weight(.medium))
@@ -968,6 +1027,119 @@ private struct ContactDetailActionRow: View {
                 .foregroundStyle(.colorTextSecondary)
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
         }
+    }
+}
+
+// MARK: - Agent model picker
+
+/// The model an agent runs on. Only `claudeSonnet` is live; the rest are
+/// placeholders the design calls for so the menu reads as a roadmap instead
+/// of a one-item list. They render disabled with a "Soon" subtitle until
+/// their backends land.
+private enum ContactDetailAgentModel: String, CaseIterable, Identifiable {
+    case claudeSonnet
+    case claudeFable
+    case gptSol
+    case grok
+    case geminiPro
+    case openSource
+
+    var id: String {
+        return rawValue
+    }
+
+    var title: String {
+        switch self {
+        case .claudeSonnet: return "Claude Sonnet"
+        case .claudeFable: return "Claude Fable 5"
+        case .gptSol: return "GPT-5.6 Sol"
+        case .grok: return "Grok 4.6"
+        case .geminiPro: return "Gemini 3.1 Pro"
+        case .openSource: return "Open source models"
+        }
+    }
+
+    /// Second line of the menu item: what you get today on the live model,
+    /// "Soon" on the ones that aren't wired up.
+    var subtitle: String {
+        return isAvailable ? "Included" : "Soon"
+    }
+
+    var isAvailable: Bool {
+        return self == .claudeSonnet
+    }
+}
+
+/// The model dropdown under an agent's Chat button: the canonical action-row
+/// shape (rounded fill on top, small grey caption below) wrapping a native
+/// menu instead of a button. Nothing is selectable yet - the agent's model is
+/// fixed and every alternative is disabled - so the row is display-only and
+/// carries no selection state.
+private struct ContactDetailModelRow: View {
+    let contactDisplayName: String
+
+    /// Fixed for now. Becomes real state when the other models land.
+    private let selectedModel: ContactDetailAgentModel = .claudeSonnet
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+            Menu {
+                menuContent
+            } label: {
+                rowLabel
+            }
+            .accessibilityLabel("Model for \(contactDisplayName)")
+            .accessibilityIdentifier("contact-detail-model-menu")
+            Text("Model")
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+        }
+    }
+
+    private var menuContent: some View {
+        return Section("Agent Model") {
+            ForEach(ContactDetailAgentModel.allCases) { model in
+                menuItem(for: model)
+            }
+        }
+    }
+
+    /// The live model gets the selected checkmark and an empty action - it's
+    /// already what the agent runs on, so tapping it is intentionally inert.
+    /// Everything else is disabled.
+    @ViewBuilder
+    private func menuItem(for model: ContactDetailAgentModel) -> some View {
+        let noop = {}
+        if model == selectedModel {
+            Button(action: noop) {
+                Text(model.title)
+                Text(model.subtitle)
+                Image(systemName: "checkmark")
+            }
+        } else {
+            Button(action: noop) {
+                Text(model.title)
+                Text(model.subtitle)
+            }
+            .disabled(true)
+        }
+    }
+
+    private var rowLabel: some View {
+        return HStack(spacing: DesignConstants.Spacing.step2x) {
+            Text(selectedModel.title)
+                .font(.body)
+                .foregroundStyle(.colorTextPrimary)
+            Spacer(minLength: 0.0)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, DesignConstants.Spacing.step4x)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .background(Capsule().fill(.colorFillMinimal))
     }
 }
 

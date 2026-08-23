@@ -4,7 +4,8 @@ import ConvosMetrics
 import SwiftUI
 import UIKit
 
-/// Full-height sheet that renders the per-session thinking history for one
+/// Half-height sheet (draggable up to full height) that renders the
+/// per-session thinking history for one
 /// `convos.org/thinking:1.0` descriptor. Reuses `MessagesViewController`
 /// via `MessagesViewRepresentable` so each moment lands as a regular
 /// text-message cell — bubbles, sender resolution, scroll anchoring,
@@ -109,7 +110,7 @@ struct ThinkingDetailView: View {
                     }
             }
         }
-        .presentationDetents([.large])
+        .presentationDetents([.medium, .large])
         .presentationDragIndicator(.hidden)
         .presentationBackground(.colorBackgroundRaisedSecondary)
         .sheet(isPresented: $presentingAgentProfile) {
@@ -210,8 +211,6 @@ struct ThinkingDetailView: View {
             onRetryMessage: { _ in },
             onDeleteMessage: { _ in },
             onRetryAgentJoin: {},
-            onCopyInviteLink: {},
-            onConvoCode: {},
             onInviteAgent: {},
             onRetryTranscript: { _ in },
             profileSheetForMember: { _ in AnyView(EmptyView()) },

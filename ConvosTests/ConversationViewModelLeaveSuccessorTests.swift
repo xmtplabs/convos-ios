@@ -30,10 +30,21 @@ final class ConversationViewModelLeaveSuccessorTests: XCTestCase {
         XCTAssertEqual(group.kind, .group)
 
         let leaveWriter = MockConversationLeaveWriter()
+        // The view model adopts whatever the state manager's repository
+        // publishes, so that repository has to carry the group under test -
+        // otherwise the sentinel is replaced by default mock members before
+        // the leave runs.
+        let stateManager = MockConversationStateManager(
+            conversationId: group.id,
+            draftConversationRepository: MockDraftConversationRepository(conversation: group)
+        )
         let viewModel = ConversationViewModel(
             conversation: group,
             session: MockInboxesService(),
-            messagingService: MockMessagingService(conversationLeaveWriter: leaveWriter),
+            messagingService: MockMessagingService(
+                conversationStateManager: stateManager,
+                conversationLeaveWriter: leaveWriter
+            ),
             applyGlobalDefaultsForNewConversation: false
         )
 

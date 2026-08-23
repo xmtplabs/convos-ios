@@ -1,0 +1,253 @@
+{
+  "codecs" : {
+    "device_removed" : {
+      "authorityId" : "convos.org",
+      "contentBase64" : "eyJzY2hlbWFWZXJzaW9uIjoxLCJyZXZva2VkSW5zdGFsbGF0aW9uSWQiOiJiMTk0NmFjOTI0OTJkMjM0N2M2MjM1YjRkMjYxMTE4NCIsInJlbW92ZWRBdCI6MTc1MDAwMDIwMH0=",
+      "contentJSON" : "{\"schemaVersion\":1,\"revokedInstallationId\":\"b1946ac92492d2347c6235b4d2611184\",\"removedAt\":1750000200}",
+      "contentType" : "convos.org/device_removed:1.0",
+      "typeId" : "device_removed",
+      "versionMajor" : 1,
+      "versionMinor" : 0
+    },
+    "identity_share" : {
+      "authorityId" : "convos.org",
+      "contentBase64" : "eyJpbmJveElkIjoiM2Y5YTFjMGU1YjdkMjg0NmExZjMwYzllNGQ4YjY3NTJlMGE0YzkxMzdmYjU2MjhkMGUzYTdjMTRiOWQ1ZjY4MiIsInByaXZhdGVLZXlEYXRhIjoiSWlJaUlpSWlJaUlpSWlJaUlpSWlJaUlpSWlJaUlpSWlJaUlpSWlJaUlpST0iLCJkaXNwbGF5TmFtZSI6IkNhbWVyb24iLCJpbml0aWF0b3JEZXZpY2VOYW1lIjoiQ2FtZXJvbidzIGlQaG9uZSIsInNjaGVtYVZlcnNpb24iOjEsImlzc3VlZEF0IjoxNzUwMDAwMTAwLCJpbWFnZUFzc2V0SWRlbnRpZmllciI6Imh0dHBzOlwvXC9hc3NldHMuY29udm9zLm9yZ1wvYXZhdGFyXC9hYmMxMjMuanBnIn0=",
+      "contentJSON" : "{\"inboxId\":\"3f9a1c0e5b7d2846a1f30c9e4d8b6752e0a4c9137fb5628d0e3a7c14b9d5f682\",\"privateKeyData\":\"IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI=\",\"displayName\":\"Cameron\",\"initiatorDeviceName\":\"Cameron's iPhone\",\"schemaVersion\":1,\"issuedAt\":1750000100,\"imageAssetIdentifier\":\"https:\\/\\/assets.convos.org\\/avatar\\/abc123.jpg\"}",
+      "contentType" : "convos.org/identity_share:1.0",
+      "typeId" : "identity_share",
+      "versionMajor" : 1,
+      "versionMinor" : 0
+    },
+    "pairing_join_request" : {
+      "authorityId" : "convos.org",
+      "contentBase64" : "eyJzY2hlbWFWZXJzaW9uIjoxLCJzbHVnIjoiZXlKbGVIQnBjbVZ6UVhRaU9qRTNOVEF3TURBeE1qQXNJbTV2Ym1ObElqb2lRVUpGYVUwd1VsWmFibVZKYldGeE4zcE9NM1ZjTDNjOVBTSXNJbWx1YVhScFlYUnZja0ZrWkhKbGMzTWlPaUl3ZURFNVpUZGxNemMyWlRkak1qRXpZamRsTjJVM1pUUTJZMk0zTUdFMVpHUXdPRFprWVdabU1tRWlMQ0p6YVdkdVlYUjFjbVVpT2lJcldHWmpPVkF4YlVjNVRtRXhYQzlpZEZOSVZWbGFWVzlQT1RaWWR6TkVZbEE1YUd0WWFVWllNM1ZSWTA1T1hDOVhUVW80WEM4eWIzQkRUbTVUV1dOd1JFZFFRVXB6YmpoRFNHaDBRMnRvTUdjeFl6TXphelIyYUhjOUlpd2ljMk5vWlcxaFZtVnljMmx2YmlJNk1Td2lhWE56ZFdWa1FYUWlPakUzTlRBd01EQXdNREFzSW1sdWFYUnBZWFJ2Y2tsdVltOTRTV1FpT2lJelpqbGhNV013WlRWaU4yUXlPRFEyWVRGbU16QmpPV1UwWkRoaU5qYzFNbVV3WVRSak9URXpOMlppTlRZeU9HUXdaVE5oTjJNeE5HSTVaRFZtTmpneUluMCIsImpvaW5lckluYm94SWQiOiI4YzJkNDBiNmUxZjk3YTM1YzBkODJiNGU2ZjE5YTdkMzVjMGUyOGI0ZjZhMTlkNzNjNThlMDJiNGY2YTE5ZDczIiwiZGV2aWNlTmFtZSI6IlBpeGVsIDkgUHJvIn0=",
+      "contentJSON" : "{\"schemaVersion\":1,\"slug\":\"eyJleHBpcmVzQXQiOjE3NTAwMDAxMjAsIm5vbmNlIjoiQUJFaU0wUlZabmVJbWFxN3pOM3VcL3c9PSIsImluaXRpYXRvckFkZHJlc3MiOiIweDE5ZTdlMzc2ZTdjMjEzYjdlN2U3ZTQ2Y2M3MGE1ZGQwODZkYWZmMmEiLCJzaWduYXR1cmUiOiIrWGZjOVAxbUc5TmExXC9idFNIVVlaVW9POTZYdzNEYlA5aGtYaUZYM3VRY05OXC9XTUo4XC8yb3BDTm5TWWNwREdQQUpzbjhDSGh0Q2toMGcxYzMzazR2aHc9Iiwic2NoZW1hVmVyc2lvbiI6MSwiaXNzdWVkQXQiOjE3NTAwMDAwMDAsImluaXRpYXRvckluYm94SWQiOiIzZjlhMWMwZTViN2QyODQ2YTFmMzBjOWU0ZDhiNjc1MmUwYTRjOTEzN2ZiNTYyOGQwZTNhN2MxNGI5ZDVmNjgyIn0\",\"joinerInboxId\":\"8c2d40b6e1f97a35c0d82b4e6f19a7d35c0e28b4f6a19d73c58e02b4f6a19d73\",\"deviceName\":\"Pixel 9 Pro\"}",
+      "contentType" : "convos.org/pairing_join_request:1.0",
+      "typeId" : "pairing_join_request",
+      "versionMajor" : 1,
+      "versionMinor" : 0
+    },
+    "pairing_message_error" : {
+      "authorityId" : "convos.org",
+      "contentBase64" : "eyJwYXlsb2FkIjoiUGFpcmluZyBmYWlsZWQiLCJ0eXBlIjoiZXJyb3IifQ==",
+      "contentJSON" : "{\"payload\":\"Pairing failed\",\"type\":\"error\"}",
+      "contentType" : "convos.org/pairing_message:1.0",
+      "typeId" : "pairing_message",
+      "versionMajor" : 1,
+      "versionMinor" : 0
+    },
+    "pairing_message_pin" : {
+      "authorityId" : "convos.org",
+      "contentBase64" : "eyJwYXlsb2FkIjoiMTIzNDU2IiwidHlwZSI6InBpbiJ9",
+      "contentJSON" : "{\"payload\":\"123456\",\"type\":\"pin\"}",
+      "contentType" : "convos.org/pairing_message:1.0",
+      "typeId" : "pairing_message",
+      "versionMajor" : 1,
+      "versionMinor" : 0
+    },
+    "pairing_message_pin_echo" : {
+      "authorityId" : "convos.org",
+      "contentBase64" : "eyJwYXlsb2FkIjoiMTIzNDU2IiwidHlwZSI6InBpbl9lY2hvIn0=",
+      "contentJSON" : "{\"payload\":\"123456\",\"type\":\"pin_echo\"}",
+      "contentType" : "convos.org/pairing_message:1.0",
+      "typeId" : "pairing_message",
+      "versionMajor" : 1,
+      "versionMinor" : 0
+    }
+  },
+  "eip191" : [
+    {
+      "digestHex" : "5f35dce98ba4fba25530a026ed80b2cecdaa31091ba4958b99b52ea1d068adad",
+      "message" : "",
+      "messageUtf8ByteCount" : 0,
+      "recoveredAddress" : "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a",
+      "recoveryByte" : 27,
+      "signatureBase64" : "KnjMqOPHZTy3lDiYgGs7nXSBGib6n522xLoHv3FGZMsvhBsIT1Jk3xRxGizHemzwwM7LZpGhMqKoxukyHyPVXRs=",
+      "signatureHex" : "2a78cca8e3c7653cb7943898806b3b9d74811a26fa9f9db6c4ba07bf714664cb2f841b084f5264df14711a2cc77a6cf0c0cecb6691a132a2a8c6e9321f23d55d1b"
+    },
+    {
+      "digestHex" : "00b2d511a3411a5358833cc6bd7598e7e1aab1705181548b1e8c8bd9801eb72b",
+      "message" : "Hello, Convos!",
+      "messageUtf8ByteCount" : 14,
+      "recoveredAddress" : "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a",
+      "recoveryByte" : 28,
+      "signatureBase64" : "ICiPx/tFfKNhPg/iK0RCioI/Yl4cBSMmusGbCJRHBPEdKfyNnRrWQTZO9tuNIJt6VAM5ikL1aqHh7MBUm7IiFRw=",
+      "signatureHex" : "20288fc7fb457ca3613e0fe22b44428a823f625e1c052326bac19b08944704f11d29fc8d9d1ad641364ef6db8d209b7a5403398a42f56aa1e1ecc0549bb222151c"
+    },
+    {
+      "digestHex" : "57189da2cc2bb20596604aea9cfa5573cd2cc4ee37bf3579a1142d09d9b496d6",
+      "message" : "héllo 🌍 wörld",
+      "messageUtf8ByteCount" : 18,
+      "recoveredAddress" : "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a",
+      "recoveryByte" : 28,
+      "signatureBase64" : "69s0oOXiuwbCItRrILGCqjheT/6/V5WpdR5zDw339NEiF18fMMxtC4Z1ABdaibNZDTrA+P+nPDm2RsI/PHEfEhw=",
+      "signatureHex" : "ebdb34a0e5e2bb06c222d46b20b182aa385e4ffebf5795a9751e730f0df7f4d122175f1f30cc6d0b867500175a89b3590d3ac0f8ffa73c39b646c23f3c711f121c"
+    }
+  ],
+  "emoji" : {
+    "cases" : [
+      {
+        "emojis" : [
+          "🪆",
+          "🎸",
+          "🪁"
+        ],
+        "inboxA" : "3f9a1c0e5b7d2846a1f30c9e4d8b6752e0a4c9137fb5628d0e3a7c14b9d5f682",
+        "inboxB" : "8c2d40b6e1f97a35c0d82b4e6f19a7d35c0e28b4f6a19d73c58e02b4f6a19d73",
+        "pin" : "123456"
+      },
+      {
+        "emojis" : [
+          "🪆",
+          "🎸",
+          "🪁"
+        ],
+        "inboxA" : "8c2d40b6e1f97a35c0d82b4e6f19a7d35c0e28b4f6a19d73c58e02b4f6a19d73",
+        "inboxB" : "3f9a1c0e5b7d2846a1f30c9e4d8b6752e0a4c9137fb5628d0e3a7c14b9d5f682",
+        "pin" : "123456"
+      },
+      {
+        "emojis" : [
+          "🪻",
+          "🦕",
+          "🦊"
+        ],
+        "inboxA" : "alpha",
+        "inboxB" : "bravo",
+        "pin" : "000000"
+      },
+      {
+        "emojis" : [
+          "🪁",
+          "🦋",
+          "🌸"
+        ],
+        "inboxA" : "alpha",
+        "inboxB" : "bravo",
+        "pin" : "999999"
+      }
+    ],
+    "pool" : [
+      "🥫",
+      "🎸",
+      "🎨",
+      "🎯",
+      "🎪",
+      "🎭",
+      "🎬",
+      "🎤",
+      "🎧",
+      "🎹",
+      "🎺",
+      "🎻",
+      "🪘",
+      "🪗",
+      "🎲",
+      "🎮",
+      "🧩",
+      "🪀",
+      "🪁",
+      "🧸",
+      "🪆",
+      "🔮",
+      "🧿",
+      "🪬",
+      "🎰",
+      "🛸",
+      "🚀",
+      "⚓️",
+      "🧲",
+      "💎",
+      "🌵",
+      "🌊",
+      "🍄",
+      "🌸",
+      "🌈",
+      "🌻",
+      "🌴",
+      "🌲",
+      "🍀",
+      "🌾",
+      "🪻",
+      "🪷",
+      "🪹",
+      "🪺",
+      "🌙",
+      "⭐️",
+      "🌍",
+      "🔥",
+      "💧",
+      "🌪️",
+      "🦊",
+      "🐙",
+      "🦋",
+      "🐢",
+      "🦩",
+      "🦄",
+      "🐋",
+      "🦈",
+      "🦑",
+      "🐠",
+      "🦜",
+      "🦚",
+      "🦢",
+      "🦉",
+      "🦇",
+      "🐝",
+      "🐌",
+      "🦎",
+      "🐲",
+      "🦕",
+      "🍕",
+      "🌮",
+      "🍩",
+      "🍦",
+      "🥑",
+      "🍎",
+      "🍋",
+      "🍇",
+      "🥝",
+      "🍒",
+      "🧁",
+      "🍰",
+      "🍪",
+      "🥨",
+      "🥐",
+      "🧀",
+      "🥗",
+      "🍜",
+      "🍣",
+      "🥟"
+    ],
+    "poolCount" : 90
+  },
+  "generatedBy" : "ConvosCore PairingInteropVectorsTests",
+  "identity" : {
+    "address" : "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a",
+    "addressLowercased" : "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a",
+    "inboxId" : "3f9a1c0e5b7d2846a1f30c9e4d8b6752e0a4c9137fb5628d0e3a7c14b9d5f682",
+    "privateKeyHex" : "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "invite" : {
+    "expiresAt" : 1750000120,
+    "initiatorAddress" : "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a",
+    "initiatorInboxId" : "3f9a1c0e5b7d2846a1f30c9e4d8b6752e0a4c9137fb5628d0e3a7c14b9d5f682",
+    "issuedAt" : 1750000000,
+    "nonceBase64" : "ABEiM0RVZneImaq7zN3u/w==",
+    "nonceHex" : "00112233445566778899aabbccddeeff",
+    "schemaVersion" : 1,
+    "signatureBase64" : "+Xfc9P1mG9Na1/btSHUYZUoO96Xw3DbP9hkXiFX3uQcNN/WMJ8/2opCNnSYcpDGPAJsn8CHhtCkh0g1c33k4vhw=",
+    "signatureHex" : "f977dcf4fd661bd35ad7f6ed487518654a0ef7a5f0dc36cff619178855f7b9070d37f58c27cff6a2908d9d261ca4318f009b27f021e1b42921d20d5cdf7938be1c",
+    "signatureRecoveryByte" : 28,
+    "signedMessage" : "636f6e766f732d706169722d696e766974652d76310a336639613163306535623764323834366131663330633965346438623637353265306134633931333766623536323864306533613763313462396435663638320a3078313965376533373665376332313362376537653765343663633730613564643038366461666632610a00112233445566778899aabbccddeeff0a80e14e6800000000f8e14e6800000000",
+    "signingPayloadHex" : "636f6e766f732d706169722d696e766974652d76310a336639613163306535623764323834366131663330633965346438623637353265306134633931333766623536323864306533613763313462396435663638320a3078313965376533373665376332313362376537653765343663633730613564643038366461666632610a00112233445566778899aabbccddeeff0a80e14e6800000000f8e14e6800000000",
+    "slug" : "eyJleHBpcmVzQXQiOjE3NTAwMDAxMjAsIm5vbmNlIjoiQUJFaU0wUlZabmVJbWFxN3pOM3VcL3c9PSIsImluaXRpYXRvckFkZHJlc3MiOiIweDE5ZTdlMzc2ZTdjMjEzYjdlN2U3ZTQ2Y2M3MGE1ZGQwODZkYWZmMmEiLCJzaWduYXR1cmUiOiIrWGZjOVAxbUc5TmExXC9idFNIVVlaVW9POTZYdzNEYlA5aGtYaUZYM3VRY05OXC9XTUo4XC8yb3BDTm5TWWNwREdQQUpzbjhDSGh0Q2toMGcxYzMzazR2aHc9Iiwic2NoZW1hVmVyc2lvbiI6MSwiaXNzdWVkQXQiOjE3NTAwMDAwMDAsImluaXRpYXRvckluYm94SWQiOiIzZjlhMWMwZTViN2QyODQ2YTFmMzBjOWU0ZDhiNjc1MmUwYTRjOTEzN2ZiNTYyOGQwZTNhN2MxNGI5ZDVmNjgyIn0",
+    "verifyAtUnixSeconds" : 1750000001
+  },
+  "note" : "Golden cross-platform vectors for Linked Device Sync. Regenerate with: swift test --package-path ConvosCore --filter generatePairingVectors. JSON object key order (in `slug` and every `contentBase64`) is whatever Swift's JSONEncoder emitted — it is randomized per process and is NOT part of the contract. Consumers must decode order-insensitively and tolerate unknown keys.",
+  "pin" : {
+    "formatted" : "123 456",
+    "raw" : "123456"
+  },
+  "schema" : 1
+}

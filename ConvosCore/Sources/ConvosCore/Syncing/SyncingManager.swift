@@ -58,6 +58,13 @@ public struct SyncClientParams: @unchecked Sendable {
     }
 }
 
+/// Carries the non-Sendable client across the `withTimeout` task boundary in
+/// `runGlobalSync`. Same rationale as `SyncClientParams` above; scoped down
+/// because that path has no API client in hand.
+private struct UncheckedClientBox: @unchecked Sendable {
+    let client: AnyClientProvider
+}
+
 /// Manages real-time synchronization of conversations and messages
 ///
 /// SyncingManager coordinates continuous synchronization between the local database
@@ -126,11 +133,22 @@ actor SyncingManager: SyncingManagerProtocol {
     let streamProcessor: any StreamProcessorProtocol
     // Maximum consecutive stream failures before giving up. Prevents FD exhaustion when
     // XMTP service is unavailable (each failed connection attempt can leak file descriptors).
-    private let maxStreamRetries: Int = 10
+    // Injectable so tests can reach the exhausted/`.error` state without sitting through
+    // the full ~2.5 minute backoff ladder.
+    private let maxStreamRetries: Int
 
     private var messageStreamTask: Task<Void, Never>?
     private var conversationStreamTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
+
+    /// The params of the most recent `start`, retained so a session that has
+    /// fallen into `.error` can be restarted from a plain `.resume`.
+    ///
+    /// `.error` carries only the `Error`, so without this the state machine
+    /// had nothing to restart *with* and every recovery trigger the app sends
+    /// (foreground, network reconnect) is a `.resume` that could only be
+    /// dropped. Cleared on `stop` so a stopped session is never resurrected.
+    private var lastClientParams: SyncClientParams?
 
     /// Temporary diagnostic state for the agent-join poll. The task is the
     /// bounded polling loop; the date stamps the last message the stream
@@ -150,6 +168,10 @@ actor SyncingManager: SyncingManagerProtocol {
     private var agentTemplateCacheCoordinator: AgentTemplateCacheCoordinator?
 
     private var activeConversationId: String?
+    /// The folded agent DM currently on screen (the Agent tab), tracked
+    /// separately: the DM is its own conversation whose id never appears in
+    /// `activeConversationChanged` (that carries the parent group id).
+    private var activeDmConversationId: String?
 
     // Stream readiness tracking - used to wait for streams to subscribe before signaling ready
     private var messageStreamReadyContinuation: AsyncStream<Void>.Continuation?
@@ -161,6 +183,15 @@ actor SyncingManager: SyncingManagerProtocol {
 
     var isSyncReady: Bool {
         if case .ready = _state { return true }
+        return false
+    }
+
+    /// True once the streams have exhausted their retry budget and the manager
+    /// has fallen into `.error`. Distinct from `!isSyncReady`, which is also
+    /// true for the transient `.starting` state - tests need to tell the
+    /// terminal state apart from the in-flight one.
+    var hasGivenUpOnStreams: Bool {
+        if case .error = _state { return true }
         return false
     }
     private var isProcessing: Bool = false
@@ -189,7 +220,9 @@ actor SyncingManager: SyncingManagerProtocol {
          deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
          notificationCenter: any UserNotificationCenterProtocol,
          deviceConnections: DeviceConnectionsBundle = .none,
+         maxStreamRetries: Int = 10,
          coreActions: any CoreActions) {
+        self.maxStreamRetries = maxStreamRetries
         self.identityStore = identityStore
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
@@ -261,6 +294,28 @@ actor SyncingManager: SyncingManagerProtocol {
 
     func pause() async {
         enqueueAction(.pause)
+        // Wait for the pause to actually take effect before returning. The
+        // backgrounding path drops the SQLCipher connection right after this
+        // call; returning early let it yank the pool out from under in-flight
+        // stream work, which then burned retries on "Pool needs to reconnect"
+        // until foreground. Waits through .starting too - a pause there only
+        // sets pauseOnComplete and lands after the startup sync finishes.
+        // Exits immediately from any other state (the pause is a no-op there).
+        let maxWaitTime = 5.0
+        let startTime = Date()
+        while true {
+            switch _state {
+            case .ready, .starting:
+                break
+            default:
+                return
+            }
+            if Date().timeIntervalSince(startTime) > maxWaitTime {
+                Log.error("Pause timeout - state: \(_state)")
+                return
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
+        }
     }
 
     func resume() async {
@@ -275,8 +330,43 @@ actor SyncingManager: SyncingManagerProtocol {
     /// actor. The stream-resume that follows is unaffected because it goes
     /// through the actor's normal `enqueueAction(.resume)` path.
     nonisolated func runBatchCatchUp(client: AnyClientProvider, since: Date?) async {
-        await runMessageBatch(client: client, since: since)
+        let globalSyncCompleted = await runGlobalSync(client: client)
+        await runMessageBatch(client: client, since: since, syncPerConversation: !globalSyncCompleted)
         await runInviteBatch(client: client, since: since)
+    }
+
+    /// One client-wide `syncAllConversations` before the local batch. libxmtp
+    /// makes a single batched newest-message-metadata call and then syncs
+    /// only the groups with new server activity, capped at 10 concurrent -
+    /// which is why the batch's prepare phase can skip its per-group
+    /// `conversation.sync()` (`syncFirst: false`): the backlog is already in
+    /// libxmtp's local store by the time `listGroups` + `messages(afterNs:)`
+    /// read it. Time-boxed so a hung sync cannot stall boot.
+    ///
+    /// Returns whether the sync completed. On timeout or failure the batch
+    /// still runs, but with per-conversation syncs restored: fetching from
+    /// an unsynced local store could advance catch-up cursors past backlog
+    /// that the still-running sync materializes later, permanently skipping
+    /// it (streams only deliver forward from connection time).
+    private nonisolated func runGlobalSync(client: AnyClientProvider) async -> Bool {
+        let box = UncheckedClientBox(client: client)
+        let started = CFAbsoluteTimeGetCurrent()
+        do {
+            try await BatchCatchUp.withTimeout(seconds: Constant.globalSyncTimeout) {
+                _ = try await box.client.conversationsProvider.syncAllConversations(
+                    consentStates: [.allowed, .unknown]
+                )
+            }
+            let elapsed = CFAbsoluteTimeGetCurrent() - started
+            Log.info("[PERF] catchup.global_sync: \(Int(elapsed * 1000))ms")
+            return true
+        } catch is BatchCatchUpPrepareTimeout {
+            Log.warning("[PERF] catchup.global_sync timed out after \(Int(Constant.globalSyncTimeout))s; running batch with per-conversation syncs")
+            return false
+        } catch {
+            Log.error("catchup.global_sync failed: \(error.localizedDescription); running batch with per-conversation syncs")
+            return false
+        }
     }
 
     nonisolated func runHistoryBackfill(client: AnyClientProvider) async {
@@ -289,11 +379,17 @@ actor SyncingManager: SyncingManagerProtocol {
         }
     }
 
+    /// `syncPerConversation` is passed through to `BatchCatchUp.run`; see
+    /// its doc for the cursor-safety contract. Callers other than
+    /// `runBatchCatchUp` leave it off because their paths sync beforehand
+    /// (the agent-join poll syncs every tick) or read data that never came
+    /// from the network (the history-archive backfill).
     @discardableResult
     private nonisolated func runMessageBatch(
         client: AnyClientProvider,
         since: Date?,
-        fetchFromBeginning: Bool = false
+        fetchFromBeginning: Bool = false,
+        syncPerConversation: Bool = false
     ) async -> BatchCatchUpResult? {
         do {
             guard let identity = try await identityStore.load() else {
@@ -316,8 +412,9 @@ actor SyncingManager: SyncingManagerProtocol {
                 client: client,
                 inboxId: identity.inboxId,
                 since: since,
-                activeConversationId: await activeConversationId,
-                fetchFromBeginning: fetchFromBeginning
+                activeConversationIds: await activeConversationIds,
+                fetchFromBeginning: fetchFromBeginning,
+                syncPerConversation: syncPerConversation
             )
         } catch {
             Log.error("catchup.batch.messages failed: \(error.localizedDescription)")
@@ -400,6 +497,31 @@ actor SyncingManager: SyncingManagerProtocol {
                 // Recover from error by starting fresh
                 try await handleStart(client: params.client, apiClient: params.apiClient)
 
+            case (.error, .resume):
+                // Every recovery trigger the app has - returning to the
+                // foreground, the network monitor reconnecting - sends
+                // `.resume`, never `.start`. Dropping it here made `.error`
+                // terminal for the life of the process: streams stay
+                // cancelled, so nothing arrives over them and no further
+                // catch-up runs, while the session layer stays `.ready` and
+                // the UI keeps looking healthy. Restart from the retained
+                // params instead. If the underlying failure is still there
+                // the streams simply exhaust again, which makes this state
+                // transient rather than permanent - and the retry ladder
+                // (~2.5 minutes) rate-limits the attempts on its own.
+                guard let params = lastClientParams else {
+                    Log.warning("Sync is in error state with no retained client params - cannot recover")
+                    break
+                }
+                Log.info("Recovering sync from error state")
+                try await handleStart(client: params.client, apiClient: params.apiClient)
+
+            case (.error, .pause):
+                // Streams were already cancelled on the way into `.error`,
+                // so there is nothing to pause. Backgrounding a errored
+                // session is expected, not an invalid transition.
+                Log.debug("Pause requested while in error state - nothing to pause")
+
             case (.ready, .pause):
                 try await handlePause()
 
@@ -454,6 +576,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private func handleStart(client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) async throws {
         let params = SyncClientParams(client: client, apiClient: apiClient)
+        lastClientParams = params
         emitStateChange(.starting(params, pauseOnComplete: false))
 
         // Setup notifications if not already done
@@ -586,15 +709,57 @@ actor SyncingManager: SyncingManagerProtocol {
                 return Set(ids)
             }
 
-            var discoveredCount: Int = 0
-            for group in groups where !existingIds.contains(group.id) {
-                do {
-                    let creatorInboxId = try await group.creatorInboxId()
-                    let memberCount = try await group.members.count
-                    if creatorInboxId == params.client.inboxId && memberCount <= 1 {
-                        Log.debug("Skipping self-created single-member group: \(group.id)")
-                        continue
+            let missingGroups = groups.filter { !existingIds.contains($0.id) }
+            guard !missingGroups.isEmpty else { return 0 }
+
+            // The self-created-single-member pre-check costs two FFI calls
+            // per group; run those in a bounded window. Processing stays
+            // sequential below: `streamProcessor` is an actor, so concurrent
+            // calls would serialize there anyway, and its per-conversation
+            // writes are better off not contending for the GRDB writer.
+            let currentInboxId = params.client.inboxId
+            let groupsToProcess: [XMTPiOS.Group] = await withTaskGroup(
+                of: (index: Int, group: XMTPiOS.Group)?.self
+            ) { taskGroup in
+                @Sendable func precheckTask(index: Int, group: XMTPiOS.Group) async -> (index: Int, group: XMTPiOS.Group)? {
+                    do {
+                        let creatorInboxId = try await group.creatorInboxId()
+                        let memberCount = try await group.members.count
+                        if creatorInboxId == currentInboxId && memberCount <= 1 {
+                            Log.debug("Skipping self-created single-member group: \(group.id)")
+                            return nil
+                        }
+                        return (index, group)
+                    } catch {
+                        Log.error("Failed pre-checking discovered conversation \(group.id): \(error)")
+                        return nil
                     }
+                }
+
+                var iterator = missingGroups.enumerated().makeIterator()
+                var inFlight = 0
+                while inFlight < Constant.maxConcurrentDiscoverPrechecks, let (index, group) = iterator.next() {
+                    taskGroup.addTask { await precheckTask(index: index, group: group) }
+                    inFlight += 1
+                }
+
+                var passed: [(index: Int, group: XMTPiOS.Group)] = []
+                while let result = await taskGroup.next() {
+                    if let result {
+                        passed.append(result)
+                    }
+                    if let (index, group) = iterator.next() {
+                        taskGroup.addTask { await precheckTask(index: index, group: group) }
+                    }
+                }
+                return passed
+                    .sorted { $0.index < $1.index }
+                    .map(\.group)
+            }
+
+            var discoveredCount: Int = 0
+            for group in groupsToProcess {
+                do {
                     try await streamProcessor.processConversation(group, params: params)
                     discoveredCount += 1
                 } catch {
@@ -821,6 +986,8 @@ actor SyncingManager: SyncingManagerProtocol {
 
         await cancelAndAwaitTasks()
         activeConversationId = nil
+        // A stopped session must not be revivable by a stray `.resume`.
+        lastClientParams = nil
 
         for observer in notificationObservers {
             NotificationCenter.default.removeObserver(observer)
@@ -906,7 +1073,7 @@ actor SyncingManager: SyncingManagerProtocol {
                     await streamProcessor.processMessage(
                         message,
                         params: params,
-                        activeConversationId: activeConversationId
+                        activeConversationIds: activeConversationIds
                     )
                 }
 
@@ -1005,6 +1172,16 @@ extension SyncingManager {
     func setActiveConversationId(_ conversationId: String?) {
         // Update the active conversation
         activeConversationId = conversationId
+    }
+
+    func setActiveDmConversationId(_ conversationId: String?) {
+        activeDmConversationId = conversationId
+    }
+
+    /// The conversations exempt from unread marking right now: the active
+    /// group and, when the Agent tab is up, its folded DM.
+    var activeConversationIds: Set<String> {
+        Set([activeConversationId, activeDmConversationId].compactMap { $0 })
     }
 
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
@@ -1109,6 +1286,14 @@ extension SyncingManager {
     }
 
     private enum Constant {
+        /// Budget for the client-wide sync that precedes a batch catch-up.
+        /// Generous: libxmtp syncs changed groups 10 at a time, so even a
+        /// heavy backlog normally finishes well inside this; a hung sync
+        /// becomes a skip rather than an indefinite boot stall.
+        static let globalSyncTimeout: TimeInterval = 60
+        /// Sliding-window width for the per-group FFI pre-checks in
+        /// `discoverNewConversations`.
+        static let maxConcurrentDiscoverPrechecks: Int = 4
         /// How often the temporary agent-join poll checks for unprocessed
         /// join requests.
         static let agentJoinPollInterval: TimeInterval = 5
@@ -1138,6 +1323,17 @@ extension SyncingManager {
             }
         }
         notificationObservers.append(activeConversationObserver)
+        let activeDmObserver = NotificationCenter.default.addObserver(
+            forName: .activeDmConversationChanged,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            let conversationId = notification.userInfo?["conversationId"] as? String
+            Task { [weak self] in
+                await self?.setActiveDmConversationId(conversationId)
+            }
+        }
+        notificationObservers.append(activeDmObserver)
         installPushTokenObserver()
     }
 

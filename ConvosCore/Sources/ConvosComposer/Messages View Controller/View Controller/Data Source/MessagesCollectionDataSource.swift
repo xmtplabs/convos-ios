@@ -11,6 +11,8 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var inviteMembershipResolver: any InviteMembershipResolving { get set }
     var agentShareResolver: any AgentShareResolving { get set }
     var onTapAgentShare: ((MessageAgentShare) -> Void)? { get set }
+    var messageLinkRouter: MessageLinkRouter { get set }
+    var conversationSpaceURL: URL? { get set }
     var onTapAvatar: ((ConversationMember) -> Void)? { get set }
     var onTapReactions: ((AnyMessage) -> Void)? { get set }
     var onTapReadReceipts: ((MessagesGroup) -> Void)? { get set }
@@ -35,21 +37,13 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onRetryMessage: ((AnyMessage) -> Void)? { get set }
     var onDeleteMessage: ((AnyMessage) -> Void)? { get set }
     var onRetryAgentJoin: (() -> Void)? { get set }
-    var onCopyInviteLink: (() -> Void)? { get set }
-    var onConvoCode: (() -> Void)? { get set }
     var onInviteAgent: (() -> Void)? { get set }
+    var onInvitePeople: (() -> Void)? { get set }
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)? { get set }
     var memberContactOverride: ((String) -> Contact?)? { get set }
     var isAgentJoinPending: Bool { get set }
     var headerMode: MessagesHeaderMode { get set }
     var agentBuilderTransitionNamespace: Namespace.ID? { get set }
     var htmlAttachmentTransitionNamespace: Namespace.ID? { get set }
-    var hidesInviteCard: Bool { get set }
-    var showsInviteScanCard: Bool { get set }
-    var inviteScanConversation: Conversation? { get set }
-    var inviteScanMode: InviteCodeMode { get set }
-    var inviteScanInitialSegment: ScanInviteSegment { get set }
-    var onScannedInviteCode: ((String) -> Void)? { get set }
-    var onInviteShareCompleted: ((UIActivity.ActivityType?, Bool, Error?) -> Void)? { get set }
 }
 #endif

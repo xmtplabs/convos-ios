@@ -239,7 +239,7 @@ struct AppSettingsView: View {
     private var connectionsSection: some View {
         Section {
             NavigationLink {
-                ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
+                connectionsDestination
                     .onAppear { navigator?.navigateTo(connections: ConnectionsNavigatorArgs()) }
             } label: {
                 connectionsRowLabel
@@ -250,20 +250,48 @@ struct AppSettingsView: View {
         }
     }
 
+    /// The V1 connections list, or the V2 abilities list behind the
+    /// Abilities V2 feature flag. Off by default in every environment;
+    /// reachable from the Debug menu in non-production builds and from the
+    /// curated prod debug menu in production. Read at push time, so
+    /// flipping the flag in either debug menu takes effect on the next
+    /// visit. The V2 branch presents `AbilitiesListScreen`, which owns its
+    /// view model via `@State`, so re-evaluations of this builder cannot
+    /// replace the model mid-push.
+    @ViewBuilder
+    private var connectionsDestination: some View {
+        if FeatureFlags.shared.isAbilitiesV2Enabled {
+            AbilitiesListScreen(
+                selection: AbilitiesServices.selection,
+                mode: .appSettings,
+                usageSource: AbilitiesServices.connectionUsageSource
+            )
+        } else {
+            ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
+        }
+    }
+
+    /// Row title and count follow `connectionsDestination`: "Abilities"
+    /// over the V2 list under the flag, "Connections" over the V1 list
+    /// otherwise. The count is V1 connections, so it only renders alongside
+    /// the V1 title.
     @ViewBuilder
     private var connectionsRowLabel: some View {
+        let isAbilitiesV2: Bool = FeatureFlags.shared.isAbilitiesV2Enabled
+        let title: String = "Connections"
         let connectionsCount: Int = viewModel.connectionsListViewModel.connections.count
+        let showsCount: Bool = !isAbilitiesV2 && connectionsCount > 0
         HStack {
             Image(systemName: "batteryblock.fill")
                 .foregroundStyle(.colorTextPrimary)
                 .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
 
-            Text("Connections")
+            Text(title)
                 .foregroundStyle(.colorTextPrimary)
 
             Spacer()
 
-            if connectionsCount > 0 {
+            if showsCount {
                 Text("\(connectionsCount)")
                     .foregroundStyle(.colorTextSecondary)
                     .monospacedDigit()
@@ -272,7 +300,7 @@ struct AppSettingsView: View {
     }
 
     @State private var presentingPaywall: Bool = false
-    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var creditBalance: CreditBalance?
     @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var subscriptionSyncState: SubscriptionSyncState = SubscriptionServices.shared.currentSyncState
 

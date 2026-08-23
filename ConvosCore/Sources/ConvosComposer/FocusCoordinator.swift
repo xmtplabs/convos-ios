@@ -51,8 +51,10 @@ public final class FocusCoordinator {
     // MARK: - Private Properties
 
     /// Tracks whether we're in the middle of a programmatic focus transition
-    /// This prevents false positives when detecting manual keyboard dismissal
-    private var isProgrammaticTransition: Bool = false
+    /// This prevents false positives when detecting manual keyboard dismissal.
+    /// Readable within the module so tests can assert the coordinator does not
+    /// begin a transition in response to a self-induced, no-op keyboard event.
+    private(set) var isProgrammaticTransition: Bool = false
 
     /// The target focus we're transitioning to (if in a programmatic transition)
     private var transitionTarget: MessagesViewInputFocus?
@@ -155,6 +157,15 @@ public final class FocusCoordinator {
     /// an off-screen page and bump the messages bottom bar with a phantom inset.
     public func dismissThingsSearchIfNeeded() {
         guard currentFocus == .thingsSearchBar else { return }
+        moveFocus(to: nil)
+    }
+
+    /// Dismisses the messages composer if it currently holds focus. Used when the
+    /// conversation pager pages away from the messages page (e.g. to an agent-DM
+    /// page), so the group composer's keyboard doesn't stay up while a peer page
+    /// is active. Peer pages own their own composer focus.
+    public func dismissMessageComposerIfNeeded() {
+        guard currentFocus == .message || currentFocus == .voiceMemoRecording else { return }
         moveFocus(to: nil)
     }
 
@@ -369,14 +380,16 @@ public final class FocusCoordinator {
             return
         }
 
-        Log.info("Updating focus for size class change: \(String(describing: horizontalSizeClass))")
-
-        // Update to the new default based on new size class
+        // Update to the new default based on new size class.
         let newDefault = defaultFocus
-        if currentFocus != newDefault {
-            beginProgrammaticTransition(to: newDefault)
-            currentFocus = newDefault
-        }
+        // Skip no-op size-class notifications: an equal-value `currentFocus`
+        // write still triggers Observation and can feed the same relayout spin
+        // as the keyboard path.
+        guard currentFocus != newDefault else { return }
+
+        Log.info("Updating focus for size class change: \(String(describing: horizontalSizeClass))")
+        beginProgrammaticTransition(to: newDefault)
+        currentFocus = newDefault
     }
 
     private func beginProgrammaticTransition(to target: MessagesViewInputFocus?) {
@@ -429,11 +442,22 @@ public final class FocusCoordinator {
         currentFocus = defaultFocus
     }
 
-    private func updateKeyboardState(frame: CGRect, isShowEvent: Bool, screen: UIScreen) {
-        // Get screen bounds to determine if keyboard is actually visible
-        // Use the screen from the notification, or fall back to main screen
-        let screenHeight = screen.bounds.height
+    private func updateKeyboardState(frame: CGRect, isShowEvent: Bool, screen: UIScreen, isFrameChange: Bool = false) {
+        updateKeyboardState(
+            screenHeight: screen.bounds.height,
+            frame: frame,
+            isShowEvent: isShowEvent,
+            isFrameChange: isFrameChange
+        )
+    }
 
+    /// Screen-free core of the keyboard-state machine. Split out so the
+    /// idempotency guards below can be exercised synchronously in tests
+    /// without a live `UIScreen`. `isFrameChange` is true for the
+    /// `keyboardWillChangeFrame`/`keyboardDidChangeFrame` callbacks, which
+    /// fire repeatedly during an input-accessory relayout and must not
+    /// downgrade a latched keyboard type back to `.unknown`.
+    func updateKeyboardState(screenHeight: CGFloat, frame: CGRect, isShowEvent: Bool, isFrameChange: Bool) {
         // Check if keyboard frame is on screen
         let keyboardBottomY = frame.origin.y + frame.size.height
         let isKeyboardOnScreen = frame.origin.y < screenHeight && keyboardBottomY > 0
@@ -457,8 +481,13 @@ public final class FocusCoordinator {
             // During hide events, we can't distinguish between:
             // 1. Software keyboard being dismissed
             // 2. External keyboard being connected
-            // So we set to unknown if we were in standard state
-            if keyboardType == .standard {
+            // So we set to unknown if we were in standard state.
+            // A frame-change event (not a genuine hide) can momentarily report
+            // the keyboard off-screen while an input-accessory relayout is in
+            // flight; that must not reset a latched type to unknown, or the type
+            // oscillates unknown <-> standard and drives the focus/relayout spin.
+            // Only a genuine hide downgrades.
+            if keyboardType == .standard && !isFrameChange {
                 newKeyboardType = .unknown
             } else {
                 // If we're already external or unknown, keep current state
@@ -483,6 +512,13 @@ public final class FocusCoordinator {
         // Don't interrupt active editing of displayName, conversationName, or sideConvoName
         guard currentFocus == nil else { return }
         let newDefault = defaultFocus
+        // A relayout-induced keyboard notification can re-fire with the type
+        // toggled but the resulting default unchanged (compact stays nil either
+        // way). Assigning `currentFocus` the value it already holds still
+        // triggers Observation, which re-renders the composer, relays out the
+        // input accessory, and fires another keyboard notification: a tight
+        // spin. Only transition when the default actually differs.
+        guard newDefault != currentFocus else { return }
 
         Log.info("Keyboard type changed: \(previousKeyboardType) → \(newKeyboardType), updating focus to: \(String(describing: newDefault))")
         beginProgrammaticTransition(to: newDefault)
@@ -532,7 +568,7 @@ extension FocusCoordinator: KeyboardListenerDelegate {
             // Use the screen from the notification, or fall back to main screen
             let screenHeight = screen.bounds.height
             let isShowingKeyboard = info.frameEnd.origin.y < screenHeight
-            updateKeyboardState(frame: info.frameEnd, isShowEvent: isShowingKeyboard, screen: screen)
+            updateKeyboardState(frame: info.frameEnd, isShowEvent: isShowingKeyboard, screen: screen, isFrameChange: true)
         }
     }
 
@@ -543,7 +579,7 @@ extension FocusCoordinator: KeyboardListenerDelegate {
             // Use the screen from the notification, or fall back to main screen
             let screenHeight = screen.bounds.height
             let isShowingKeyboard = info.frameEnd.origin.y < screenHeight
-            updateKeyboardState(frame: info.frameEnd, isShowEvent: isShowingKeyboard, screen: screen)
+            updateKeyboardState(frame: info.frameEnd, isShowEvent: isShowingKeyboard, screen: screen, isFrameChange: true)
         }
     }
 }

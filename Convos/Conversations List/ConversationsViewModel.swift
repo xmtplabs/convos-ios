@@ -20,9 +20,19 @@ final class ConversationsViewModel {
     @ObservationIgnored
     private var _selectedConversationId: String? {
         didSet {
+            if outOfWindowSelectedConversation?.id != _selectedConversationId {
+                outOfWindowSelectedConversation = nil
+            }
             updateSelectionState()
         }
     }
+
+    /// The selected conversation when it lives outside the loaded window
+    /// (deep link, notification tap, or a row that scrolled past the LIMIT).
+    /// Set before the selection id so `selectedConversation` can resolve it;
+    /// refreshed on every page emission and cleared when selection moves on.
+    @ObservationIgnored
+    private var outOfWindowSelectedConversation: Conversation?
 
     var selectedConversationId: Conversation.ID? {
         get { _selectedConversationId }
@@ -35,7 +45,7 @@ final class ConversationsViewModel {
     private(set) var selectedConversation: Conversation? {
         get {
             guard let id = _selectedConversationId else { return nil }
-            return conversations.first(where: { $0.id == id })
+            return conversationInPage(id: id) ?? outOfWindowSelectedConversation
         }
         set {
             selectedConversationId = newValue?.id
@@ -44,8 +54,31 @@ final class ConversationsViewModel {
 
     private(set) var selectedConversationViewModel: ConversationViewModel?
 
+    /// The agent inbox id whose DM page the pushed conversation should open on,
+    /// set when a row is selected whose most-recent unread is in the DM. Read by
+    /// the destination builder; nil means open on the group page.
+    private(set) var selectedInitialAgentDmInboxId: String?
+
     @ObservationIgnored
     private var updateSelectionTask: Task<Void, Never>?
+
+    /// Selects a conversation from the list, routing the pushed view to the
+    /// agent-DM page when the most-recent unread message lives in the DM (and to
+    /// the group otherwise).
+    func select(_ conversation: Conversation) {
+        selectedInitialAgentDmInboxId = agentDmInboxIdForMostRecentUnread(in: conversation)
+        selectedConversationId = conversation.id
+    }
+
+    /// Returns the agent inbox id to open the DM page for, when the DM holds the
+    /// most-recent unread message; nil to open the group page.
+    private func agentDmInboxIdForMostRecentUnread(in conversation: Conversation) -> String? {
+        guard let agentDm = conversation.agentDm, agentDm.isUnread else { return nil }
+        guard conversation.isUnread else { return agentDm.inboxId }
+        let dmDate: Date = agentDm.lastMessage?.createdAt ?? .distantPast
+        let groupDate: Date = conversation.lastMessage?.createdAt ?? .distantPast
+        return dmDate >= groupDate ? agentDm.inboxId : nil
+    }
 
     private func updateSelectionState() {
         let conversation = selectedConversation
@@ -119,6 +152,7 @@ final class ConversationsViewModel {
     @ObservationIgnored
     private let incomingPairingObservers: PairingNotificationObservers = .init()
     let staleDeviceObserver: StaleDeviceObserver = .init()
+    let bootSettlement: BootSettlementMonitor = .init()
 
     var newConversationViewModel: NewConversationViewModel? {
         didSet {
@@ -133,39 +167,45 @@ final class ConversationsViewModel {
             updateListVisibility()
         }
     }
-    var agentBuilderViewModel: AgentBuilderViewModel? {
-        didSet {
-            // Mirrors `newConversationViewModel.didSet`'s cleanup: when
-            // an Agent Builder VM is dropped without committing (e.g.
-            // the host view sets this to nil on tab swap), discard the
-            // outgoing one so its draft XMTP group is torn down. Skip
-            // when the user committed — that conversation has shipped
-            // and should stay on the server.
-            if let outgoing = oldValue,
-               oldValue !== agentBuilderViewModel,
-               !outgoing.hasCommitted,
-               !outgoing.didDiscard {
-                outgoing.discard()
-            }
-            updateListVisibility()
-        }
-    }
-    /// Drives the Compose flow sheet (`ComposeFlowView`): the contacts picker
-    /// is the root, and every conversation is minted on intent inside the flow
-    /// (Continue / Send-invite / Show-code) -- nothing is claimed just by
-    /// opening it. Distinct from `newConversationViewModel` (scanner / join /
-    /// template), so the two never drive overlapping presentations.
-    var presentingComposeFlow: Bool = false
+    /// Drives the scanner sheet the home's scan button presents.
+    var presentingScanner: Bool = false
+    /// Drives the dev-only agent-variant sheet shown ahead of a new
+    /// conversation while `FeatureFlags.isAgentVariantSelectorEnabled` is on.
+    var presentingVariantPicker: Bool = false
+    /// Owned here so the sheet's viewfinder survives re-renders and can be
+    /// re-armed between presentations.
+    let scannerViewModel: QRScannerViewModel = QRScannerViewModel()
     var presentingExplodeInfo: Bool = false
     var presentingPinLimitInfo: Bool = false
 
+    /// The loaded window of unpinned conversations (SQL-filtered and
+    /// LIMIT-bounded by the pager). Kept assignable for tests and previews.
     var conversations: [Conversation] = []
+    /// All pinned conversations from the pager (bounded by the pin limit,
+    /// never windowed).
+    private(set) var pinnedFromPage: [Conversation] = []
+    /// Whether unpinned rows exist beyond the loaded window.
+    private(set) var hasMoreConversations: Bool = false
+    /// Whether any unpinned row exists ignoring the active filter; drives
+    /// the filter-empty states without depending on the filtered window.
+    @ObservationIgnored
+    private var hasAnyUnpinnedFromPage: Bool = false
+    /// In-flight guard for `loadMoreConversationsIfNeeded`; cleared when the
+    /// grown window's emission lands.
+    @ObservationIgnored
+    private var isLoadingMore: Bool = false
     /// Whether `conversations` has received its first real value from the
     /// database (first-frame prime or first publisher emission). Until then
     /// an empty array means "not loaded yet", not "no conversations", so the
     /// empty-state CTA must stay hidden.
     private(set) var hasLoadedInitialConversations: Bool = false
     private(set) var hiddenConversationIds: Set<String> = []
+    /// The latest raw page, kept so a failed optimistic hide (see
+    /// `leave(conversation:)`) can restore the row by re-applying it: the
+    /// failed write leaves the database untouched, so no fresh emission is
+    /// coming to undo the hide.
+    @ObservationIgnored
+    private var lastReceivedPage: ConversationsPage?
     private var conversationsCount: Int = 0 {
         didSet {
             if conversationsCount > 1 {
@@ -189,9 +229,28 @@ final class ConversationsViewModel {
                 return "No exploding convos"
             }
         }
+
+        var pagerFilter: ConversationsListFilter {
+            switch self {
+            case .all:
+                return .all
+            case .unread:
+                return .unread
+            case .exploding:
+                return .exploding
+            }
+        }
     }
 
-    var activeFilter: ConversationFilter = .all
+    var activeFilter: ConversationFilter = .all {
+        didSet {
+            guard activeFilter != oldValue else { return }
+            // Push the predicate into the pager's SQL window; the in-memory
+            // filter below keeps the switch feeling instant on the old
+            // window until the new emission lands.
+            conversationsPager.filter = activeFilter.pagerFilter
+        }
+    }
 
     var pinnedConversations: [Conversation] {
         let baseConversations = pinnedBaseConversations
@@ -199,10 +258,13 @@ final class ConversationsViewModel {
     }
 
     private var pinnedBaseConversations: [Conversation] {
-        conversations
-            .filter { $0.isPinned }
-            .filter { $0.kind == .group }
-            .sorted { ($0.pinnedOrder ?? Int.max) < ($1.pinnedOrder ?? Int.max) }
+        // The pager serves pinned rows separately (the window excludes
+        // them). The in-memory fallback keeps previews and tests working
+        // when only `conversations` was assigned directly.
+        let base = pinnedFromPage.isEmpty
+            ? conversations.filter { $0.isPinned && $0.kind == .group }
+            : pinnedFromPage
+        return base.sorted { ($0.pinnedOrder ?? Int.max) < ($1.pinnedOrder ?? Int.max) }
     }
 
     private static func applyFilter(_ filter: ConversationFilter, to conversations: [Conversation]) -> [Conversation] {
@@ -229,7 +291,7 @@ final class ConversationsViewModel {
     }
 
     var hasUnpinnedConversations: Bool {
-        conversations.contains { !$0.isPinned && $0.kind == .group }
+        hasAnyUnpinnedFromPage || conversations.contains { !$0.isPinned && $0.kind == .group }
     }
 
     var isFilteredResultEmpty: Bool {
@@ -271,6 +333,10 @@ final class ConversationsViewModel {
 
     let session: any SessionManagerProtocol
     let coreActions: any CoreActions
+    private let conversationsPager: any ConversationsPagerProtocol
+    /// Kept alongside the pager for targeted reads the pager doesn't cover
+    /// (agent-DM tap routing). Its list observation is never subscribed
+    /// here, so holding it costs nothing.
     private let conversationsRepository: any ConversationsRepositoryProtocol
     private let conversationsCountRepository: any ConversationsCountRepositoryProtocol
     @ObservationIgnored
@@ -282,6 +348,12 @@ final class ConversationsViewModel {
     /// Resolved to a selection once the row appears.
     @ObservationIgnored
     private var pendingScanNavigationConversationId: String?
+    /// A notification tap whose destination conversation (or a DM's parent
+    /// group) wasn't in the list yet — e.g. a cold launch from the banner.
+    /// Replayed by `resolvePendingConversationTapIfPossible` once conversations
+    /// load. Mirrors `pendingScanNavigationConversationId`.
+    @ObservationIgnored
+    private var pendingConversationTapId: String?
     /// A connection-grant deep link that arrived before its conversation was
     /// in the list (cold launch races the initial load). Resolved once the
     /// conversation appears; mirrors `pendingScanNavigationConversationId`.
@@ -331,16 +403,18 @@ final class ConversationsViewModel {
         let coordinator = FocusCoordinator(horizontalSizeClass: horizontalSizeClass)
         self.focusCoordinator = coordinator
         self.appSettingsViewModel = AppSettingsViewModel(session: session)
-        self.conversationsRepository = session.conversationsRepository(
-            for: .allowed
-        )
+        self.conversationsPager = session.conversationsPager(for: .allowed)
+        self.conversationsRepository = session.conversationsRepository(for: .allowed)
         // Bind the stale-device observer to the session's state manager
         // so the banner appears when this device's installation is
         // revoked from the network. Done asynchronously because
         // messagingService() may need to construct the service.
         let stale = staleDeviceObserver
+        let settlement = bootSettlement
         Task { @MainActor in
-            stale.bind(to: session.messagingService().sessionStateManager)
+            let stateManager = session.messagingService().sessionStateManager
+            stale.bind(to: stateManager)
+            settlement.bind(to: stateManager)
         }
         self.conversationsCountRepository = session.conversationsCountRepo(
             for: .allowed,
@@ -377,7 +451,6 @@ final class ConversationsViewModel {
         let isFocusedOnList = isVisible
             && selectedConversationViewModel == nil
             && newConversationViewModel == nil
-            && agentBuilderViewModel == nil
         session.setIsOnConversationsList(isFocusedOnList)
     }
 
@@ -386,7 +459,7 @@ final class ConversationsViewModel {
     }
 
     func makeGrantRequestSheetViewModel(for request: PendingGrantRequest) -> CloudConnectionGrantRequestSheetViewModel {
-        let conversation = conversations.first(where: { $0.id == request.conversationId })
+        let conversation = resolveConversation(id: request.conversationId)
         return CloudConnectionGrantRequestSheetViewModel(
             serviceId: request.serviceId,
             conversationId: request.conversationId,
@@ -404,7 +477,7 @@ final class ConversationsViewModel {
         case .joinConversation(inviteCode: let inviteCode):
             join(from: inviteCode)
         case let .connectionGrant(serviceId: serviceId, conversationId: conversationId):
-            guard conversations.contains(where: { $0.id == conversationId }) else {
+            guard resolveConversation(id: conversationId) != nil else {
                 // On cold launch the list may not have loaded yet (the
                 // initial prime and the repository publisher both arrive
                 // asynchronously), so park the link and resolve it once the
@@ -430,66 +503,50 @@ final class ConversationsViewModel {
         }
     }
 
-    /// Compose opens the contacts picker first (optional selection); the flow
-    /// mints a conversation only on intent (`ComposeFlowView`), so opening and
-    /// cancelling the picker claims nothing. With no contacts to pick from,
-    /// the picker would be pointless -- so we skip it and open the
-    /// new-conversation view directly, like the pre-picker flow.
+    /// Compose drops straight into the new conversation, with no contacts
+    /// step in front of it: the conversation is claimed on entry and people
+    /// are brought in from inside it, by sharing its invite link. Picking
+    /// contacts up front was a detour on the way to the same place.
     func onStartConvo() {
-        // Count the contacts the picker would actually show (excludes agents,
-        // blocked, and unnamed) -- the raw contact count includes those, so
-        // it can't decide whether the picker is worth showing.
-        let contacts = (try? session.messagingServiceSync().contactsRepository().fetchAll()) ?? []
-        let pickable = ContactsPickerViewModel.pickableContacts(contacts)
-        guard !pickable.isEmpty else {
-            newConversationViewModel = NewConversationViewModel(
-                session: session,
-                mode: .newConversation,
-                coreActions: coreActions
-            )
+        // While the dev variant selector is on, every new conversation picks
+        // the variant its agent builds under before the conversation exists.
+        // The pick is held as pending and claimed by the conversation's first
+        // agent join, so the convo keeps that variant for its lifetime.
+        guard !FeatureFlags.shared.isAgentVariantSelectorEnabled else {
+            presentingVariantPicker = true
             return
         }
-        presentingComposeFlow = true
+        startNewConversation()
     }
 
-    /// The home scan button lands on the embedded Scan/Invite screen with the
-    /// Scan segment active, so the live viewfinder and "Or scan from camera roll" are
-    /// both reachable (a scanned code opens a brand-new convo to join/add).
-    /// Mirrors `onShowInviteCode` but starts on `.scan`.
+    /// Mints the conversation the compose button asks for. Split out of
+    /// `onStartConvo` so the variant picker can run ahead of it and then
+    /// continue into the same flow.
+    func startNewConversation(agentVariantSlug: String? = nil) {
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversation,
+            coreActions: coreActions,
+            agentVariantSlug: agentVariantSlug
+        )
+    }
+
+    /// The home scan button opens the scanner and nothing else. It used to
+    /// claim a conversation just to host a viewfinder inside it; scanning
+    /// reads someone else's code, so it needs no conversation of its own -
+    /// whatever it decodes is routed like any other link.
     func onJoinConvo() {
-        let viewModel = NewConversationViewModel(
-            session: session,
-            mode: .newConversation,
-            showsEmbeddedInvite: true,
-            embeddedInviteInitialSegment: .scan,
-            coreActions: coreActions
-        )
-        viewModel.onScanResolvedConversation = { [weak self] conversationId in
-            self?.navigateToScannedConversation(conversationId)
-        }
-        newConversationViewModel = viewModel
+        scannerViewModel.resetScanning()
+        presentingScanner = true
     }
 
-    /// Starts and enters a fresh conversation showing the invite QR at the top
-    /// (the standard message-list header) and the scan viewfinder as its
-    /// trailing action -- the "Show an invite code" entry point. Mirrors the
-    /// no-contacts branch of `onStartConvo`, opting the conversation into the
-    /// embedded-invite presentation.
-    func onShowInviteCode() {
-        let viewModel = NewConversationViewModel(
-            session: session,
-            mode: .newConversation,
-            showsEmbeddedInvite: true,
-            coreActions: coreActions
-        )
-        viewModel.onScanResolvedConversation = { [weak self] conversationId in
-            self?.navigateToScannedConversation(conversationId)
-        }
-        newConversationViewModel = viewModel
-    }
-
-    func onStartAgent(entryMode: AgentBuilderEntryMode = .composer) {
-        agentBuilderViewModel = AgentBuilderViewModel(session: session, entryMode: entryMode, coreActions: coreActions)
+    /// Routes a code read by the scanner: an invite opens its join flow, an
+    /// agent template starts a conversation with that agent, anything else is
+    /// ignored. Same routing a tapped link gets.
+    func handleScannedCode(_ code: String) {
+        presentingScanner = false
+        guard let url = URL(string: code) else { return }
+        handleURL(url)
     }
 
     private func join(from inviteCode: String) {
@@ -547,6 +604,7 @@ final class ConversationsViewModel {
         if let index = conversations.firstIndex(of: conversation) {
             conversations.remove(at: index)
         }
+        pinnedFromPage.removeAll { $0.id == conversation.id }
         if selectedConversation == conversation {
             selectedConversation = nil
         }
@@ -561,6 +619,12 @@ final class ConversationsViewModel {
             } catch {
                 self.hiddenConversationIds.remove(conversationId)
                 Log.error("Failed to persist delete for \(conversationId): \(error.localizedDescription)")
+                // The write never landed, so the database is unchanged and
+                // no emission will undo the optimistic hide above; re-apply
+                // the latest page to bring the row back.
+                if let page = self.lastReceivedPage {
+                    self.applyPage(page)
+                }
             }
         }
     }
@@ -578,6 +642,7 @@ final class ConversationsViewModel {
                     // ConversationViewModel.leaveConvo for the same pattern.
                     hiddenConversationIds.insert(conversationId)
                     conversations.removeAll { $0.id == conversationId }
+                    pinnedFromPage.removeAll { $0.id == conversationId }
                     if _selectedConversationId == conversationId {
                         _selectedConversationId = nil
                         selectedConversationViewModel = nil
@@ -612,29 +677,13 @@ final class ConversationsViewModel {
                 self?.conversationsCount = conversationsCount
             }
             .store(in: &cancellables)
-        conversationsRepository.conversationsPublisher
+        conversationsPager.pagePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] conversations in
+            .sink { [weak self] page in
                 guard let self else { return }
                 self.conversationsObservationHasEmitted = true
                 self.hasLoadedInitialConversations = true
-                self.conversations = hiddenConversationIds.isEmpty
-                    ? conversations
-                    : conversations.filter { !hiddenConversationIds.contains($0.id) }
-
-                ShareSuggestionDonator.donate(self.conversations)
-
-                if let selectedId = _selectedConversationId,
-                   !conversations.contains(where: { $0.id == selectedId }) {
-                    selectedConversationId = nil
-                }
-
-                resolvePendingScanNavigationIfPossible()
-                resolvePendingConnectionGrantIfPossible()
-
-                if !conversations.contains(where: { !$0.isPinned && $0.kind == .group }) {
-                    activeFilter = .all
-                }
+                self.applyPage(page)
             }
             .store(in: &cancellables)
 
@@ -652,26 +701,132 @@ final class ConversationsViewModel {
             .store(in: &cancellables)
     }
 
-    private func handleConversationNotificationTap(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let inboxId = userInfo["inboxId"] as? String,
-              let conversationId = userInfo["conversationId"] as? String else {
-            Log.warning("Conversation notification tapped but missing required userInfo")
-            return
-        }
+    private func applyPage(_ page: ConversationsPage) {
+        lastReceivedPage = page
+        isLoadingMore = false
+        hasMoreConversations = page.hasMore
+        hasAnyUnpinnedFromPage = page.hasAnyUnpinned
+        pinnedFromPage = hiddenConversationIds.isEmpty
+            ? page.pinned
+            : page.pinned.filter { !hiddenConversationIds.contains($0.id) }
+        conversations = hiddenConversationIds.isEmpty
+            ? page.unpinned
+            : page.unpinned.filter { !hiddenConversationIds.contains($0.id) }
 
-        Log.info(
-            "Handling conversation notification tap for inboxId: \(inboxId), conversationId: \(conversationId)"
-        )
+        ShareSuggestionDonator.donate(pinnedFromPage + conversations)
 
-        if let conversation = conversations.first(where: { $0.id == conversationId }) {
-            Log.info("Found conversation, selecting it")
-            selectedConversation = conversation
-        } else {
-            Log.warning("Conversation \(conversationId) not found in current conversation list")
+        refreshSelectionAfterPageChange()
+        resolvePendingScanNavigationIfPossible()
+        resolvePendingConnectionGrantIfPossible()
+        resolvePendingConversationTapIfPossible()
+
+        if !page.hasAnyUnpinned {
+            activeFilter = .all
         }
     }
 
+    /// Under a windowed list, "absent from the emission" no longer implies
+    /// "deleted" - the selected row may simply sit beyond the LIMIT or
+    /// outside the active filter. A targeted list-scoped fetch
+    /// disambiguates: found means keep the selection alive (refreshing the
+    /// cached copy the getter serves), nil means genuinely gone, so clear.
+    /// A thrown read is neither - it says nothing about the row - so the
+    /// selection and its cached copy survive; the next page emission
+    /// re-runs this check.
+    private func refreshSelectionAfterPageChange() {
+        guard let selectedId = _selectedConversationId else { return }
+        if conversationInPage(id: selectedId) != nil {
+            outOfWindowSelectedConversation = nil
+            return
+        }
+        do {
+            if let fetched = try conversationsPager.fetchConversation(id: selectedId) {
+                outOfWindowSelectedConversation = fetched
+            } else {
+                selectedConversationId = nil
+            }
+        } catch {
+            Log.warning("Failed to fetch out-of-window selected conversation \(selectedId), keeping selection: \(error)")
+        }
+    }
+
+    private func conversationInPage(id: String) -> Conversation? {
+        conversations.first { $0.id == id } ?? pinnedFromPage.first { $0.id == id }
+    }
+
+    /// The window lookup, falling back to a list-scoped by-id fetch for
+    /// rows beyond the LIMIT (notification taps, deep links, scans).
+    /// A thrown fetch resolves to nil - callers treat that as "not
+    /// resolvable right now", which for these one-shot navigation entry
+    /// points is the only available answer.
+    private func resolveConversation(id: String) -> Conversation? {
+        if let inPage = conversationInPage(id: id) {
+            return inPage
+        }
+        do {
+            return try conversationsPager.fetchConversation(id: id)
+        } catch {
+            Log.warning("Failed to fetch conversation \(id) for navigation: \(error)")
+            return nil
+        }
+    }
+
+    /// Selects a conversation by id, caching an out-of-window row first so
+    /// the selection getter can serve it. Returns false when the id no
+    /// longer resolves to a list-eligible conversation.
+    @discardableResult
+    private func selectConversation(id: String) -> Bool {
+        guard let conversation = resolveConversation(id: id) else { return false }
+        if conversationInPage(id: id) == nil {
+            outOfWindowSelectedConversation = conversation
+        }
+        selectedInitialAgentDmInboxId = agentDmInboxIdForMostRecentUnread(in: conversation)
+        selectedConversationId = id
+        return true
+    }
+
+    /// Grow the unpinned window by one page. Called by the list as it
+    /// approaches the end; gated on the last page reporting more rows and
+    /// on the previous grow having landed.
+    func loadMoreConversationsIfNeeded() {
+        guard hasMoreConversations, !isLoadingMore else { return }
+        isLoadingMore = true
+        conversationsPager.loadMore()
+    }
+
+    /// Ends the selected host conversation's invite session on a real
+    /// pop-to-home and mirrors the flipped flag into the in-memory list.
+    /// The persist is async (GRDB); without the mirror, an instant re-entry
+    /// builds the next detail view model from the stale list row and the big
+    /// inline Invite/Scan card flashes until the write round-trips.
+    func endHostedInviteSessionOnPop() {
+        guard let detailViewModel = selectedConversationViewModel else { return }
+        detailViewModel.markInviteSessionEndedIfHosting()
+        let endedConversation = detailViewModel.conversation
+        guard endedConversation.leftHostedInviteSession,
+              let index = conversations.firstIndex(where: { $0.id == endedConversation.id }) else { return }
+        conversations[index] = endedConversation
+    }
+
+    private func markConversationAsRead(_ conversation: Conversation) {
+        let conversationId = conversation.id
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let messagingService = session.messagingService()
+                let writer = messagingService.conversationLocalStateWriter()
+                try await writer.setUnread(false, for: conversationId)
+            } catch {
+                Log.warning("Failed marking conversation as read: \(error.localizedDescription)")
+            }
+        }
+    }
+}
+
+// MARK: - Conversation Actions
+
+extension ConversationsViewModel {
     func toggleMute(conversation: Conversation) {
         let conversationId = conversation.id
         let currentlyMuted = conversation.isMuted
@@ -724,35 +879,6 @@ final class ConversationsViewModel {
         }
     }
 
-    /// Ends the selected host conversation's invite session on a real
-    /// pop-to-home and mirrors the flipped flag into the in-memory list.
-    /// The persist is async (GRDB); without the mirror, an instant re-entry
-    /// builds the next detail view model from the stale list row and the big
-    /// inline Invite/Scan card flashes until the write round-trips.
-    func endHostedInviteSessionOnPop() {
-        guard let detailViewModel = selectedConversationViewModel else { return }
-        detailViewModel.markInviteSessionEndedIfHosting()
-        let endedConversation = detailViewModel.conversation
-        guard endedConversation.leftHostedInviteSession,
-              let index = conversations.firstIndex(where: { $0.id == endedConversation.id }) else { return }
-        conversations[index] = endedConversation
-    }
-
-    private func markConversationAsRead(_ conversation: Conversation) {
-        let conversationId = conversation.id
-
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let messagingService = session.messagingService()
-                let writer = messagingService.conversationLocalStateWriter()
-                try await writer.setUnread(false, for: conversationId)
-            } catch {
-                Log.warning("Failed marking conversation as read: \(error.localizedDescription)")
-            }
-        }
-    }
-
     func explodeConversation(_ conversation: Conversation) {
         let conversationId = conversation.id
         let memberInboxIds = conversation.members.map { $0.profile.inboxId }
@@ -762,6 +888,7 @@ final class ConversationsViewModel {
             selectedConversation = nil
         }
         conversations.removeAll { $0.id == conversationId }
+        pinnedFromPage.removeAll { $0.id == conversationId }
 
         Task { [weak self] in
             guard let self else { return }
@@ -789,6 +916,12 @@ final class ConversationsViewModel {
             } catch {
                 self.hiddenConversationIds.remove(conversationId)
                 Log.error("Error exploding conversation from list: \(error.localizedDescription)")
+                // Same as leave(conversation:): the failed write left the
+                // database unchanged, so no emission will undo the optimistic
+                // removal above; re-apply the latest page to bring the row back.
+                if let page = self.lastReceivedPage {
+                    self.applyPage(page)
+                }
             }
         }
     }
@@ -912,6 +1045,7 @@ extension ConversationsViewModel {
             },
             onDeleteExistingData: { [weak self] in
                 try await self?.session.deleteAllInboxes()
+                AbilitiesServices.handleAccountDataWiped()
             },
             checkHasExistingData: { [weak self] in
                 guard let session = self?.session else { return false }
@@ -1383,13 +1517,13 @@ extension ConversationsViewModel {
     /// once the switch lands.
     func resolvePendingScanNavigationIfPossible() {
         guard let pendingId = pendingScanNavigationConversationId,
-              conversations.contains(where: { $0.id == pendingId }) else { return }
+              resolveConversation(id: pendingId) != nil else { return }
         guard isChatsTabActive else {
             bringChatsTabToFront?()
             return
         }
         pendingScanNavigationConversationId = nil
-        selectedConversationId = pendingId
+        selectConversation(id: pendingId)
     }
 
     static var mock: ConversationsViewModel {
@@ -1420,20 +1554,20 @@ extension ConversationsViewModel {
 /// of truth either way.
 extension ConversationsViewModel {
     fileprivate struct InitialPrime {
-        let conversations: [Conversation]?
+        let page: ConversationsPage?
         let count: Int?
     }
 
     fileprivate func primeInitialConversations() {
         // The reads are pure GRDB pool reads and thread-safe; the
         // existentials just aren't Sendable.
-        nonisolated(unsafe) let primeRepository = conversationsRepository
+        nonisolated(unsafe) let primePager = conversationsPager
         nonisolated(unsafe) let primeCountRepository = conversationsCountRepository
         let primed: InitialPrime? = BoundedInitialRead.prime(read: {
-            var fetched: [Conversation]?
+            var fetchedPage: ConversationsPage?
             var count: Int?
             do {
-                fetched = try primeRepository.fetchAll()
+                fetchedPage = try primePager.fetchInitialPage()
             } catch {
                 // Distinguish a failed read from a merely slow one: the
                 // deadline-miss log alone would hide real database errors.
@@ -1444,7 +1578,7 @@ extension ConversationsViewModel {
             } catch {
                 Log.error("Initial conversations count prime failed: \(error.localizedDescription)")
             }
-            return InitialPrime(conversations: fetched, count: count)
+            return InitialPrime(page: fetchedPage, count: count)
         }, late: { [weak self] payload in
             self?.applyInitialPrime(payload, deliveredLate: true)
         })
@@ -1456,21 +1590,20 @@ extension ConversationsViewModel {
     }
 
     private func applyInitialPrime(_ prime: InitialPrime, deliveredLate: Bool) {
-        if prime.conversations != nil {
+        if prime.page != nil {
             // The read succeeded, so the database state is known even when
             // the snapshot below is discarded in favor of a publisher
             // emission that arrived first.
             hasLoadedInitialConversations = true
         }
-        if let fetched = prime.conversations {
-            // On the late path the conversations publisher may have emitted
-            // already; it is the source of truth, so never replace its
-            // emission with this older snapshot. An emission can legitimately
-            // be an empty list (the last conversation was just deleted), so
-            // check the explicit flag rather than inferring from the data.
-            if !deliveredLate || (!conversationsObservationHasEmitted && conversations.isEmpty) {
-                conversations = fetched
-                resolvePendingConnectionGrantIfPossible()
+        if let page = prime.page {
+            // On the late path the pager may have emitted already; it is the
+            // source of truth, so never replace its emission with this older
+            // snapshot. An emission can legitimately be an empty page (the
+            // last conversation was just deleted), so check the explicit
+            // flag rather than inferring from the data.
+            if !deliveredLate || (!conversationsObservationHasEmitted && conversations.isEmpty && pinnedFromPage.isEmpty) {
+                applyPage(page)
             }
         }
         // Assigning the count latches hasCreatedMoreThanOneConvo via its
@@ -1484,6 +1617,12 @@ extension ConversationsViewModel {
         // Discard any older parked link so it cannot fire later and yank the
         // user away from the grant that is being handled now.
         pendingConnectionGrantLink = nil
+        // Cache an out-of-window row before selecting so the selection
+        // getter can serve it (the grant target may sit beyond the window).
+        if conversationInPage(id: conversationId) == nil,
+           let fetched = resolveConversation(id: conversationId) {
+            outOfWindowSelectedConversation = fetched
+        }
         _selectedConversationId = conversationId
         pendingGrantRequest = PendingGrantRequest(
             serviceId: serviceId,
@@ -1493,8 +1632,81 @@ extension ConversationsViewModel {
 
     fileprivate func resolvePendingConnectionGrantIfPossible() {
         guard let link = pendingConnectionGrantLink,
-              conversations.contains(where: { $0.id == link.conversationId }) else { return }
+              resolveConversation(id: link.conversationId) != nil else { return }
         pendingConnectionGrantLink = nil
         openConnectionGrant(serviceId: link.serviceId, conversationId: link.conversationId)
+    }
+}
+
+// MARK: - Notification tap routing
+
+extension ConversationsViewModel {
+    func handleConversationNotificationTap(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let inboxId = userInfo["inboxId"] as? String,
+              let conversationId = userInfo["conversationId"] as? String else {
+            Log.warning("Conversation notification tapped but missing required userInfo")
+            return
+        }
+
+        Log.info(
+            "Handling conversation notification tap for inboxId: \(inboxId), conversationId: \(conversationId)"
+        )
+
+        if !routeToTappedConversation(conversationId) {
+            // The destination isn't in the loaded list yet (cold launch from the
+            // banner, before conversations have streamed in). Park it and replay
+            // once the conversations publisher emits.
+            Log.info("Conversation \(conversationId) not loaded yet; parking tap for replay")
+            pendingConversationTapId = conversationId
+        }
+    }
+
+    /// Routes a tapped notification's conversation id to the right destination:
+    /// a message in an agent DM opens that DM's parent group on the DM page; a
+    /// group message opens the group on the group page. Returns false when the
+    /// destination isn't in the loaded conversation list yet, so the caller can
+    /// defer it (see `pendingConversationTapId`).
+    @discardableResult
+    func routeToTappedConversation(_ conversationId: String) -> Bool {
+        // An agent DM's own id is never in the list (DMs are folded into their
+        // parent group's row), so map it to the parent + agent page first.
+        if let routing = try? conversationsRepository.agentDmTapRouting(forConversationId: conversationId) {
+            guard conversations.contains(where: { $0.id == routing.originConversationId }) else {
+                return false
+            }
+            // Seeds the DM page when the parent opens fresh (or from a different
+            // conversation)...
+            selectedInitialAgentDmInboxId = routing.agentInboxId
+            selectedConversationId = routing.originConversationId
+            // ...and switches the page when the parent is already on screen (where
+            // re-selecting the same id is a no-op).
+            NotificationCenter.default.post(
+                name: .selectAgentDmPageRequested,
+                object: nil,
+                userInfo: [
+                    "conversationId": routing.originConversationId,
+                    "agentInboxId": routing.agentInboxId
+                ]
+            )
+            return true
+        }
+
+        // A group (or any listed conversation): open it on the group page.
+        guard let conversation = conversations.first(where: { $0.id == conversationId }) else {
+            return false
+        }
+        selectedInitialAgentDmInboxId = nil
+        selectedConversation = conversation
+        return true
+    }
+
+    /// Replays a notification tap that was parked because its destination hadn't
+    /// loaded yet. Called when the conversations publisher emits.
+    func resolvePendingConversationTapIfPossible() {
+        guard let pendingId = pendingConversationTapId else { return }
+        if routeToTappedConversation(pendingId) {
+            pendingConversationTapId = nil
+        }
     }
 }

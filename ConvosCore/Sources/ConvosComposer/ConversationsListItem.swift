@@ -27,6 +27,9 @@ public struct ListItemView<LeadingContent: View, SubtitleContent: View, Accessor
     let title: String
     let isMuted: Bool
     let isUnread: Bool
+    /// When true (and `isUnread`), the unread dot carries an agent glyph to
+    /// signal the unread lives in an agent DM rather than the group.
+    let unreadHasAgentBadge: Bool
     @ViewBuilder let leadingContent: () -> LeadingContent
     @ViewBuilder let subtitle: () -> SubtitleContent
     @ViewBuilder let accessoryContent: () -> AccessoryContent
@@ -35,6 +38,7 @@ public struct ListItemView<LeadingContent: View, SubtitleContent: View, Accessor
         title: String,
         isMuted: Bool,
         isUnread: Bool,
+        unreadHasAgentBadge: Bool = false,
         @ViewBuilder leadingContent: @escaping () -> LeadingContent,
         @ViewBuilder subtitle: @escaping () -> SubtitleContent,
         @ViewBuilder accessoryContent: @escaping () -> AccessoryContent
@@ -42,6 +46,7 @@ public struct ListItemView<LeadingContent: View, SubtitleContent: View, Accessor
         self.title = title
         self.isMuted = isMuted
         self.isUnread = isUnread
+        self.unreadHasAgentBadge = unreadHasAgentBadge
         self.leadingContent = leadingContent
         self.subtitle = subtitle
         self.accessoryContent = accessoryContent
@@ -78,8 +83,7 @@ public struct ListItemView<LeadingContent: View, SubtitleContent: View, Accessor
             }
 
             if isUnread {
-                Circle()
-                    .fill(Color.primary)
+                unreadIndicator
                     .frame(width: 16, height: 16)
                     .accessibilityHidden(true)
                     .transition(.scale.combined(with: .opacity))
@@ -90,6 +94,20 @@ public struct ListItemView<LeadingContent: View, SubtitleContent: View, Accessor
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.vertical, DesignConstants.Spacing.step3x)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var unreadIndicator: some View {
+        if unreadHasAgentBadge {
+            ZStack {
+                Circle().fill(Color.primary)
+                Text("A")
+                    .font(.system(size: 10.0, weight: .bold))
+                    .foregroundStyle(Color(.systemBackground))
+            }
+        } else {
+            Circle().fill(Color.primary)
+        }
     }
 }
 
@@ -104,26 +122,49 @@ public struct ConversationsListItem: View {
 
     // Extract computed values to prevent unnecessary recalculations
     private var title: String {
-        let base: String = conversation.title(memberNameOverride: memberNameOverride)
-        guard !ConfigManager.shared.currentEnvironment.isProduction, conversation.agentVariant != nil else {
-            return base
-        }
-        return "🧪 \(base)"
+        conversation.title(memberNameOverride: memberNameOverride)
     }
     private var isMuted: Bool { conversation.isMuted }
-    private var isUnread: Bool { conversation.isUnread }
-    private var lastMessage: MessagePreview? { conversation.lastMessage }
     private var createdAt: Date { conversation.createdAt }
+
+    private var agentDm: Conversation.AgentDmSummary? { conversation.agentDm }
+
+    /// The unread lives in the group's own transcript.
+    private var groupUnread: Bool { conversation.isUnread }
+    /// The unread lives in the agent DM folded into this row.
+    private var dmUnread: Bool { agentDm?.isUnread ?? false }
+    private var combinedUnread: Bool { groupUnread || dmUnread }
+
+    private var groupLastMessage: MessagePreview? { conversation.lastMessage }
+    private var dmLastMessage: MessagePreview? { agentDm?.lastMessage }
+
+    /// True when the agent DM holds the more recent message, so the row's
+    /// preview + timestamp reflect the DM rather than the group.
+    private var previewIsFromDm: Bool {
+        guard let dm = dmLastMessage else { return false }
+        guard let group = groupLastMessage else { return true }
+        return dm.createdAt > group.createdAt
+    }
+    private var previewMessage: MessagePreview? { previewIsFromDm ? dmLastMessage : groupLastMessage }
+    /// DM messages carry no sender prefix from hydration, so prefix the agent's
+    /// display name here to match the group's "sender: message" shape.
+    private var previewText: String {
+        guard let message = previewMessage else { return "" }
+        if previewIsFromDm, let name = agentDm?.displayName {
+            return "\(name): \(message.text)"
+        }
+        return message.text
+    }
 
     private var isPendingInvite: Bool { conversation.isPendingInvite }
 
     private var accessibilityDescription: String {
         var parts: [String] = [title]
         if isPendingInvite { parts.append("verifying") }
-        if isUnread { parts.append("unread") }
+        if combinedUnread { parts.append(dmUnread ? "unread agent message" : "unread") }
         if isMuted { parts.append("muted") }
-        if let message = lastMessage {
-            parts.append(message.text)
+        if !previewText.isEmpty {
+            parts.append(previewText)
         }
         return parts.joined(separator: ", ")
     }
@@ -132,7 +173,8 @@ public struct ConversationsListItem: View {
         ListItemView(
             title: title,
             isMuted: isPendingInvite ? false : isMuted,
-            isUnread: isPendingInvite ? false : isUnread,
+            isUnread: isPendingInvite ? false : combinedUnread,
+            unreadHasAgentBadge: isPendingInvite ? false : dmUnread,
             leadingContent: {
                 ConversationAvatarView(conversation: conversation, conversationImage: nil)
             },
@@ -142,10 +184,10 @@ public struct ConversationsListItem: View {
                         RelativeDateLabel(date: createdAt)
                         Text("·").foregroundStyle(.colorTextTertiary)
                         Text("Verifying")
-                    } else if let message = lastMessage {
+                    } else if let message = previewMessage {
                         RelativeDateLabel(date: message.createdAt)
                         Text("·").foregroundStyle(.colorTextTertiary)
-                        Text(message.text)
+                        Text(previewText)
                     } else {
                         RelativeDateLabel(date: createdAt)
                     }

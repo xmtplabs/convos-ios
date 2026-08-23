@@ -17,6 +17,13 @@ struct CellConfig {
     /// Fired when an agent-share message card is tapped -- opens the shared
     /// agent's template flow.
     let onTapAgentShare: @MainActor @Sendable (MessageAgentShare) -> Void
+    /// The host's first refusal on a link tapped in a bubble -- see
+    /// `MessageLinkRouter`. Declines by default, which sends the link to the
+    /// in-app browser.
+    let messageLinkRouter: MessageLinkRouter
+    /// The conversation's own Space, for the bubbles that render a link home
+    /// differently. Nil until it exists.
+    let conversationSpaceURL: URL?
     let onTapAvatar: (AnyMessage) -> Void
     /// Fired when an avatar / sender label is tapped on a group that has no
     /// concrete `AnyMessage` to attach (e.g. the synthesized agent
@@ -53,16 +60,12 @@ struct CellConfig {
     let onOpenFile: ((HydratedAttachment, AnyMessage) -> Void)?
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
-    let onCopyInviteLink: () -> Void
-    let onConvoCode: () -> Void
     let onInviteAgent: () -> Void
+    let onInvitePeople: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
     let isAgentJoinPending: Bool
     let headerMode: MessagesHeaderMode
-    /// Mirrors `Conversation.hidesInviteCard`. When true the `.invite`
-    /// cell renders the invite menu without the QR card above it.
-    let hidesInviteCard: Bool
     /// Shared SwiftUI namespace used to morph the Agent Builder's
     /// composer card into the summary cell on Make via
     /// `glassEffectID("agentBuilderCard", in:) +
@@ -93,17 +96,6 @@ struct CellConfig {
     /// from the conversation-info preview. The view lives in the app
     /// target; when nil the explainer button doesn't present anything.
     let backwardsSecrecyInfoSheet: (() -> AnyView)?
-    /// When true the `.invite` cell renders the full inline Invite/Scan card
-    /// (`InviteCodeBody`) instead of the regular inviter QR + menu. Mirrors
-    /// `ConversationView.showsTopOfConvoInvite`.
-    let showsInviteScanCard: Bool
-    /// The conversation the inline Invite/Scan card renders for. Nil when the
-    /// card is not shown; the `.invite` cell guards on it.
-    let inviteScanConversation: Conversation?
-    let inviteScanMode: InviteCodeMode
-    let inviteScanInitialSegment: ScanInviteSegment
-    let onScannedInviteCode: (String) -> Void
-    let onInviteShareCompleted: (UIActivity.ActivityType?, Bool, Error?) -> Void
 }
 
 // swiftlint:disable force_cast

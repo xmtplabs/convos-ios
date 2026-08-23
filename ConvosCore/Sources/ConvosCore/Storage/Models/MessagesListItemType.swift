@@ -46,6 +46,9 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case update(id: String, update: ConversationUpdate, origin: AnyMessage.Origin)
     case date(DateGroup)
     case messages(MessagesGroup)
+    /// The conversation creator's leading cell: the invite QR, and nothing
+    /// else. It used to carry an "Invite members" pill beneath it; adding
+    /// people now lives on the top bar's invite button alone.
     case invite(Invite)
     case conversationInfo(Conversation)
     case agentOutOfCredits(ConversationMember, showsUpgradeCTA: Bool)
@@ -55,6 +58,10 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case capabilityConnect(id: String, prompt: CapabilityConnectPrompt, agentName: String, origin: AnyMessage.Origin)
     case agentBuilderSummary(AgentBuilderCardContent)
     case agentActivating(AgentActivatingCardContent)
+    case groupEmptyState(isInviteEnabled: Bool)
+    /// The agent-DM disclosure empty state. Carries the agent's variant stamp
+    /// so the DM can say which runtime it is talking to.
+    case agentDmInfo(agentName: String, variant: AgentVariantStamp?)
     case typingIndicator(typers: [ConversationMember])
 
     public var id: String {
@@ -90,6 +97,12 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "agent-builder-summary-\(content.id)"
         case .agentActivating(let content):
             return "agent-activating-\(content.id)"
+        case .groupEmptyState:
+            return "group-empty-state"
+        case .agentDmInfo(_, let variant):
+            // The slug rides the identity so a stamp that arrives after first
+            // render (profile sync) re-renders the cell instead of sticking.
+            return "agent-dm-info-\(variant?.slug ?? "none")"
         case .typingIndicator:
             return "typing-indicator"
         }
@@ -128,12 +141,29 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .agentActivating, .typingIndicator:
+        case .date, .invite, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .agentActivating, .groupEmptyState, .agentDmInfo, .typingIndicator:
             return nil
         case .connectionEvent(_, _, let origin):
             return origin
         case .capabilityConnect(_, _, _, let origin):
             return origin
+        }
+    }
+
+    /// Whether this is a group of real messages, as opposed to the cells the
+    /// transcript adds around them.
+    public var isMessages: Bool {
+        if case .messages = self { return true }
+        return false
+    }
+
+    /// Whether this cell already explains an empty transcript on its own.
+    public var explainsAnEmptyTranscript: Bool {
+        switch self {
+        case .groupEmptyState, .agentDmInfo:
+            return true
+        default:
+            return false
         }
     }
 
@@ -143,7 +173,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
 
     public var alignment: MessagesListItemAlignment {
         switch self {
-        case .invite, .conversationInfo, .agentBuilderSummary, .agentActivating:
+        case .invite, .conversationInfo, .agentBuilderSummary, .agentActivating, .groupEmptyState, .agentDmInfo:
             return .center
         case .agentOutOfCredits:
             return .fullWidth
@@ -178,6 +208,10 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "MessagesListItemTypeCell-agentBuilderSummary"
         case .agentActivating:
             return "MessagesListItemTypeCell-agentActivating"
+        case .groupEmptyState:
+            return "MessagesListItemTypeCell-groupEmptyState"
+        case .agentDmInfo:
+            return "MessagesListItemTypeCell-agentDmInfo"
         case .typingIndicator:
             return "TypingIndicatorCollectionCell"
         }
@@ -197,6 +231,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             "MessagesListItemTypeCell-capabilityConnect",
             "MessagesListItemTypeCell-agentBuilderSummary",
             "MessagesListItemTypeCell-agentActivating",
+            "MessagesListItemTypeCell-groupEmptyState",
+            "MessagesListItemTypeCell-agentDmInfo",
             "TypingIndicatorCollectionCell",
         ]
     }

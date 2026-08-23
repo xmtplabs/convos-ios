@@ -147,7 +147,7 @@ public extension Conversation {
         )
     }
 
-    static func empty(id: String = "") -> Conversation {
+    static func empty(id: String = "", emoji: String? = nil) -> Conversation {
         Conversation(
             id: id,
             clientConversationId: id,
@@ -172,7 +172,7 @@ public extension Conversation {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
-            conversationEmoji: nil,
+            conversationEmoji: emoji,
             includeInfoInPublicPreview: false,
             isDraft: true,
             invite: nil,
@@ -412,6 +412,13 @@ private func summaryFromFirstMetadataChange(
             return "\(creatorDisplayName) set this convo to explode in \(duration)"
         }
         return "\(creatorDisplayName) set this convo to explode"
+    case .participationMode:
+        guard let newValue = metadataChange.newValue,
+              let mode = ConversationParticipationMode(rawValue: newValue) else { return nil }
+        if mode == .paused {
+            return "\(creatorDisplayName) paused agents, so they'll never see the following messages"
+        }
+        return "\(creatorDisplayName) set agents to \(mode.transcriptTitle)"
     case .metadata, .unknown:
         return nil
     }

@@ -59,19 +59,65 @@ if ! CREATE_OUT="$(flyctl apps create "$APP_NAME" --org "$FLY_ORG" 2>&1)"; then
     fi
 fi
 
+# `apps create` returns before the app is visible to every Fly API replica, so
+# acting on it immediately can fail with "app not found". Wait for it to read
+# back before doing anything else.
+echo "Waiting for app to be visible..." >&2
+APP_VISIBLE=0
+for _ in $(seq 1 30); do
+    if flyctl apps list 2>/dev/null | awk -v name="$APP_NAME" '$1 == name { found = 1 } END { exit !found }'; then
+        APP_VISIBLE=1
+        break
+    fi
+    sleep 2
+done
+if [[ $APP_VISIBLE -ne 1 ]]; then
+    echo "Error: app $APP_NAME did not become visible after creation" >&2
+    exit 1
+fi
+
 # Allocate IP addresses for the app (ignore if already allocated)
 echo "Allocating IP addresses..." >&2
 flyctl ips allocate-v4 --shared --app "$APP_NAME" 2>/dev/null || true
 flyctl ips allocate-v6 --app "$APP_NAME" 2>/dev/null || true
 
-# Deploy multi-container machine
+# Deploy multi-container machine. Even after the app reads back from `apps
+# list`, `machine run` can still land on a replica that has not caught up and
+# fail with "app not found" - observed on 3 of 7 consecutive runs once the
+# deploy moved onto the macOS runner, which egresses from a different region
+# than the ubuntu job that used to do this. The call is not idempotent in any
+# harmful way here (a machine that did get created is torn down with the app),
+# so retry the transient case.
 echo "Deploying multi-container machine..." >&2
-flyctl machine run \
-    --app "$APP_NAME" \
-    --region "$FLY_REGION" \
-    --rm \
-    --restart no \
-    --machine-config "$MACHINE_CONFIG"
+MACHINE_ATTEMPTS=5
+MACHINE_ATTEMPT=1
+while true; do
+    if MACHINE_OUT="$(flyctl machine run \
+            --app "$APP_NAME" \
+            --region "$FLY_REGION" \
+            --rm \
+            --restart no \
+            --machine-config "$MACHINE_CONFIG" 2>&1)"; then
+        echo "$MACHINE_OUT" >&2
+        break
+    fi
+
+    echo "$MACHINE_OUT" >&2
+
+    if ! grep -qiE 'app not found|could not find app' <<<"$MACHINE_OUT"; then
+        echo "Error: machine launch failed with a non-transient error" >&2
+        exit 1
+    fi
+
+    if [[ $MACHINE_ATTEMPT -ge $MACHINE_ATTEMPTS ]]; then
+        echo "Error: failed to launch machine after $MACHINE_ATTEMPTS attempts" >&2
+        exit 1
+    fi
+
+    echo "  Attempt $MACHINE_ATTEMPT/$MACHINE_ATTEMPTS hit a propagation error, retrying..." >&2
+    MACHINE_ATTEMPT=$((MACHINE_ATTEMPT + 1))
+    sleep 5
+done
 
 # Wait for TLS to be ready
 APP_HOSTNAME="${APP_NAME}.fly.dev"
@@ -79,15 +125,27 @@ MAX_TLS_ATTEMPTS=60
 TLS_ATTEMPT=0
 
 echo "Waiting for TLS to be ready..." >&2
+# `CONNECTED` is printed by s_client the moment the TCP socket opens, before
+# the handshake is attempted, so matching on it reported success against a
+# port that had merely started accepting connections. `New, TLS...` is only
+# printed once a handshake actually completes - verified against both a live
+# TLS host and a plain-HTTP port, where `Verify return code:` still appears
+# and so is no good either.
 while [[ $TLS_ATTEMPT -lt $MAX_TLS_ATTEMPTS ]]; do
-    if openssl s_client -connect "$APP_HOSTNAME:443" -servername "$APP_HOSTNAME" </dev/null 2>/dev/null | grep -q "CONNECTED"; then
+    # The alarm/exec wrapper bounds each probe at 10s: s_client has no connect
+    # timeout of its own, so a socket that stalls mid-handshake would hang this
+    # attempt past every retry bound. alarm survives exec, so the signal lands
+    # on openssl itself; macOS runners ship no timeout(1).
+    if perl -e 'alarm shift; exec @ARGV' 10 \
+        openssl s_client -connect "$APP_HOSTNAME:443" -servername "$APP_HOSTNAME" -alpn h2 \
+        </dev/null 2>/dev/null | grep -q "^New, TLS"; then
         echo "TLS is ready!" >&2
         break
     fi
 
     TLS_ATTEMPT=$((TLS_ATTEMPT + 1))
     echo "  Attempt $TLS_ATTEMPT/$MAX_TLS_ATTEMPTS - waiting for TLS..." >&2
-    sleep 5
+    sleep 2
 done
 
 if [[ $TLS_ATTEMPT -ge $MAX_TLS_ATTEMPTS ]]; then
@@ -95,35 +153,68 @@ if [[ $TLS_ATTEMPT -ge $MAX_TLS_ATTEMPTS ]]; then
     exit 1
 fi
 
-# Wait for the gRPC service to be fully ready (not just TLS)
-# Probe the XMTP identity API endpoint with an HTTP/2 POST.
-# A working gRPC service returns a response (even an error); a not-ready
-# service returns a connection error or HTTP 503.
-MAX_GRPC_ATTEMPTS=30
+# Wait for the gRPC service to answer. Port 443 fronts internal 5556 with
+# ALPN h2 (see machine-config.json), so an HTTP/2 POST reaches the gRPC
+# server directly.
+#
+# The request has to carry a well-formed gRPC message or the server will sit
+# waiting for one and never respond. A gRPC frame is a 1-byte compression
+# flag followed by a 4-byte big-endian length, so five zero bytes is a valid
+# empty message. The previous probe sent no body at all, so every attempt hung
+# until curl's own timeout and reported `000` (exit 28) - not a TLS or routing
+# failure, just a request the server was still waiting to finish. That read as
+# "not ready" for all 30 attempts of every run sampled, a hard 150s cost for a
+# signal that could never arrive, after which the deploy continued anyway.
+#
+# With the frame the server replies `HTTP/2 200` plus `grpc-status: 0`, so
+# this now exits as soon as the node is genuinely serving. The bytes go via a
+# file because a NUL cannot survive in a bash variable.
+#
+# `|| echo "000"` also used to run *in addition to* curl's own `000` output,
+# concatenating into the nonsense `HTTP 000000` in those logs; the subshell
+# exit is swallowed instead so the real code is reported.
+MAX_GRPC_ATTEMPTS=60
+GRPC_INTERVAL=2
 GRPC_ATTEMPT=0
+GRPC_READY=0
+
+GRPC_FRAME="$(mktemp)"
+trap 'rm -f "$GRPC_FRAME"' EXIT
+printf '\x00\x00\x00\x00\x00' > "$GRPC_FRAME"
 
 echo "Waiting for gRPC service to be ready..." >&2
 while [[ $GRPC_ATTEMPT -lt $MAX_GRPC_ATTEMPTS ]]; do
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+    HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" \
         --http2 \
         -H "Content-Type: application/grpc" \
+        -H "TE: trailers" \
+        --data-binary "@$GRPC_FRAME" \
         -X POST \
         "https://${APP_HOSTNAME}:443/xmtp.identity.api.v1.IdentityApi/GetInboxIds" \
-        --max-time 5 2>/dev/null || echo "000")
+        --max-time 5 2>/dev/null)" || true
+    HTTP_CODE="${HTTP_CODE:-000}"
 
     if [[ "$HTTP_CODE" == "200" ]]; then
-        echo "gRPC service is ready!" >&2
+        echo "gRPC service is ready! (HTTP 200 after $GRPC_ATTEMPT retries)" >&2
+        GRPC_READY=1
         break
     fi
 
     GRPC_ATTEMPT=$((GRPC_ATTEMPT + 1))
     echo "  Attempt $GRPC_ATTEMPT/$MAX_GRPC_ATTEMPTS - HTTP $HTTP_CODE, waiting..." >&2
-    sleep 5
+    sleep "$GRPC_INTERVAL"
 done
 
-if [[ $GRPC_ATTEMPT -ge $MAX_GRPC_ATTEMPTS ]]; then
-    echo "Warning: gRPC readiness check did not get HTTP 200, proceeding anyway" >&2
+if [[ $GRPC_READY -ne 1 ]]; then
+    echo "Warning: gRPC readiness check never got HTTP 200, proceeding anyway" >&2
 fi
+
+# Note on :5558 (history-server): the fly proxy answers 502 there even on a
+# healthy app, so it is not a usable readiness signal and must not be gated
+# on - doing so failed a deploy whose node was serving normally. A 502 was
+# observed alongside a 50 minute test hang and looked causal, but a fresh,
+# working run returns 502 there too, so the two are unrelated. The hang is
+# covered by the timeout on the test step instead.
 
 XMTP_URL="https://${APP_HOSTNAME}:443"
 

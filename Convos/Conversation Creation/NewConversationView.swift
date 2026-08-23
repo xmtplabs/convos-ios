@@ -34,6 +34,11 @@ struct NewConversationView: View {
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @State private var navState: NewConversationNavigatorImpl = .init()
     @State private var navigator: NewConversationCollector?
+    /// True while the conversation's Home tab has a page pushed. The
+    /// conversation view puts its own back button in the leading slot then, so
+    /// this view's close (X) stands down and the bar keeps one leading button
+    /// that pops pages until the home is back at its root.
+    @State private var isBrowsingHome: Bool = false
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -56,8 +61,12 @@ struct NewConversationView: View {
             viewModel: viewModel.conversationViewModel,
             focusCoordinator: focusCoordinator,
             insetsTopSafeArea: insetsTopSafeArea,
-            sidebarColumnWidth: $sidebarWidth
-        ) { focusState, coordinator in
+            sidebarColumnWidth: $sidebarWidth,
+            // The shell renders the centered indicator for this flow (see
+            // `MainTabView.activeConvoVM`). Rendering a second one here would
+            // duplicate the shared matched-geometry id and crash the push.
+            rendersConversationIndicator: false
+        ) { focusBinding, coordinator in
             ConditionalNavigationStack(embedsStack: embedsNavigationStack) {
                 @Bindable var viewModel = viewModel
                 Group {
@@ -73,20 +82,18 @@ struct NewConversationView: View {
                         ConversationView(
                             viewModel: conversationViewModel,
                             profileSettingsViewModel: profileSettingsViewModel,
-                            focusState: focusState,
+                            focusState: focusBinding,
                             focusCoordinator: coordinator,
                             onScanInviteCode: viewModel.onScanInviteCode,
                             onDeleteConversation: viewModel.deleteConversation,
                             messagesTopBarTrailingItem: viewModel.messagesTopBarTrailingItem,
                             messagesTopBarTrailingItemEnabled: viewModel.messagesTopBarTrailingItemEnabled,
                             messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled,
-                            showsEmbeddedInvite: viewModel.showsEmbeddedInvite,
-                            embeddedInviteInitialSegment: viewModel.embeddedInviteInitialSegment,
                             onScannedInviteCode: viewModel.handleScannedCode,
-                            onInviteShared: viewModel.markInviteShared
-                        ) {
-                            EmptyView()
-                        }
+                            onInviteShared: viewModel.markInviteShared,
+                            onHomeBrowsingChanged: { isBrowsingHome = $0 },
+                            bottomBarContent: { EmptyView() }
+                        )
                     } else {
                         EmptyView()
                     }
@@ -97,8 +104,9 @@ struct NewConversationView: View {
                     // down (paired with the hidden back button below so the
                     // pushed view can't return to the picker). Pushed without
                     // `onClose`, the system back button is the way out, so no
-                    // X is rendered.
-                    if !viewModel.showingFullScreenScanner && (embedsNavigationStack || onClose != nil) {
+                    // X is rendered. While the Home tab is browsing, the
+                    // conversation's own back button owns the leading slot.
+                    if !viewModel.showingFullScreenScanner && !isBrowsingHome && (embedsNavigationStack || onClose != nil) {
                         ToolbarItem(placement: .topBarLeading) {
                             Button(role: .close) {
                                 if let onClose {
@@ -111,7 +119,13 @@ struct NewConversationView: View {
                         }
                     }
                 }
-                .navigationBarBackButtonHidden(!embedsNavigationStack && onClose != nil)
+                // `isBrowsingHome` also hides it: while Context has browser
+                // pages pushed, `ConversationView` puts its own pop-a-page
+                // back button in the leading slot. That view's own
+                // `navigationBarBackButtonHidden` can't win here - this
+                // modifier is the outer one on the same destination - so
+                // without the check both back buttons render side by side.
+                .navigationBarBackButtonHidden((!embedsNavigationStack && onClose != nil) || isBrowsingHome)
                 .background(.colorBackgroundSurfaceless)
                 .sheet(isPresented: $viewModel.presentingJoinConversationSheet) {
                     JoinConversationView(viewModel: viewModel.qrScannerViewModel, allowsDismissal: true) { scannedCode in

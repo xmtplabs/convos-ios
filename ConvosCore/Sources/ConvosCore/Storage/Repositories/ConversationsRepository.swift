@@ -2,6 +2,19 @@ import Combine
 import Foundation
 import GRDB
 
+/// Where a tapped agent-DM notification should route. A DM is its own
+/// conversation but is only viewable as a page inside its parent group, so a
+/// tap opens `originConversationId` and selects the DM page for `agentInboxId`.
+public struct AgentDmTapRouting: Equatable, Sendable {
+    public let originConversationId: String
+    public let agentInboxId: String
+
+    public init(originConversationId: String, agentInboxId: String) {
+        self.originConversationId = originConversationId
+        self.agentInboxId = agentInboxId
+    }
+}
+
 public protocol ConversationsRepositoryProtocol {
     var conversationsPublisher: AnyPublisher<[Conversation], Never> { get }
     func fetchAll() throws -> [Conversation]
@@ -23,6 +36,16 @@ public protocol ConversationsRepositoryProtocol {
     /// match exists.
     func findOneToOne(with inboxId: String, excluding excludedConversationId: String?) throws -> Conversation?
 
+    /// The user's agent DM with this inbox, if one exists (conversations
+    /// carrying the agent-DM marker only).
+    func findAgentDm(with inboxId: String) throws -> Conversation?
+
+    /// Routing for a tapped agent-DM notification. The tap carries the DM's own
+    /// conversation id; return the parent group to open and the agent whose DM
+    /// page to select. nil when the id is not a routable agent DM (not a DM, no
+    /// recorded parent, or no agent member found).
+    func agentDmTapRouting(forConversationId conversationId: String) throws -> AgentDmTapRouting?
+
     /// Conversations that contain an agent provisioned from `templateId`,
     /// split by who added that agent: `addedByCurrentUser` when the agent
     /// member's `invitedBy` is one of the current user's inboxes, otherwise
@@ -41,10 +64,19 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
 
     let conversationsPublisher: AnyPublisher<[Conversation], Never>
 
-    init(dbReader: any DatabaseReader, consent: [Consent]) {
+    /// `throttleInterval` coalesces delivery during write bursts (catch-up,
+    /// stream replay). Leading-edge with `latest: true`, so the first value
+    /// passes through immediately and the trailing value always lands -
+    /// the list is never stale by more than one interval. Pass `0` to
+    /// disable (tests that count emissions rely on this).
+    init(dbReader: any DatabaseReader, consent: [Consent], throttleInterval: TimeInterval = 0.3) {
         self.dbReader = dbReader
         self.consent = consent
-        self.conversationsPublisher = ValueObservation
+        // The tracked region spans every conversation-related table (and the
+        // contact table via the name resolver), so without removeDuplicates
+        // an unrelated write would re-emit an identical list. Same guard as
+        // conversationsPublisher(withAgentTemplateId:) below.
+        let basePublisher: AnyPublisher<[Conversation], Never> = ValueObservation
             .tracking { db in
                 do {
                     return try db.composeAllConversations(consent: consent)
@@ -53,9 +85,17 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
                     throw error
                 }
             }
+            .removeDuplicates()
             .publisher(in: dbReader)
             .replaceError(with: [])
             .eraseToAnyPublisher()
+        if throttleInterval > 0 {
+            self.conversationsPublisher = basePublisher
+                .throttle(for: .seconds(throttleInterval), scheduler: DispatchQueue.main, latest: true)
+                .eraseToAnyPublisher()
+        } else {
+            self.conversationsPublisher = basePublisher
+        }
     }
 
     func fetchAll() throws -> [Conversation] {
@@ -79,6 +119,58 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
                 consent: consent
             )
         }
+    }
+
+    /// The user's DM with this agent, if one exists. Unlike `findOneToOne`
+    /// this only matches conversations carrying the agent-DM marker, so an
+    /// ordinary 2-member conversation with the agent (e.g. the builder
+    /// conversation the agent was made in) never shadows the DM.
+    func findAgentDm(with inboxId: String) throws -> Conversation? {
+        try dbReader.read { [consent] db in
+            try db.composeOneToOne(
+                with: inboxId,
+                excluding: nil,
+                consent: consent,
+                onlyAgentDms: true
+            )
+        }
+    }
+
+    func agentDmTapRouting(forConversationId conversationId: String) throws -> AgentDmTapRouting? {
+        try dbReader.read { db in
+            guard let conversation = try DBConversation.fetchOne(db, key: conversationId),
+                  conversation.isAgentDm else {
+                return nil
+            }
+            guard let originConversationId = try DBAgentDmOrigin
+                .originConversationId(for: conversationId, in: db) else {
+                return nil
+            }
+            guard let agentInboxId = try Self.verifiedAgentInboxId(
+                conversationId: conversationId,
+                in: db
+            ) else {
+                return nil
+            }
+            return AgentDmTapRouting(
+                originConversationId: originConversationId,
+                agentInboxId: agentInboxId
+            )
+        }
+    }
+
+    /// The verified-agent member of a 2-member agent DM (the other member is the
+    /// current user). Drives which pager page a DM tap selects.
+    private static func verifiedAgentInboxId(conversationId: String, in db: Database) throws -> String? {
+        let memberInboxIds = try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .fetchAll(db)
+            .map(\.inboxId)
+        guard !memberInboxIds.isEmpty else { return nil }
+        return try DBProfile
+            .fetchAll(db, inboxIds: memberInboxIds)
+            .first { $0.agentVerification.isVerified }?
+            .inboxId
     }
 
     func conversationsPublisher(withAgentTemplateId templateId: String) -> AnyPublisher<AgentTemplateConversations, Never> {
@@ -124,9 +216,15 @@ extension Array where Element == DBConversationDetails {
     }
 }
 
-fileprivate extension Database {
-    func composeAllConversations(consent: [Consent]) throws -> [Conversation] {
-        let dbConversationDetails = try DBConversation
+extension Database {
+    /// Shared filter set for every list-shaped conversations read (the full
+    /// list, the paged window, and the 1:1 lookup below): non-draft (unless
+    /// invite-tagged), consented, unexpired, used, and never an agent DM
+    /// (those render as a page inside their origin conversation). Callers
+    /// add the `localState` join with their own conditions - GRDB merges
+    /// repeated `joining(required:)` calls on the same association.
+    fileprivate func baseListConversationsRequest(consent: [Consent]) -> QueryInterfaceRequest<DBConversation> {
+        DBConversation
             .filter(
                 !DBConversation.Columns.id.like("draft-%")
                 || (DBConversation.Columns.inviteTag != nil
@@ -135,13 +233,326 @@ fileprivate extension Database {
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)
+            .filter(DBConversation.Columns.isAgentDm == false)
+    }
+
+    fileprivate func composeAllConversations(consent: [Consent]) throws -> [Conversation] {
+        let dbConversationDetails = try baseListConversationsRequest(consent: consent)
             .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
             .detailedConversationQuery()
             .fetchAll(self)
-        return try dbConversationDetails.composeConversations(from: self)
+        let conversations = try dbConversationDetails.composeConversations(from: self)
+        return try foldAgentDms(into: conversations, consent: consent, resortByActivity: true)
     }
 
-    func composeAgentTemplateConversations(templateId: String, consent: [Consent]) throws -> AgentTemplateConversations {
+    /// Fold each group's separate agent DM into its row so the list can
+    /// render a combined preview and a DM-aware unread indicator. The DMs
+    /// are resolved for the whole batch in two queries, run inside this same
+    /// `db` transaction so GRDB's ValueObservation tracks them and keeps the
+    /// list reactive.
+    ///
+    /// `resortByActivity`: the SQL order only knows each group's own
+    /// messages; a reply in the folded DM lane must float the origin
+    /// conversation just like a group message would. Re-sort in memory by
+    /// the newer of the two lanes, keeping the SQL order for ties so rows
+    /// without a DM are unaffected. Callers that re-sort by another key
+    /// anyway (the pinned lane uses `pinnedOrder`) skip it.
+    fileprivate func foldAgentDms(
+        into conversations: [Conversation],
+        consent: [Consent],
+        resortByActivity: Bool
+    ) throws -> [Conversation] {
+        let summaries = try agentDmSummaries(forGroupIds: conversations.map(\.id), consent: consent)
+        let legacySummaries = try legacyAgentDmSummaries(
+            forGroupsWithoutLinks: conversations.filter { summaries[$0.id] == nil },
+            consent: consent
+        )
+        let folded = conversations.map { (conversation: Conversation) -> Conversation in
+            guard let summary = summaries[conversation.id] ?? legacySummaries[conversation.id] else {
+                return conversation
+            }
+            var row = conversation
+            row.agentDm = summary
+            return row
+        }
+        guard resortByActivity, folded.contains(where: { $0.agentDm != nil }) else { return folded }
+        return folded
+            .enumerated()
+            .sorted { (lhs: EnumeratedSequence<[Conversation]>.Element, rhs: EnumeratedSequence<[Conversation]>.Element) -> Bool in
+                let lhsDate: Date = lhs.element.lastActivityDate
+                let rhsDate: Date = rhs.element.lastActivityDate
+                guard lhsDate == rhsDate else { return lhsDate > rhsDate }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+    }
+
+    /// The folded agent DM for each of `groupIds`, keyed by the group's id.
+    ///
+    /// Resolved through `agent_dm_origin`, the link the DM records about itself
+    /// at creation and re-records on every save. The group's own member list is
+    /// deliberately not consulted: it is rewritten wholesale by member sync, and
+    /// a group whose agent member row is missing still has a perfectly good DM
+    /// carrying the messages this preview is made of. Deriving the link from the
+    /// group's members made the row's preview track the volatility of those rows
+    /// rather than the existence of the DM, so it came and went.
+    ///
+    /// Two queries for the whole list rather than a lookup per group, run in
+    /// this same transaction so ValueObservation tracks the DMs and keeps the
+    /// list reactive.
+    func agentDmSummaries(
+        forGroupIds groupIds: [String],
+        consent: [Consent]
+    ) throws -> [String: Conversation.AgentDmSummary] {
+        guard !groupIds.isEmpty else { return [:] }
+        let links = try DBAgentDmOrigin
+            .filter(groupIds.contains(DBAgentDmOrigin.Columns.originConversationId))
+            .fetchAll(self)
+        guard !links.isEmpty else { return [:] }
+
+        let dmIds: [String] = links.map(\.conversationId)
+        let dmDetails = try DBConversation
+            .filter(dmIds.contains(DBConversation.Columns.id))
+            .filter(DBConversation.Columns.isAgentDm == true)
+            .filter(consent.contains(DBConversation.Columns.consent))
+            .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
+            .filter(DBConversation.Columns.isUnused == false)
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
+            .detailedConversationQuery()
+            .fetchAll(self)
+        guard !dmDetails.isEmpty else { return [:] }
+
+        let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
+        let contactNameResolver = try ContactsRepository.contactNameResolverInTransaction(db: self)
+        var dmsById: [String: Conversation] = [:]
+        for details in dmDetails {
+            let dm = details.hydrateConversation(
+                currentInboxId: currentInboxId,
+                contactNameResolver: contactNameResolver
+            )
+            dmsById[dm.id] = dm
+        }
+
+        var summaries: [String: Conversation.AgentDmSummary] = [:]
+        var chosenActivity: [String: Date] = [:]
+        for link in links {
+            guard let dm = dmsById[link.conversationId],
+                  let summary = dm.agentDmSummary else {
+                continue
+            }
+            // A group is normally the origin of exactly one DM. If it somehow
+            // owns more, the most recently active one wins, matching how the
+            // row sorts - by `lastActivityDate`, so a DM that has no messages
+            // yet counts as of its creation rather than infinitely old and a
+            // fresh replacement outranks the link it replaced.
+            let activity: Date = dm.lastActivityDate
+            if let existing = chosenActivity[link.originConversationId], existing >= activity {
+                continue
+            }
+            chosenActivity[link.originConversationId] = activity
+            summaries[link.originConversationId] = summary
+        }
+        return summaries
+    }
+
+    /// Legacy path for DMs saved before `agent_dm_origin` existed, which have no
+    /// link row until their next save. Finds each DM from its group's
+    /// verified-agent member instead, which is what every row used to do.
+    ///
+    /// Resolved for the whole batch in one query, for the same reason
+    /// `agentDmSummaries` is: the per-group form compiled and ran a fresh 1:1
+    /// lookup for every group that had no link row, and before the link table
+    /// is populated that is every row in the list. Inside the list observation
+    /// that is N statement compilations, on every connection in the reader pool
+    /// at once - which starved the pool at launch and blocked whatever else
+    /// needed a reader, up to and including the main thread.
+    func legacyAgentDmSummaries(
+        forGroupsWithoutLinks conversations: [Conversation],
+        consent: [Consent]
+    ) throws -> [String: Conversation.AgentDmSummary] {
+        var agentByGroupId: [String: (inboxId: String, displayName: String)] = [:]
+        for conversation in conversations {
+            guard let agentMember = conversation.members.first(where: { $0.isVerifiedAgent }) else {
+                continue
+            }
+            agentByGroupId[conversation.id] = (agentMember.profile.inboxId, agentMember.displayName)
+        }
+        guard !agentByGroupId.isEmpty else { return [:] }
+
+        let agentInboxIds: [String] = Array(Set(agentByGroupId.values.map(\.inboxId)))
+        // The same 1:1 shape `composeOneToOne` matches - the agent is a member,
+        // the current user is a member, and those two are the whole membership -
+        // widened from one inbox to the batch's.
+        let batchedOneToOnePredicate: SQL = """
+            EXISTS (
+                SELECT 1 FROM conversation_members AS cm_other
+                WHERE cm_other.conversationId = conversation.id
+                AND cm_other.inboxId IN \(agentInboxIds)
+            )
+            AND EXISTS (
+                SELECT 1 FROM conversation_members AS cm_self
+                WHERE cm_self.conversationId = conversation.id
+                AND cm_self.inboxId IN (SELECT inboxId FROM inbox)
+            )
+            AND (
+                SELECT COUNT(*) FROM conversation_members AS cm_count
+                WHERE cm_count.conversationId = conversation.id
+            ) = 2
+            """
+        let dmDetails = try DBConversation
+            .filter(
+                !DBConversation.Columns.id.like("draft-%")
+                || (DBConversation.Columns.inviteTag != nil
+                    && length(DBConversation.Columns.inviteTag) > 0)
+            )
+            .filter(DBConversation.Columns.isAgentDm == true)
+            .filter(consent.contains(DBConversation.Columns.consent))
+            .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
+            .filter(DBConversation.Columns.isUnused == false)
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
+            .filter(literal: batchedOneToOnePredicate)
+            .detailedConversationQuery()
+            .fetchAll(self)
+        guard !dmDetails.isEmpty else { return [:] }
+
+        let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
+        let contactNameResolver = try ContactsRepository.contactNameResolverInTransaction(db: self)
+        // Keyed by the agent's inbox id, keeping the most recently active DM -
+        // `composeOneToOne` fetched one row from a query ordered by activity
+        // descending, so the same match wins here.
+        var dmByAgentInboxId: [String: Conversation] = [:]
+        for details in dmDetails {
+            let dm = details.hydrateConversation(
+                currentInboxId: currentInboxId,
+                contactNameResolver: contactNameResolver
+            )
+            guard let agentInboxId = dm.members.first(where: { !$0.isCurrentUser })?.profile.inboxId else {
+                continue
+            }
+            if let existing = dmByAgentInboxId[agentInboxId],
+               existing.lastActivityDate >= dm.lastActivityDate {
+                continue
+            }
+            dmByAgentInboxId[agentInboxId] = dm
+        }
+
+        var summaries: [String: Conversation.AgentDmSummary] = [:]
+        for (groupId, agent) in agentByGroupId {
+            guard let dm = dmByAgentInboxId[agent.inboxId] else { continue }
+            summaries[groupId] = Conversation.AgentDmSummary(
+                inboxId: agent.inboxId,
+                displayName: agent.displayName,
+                lastMessage: dm.lastMessage,
+                isUnread: dm.isUnread
+            )
+        }
+        return summaries
+    }
+
+    /// A single conversation by id under the same eligibility filters as
+    /// the list (consent scope, unexpired, not removed, not an agent DM),
+    /// with the agent-DM fold applied. The pager's by-id fallback for
+    /// navigation targets outside the current window: nil here means the
+    /// conversation is genuinely gone from the list's perspective, not
+    /// merely out-of-window.
+    func composeListConversation(id: String, consent: [Consent]) throws -> Conversation? {
+        let details = try baseListConversationsRequest(consent: consent)
+            .filter(DBConversation.Columns.id == id)
+            // Same kind predicate as composeConversationsPage: the list
+            // renders groups only, so the by-id fallback must not resolve
+            // a join-request DM the paged list would never show.
+            .filter([ConversationKind.group].contains(DBConversation.Columns.kind))
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
+            .detailedConversationQuery()
+            .fetchOne(self)
+        guard let details else { return nil }
+        return try foldAgentDms(
+            into: [details].composeConversations(from: self),
+            consent: consent,
+            resortByActivity: false
+        ).first
+    }
+
+    /// One windowed read for the conversations list: all pinned rows (small
+    /// by the pin-limit invariant), a filtered LIMIT window of unpinned
+    /// rows, and the two booleans the list's empty states need. Runs inside
+    /// a single read so a ValueObservation tracks every region it touches.
+    func composeConversationsPage(
+        consent: [Consent],
+        filter: ConversationsListFilter,
+        limit: Int
+    ) throws -> ConversationsPage {
+        // The list renders groups only (join-request DMs and agent DMs are
+        // not rows); matching the view model's predicate here keeps the
+        // window budget spent entirely on rows that actually render.
+        let base = baseListConversationsRequest(consent: consent)
+            .filter([ConversationKind.group].contains(DBConversation.Columns.kind))
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
+
+        let pinnedDetails = try base
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.isPinned == true))
+            .detailedConversationQuery()
+            .fetchAll(self)
+
+        var unpinnedRequest = base
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.isPinned == false))
+        switch filter {
+        case .all:
+            break
+        case .unread:
+            // Matches the in-memory filter's semantics: the group's own
+            // unread flag only - a conversation unread solely in its folded
+            // agent-DM lane does not qualify, same as today.
+            unpinnedRequest = unpinnedRequest
+                .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.isUnread == true))
+        case .exploding:
+            // scheduledExplosionDate's contract: expiring, in the future
+            // (base request already enforces that), and inside one year.
+            let oneYearFromNow = Date().addingTimeInterval(365 * 24 * 60 * 60)
+            unpinnedRequest = unpinnedRequest
+                .filter(DBConversation.Columns.expiresAt != nil && DBConversation.Columns.expiresAt < oneYearFromNow)
+        }
+
+        // The SQL order only knows each group's own messages, so a group
+        // whose folded agent DM holds the newest activity can rank below
+        // the LIMIT cutoff. Over-fetch a margin of candidates, fold and
+        // re-sort the wider set, then truncate back to the window so such
+        // a group can climb in. The +1 answers hasMore.
+        let unpinnedDetails = try unpinnedRequest
+            .detailedConversationQuery()
+            .limit(limit + Constant.agentDmFoldMargin + 1)
+            .fetchAll(self)
+        let hasMore = unpinnedDetails.count > limit
+
+        // Unfiltered existence check for the filter-empty states: "you have
+        // conversations, none match this filter" must not depend on the
+        // filtered window.
+        let hasAnyUnpinned = try !base
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.isPinned == false))
+            .isEmpty(self)
+
+        let pinned = try foldAgentDms(
+            into: pinnedDetails.composeConversations(from: self),
+            consent: consent,
+            resortByActivity: false
+        )
+        var unpinned = try foldAgentDms(
+            into: unpinnedDetails.composeConversations(from: self),
+            consent: consent,
+            resortByActivity: true
+        )
+        if unpinned.count > limit {
+            unpinned.removeLast(unpinned.count - limit)
+        }
+        return ConversationsPage(
+            pinned: pinned,
+            unpinned: unpinned,
+            hasMore: hasMore,
+            hasAnyUnpinned: hasAnyUnpinned
+        )
+    }
+
+    fileprivate func composeAgentTemplateConversations(templateId: String, consent: [Consent]) throws -> AgentTemplateConversations {
         // Filter and partition in Swift over the hydrated conversations:
         // `member.profile.agentTemplateId` is the trusted accessor over the
         // profile metadata, and `invitedBy` already carries the agent's
@@ -170,10 +581,11 @@ fileprivate extension Database {
         )
     }
 
-    func composeOneToOne(
+    fileprivate func composeOneToOne(
         with otherInboxId: String,
         excluding excludedConversationId: String?,
-        consent: [Consent]
+        consent: [Consent],
+        onlyAgentDms: Bool = false
     ) throws -> Conversation? {
         // SQL-pushed predicate so we don't hydrate every conversation
         // the user has just to find the 1:1 with one specific inbox.
@@ -217,6 +629,13 @@ fileprivate extension Database {
         if let excludedConversationId {
             request = request.filter(DBConversation.Columns.id != excludedConversationId)
         }
+        if onlyAgentDms {
+            request = request.filter(DBConversation.Columns.isAgentDm == true)
+        } else {
+            // Plain 1:1 lookups must never resolve to an agent DM (it renders
+            // inside its origin conversation, not as a standalone chat).
+            request = request.filter(DBConversation.Columns.isAgentDm == false)
+        }
         let dbConversationDetails = try request
             .detailedConversationQuery()
             .fetchOne(self)
@@ -224,6 +643,38 @@ fileprivate extension Database {
         let currentInboxId = try DBInbox.currentInboxId(self) ?? ""
         let contactNameResolver = try ContactsRepository.contactNameResolverInTransaction(db: self)
         return details.hydrateConversation(currentInboxId: currentInboxId, contactNameResolver: contactNameResolver)
+    }
+
+    /// How many rows beyond the requested window `composeConversationsPage`
+    /// fetches as re-sort candidates. Bounds the extra hydration each page
+    /// compose costs; a group would only be missed if agent-DM activity
+    /// should lift it more than this many positions past the window edge.
+    private enum Constant {
+        static let agentDmFoldMargin: Int = 20
+    }
+}
+
+fileprivate extension Conversation {
+    /// The row's most recent activity across both lanes: the group's own last
+    /// message (falling back to `createdAt`, matching the SQL ordering key)
+    /// and the folded agent DM's last message.
+    var lastActivityDate: Date {
+        let groupDate: Date = lastMessage?.createdAt ?? createdAt
+        guard let dmDate = agentDm?.lastMessage?.createdAt else { return groupDate }
+        return max(groupDate, dmDate)
+    }
+
+    /// This agent DM rendered as the summary its origin group's row carries.
+    /// The agent is the DM's other member, so the name comes from the DM's own
+    /// membership rather than the group's.
+    var agentDmSummary: AgentDmSummary? {
+        guard let agent = members.first(where: { !$0.isCurrentUser }) else { return nil }
+        return AgentDmSummary(
+            inboxId: agent.profile.inboxId,
+            displayName: agent.displayName,
+            lastMessage: lastMessage,
+            isUnread: isUnread
+        )
     }
 }
 

@@ -12,31 +12,24 @@ struct ConversationsView: View {
     let appIndicatorContext: AppIndicatorContext
     /// Optional accessory rendered as an overlay at the bottom of the
     /// sidebar. Reserved for callers that want extra chrome scoped to
-    /// the conversation list only; `MainTabView` no longer uses this
-    /// (the builder bar moved into the global bottom chrome), but the
+    /// the conversation list only; `MainTabView` does not use it, but the
     /// hook stays in case downstream callers need it.
     var sidebarBottomAccessory: AnyView?
     /// Fired with the conversation list's current scroll content-offset Y
-    /// on every scroll tick, forwarded from `ConversationsViewController`.
-    /// `MainTabView` uses this to reveal the top agent builder bar at the
-    /// top of the list and fade it out (revealing a nav-bar button) once
-    /// the user scrolls down.
+    /// on every scroll tick, forwarded from `ConversationsViewController`,
+    /// so the shell can react to the list leaving the top.
     var onScrollOffsetChange: ((CGFloat) -> Void)?
-    /// Extra top inset (in points) for the conversation list to clear the
-    /// SwiftUI top chrome (the agent builder bar rendered by `MainTabView`
-    /// as a `safeAreaInset(.top)` under the nav bar). SwiftUI's safe-area
-    /// chain doesn't reliably propagate that inset to the UIKit collection
-    /// view, so we plumb it through explicitly. The list still scrolls
-    /// *under* the bar (so it can blur/fade over the content); this inset
-    /// just sets where the content rests at the top.
+    /// Extra top inset (in points) for the conversation list to clear
+    /// whatever SwiftUI top chrome the shell renders as a
+    /// `safeAreaInset(.top)` under the nav bar. SwiftUI's safe-area chain
+    /// doesn't reliably propagate that inset to the UIKit collection view,
+    /// so we plumb it through explicitly. The list still scrolls under the
+    /// chrome (so it can blur/fade over the content); this inset just sets
+    /// where the content rests at the top.
     var topChromeInset: CGFloat = 0
-    /// Bottom counterpart to `topChromeInset`, used when the builder bar
-    /// pins to the bottom edge (iPad, where the tab bar is at the top).
+    /// Bottom counterpart to `topChromeInset`, for chrome pinned to the
+    /// bottom edge (iPad, where the tab bar is at the top).
     var bottomChromeInset: CGFloat = 0
-    /// Invoked when the user taps "Explore agents in Contacts" in the
-    /// empty-state CTA. The shell switches to the Contacts tab and scrolls
-    /// it to the "Suggested agents" section. Nil hides the link (previews).
-    var onExploreAgents: (() -> Void)?
 
     @Namespace private var namespace: Namespace.ID
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -46,7 +39,7 @@ struct ConversationsView: View {
     @Environment(\.scenePhase) private var scenePhase: ScenePhase
     @State private var conversationPendingExplosion: Conversation?
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
-    @State private var creditBalance: CreditBalance? = CreditsServices.shared.currentBalance
+    @State private var creditBalance: CreditBalance?
     @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
     @State private var staleDeviceSheetDismissed: Bool = false
 
@@ -80,13 +73,9 @@ struct ConversationsView: View {
     }
 
     /// Empty chats state: the new-user CTA (animated mock conversations,
-    /// headline, "Make an agent", "Explore agents in Contacts"). The Make
-    /// button opens the same agent-builder sheet the builder bar opens.
+    /// headline, "New convo").
     var emptyConversationsView: some View {
-        ConversationsEmptyStateView(
-            onMakeAgent: { viewModel.onStartAgent() },
-            onExploreAgents: onExploreAgents
-        )
+        ConversationsEmptyStateView(onNewConvo: { viewModel.onStartConvo() })
     }
 
     /// Bridges `selectedConversationViewModel` (driven by the
@@ -112,6 +101,48 @@ struct ConversationsView: View {
         )
     }
 
+    /// Bridges the compose flow's view model to a `navigationDestination(item:)`
+    /// so a conversation the user starts is pushed onto this stack, arriving
+    /// the same way one selected from the list does.
+    ///
+    /// Writing `nil` back is the whole tear-down: the view model's own `didSet`
+    /// runs its cleanup, so the pop and the tear-down are one event no matter
+    /// which of them started it.
+    private var newConversationBinding: Binding<NewConversationViewModel?> {
+        Binding(
+            get: { viewModel.newConversationViewModel },
+            set: { viewModel.newConversationViewModel = $0 }
+        )
+    }
+
+    /// The home most likely to be opened next: the one already selected, or
+    /// the first in the list that has a home at all.
+    ///
+    /// One page, prepared speculatively. It is the same bet the old snapshot
+    /// cache made and lost - except this loads the real page rather than
+    /// photographing it, so being wrong costs one background request and being
+    /// right means the home is already drawn when the screen arrives.
+    private var likeliestHomeURL: URL? {
+        if let selected = viewModel.selectedConversationViewModel?.conversation.spaceURL {
+            return selected
+        }
+        return viewModel.conversations.first(where: { $0.spaceURL != nil })?.spaceURL
+    }
+
+    /// Points the pool at the home the reader is likeliest to open next.
+    ///
+    /// Off the update that asked for it, deliberately. Selecting a conversation
+    /// is what starts the push, and the chrome's blur transition runs in that
+    /// same transaction - building a web view and starting a load inside it
+    /// ended the transaction early and the top bar's buttons swapped with no
+    /// animation at all.
+    private func prepareLikeliestHome() {
+        guard let spaceURL = likeliestHomeURL else { return }
+        Task { @MainActor in
+            HomeWebViewPool.shared.prepare(url: spaceURL)
+        }
+    }
+
     @ViewBuilder
     private func pushedConversationDestination(viewModel convoVM: ConversationViewModel) -> some View {
         let isReadOnly: Bool = viewModel.staleDeviceObserver.isDeviceRemoved
@@ -124,11 +155,11 @@ struct ConversationsView: View {
             appIndicatorContext: nil,
             sharedIndicatorNamespace: appIndicatorContext.sharedIndicatorNamespace,
             rendersConversationIndicator: false
-        ) { focusState, coordinator in
+        ) { focusBinding, coordinator in
             ConversationView(
                 viewModel: convoVM,
                 profileSettingsViewModel: profileSettingsViewModel,
-                focusState: focusState,
+                focusState: focusBinding,
                 focusCoordinator: coordinator,
                 onScanInviteCode: {},
                 onDeleteConversation: {},
@@ -136,9 +167,36 @@ struct ConversationsView: View {
                 messagesTopBarTrailingItemEnabled: !convoVM.conversation.isPendingInvite,
                 messagesTextFieldEnabled: !convoVM.conversation.isPendingInvite,
                 isReadOnly: isReadOnly,
+                initialAgentDmInboxId: viewModel.selectedInitialAgentDmInboxId,
                 bottomBarContent: { EmptyView() }
             )
         }
+    }
+
+    /// The compose flow as a pushed screen. `embedsNavigationStack: false`
+    /// keeps it on this stack instead of nesting a second one inside it, and
+    /// `insetsTopSafeArea: true` keeps the conversation indicator clear of the
+    /// status bar now that the screen runs to the top edge - the same pair the
+    /// pushed conversation above uses.
+    ///
+    /// No `onClose`: on this stack the flow uses the system back button, so it
+    /// matches a conversation opened from the list. The pop writes `nil`
+    /// through `newConversationBinding`, whose `didSet` runs the flow's
+    /// tear-down, so backing out both leaves the screen and cleans up after it.
+    ///
+    /// The tab bar is hidden for the same reason the pushed contact-card
+    /// conversation hides it - the shell only hides it for a selected
+    /// conversation, and left up it overlaps the composer.
+    @ViewBuilder
+    private func pushedNewConversationDestination(_ newConvoViewModel: NewConversationViewModel) -> some View {
+        NewConversationView(
+            viewModel: newConvoViewModel,
+            profileSettingsViewModel: profileSettingsViewModel,
+            embedsNavigationStack: false,
+            insetsTopSafeArea: true
+        )
+        .background(.colorBackgroundSurfaceless)
+        .toolbarVisibility(.hidden, for: .tabBar)
     }
 
     var filteredEmptyStateView: some View {
@@ -152,14 +210,10 @@ struct ConversationsView: View {
     }
 
     var conversationsCollectionView: some View {
-        // The builder bar is rendered as a `safeAreaInset` by `MainTabView`
-        // (reserving its edge) *and* its height is re-applied here as the
-        // collection view's `additionalSafeAreaInsets`. To avoid counting it
-        // twice we ignore the system safe area on the bar's edge: `.top` on
-        // iPhone (bar pins to the top) and `.bottom` on iPad (bar pins to the
-        // bottom, signalled by a non-zero bottom inset).
+        // `.top` is ignored so the list scrolls under the floating
+        // app-indicator pill rather than starting below it.
         //
-        // We ignore `.bottom` unconditionally so the collection view's frame
+        // We ignore `.bottom` so the collection view's frame
         // reaches the physical screen bottom (under the floating tab bar)
         // rather than stopping at the bottom safe-area line. The list cell
         // hosting view has `clipsToBounds = false`, so cells render in the
@@ -177,8 +231,10 @@ struct ConversationsView: View {
             selectedConversationId: viewModel.selectedConversationId,
             isFilteredResultEmpty: viewModel.isFilteredResultEmpty,
             filterEmptyMessage: viewModel.activeFilter.emptyStateMessage,
+            hasMoreConversations: viewModel.hasMoreConversations,
+            isBootSettled: viewModel.bootSettlement.isSettled,
             onSelectConversation: { conversation in
-                viewModel.selectedConversationId = conversation.id
+                viewModel.select(conversation)
             },
             onConfirmedDeleteConversation: { conversation in
                 viewModel.leave(conversation: conversation)
@@ -197,6 +253,7 @@ struct ConversationsView: View {
             },
             onShowAllFilter: { viewModel.activeFilter = .all },
             onScrollOffsetChange: onScrollOffsetChange,
+            onLoadMoreConversations: { viewModel.loadMoreConversationsIfNeeded() },
             topChromeInset: topChromeInset,
             bottomChromeInset: bottomChromeInset
         )
@@ -243,7 +300,27 @@ struct ConversationsView: View {
             .navigationDestination(item: chatsDetailBinding) { vm in
                 pushedConversationDestination(viewModel: vm)
             }
+            .navigationDestination(item: newConversationBinding) { newConvoViewModel in
+                pushedNewConversationDestination(newConvoViewModel)
+            }
+            // The home's page starts loading while the list is still on screen,
+            // rather than when the pushed screen builds its web surface. Waiting
+            // for the selection bought nothing: SwiftUI resolves it and builds
+            // the destination in one update, so the load still began after the
+            // push. The list is where the head start is - seconds of it, while
+            // the reader decides what to open. See `HomeWebViewPool.prepare(url:)`.
+            .onChange(of: likeliestHomeURL, initial: true) { _, _ in
+                prepareLikeliestHome()
+            }
             .onAppear {
+                // Again on every appearance, not only when the destination
+                // changes. Coming back from a conversation returns its view to
+                // the pool blank, and the URL the list would prepare has not
+                // changed - so nothing would re-prepare it, and going straight
+                // back in loaded the page after the push. `prepare` is a no-op
+                // when the spare is already pointed at the same page, so the
+                // common return costs nothing.
+                prepareLikeliestHome()
                 viewModel.onAppear()
             }
             .task {
@@ -333,10 +410,9 @@ private struct ConversationsSheetModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            // The `NewConversationView` and `AgentBuilderView` sheets
-            // are both presented from `MainTabView` so the compose
-            // button (top-trailing on every tab) and the agent
-            // builder bar can zoom into them with a shared namespace.
+            // The `NewConversationView` sheet is presented from
+            // `MainTabView` so the compose button (top-trailing on every
+            // tab) can zoom into it with a shared namespace.
             .sheet(item: $viewModel.pendingGrantRequest) { request in
                 let dismissAction = { viewModel.pendingGrantRequest = nil }
                 CloudConnectionGrantRequestSheet(

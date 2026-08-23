@@ -30,15 +30,11 @@ extension View {
         viewModel: ConversationViewModel,
         isPresented: Binding<Bool>,
         onInviteShared: (() -> Void)? = nil,
-        onPresentShareOverlay: (() -> Void)? = nil,
-        onPresentAgentBuilder: (() -> Void)? = nil
     ) -> some View {
         modifier(AddFromContactsPickerModifier(
             viewModel: viewModel,
             isPresented: isPresented,
-            onInviteShared: onInviteShared,
-            onPresentShareOverlay: onPresentShareOverlay,
-            onPresentAgentBuilder: onPresentAgentBuilder
+            onInviteShared: onInviteShared
         ))
     }
 }
@@ -51,31 +47,15 @@ private struct AddFromContactsPickerModifier: ViewModifier {
     /// empty-convo teardown. Nil for existing conversations, which are never
     /// discarded.
     let onInviteShared: (() -> Void)?
-    /// Presents the Scan/Invite overlay for the surface hosting this picker.
-    /// Nil (the chat surface) flips `viewModel.presentingShareView`, which
-    /// drives the `ConversationPresenter`-level overlay. Surfaces that are
-    /// themselves presented sheets (`ConversationInfoView`) pass a closure
-    /// that shows their own in-sheet overlay instead -- the presenter-level
-    /// overlay would open beneath the still-presented sheet and stay
-    /// invisible. The initial segment is set on
-    /// `viewModel.shareViewInitialSegment` before this fires.
-    let onPresentShareOverlay: (() -> Void)?
-    /// Presents the agent builder for the surface hosting this picker.
-    /// Nil (the chat surface) calls `viewModel.presentAgentBuilder()`, which
-    /// drives the chat view's builder sheet. Surfaces that are themselves
-    /// presented sheets (`ConversationInfoView`, `ConversationMembersListView`)
-    /// pass a closure that drives their own local builder sheet instead --
-    /// the chat view's sheet would present beneath the still-visible sheet.
-    /// Mirrors `onPresentShareOverlay`.
-    let onPresentAgentBuilder: (() -> Void)?
-
     @State private var errorMessage: String?
     @State private var presentingError: Bool = false
     @State private var presentingShareSheet: Bool = false
+    /// Drives the invite-code sheet the "Show an invite code" row presents.
+    @State private var presentingInviteCode: Bool = false
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: $isPresented, onDismiss: handlePickerDismissed) { pickerSheet }
+            .sheet(isPresented: $isPresented) { pickerSheet }
             .alert(
                 "Couldn't add contacts",
                 isPresented: $presentingError,
@@ -100,8 +80,6 @@ private struct AddFromContactsPickerModifier: ViewModifier {
             title: "Invite",
             onShowInviteCode: handleShowInviteCode,
             onSendInvite: handleSendInvite,
-            onMakeAgent: handleMakeAgent,
-            onScanInvite: handleScanInvite,
             onConfirm: handleConfirm
         )
         // Hosted inside the picker sheet so "Send an invite" presents the share
@@ -114,6 +92,18 @@ private struct AddFromContactsPickerModifier: ViewModifier {
                 if completed { onInviteShared?() }
             }
         )
+        // Presented from inside the picker for the same reason the share
+        // sheet is: the code opens over the picker rather than waiting for it
+        // to dismiss and reopening from the parent.
+        .sheet(isPresented: $presentingInviteCode) {
+            InviteCodeSheet(
+                conversation: viewModel.conversation,
+                invite: viewModel.invite,
+                onShareCompleted: { completed in
+                    if completed { onInviteShared?() }
+                }
+            )
+        }
     }
 
     /// The current conversation's signed invite link, shared directly by the
@@ -124,42 +114,11 @@ private struct AddFromContactsPickerModifier: ViewModifier {
         return [invite.inviteURLString]
     }
 
-    /// The share overlay renders outside this sheet, so dismiss the sheet
-    /// first, then present the overlay for the hosting surface (see
-    /// `onPresentShareOverlay`).
     private func handleShowInviteCode() {
         // A full conversation can't mint new invite links, so even if the
         // sheet is reached, the invite code can't be shown.
         guard !viewModel.conversation.isFull else { return }
-        isPresented = false
-        viewModel.shareViewInitialSegment = .invite
-        presentShareOverlay()
-    }
-
-    private func handleScanInvite() {
-        isPresented = false
-        viewModel.shareViewInitialSegment = .scan
-        presentShareOverlay()
-    }
-
-    private func presentShareOverlay() {
-        if let onPresentShareOverlay {
-            onPresentShareOverlay()
-        } else {
-            viewModel.presentingShareView = true
-        }
-    }
-
-    /// The picker can dismiss into the Scan/Invite overlay (its scan button or
-    /// "Show an invite code" row). UIKit restores the composer's first
-    /// responder when the sheet finishes dismissing, which popped the keyboard
-    /// up under the overlay -- resign it again once the dismissal settles so
-    /// the keyboard stays down. A plain cancel keeps the default restoration.
-    private func handlePickerDismissed() {
-        guard viewModel.presentingShareView else { return }
-        DispatchQueue.main.async {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        }
+        presentingInviteCode = true
     }
 
     private func handleSendInvite() {
@@ -168,15 +127,6 @@ private struct AddFromContactsPickerModifier: ViewModifier {
         guard !viewModel.conversation.isFull else { return }
         guard !viewModel.invite.isEmpty else { return }
         presentingShareSheet = true
-    }
-
-    private func handleMakeAgent() {
-        isPresented = false
-        if let onPresentAgentBuilder {
-            onPresentAgentBuilder()
-        } else {
-            viewModel.presentAgentBuilder()
-        }
     }
 
     private func handleConfirm(_ inboxIds: Set<String>, _ agentTemplateIds: [String]) {
