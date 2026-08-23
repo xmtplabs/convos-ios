@@ -1063,6 +1063,32 @@ private extension ConversationView {
         homeBrowserEntries.removeLast()
     }
 
+    /// Drops the current thing's link into a tab's composer and switches to it.
+    /// The Space page URL on top of the browsing chain is the thing's shareable
+    /// link. `selectTab` only moves the tab, so the keyboard stays down.
+    private func shareCurrentThing(to tab: ConversationTab) {
+        guard let link = homeBrowserEntries.last?.url.absoluteString else { return }
+        let target: ConversationViewModel? = (tab == .agent) ? agentDmSession?.dmViewModel : viewModel
+        guard let target else { return }
+        prefillComposer(target, withLink: link)
+        selectTab(tab)
+    }
+
+    /// An empty composer with no existing card takes the link as an immediate
+    /// preview card; anything else appends the link so a draft (or an existing
+    /// card, of which there can be only one) is never clobbered. The appended
+    /// link becomes its own card on send via edge-link extraction, and the
+    /// append path also covers URLs `LinkPreview.from` rejects (private hosts).
+    private func prefillComposer(_ viewModel: ConversationViewModel, withLink link: String) {
+        if viewModel.messageText.isEmpty, viewModel.pastedLinkPreview == nil,
+           let preview = LinkPreview.from(text: link) {
+            viewModel.pastedLinkPreview = preview
+        } else {
+            let separator = viewModel.messageText.isEmpty ? "" : "\n"
+            viewModel.messageText += "\(separator)\(link)"
+        }
+    }
+
     /// Promotes focus onto the tab whose composer just took it.
     ///
     /// The system raises the keyboard over whatever is on screen; if that was
@@ -1122,6 +1148,15 @@ private extension ConversationView {
                 }
                 .accessibilityLabel("Back")
                 .accessibilityIdentifier("home-browser-back")
+            }
+            if homeBrowserEntries.last?.url != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareThingMenu(
+                        canShareToAgent: agentDmSession?.dmViewModel != nil,
+                        onShareToGroup: { shareCurrentThing(to: .group) },
+                        onShareToAgent: { shareCurrentThing(to: .agent) }
+                    )
+                }
             }
         }
         // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
