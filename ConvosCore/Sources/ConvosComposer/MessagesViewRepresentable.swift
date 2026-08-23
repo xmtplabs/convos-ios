@@ -48,6 +48,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAgentJoin: () -> Void
     let onInviteAgent: () -> Void
+    var onInvitePeople: () -> Void = {}
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
     let memberContactOverride: (String) -> Contact?
@@ -127,6 +128,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onDeleteMessage: @escaping (AnyMessage) -> Void,
         onRetryAgentJoin: @escaping () -> Void,
         onInviteAgent: @escaping () -> Void,
+        onInvitePeople: @escaping () -> Void = {},
         onRetryTranscript: @escaping (VoiceMemoTranscriptListItem) -> Void,
         profileSheetForMember: @escaping (ConversationMember) -> AnyView,
         memberContactOverride: @escaping (String) -> Contact?,
@@ -178,6 +180,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         self.onDeleteMessage = onDeleteMessage
         self.onRetryAgentJoin = onRetryAgentJoin
         self.onInviteAgent = onInviteAgent
+        self.onInvitePeople = onInvitePeople
         self.onRetryTranscript = onRetryTranscript
         self.profileSheetForMember = profileSheetForMember
         self.memberContactOverride = memberContactOverride
@@ -270,6 +273,7 @@ public struct MessagesViewRepresentable: UIViewControllerRepresentable {
         }
         messagesViewController.onRetryAgentJoin = onRetryAgentJoin
         messagesViewController.onInviteAgent = onInviteAgent
+        messagesViewController.onInvitePeople = onInvitePeople
         messagesViewController.onRetryTranscript = onRetryTranscript
         messagesViewController.profileSheetForMember = profileSheetForMember
         messagesViewController.memberContactOverride = memberContactOverride

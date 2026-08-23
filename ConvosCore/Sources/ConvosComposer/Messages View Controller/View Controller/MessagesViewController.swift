@@ -532,6 +532,7 @@ public final class MessagesViewController: UIViewController {
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryAgentJoin: (() -> Void)?
     var onInviteAgent: (() -> Void)?
+    var onInvitePeople: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var profileSheetForMember: ((ConversationMember) -> AnyView)?
     var memberContactOverride: ((String) -> Contact?)?
@@ -843,6 +844,9 @@ public final class MessagesViewController: UIViewController {
         dataSource.onInviteAgent = { [weak self] in
             self?.onInviteAgent?()
         }
+        dataSource.onInvitePeople = { [weak self] in
+            self?.onInvitePeople?()
+        }
         dataSource.onRetryTranscript = { [weak self] item in
             self?.onRetryTranscript?(item)
         }
@@ -1115,7 +1119,8 @@ extension MessagesViewController {
         // The condition it used to guard is kept, negated, so nothing else moves:
         // whoever was getting the info preview still gets it, and an inviter who
         // was getting the QR now gets no leading cell rather than a different one.
-        if hasLoadedAllMessages, summaryAllowsInvite, headerMode != .suppressed {
+        let explainsEmptyTranscript: Bool = cells.contains(where: \.explainsAnEmptyTranscript)
+        if hasLoadedAllMessages, summaryAllowsInvite, headerMode != .suppressed, !explainsEmptyTranscript {
             // `hidesInviteCard` and the header mode are checked here rather
             // than in the cell: the cell has the invite but not the
             // conversation, and this is where the choice between the two
@@ -1127,8 +1132,7 @@ extension MessagesViewController {
                 && !conversation.hidesInviteCard
                 && headerMode == .standard
             if hostsInviteHeader {
-                // No leading cell: the Group tab's empty state carries the
-                // invite CTA now, and it is not part of the list.
+                // The top bar handles invites once the transcript has content.
             } else if !conversation.isDraft, headerMode == .standard {
                 cells.insert(.conversationInfo(conversation), at: 0)
             }

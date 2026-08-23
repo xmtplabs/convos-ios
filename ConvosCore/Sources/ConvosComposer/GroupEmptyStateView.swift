@@ -1,12 +1,9 @@
+#if canImport(UIKit)
 import ConvosCore
 import SwiftUI
 
 /// What the Group tab shows before the conversation has any messages: the
 /// invite CTA and a short explainer for how the group's agent participates.
-///
-/// Deliberately not a cell in the transcript. It is centred in the page and
-/// fades out once a message arrives, so it never occupies a scroll position
-/// or has to be removed from the list when the first message lands.
 ///
 /// Metrics are from Figma 8070:38686 - a 12pt stack on 32pt horizontal
 /// padding, a 52pt lava button, then 17/15/13pt text.
@@ -18,11 +15,6 @@ struct GroupEmptyStateView: View {
     let onInvite: () -> Void
 
     var body: some View {
-        // The copy is marked per-view rather than on the stack: disabling hit
-        // testing on the container would take the button with it, and the
-        // container itself carries no background, so its empty area never took
-        // touches to begin with. Text that did take them swallowed the pager's
-        // pan, so a drag starting on the copy could not change tab.
         VStack(spacing: DesignConstants.Spacing.step3x) {
             inviteButton
             if !hidesText {
@@ -72,3 +64,4 @@ struct GroupEmptyStateView: View {
 #Preview {
     GroupEmptyStateView(isInviteEnabled: true, hidesText: false, onInvite: {})
 }
+#endif
