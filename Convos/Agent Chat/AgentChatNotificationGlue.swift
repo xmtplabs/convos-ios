@@ -148,7 +148,17 @@ enum AgentRelayNotificationRoute {
 }
 
 enum AgentChatVisibility {
-    @MainActor static var isVisible: Bool = false
+    @MainActor static var visibleProvider: ExternalAgentProvider?
+}
+
+enum AgentRelayNotificationPresentation {
+    static func shouldSuppress(
+        visibleProvider: ExternalAgentProvider?,
+        notificationProvider: ExternalAgentProvider?
+    ) -> Bool {
+        guard let notificationProvider else { return false }
+        return visibleProvider == notificationProvider
+    }
 }
 
 extension ExternalAgentProvider: @retroactive Identifiable {

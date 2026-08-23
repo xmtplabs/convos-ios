@@ -144,24 +144,30 @@ final class AgentChatViewModel {
     /// here; the rest (failed, expired, collected elsewhere) have no mailbox
     /// left to release.
     func clearHistory() {
-        let unackedIds: [String] = turns.compactMap { turn in
-            switch turn.status {
-            case .completed: return turn.ackedAt == nil ? turn.requestId : nil
-            case .superseded: return turn.requestId
-            case .pending, .failed, .expired, .collectedElsewhere: return nil
-            }
-        }
-        do {
-            try dependencies.writer.deleteSettledTurns(provider: provider)
-        } catch {
-            errorMessage = "Convos could not clear this history. Try again."
-            return
-        }
-        guard !unackedIds.isEmpty else { return }
-        let client = dependencies.client
-        Task {
-            for requestId in unackedIds {
-                try? await client.acknowledge(requestId: requestId)
+        let dependencies = dependencies
+        let provider = provider
+        Task { [weak self] in
+            do {
+                let settledTurns = try dependencies.writer.settledTurns(provider: provider)
+                var firstError: (any Error)?
+                for turn in settledTurns {
+                    do {
+                        if turn.requiresMailboxAcknowledgementBeforeDeletion {
+                            try await dependencies.client.acknowledge(requestId: turn.requestId)
+                            try dependencies.writer.markAcked(requestId: turn.requestId)
+                        }
+                        try dependencies.writer.deleteSettledTurn(requestId: turn.requestId)
+                    } catch {
+                        if firstError == nil {
+                            firstError = error
+                        }
+                    }
+                }
+                if let firstError {
+                    throw firstError
+                }
+            } catch {
+                self?.errorMessage = "Convos could not clear this history. Try again."
             }
         }
     }
@@ -271,5 +277,18 @@ final class AgentChatViewModel {
     private enum Constant {
         static let turnLimit: Int = 200
         static let watchDeadline: TimeInterval = 10 * 60
+    }
+}
+
+private extension AgentTurn {
+    var requiresMailboxAcknowledgementBeforeDeletion: Bool {
+        switch status {
+        case .completed:
+            return ackedAt == nil
+        case .superseded:
+            return ackedAt == nil
+        case .pending, .failed, .expired, .collectedElsewhere:
+            return false
+        }
     }
 }

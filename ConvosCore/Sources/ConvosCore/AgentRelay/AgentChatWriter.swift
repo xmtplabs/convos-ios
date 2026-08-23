@@ -75,7 +75,7 @@ public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderRe
 
     public func markExpired(requestId: String) throws {
         try updateExisting(requestId: requestId) { turn in
-            guard turn.status == .pending else { return }
+            guard turn.status == .pending || turn.status == .superseded else { return }
             turn.status = .expired
             turn.errorCode = nil
         }
@@ -83,7 +83,7 @@ public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderRe
 
     public func markCollectedElsewhere(requestId: String) throws {
         try updateExisting(requestId: requestId) { turn in
-            guard turn.status == .pending else { return }
+            guard turn.status == .pending || turn.status == .superseded else { return }
             turn.status = turn.expiresAt < Date() ? .expired : .collectedElsewhere
             turn.errorCode = nil
         }
@@ -107,19 +107,24 @@ public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderRe
         }
     }
 
-    /// Removes one provider's finished rows, leaving only the turn this device
-    /// is still watching so a result that is on its way keeps the journal row
-    /// it has to land in.
-    ///
-    /// Superseded counts as finished: the user stopped waiting for it and then
-    /// asked for the history to go. Its backend mailbox can still be open, so
-    /// the caller acks those request ids - an unacked mailbox whose local row
-    /// is gone would otherwise sit until recovery notices the orphan and acks
-    /// it there.
-    public func deleteSettledTurns(provider: ExternalAgentProvider) throws {
+    /// Returns every finished row for a provider, without the transcript's UI
+    /// limit, so callers can release any live mailbox before deleting its row.
+    public func settledTurns(provider: ExternalAgentProvider) throws -> [AgentTurn] {
+        try database.pool.read { db in
+            try AgentTurn
+                .filter(Column("provider") == provider.rawValue)
+                .filter(Column("status") != AgentTurnStatus.pending.rawValue)
+                .order(Column("createdAt").asc)
+                .fetchAll(db)
+        }
+    }
+
+    /// Deletes one finished row after any required mailbox acknowledgement.
+    /// A row that became pending is retained.
+    public func deleteSettledTurn(requestId: String) throws {
         try database.pool.write { db in
             _ = try AgentTurn
-                .filter(Column("provider") == provider.rawValue)
+                .filter(Column("requestId") == requestId)
                 .filter(Column("status") != AgentTurnStatus.pending.rawValue)
                 .deleteAll(db)
         }

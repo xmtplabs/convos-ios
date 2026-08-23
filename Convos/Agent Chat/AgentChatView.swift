@@ -65,8 +65,11 @@ struct AgentChatView: View {
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
             .toolbar { toolbarContent }
-            .onAppear { AgentChatVisibility.isVisible = true }
-            .onDisappear { AgentChatVisibility.isVisible = false }
+            .onAppear { AgentChatVisibility.visibleProvider = provider }
+            .onDisappear {
+                guard AgentChatVisibility.visibleProvider == provider else { return }
+                AgentChatVisibility.visibleProvider = nil
+            }
     }
 
     private func sheets(_ content: some View) -> some View {

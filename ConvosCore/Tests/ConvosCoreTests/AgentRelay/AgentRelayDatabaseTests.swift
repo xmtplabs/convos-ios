@@ -141,4 +141,21 @@ struct AgentRelayDatabaseTests {
 
         #expect(second == first)
     }
+
+    @Test("superseded turns transition to expired and collected elsewhere")
+    func supersededTurnsReachTerminalStates() throws {
+        let database = try AgentChatDatabase.inMemoryForTests()
+        let writer = AgentChatWriter(database: database)
+        let repository = AgentChatRepository(database: database)
+        let expired = makeAgentTurn(requestId: "request_superseded_expired", status: .superseded)
+        let collected = makeAgentTurn(requestId: "request_superseded_collected", status: .superseded)
+        try writer.insertPending(expired)
+        try writer.insertPending(collected)
+
+        try writer.markExpired(requestId: expired.requestId)
+        try writer.markCollectedElsewhere(requestId: collected.requestId)
+
+        #expect(try repository.turn(requestId: expired.requestId)?.status == .expired)
+        #expect(try repository.turn(requestId: collected.requestId)?.status == .collectedElsewhere)
+    }
 }

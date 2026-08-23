@@ -145,6 +145,56 @@ final class AgentChatViewModelTests: XCTestCase {
         XCTAssertNotEqual(turns.first?.requestId, failedTurn.requestId)
         XCTAssertEqual(turns.first?.prompt, failedTurn.prompt)
     }
+
+    func testClearHistoryAcknowledgesAndDeletesAllSettledRowsBeyondTranscriptLimit() async throws {
+        let fixture = try AgentChatViewModelFixture()
+        let requestIds: [String] = (0 ..< 250).map { "request_clear_\($0)" }
+        for requestId in requestIds {
+            try fixture.insertPending(makeAgentChatTurn(
+                requestId: requestId,
+                provider: .town,
+                status: .superseded
+            ))
+        }
+        let viewModel = fixture.makeViewModel(provider: .town)
+        XCTAssertEqual(viewModel.turns.count, 200)
+
+        viewModel.clearHistory()
+
+        let deadline = Date().addingTimeInterval(2)
+        while await fixture.api.acknowledgedRequestIds.count < requestIds.count, Date() < deadline {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        let acknowledgedRequestIds = await fixture.api.acknowledgedRequestIds
+        XCTAssertEqual(Set(acknowledgedRequestIds), Set(requestIds))
+        XCTAssertTrue(try fixture.repository.turns(limit: .max).isEmpty)
+    }
+
+    func testClearHistoryRetainsOnlyTheRowWhoseAcknowledgementFails() async throws {
+        let failedRequestId = "request_ack_failure"
+        let requestIds = ["request_ack_success_1", failedRequestId, "request_ack_success_2"]
+        let fixture = try AgentChatViewModelFixture(ackFailureRequestIds: [failedRequestId])
+        for requestId in requestIds {
+            try fixture.insertPending(makeAgentChatTurn(
+                requestId: requestId,
+                provider: .town,
+                status: .superseded
+            ))
+        }
+        let viewModel = fixture.makeViewModel(provider: .town)
+
+        viewModel.clearHistory()
+
+        let deadline = Date().addingTimeInterval(2)
+        while await fixture.api.acknowledgedRequestIds.count < requestIds.count, Date() < deadline {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        let remainingTurns = try fixture.repository.turns(limit: .max)
+        let acknowledgedRequestIds = await fixture.api.acknowledgedRequestIds
+        XCTAssertEqual(remainingTurns.map(\.requestId), [failedRequestId])
+        XCTAssertEqual(Set(acknowledgedRequestIds), Set(requestIds))
+        XCTAssertNotNil(viewModel.errorMessage)
+    }
 }
 
 @MainActor
@@ -156,11 +206,17 @@ private final class AgentChatViewModelFixture {
     private let dependencies: AgentRelayDependencies
     private let defaultsSuiteName: String
 
-    init(fetchOutcomes: [AgentRelayFetchOutcome] = []) throws {
+    init(
+        fetchOutcomes: [AgentRelayFetchOutcome] = [],
+        ackFailureRequestIds: Set<String> = []
+    ) throws {
         let database = try AgentChatDatabase.inMemoryForTests()
         let writer = AgentChatWriter(database: database)
         let repository = AgentChatRepository(database: database)
-        let api = RecordingAgentRelayBackendAPI(fetchOutcomes: fetchOutcomes)
+        let api = RecordingAgentRelayBackendAPI(
+            fetchOutcomes: fetchOutcomes,
+            ackFailureRequestIds: ackFailureRequestIds
+        )
         let webhook = RecordingAgentWebhookTransport()
         let client = AgentRelayClient(
             api: api,
@@ -227,11 +283,17 @@ private final class AgentChatViewModelFixture {
 private actor RecordingAgentRelayBackendAPI: AgentRelayBackendAPI {
     private var mintCount: Int = 0
     private(set) var ackCount: Int = 0
+    private(set) var acknowledgedRequestIds: [String] = []
     private(set) var fetchWaitMilliseconds: [Int] = []
     private var fetchOutcomes: [AgentRelayFetchOutcome]
+    private let ackFailureRequestIds: Set<String>
 
-    init(fetchOutcomes: [AgentRelayFetchOutcome] = []) {
+    init(
+        fetchOutcomes: [AgentRelayFetchOutcome] = [],
+        ackFailureRequestIds: Set<String> = []
+    ) {
         self.fetchOutcomes = fetchOutcomes
+        self.ackFailureRequestIds = ackFailureRequestIds
     }
 
     func mint(provider: ExternalAgentProvider) async throws -> AgentRelayMint {
@@ -260,11 +322,19 @@ private actor RecordingAgentRelayBackendAPI: AgentRelayBackendAPI {
 
     func ack(requestId: String) async throws {
         ackCount += 1
+        acknowledgedRequestIds.append(requestId)
+        if ackFailureRequestIds.contains(requestId) {
+            throw AgentChatViewModelTestError.ackFailed
+        }
     }
 
     func listCompleted() async throws -> [AgentRelayCompletedEntry] {
         []
     }
+}
+
+private enum AgentChatViewModelTestError: Error {
+    case ackFailed
 }
 
 private actor RecordingAgentWebhookTransport: AgentWebhookTransport {

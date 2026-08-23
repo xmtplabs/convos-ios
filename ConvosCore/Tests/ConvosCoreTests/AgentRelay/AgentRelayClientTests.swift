@@ -19,7 +19,6 @@ struct AgentRelayClientTests {
         let task = Task {
             try await client.send(
                 prompt: "Prompt",
-                provider: .town,
                 connection: makeAgentConnection(),
                 waitUntilReady: {
                     recorder.append("waiting")

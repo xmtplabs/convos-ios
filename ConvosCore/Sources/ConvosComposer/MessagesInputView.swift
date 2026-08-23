@@ -158,7 +158,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
     }
 
     private var sendOrStopButton: some View {
-        let isStopWaiting: Bool = onStopWaitingWhenEmpty != nil && messageText.isEmpty && !hasAttachments
+        let isStopWaiting: Bool = onStopWaitingWhenEmpty != nil && messageText.allSatisfy(\.isWhitespace) && !hasAttachments
         let isEnabled: Bool = isStopWaiting || sendButtonEnabled
         let systemImage: String = isStopWaiting ? "square.fill" : "arrow.up"
         let iconTint: Color = isEnabled ? .colorTextPrimaryInverted : .colorTextPrimary

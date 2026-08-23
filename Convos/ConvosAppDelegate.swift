@@ -149,7 +149,11 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         if let payload = AgentRelayPushPayload.parse(notification.request.content.userInfo) {
             await agentRelayPushCollector?(payload)
-            return AgentChatVisibility.isVisible ? [] : [.banner, .sound]
+            let shouldSuppress = AgentRelayNotificationPresentation.shouldSuppress(
+                visibleProvider: AgentChatVisibility.visibleProvider,
+                notificationProvider: payload.provider
+            )
+            return shouldSuppress ? [] : [.banner, .sound]
         }
         let conversationId = notification.request.content.threadIdentifier
 

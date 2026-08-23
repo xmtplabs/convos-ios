@@ -1646,7 +1646,8 @@ private extension ConversationView {
         state: MessageContextMenuState,
         lane _: ConversationViewModel
     ) -> ((String) -> Void)? {
-        guard let dependencies = agentRelayDependencies,
+        guard FeatureFlags.shared.agentRelayEnabled,
+              let dependencies = agentRelayDependencies,
               let provider = dependencies.connectionStore.activeProvider,
               (try? dependencies.connectionStore.load(provider: provider)) != nil else {
             return nil

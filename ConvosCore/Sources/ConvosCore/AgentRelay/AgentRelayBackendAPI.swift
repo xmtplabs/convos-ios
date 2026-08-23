@@ -17,15 +17,18 @@ public final class AgentRelayHTTPAPI: AgentRelayBackendAPI {
 
     private let apiClient: any ConvosAPIClientProtocol
     private let authenticatedRequestExecutor: AuthenticatedRequestExecutor
+    private let longPollRequestExecutor: AuthenticatedRequestExecutor?
     let session: URLSession
 
     public init(apiClient: any ConvosAPIClientProtocol) {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = Constant.requestTimeout
         self.apiClient = apiClient
-        self.authenticatedRequestExecutor = { request in
+        let authenticatedRequestExecutor: AuthenticatedRequestExecutor = { request in
             try await apiClient.performAuthenticatedRequest(request)
         }
+        self.authenticatedRequestExecutor = authenticatedRequestExecutor
+        self.longPollRequestExecutor = apiClient is MockAPIClient ? authenticatedRequestExecutor : nil
         session = URLSession(configuration: configuration)
     }
 
@@ -39,6 +42,7 @@ public final class AgentRelayHTTPAPI: AgentRelayBackendAPI {
         self.authenticatedRequestExecutor = authenticatedRequestExecutor ?? { request in
             try await apiClient.performAuthenticatedRequest(request)
         }
+        self.longPollRequestExecutor = nil
         session = URLSession(configuration: configuration)
     }
 
@@ -139,6 +143,9 @@ public final class AgentRelayHTTPAPI: AgentRelayBackendAPI {
 
     private func executeLongPoll(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         do {
+            if let longPollRequestExecutor {
+                return try await longPollRequestExecutor(request)
+            }
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw AgentRelayError.relayUnreachable

@@ -151,6 +151,24 @@ struct AgentRelayTransportTests {
         #expect(request.value(forHTTPHeaderField: "X-Convos-AuthToken") == "scoped-jwt")
     }
 
+    @Test("Mock API client returns deterministic relay responses without networking")
+    func mockAPIClientCompletesRelayFlow() async throws {
+        let api = AgentRelayHTTPAPI(apiClient: MockAPIClient())
+
+        let mint = try await api.mint(provider: .town)
+        let outcome = try await api.fetch(requestId: mint.requestId, waitMs: 25_000)
+        try await api.ack(requestId: mint.requestId)
+        let completedEntries = try await api.listCompleted()
+
+        #expect(mint.requestId == "request_mock")
+        #expect(outcome == .completed(AgentRelayTurnResult(
+            message: "Mock agent response",
+            links: [],
+            completedAt: ISO8601DateFormatter().date(from: "2026-01-01T00:00:00Z") ?? .distantPast
+        )))
+        #expect(completedEntries.isEmpty)
+    }
+
     @Test("a full send never logs webhook secrets or content")
     func sendLogsOnlySafeWebhookMetadata() async throws {
         defer {

@@ -261,7 +261,6 @@ final class AgentSetupViewModel {
         do {
             let outcome = try await dependencies.client.send(
                 prompt: "Say hello to confirm the Convos connection.",
-                provider: provider,
                 connection: connection
             )
             apply(outcome)
