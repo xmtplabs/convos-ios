@@ -19,11 +19,12 @@ final class AgentChatViewModel {
     init(
         provider: ExternalAgentProvider,
         dependencies: AgentRelayDependencies,
-        initialText: String = ""
+        initialText: String = "",
+        waitUntilReady: @escaping @Sendable () async throws -> Void = {}
     ) {
         self.provider = provider
         self.dependencies = dependencies
-        self.waitUntilReady = {}
+        self.waitUntilReady = waitUntilReady
         self.composerText = initialText
         let initialTurns: [AgentTurn] = (try? dependencies.repository.turns(provider: provider, limit: Constant.turnLimit)) ?? []
         self.turns = initialTurns
@@ -224,7 +225,9 @@ final class AgentChatViewModel {
                 try await waitUntilReady()
                 if clearsComposerWhenReady {
                     previousSubmissionTask?.cancel()
-                    self?.composerText = ""
+                    if self?.composerText == prompt {
+                        self?.composerText = ""
+                    }
                     self?.markInFlightTurnsSuperseded()
                 }
                 let outcome = try await dependencies.client.send(

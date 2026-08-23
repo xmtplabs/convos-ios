@@ -80,6 +80,45 @@ final class AgentChatViewModelTests: XCTestCase {
         XCTAssertNotNil(viewModel.errorMessage)
     }
 
+    func testComposerPreservesTextTypedWhileSessionBecomesReady() async throws {
+        let fixture = try AgentChatViewModelFixture()
+        let waitUntilReadyGate = AgentChatWaitUntilReadyGate()
+        let inFlight = makeAgentChatTurn(
+            requestId: "request_while_session_becomes_ready",
+            provider: .tasklet,
+            status: .pending
+        )
+        try fixture.insertPending(inFlight)
+        let viewModel = fixture.makeViewModel(
+            provider: .tasklet,
+            initialText: "a",
+            waitUntilReady: { await waitUntilReadyGate.wait() }
+        )
+
+        viewModel.submit()
+        let entryDeadline = Date().addingTimeInterval(1)
+        var didEnterWaitUntilReady = await waitUntilReadyGate.hasEntered
+        while !didEnterWaitUntilReady, Date() < entryDeadline {
+            try await Task.sleep(nanoseconds: 1_000_000)
+            didEnterWaitUntilReady = await waitUntilReadyGate.hasEntered
+        }
+        XCTAssertTrue(didEnterWaitUntilReady)
+
+        viewModel.composerText = "ab"
+        await waitUntilReadyGate.release()
+
+        let sendDeadline = Date().addingTimeInterval(1)
+        var recordedPrompts = await fixture.webhook.recordedPrompts()
+        while recordedPrompts.isEmpty, Date() < sendDeadline {
+            try await Task.sleep(nanoseconds: 1_000_000)
+            recordedPrompts = await fixture.webhook.recordedPrompts()
+        }
+        let status: AgentTurnStatus? = try fixture.repository.turn(requestId: inFlight.requestId)?.status
+        XCTAssertEqual(viewModel.composerText, "ab")
+        XCTAssertEqual(status, .superseded)
+        XCTAssertEqual(recordedPrompts, ["a"])
+    }
+
     func testFailedReconnectRestoresPreviousConnectionAndActiveProvider() async throws {
         let fixture = try AgentChatViewModelFixture(rejectedWebhookPaths: ["/rejected"])
         let viewModel = AgentSetupViewModel(provider: .tasklet, dependencies: fixture.dependencies)
@@ -366,17 +405,43 @@ private final class AgentChatViewModelFixture {
 
     func makeViewModel(
         provider: ExternalAgentProvider,
-        initialText: String = ""
+        initialText: String = "",
+        waitUntilReady: (@Sendable () async throws -> Void)? = nil
     ) -> AgentChatViewModel {
-        AgentChatViewModel(
+        guard let waitUntilReady else {
+            return AgentChatViewModel(
+                provider: provider,
+                dependencies: dependencies,
+                initialText: initialText
+            )
+        }
+        return AgentChatViewModel(
             provider: provider,
             dependencies: dependencies,
-            initialText: initialText
+            initialText: initialText,
+            waitUntilReady: waitUntilReady
         )
     }
 
     func insertPending(_ turn: AgentTurn) throws {
         try dependencies.writer.insertPending(turn)
+    }
+}
+
+private actor AgentChatWaitUntilReadyGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private(set) var hasEntered: Bool = false
+
+    func wait() async {
+        hasEntered = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
     }
 }
 
