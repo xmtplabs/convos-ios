@@ -124,6 +124,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var connectionsBrowserContext: ConnectionsBrowserMode?
     /// Drives the system share sheet behind the top bar's invite-link button.
     @State private var presentingInviteShareSheet: Bool = false
+    @State private var presentingThingShareSheet: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
     @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -667,6 +668,10 @@ private extension ConversationView {
                 items: inviteShareItems,
                 onCompletion: handleInviteShareCompletion
             )
+            .shareSheet(
+                isPresented: $presentingThingShareSheet,
+                items: thingShareItems
+            )
             .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
                 newConversationSheet(viewModel)
             }
@@ -1172,7 +1177,8 @@ private extension ConversationView {
                     ShareThingMenu(
                         canShareToAgent: agentDmSession?.dmViewModel != nil,
                         onShareToGroup: { shareCurrentThing(to: .group) },
-                        onShareToAgent: { shareCurrentThing(to: .agent) }
+                        onShareToAgent: { shareCurrentThing(to: .agent) },
+                        onShareExternally: { presentingThingShareSheet = true }
                     )
                 }
             }
@@ -1232,6 +1238,12 @@ private extension ConversationView {
         let invite = viewModel.invite
         guard !invite.isEmpty else { return [] }
         return [invite.inviteURLString]
+    }
+
+    /// The current thing's link, for the Share menu's system share-sheet row.
+    private var thingShareItems: [Any] {
+        guard let url = homeBrowserEntries.last?.url else { return [] }
+        return [url]
     }
 
     /// A completed share is what keeps a brand-new conversation alive: the

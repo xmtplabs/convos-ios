@@ -11,6 +11,7 @@ struct ShareThingMenu: View {
     let canShareToAgent: Bool
     let onShareToGroup: () -> Void
     let onShareToAgent: () -> Void
+    let onShareExternally: () -> Void
 
     var body: some View {
         Menu {
@@ -27,6 +28,12 @@ struct ShareThingMenu: View {
                 }
                 .accessibilityIdentifier("share-thing-to-agent")
             }
+
+            Button(action: onShareExternally) {
+                Text("Share ...")
+                Image(systemName: "square.and.arrow.up")
+            }
+            .accessibilityIdentifier("share-thing-externally")
         } label: {
             Image(systemName: "square.and.arrow.up")
         }
@@ -43,7 +50,8 @@ struct ShareThingMenu: View {
                     ShareThingMenu(
                         canShareToAgent: true,
                         onShareToGroup: {},
-                        onShareToAgent: {}
+                        onShareToAgent: {},
+                        onShareExternally: {}
                     )
                 }
             }
