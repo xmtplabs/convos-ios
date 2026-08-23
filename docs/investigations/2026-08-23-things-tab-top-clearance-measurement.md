@@ -82,7 +82,54 @@ read is not wrong when nested in `HomeBrowserNavigationHost`'s
 Nothing to fix natively. If the two Space screens should start at the same Y,
 that is a Space CSS change (the Intro's 24 px top padding), not an iOS change.
 
+## Follow-up: where the chrome scrim is drawn
+
+`ConversationChromeScrim` (`Convos/Conversation Detail/ConversationTopChrome.swift`)
+is a sibling layer above the page, not the chrome's `.background`, and its extent
+is arithmetic rather than measured:
+
+    scrimHeight = controlBottom + scrimRampLength = 153.00 + 113.00 = 266.00 pt
+
+So it runs from y = 0 (it `ignoresSafeArea(edges: .top)`, i.e. under the status
+bar), holds full strength down to the control bottom at 153.00 pt, then ramps
+linearly to fully transparent over the next 113 pt.
+
+Pixel check of the ramp's end, at 3x scale (266.00 pt = 798 px). Method: mean
+luminance of the content-free left gutter (x = 6-40 px), scanned down until the
+profile flattens onto the page's own settled background (245.0/255). Both screens
+share an identical profile down to ~154 pt (the scrim's hold region) and then
+diverge with their own page content:
+
+| Screen | Predicted end | Flattens at | Delta |
+| --- | ---: | ---: | ---: |
+| Things home grid | 266.00 pt (798 px) | 264.00 pt (792 px) | -2.00 pt |
+| Reminders page | 266.00 pt (798 px) | 265.33 pt (796 px) | -0.67 pt |
+
+No mismatch: both land within 2 pt of the predicted 266 pt. The measurement
+reads slightly early because the final few percent of a white tint over a
+near-white page falls below 8-bit quantization, so the last sliver of the ramp is
+not distinguishable from the settled background - a floor of the method, not
+clipping. Notably the scrim is *not* stopping short the way the code comment's
+historical "69 pt short" background-clipping note describes; the sibling-layer
+form draws its full height.
+
+Where each page's first content line sits on the ramp:
+
+| Screen | First glyph top | Into ramp | Ramp position | Scrim still opaque |
+| --- | ---: | ---: | ---: | ---: |
+| Things home grid ("Welcome home") | 256.33 pt | 103.33 pt | 91% | ~9% |
+| Reminders page ("Reminders") | 232.67 pt | 79.67 pt | 71% | ~29% |
+
+Both pages therefore begin their first line *inside* the fade tail rather than
+below it - Home 9.67 pt before the scrim ends, Reminders 33.33 pt before. This is
+consistent with H1 and is by design: the ramp is deliberately longer than the
+content clearance so the wash dies out over content instead of ending on a hard
+edge. It does mean the Reminders heading is drawn under a ~29% wash where Home's
+is under ~9%; if that reads as a tint difference between the two screens, the lever
+is `scrimRampLength` or the Space's Intro padding, not the native inset.
+
 ## Evidence
 
-Annotated screenshots, raw full-resolution screenshots, and per-screen
-recordings are attached to the pull request as durable artifact links.
+Annotated screenshots (both the clearance measurement and the scrim bounds), raw
+full-resolution screenshots, and per-screen recordings are attached to the pull
+request as durable artifact links.
