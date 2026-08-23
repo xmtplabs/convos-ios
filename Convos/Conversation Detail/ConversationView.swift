@@ -1151,6 +1151,12 @@ private extension ConversationView {
             }
             if homeBrowserEntries.last?.url != nil {
                 ToolbarItem(placement: .topBarTrailing) {
+                    EditThingMenu(
+                        canAskAgent: agentDmSession?.dmViewModel != nil,
+                        onAskForChanges: { shareCurrentThing(to: .agent) }
+                    )
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     ShareThingMenu(
                         canShareToAgent: agentDmSession?.dmViewModel != nil,
                         onShareToGroup: { shareCurrentThing(to: .group) },
