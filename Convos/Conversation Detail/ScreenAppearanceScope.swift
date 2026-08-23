@@ -42,13 +42,31 @@ struct ScreenAppearanceScope: UIViewControllerRepresentable {
             applyStyle()
         }
 
-        /// The controller the navigation stack pushed, so the whole screen is
-        /// styled and the override is popped along with it. Falls back to the
-        /// nearest ancestor for a host that is not in a navigation stack, which
-        /// still keeps the override off the window.
+        /// The controller that owns the whole screen, so every surface in it
+        /// resolves against the override and the override leaves with the
+        /// screen.
+        ///
+        /// Pushed hosts are the controller the navigation stack pushed. A
+        /// modally presented host has no such ancestor: its parent chain ends
+        /// at the controller the presentation put on screen - the sheet's
+        /// content controller - and styling anything below that leaves the rest
+        /// of the sheet resolving against the presenting scheme. Hosts that are
+        /// neither keep the nearest ancestor, which still keeps the override
+        /// off the window.
         private var screenController: UIViewController? {
             let ancestors = sequence(first: self as UIViewController) { $0.parent }
-            return ancestors.first { $0.parent is UINavigationController } ?? parent
+            var root: UIViewController = self
+            for ancestor in ancestors {
+                if ancestor.parent is UINavigationController { return ancestor }
+                root = ancestor
+            }
+            // `presentingViewController` is non-nil for a presented controller
+            // and for its children, so the end of the parent chain is what
+            // distinguishes the presented screen itself from a wrapper inside
+            // it. Nil there means nothing presented this host - the chain ends
+            // at the window's root - and the override stays where it was.
+            if root !== self, root.presentingViewController != nil { return root }
+            return parent
         }
 
         private func applyStyle() {
