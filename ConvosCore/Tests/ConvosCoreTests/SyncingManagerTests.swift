@@ -237,6 +237,8 @@ class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
         nil
     }
 
+    func deleteMessageLocally(messageId: String) throws {}
+
     func findOrCreateDm(with peerInboxId: String) async throws -> XMTPiOS.Dm {
         fatalError("not implemented in test mock")
     }
@@ -281,6 +283,29 @@ class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
                 }
             case .throwImmediately:
                 continuation.finish(throwing: NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Stream failed"]))
+            }
+        }
+    }
+
+    func streamMessageDeletions(
+        onClose: (() -> Void)?
+    ) -> AsyncThrowingStream<DecodedMessageV2, any Error> {
+        let behavior = streamBehavior
+        return AsyncThrowingStream { continuation in
+            switch behavior {
+            case .neverClose, .delayedStart:
+                break
+            case .throwImmediately:
+                continuation.finish(
+                    throwing: NSError(
+                        domain: "test",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Deletion stream failed"]
+                    )
+                )
+            case .empty, .emitOneThenClose, .emitMultipleThenClose:
+                onClose?()
+                continuation.finish()
             }
         }
     }

@@ -163,6 +163,9 @@ public struct ConversationsListItem: View {
         if isPendingInvite { parts.append("verifying") }
         if combinedUnread { parts.append(dmUnread ? "unread agent message" : "unread") }
         if isMuted { parts.append("muted") }
+        if let duration = conversation.disappearingMessagesDurationTitle {
+            parts.append("disappearing messages, \(duration)")
+        }
         if !previewText.isEmpty {
             parts.append(previewText)
         }
@@ -194,13 +197,23 @@ public struct ConversationsListItem: View {
                 }
             },
             accessoryContent: {
-                if let expiresAt = conversation.scheduledExplosionDate {
-                    ExplosionCountdownBadge(expiresAt: expiresAt)
-                        .transition(.scale.combined(with: .opacity))
+                HStack(spacing: DesignConstants.Spacing.stepX) {
+                    if conversation.isDisappearingMessagesEnabled {
+                        Image(systemName: "timer")
+                            .font(.caption)
+                            .foregroundStyle(.colorTextTertiary)
+                            .accessibilityHidden(true)
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                    if let expiresAt = conversation.scheduledExplosionDate {
+                        ExplosionCountdownBadge(expiresAt: expiresAt)
+                            .transition(.scale.combined(with: .opacity))
+                    }
                 }
             }
         )
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: conversation.scheduledExplosionDate)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: conversation.isDisappearingMessagesEnabled)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
         .accessibilityIdentifier("conversation-list-item-\(conversation.id)")

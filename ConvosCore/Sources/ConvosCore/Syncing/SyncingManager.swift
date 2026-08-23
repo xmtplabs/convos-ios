@@ -139,6 +139,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private var messageStreamTask: Task<Void, Never>?
     private var conversationStreamTask: Task<Void, Never>?
+    private var messageDeletionStreamTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
 
     /// The params of the most recent `start`, retained so a session that has
@@ -213,6 +214,7 @@ actor SyncingManager: SyncingManagerProtocol {
     /// processor's `ConversationWriter`) and per-call inside the foreground
     /// batch catch-up path so metrics-emitting writes have a real sink.
     private let coreActions: any CoreActions
+    private let disappearingMessageDeletionWriter: DisappearingMessageDeletionWriter
 
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
@@ -227,6 +229,7 @@ actor SyncingManager: SyncingManagerProtocol {
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.coreActions = coreActions
+        self.disappearingMessageDeletionWriter = DisappearingMessageDeletionWriter(databaseWriter: databaseWriter)
         let enablementStore: any EnablementStore = GRDBEnablementStore(dbWriter: databaseWriter, dbReader: databaseReader)
         // The GRDB-backed subscription store is a Core-side type that doesn't
         // pull HealthKit; safe to construct unconditionally. The HKHealthStore-
@@ -261,6 +264,7 @@ actor SyncingManager: SyncingManagerProtocol {
         notificationTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        messageDeletionStreamTask?.cancel()
         agentJoinPollTask?.cancel()
         currentTask?.cancel()
 
@@ -588,6 +592,7 @@ actor SyncingManager: SyncingManagerProtocol {
         Log.info("Starting message and conversation streams...")
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        messageDeletionStreamTask?.cancel()
 
         // Set up stream readiness tracking BEFORE creating tasks to avoid race conditions.
         // If we create tasks first, they might signal readiness before continuations are set up.
@@ -601,6 +606,11 @@ actor SyncingManager: SyncingManagerProtocol {
         conversationStreamTask = Task { [weak self, params] in
             guard let self else { return }
             await self.runConversationStream(params: params)
+        }
+
+        messageDeletionStreamTask = Task { [weak self, params] in
+            guard let self else { return }
+            await self.runMessageDeletionStream(params: params)
         }
 
         restartConsentReconciler(client: client)
@@ -647,6 +657,7 @@ actor SyncingManager: SyncingManagerProtocol {
             stopSessionScopedObservers()
             messageStreamTask?.cancel()
             conversationStreamTask?.cancel()
+            messageDeletionStreamTask?.cancel()
 
             if let task = messageStreamTask {
                 _ = await task.value
@@ -655,6 +666,10 @@ actor SyncingManager: SyncingManagerProtocol {
             if let task = conversationStreamTask {
                 _ = await task.value
                 conversationStreamTask = nil
+            }
+            if let task = messageDeletionStreamTask {
+                _ = await task.value
+                messageDeletionStreamTask = nil
             }
             emitStateChange(.paused(params))
             Log.debug("syncAllConversations completed, transitioned to paused (pause was requested during starting)")
@@ -871,6 +886,7 @@ actor SyncingManager: SyncingManagerProtocol {
         stopSessionScopedObservers()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        messageDeletionStreamTask?.cancel()
 
         if let task = messageStreamTask {
             _ = await task.value
@@ -879,6 +895,10 @@ actor SyncingManager: SyncingManagerProtocol {
         if let task = conversationStreamTask {
             _ = await task.value
             conversationStreamTask = nil
+        }
+        if let task = messageDeletionStreamTask {
+            _ = await task.value
+            messageDeletionStreamTask = nil
         }
 
         emitStateChange(.paused(params))
@@ -896,6 +916,7 @@ actor SyncingManager: SyncingManagerProtocol {
         // Restart streams
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        messageDeletionStreamTask?.cancel()
 
         // Set up stream readiness tracking BEFORE creating tasks to avoid race conditions.
         let streams = setupStreamReadinessTracking()
@@ -908,6 +929,11 @@ actor SyncingManager: SyncingManagerProtocol {
         conversationStreamTask = Task { [weak self, params] in
             guard let self else { return }
             await self.runConversationStream(params: params)
+        }
+
+        messageDeletionStreamTask = Task { [weak self, params] in
+            guard let self else { return }
+            await self.runMessageDeletionStream(params: params)
         }
 
         restartConsentReconciler(client: params.client)
@@ -1003,6 +1029,7 @@ actor SyncingManager: SyncingManagerProtocol {
         syncTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        messageDeletionStreamTask?.cancel()
         agentJoinPollTask?.cancel()
 
         if let task = syncTask {
@@ -1016,6 +1043,10 @@ actor SyncingManager: SyncingManagerProtocol {
         if let task = conversationStreamTask {
             _ = await task.value
             conversationStreamTask = nil
+        }
+        if let task = messageDeletionStreamTask {
+            _ = await task.value
+            messageDeletionStreamTask = nil
         }
         if let task = agentJoinPollTask {
             _ = await task.value
@@ -1091,6 +1122,47 @@ actor SyncingManager: SyncingManagerProtocol {
 
         if !Task.isCancelled && retryCount >= maxStreamRetries {
             Log.error("Message stream: max retries (\(maxStreamRetries)) exceeded, giving up")
+            enqueueAction(.streamFailed)
+        }
+    }
+
+    /// Mirrors libxmtp's deletion events into the separate Convos UI database.
+    /// The initial prune covers expiry that happened while the process was not
+    /// subscribed (terminated/backgrounded); live events provide exact removal
+    /// while the app is running.
+    private func runMessageDeletionStream(params: SyncClientParams) async {
+        var retryCount = 0
+
+        while !Task.isCancelled && retryCount < maxStreamRetries {
+            do {
+                if retryCount > 0 {
+                    let delay = TimeInterval.calculateExponentialBackoff(for: retryCount)
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                }
+
+                let stream = params.client.conversationsProvider.streamMessageDeletions {
+                    Log.debug("Message deletion stream closed via onClose callback")
+                }
+                // Subscribe first, then close the foreground/startup gap with
+                // a prune. A deletion that lands during pruning is observed by
+                // the live stream instead of waiting for the next resume.
+                try await disappearingMessageDeletionWriter.pruneExpiredMessages()
+                for try await message in stream {
+                    try Task.checkCancellation()
+                    try await disappearingMessageDeletionWriter.delete(messageId: message.id)
+                    retryCount = 0
+                }
+                retryCount += 1
+            } catch is CancellationError {
+                break
+            } catch {
+                retryCount += 1
+                Log.error("Message deletion stream error: \(error)")
+            }
+        }
+
+        if !Task.isCancelled && retryCount >= maxStreamRetries {
+            Log.error("Message deletion stream: max retries exceeded")
             enqueueAction(.streamFailed)
         }
     }

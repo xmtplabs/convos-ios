@@ -21,6 +21,7 @@ public protocol ConversationMetadataWriterProtocol: Sendable {
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws
     func updateParticipationMode(_ mode: ConversationParticipationMode, for conversationId: String) async throws
     func updateSpaceURL(_ urlString: String?, for conversationId: String) async throws
+    func updateDisappearingMessages(_ duration: DisappearingMessageDuration?, for conversationId: String) async throws
     func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws
     func lockConversation(for conversationId: String) async throws
     func unlockConversation(for conversationId: String) async throws
@@ -186,6 +187,45 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         }
 
         Log.info("Updated conversation space URL for \(conversationId): \(urlString ?? "nil")")
+    }
+
+    /// Writes XMTP's native conversation-wide disappearing-message settings.
+    /// Passing nil turns the timer off. libxmtp remains authoritative for each
+    /// message's computed expiry; the local conversation row only mirrors the
+    /// active duration so every surface updates immediately.
+    func updateDisappearingMessages(
+        _ duration: DisappearingMessageDuration?,
+        for conversationId: String
+    ) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+
+        guard let conversation = try await inboxReady.client.conversation(with: conversationId) else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+
+        let settings = duration.map {
+            DisappearingMessageSettings(
+                disappearStartingAtNs: Date().nanosecondsSince1970,
+                retentionDurationInNs: $0.rawValue
+            )
+        }
+        try await conversation.updateDisappearingMessageSettings(settings)
+
+        try await databaseWriter.write { db in
+            guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
+                throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+            }
+            try localConversation
+                .with(disappearingMessageRetentionDurationInNs: duration?.rawValue)
+                .save(db)
+        }
+
+        Log.info("Updated disappearing messages for \(conversationId): \(duration?.title ?? "off")")
+        QAEvent.emit(
+            .conversation,
+            "disappearing_messages_updated",
+            ["id": conversationId, "duration": duration?.title ?? "off"]
+        )
     }
 
     func updateDescription(_ description: String, for conversationId: String) async throws {

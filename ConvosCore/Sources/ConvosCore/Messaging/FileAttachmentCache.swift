@@ -40,6 +40,15 @@ public actor FileAttachmentCache {
         return fileURL
     }
 
+    /// Removes every downloaded file derived from an attachment key. The key
+    /// is hashed into a dedicated cache directory, so cleanup cannot escape the
+    /// FileAttachments cache root.
+    public func removeCachedFiles(for attachmentKey: String) throws {
+        let directory = cacheSubdirectory(for: attachmentKey)
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        try fileManager.removeItem(at: directory)
+    }
+
     private func resolvedFileURL(for attachmentKey: String, filename: String) -> URL {
         let safeFilename = sanitizeFilename(filename)
         return cacheSubdirectory(for: attachmentKey).appendingPathComponent(safeFilename)

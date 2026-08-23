@@ -178,6 +178,8 @@ public final class MockConversationsProvider: ConversationsProvider, @unchecked 
         nil
     }
 
+    public func deleteMessageLocally(messageId: String) throws {}
+
     public func syncAllConversations(consentStates: [ConsentState]?) async throws -> GroupSyncSummary {
         GroupSyncSummary(numEligible: 0, numSynced: 0)
     }
@@ -188,5 +190,11 @@ public final class MockConversationsProvider: ConversationsProvider, @unchecked 
         onClose: (() -> Void)?
     ) -> AsyncThrowingStream<DecodedMessage, any Error> {
         AsyncThrowingStream { _ in }
+    }
+
+    public func streamMessageDeletions(
+        onClose: (() -> Void)?
+    ) -> AsyncThrowingStream<DecodedMessageV2, any Error> {
+        AsyncThrowingStream { continuation in continuation.finish() }
     }
 }

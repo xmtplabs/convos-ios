@@ -4004,6 +4004,14 @@ extension ConversationViewModel {
         }
     }
 
+    func deleteMessagesForMe(_ messages: [AnyMessage]) async throws {
+        try await cachedMessageWriter.deleteMessagesForMe(messages.deletionTargets)
+    }
+
+    func deleteMessagesForEveryone(_ messages: [AnyMessage]) async throws {
+        try await cachedMessageWriter.deleteMessagesForEveryone(messages.deletionTargets)
+    }
+
     func onUseProfile(_ profile: Profile, _ profileImage: UIImage?) {
         myProfileViewModel.update(using: profile, profileImage: profileImage, conversationId: conversation.id)
     }
@@ -4246,6 +4254,10 @@ extension ConversationViewModel {
     /// info's debug section.
     func debugOverrideSpaceURL(_ urlString: String?) async throws {
         try await metadataWriter.updateSpaceURL(urlString, for: conversation.id)
+    }
+
+    func updateDisappearingMessages(_ duration: DisappearingMessageDuration?) async throws {
+        try await metadataWriter.updateDisappearingMessages(duration, for: conversation.id)
     }
 
     /// Presents the invite-code sheet (`InviteCodeSheet`) via
@@ -4922,6 +4934,17 @@ extension ConversationViewModel {
             }
             group.cancelAll()
             return result
+        }
+    }
+}
+
+private extension Array where Element == AnyMessage {
+    var deletionTargets: [MessageDeletionTarget] {
+        map {
+            MessageDeletionTarget(
+                localMessageId: $0.messageId,
+                xmtpMessageId: $0.xmtpMessageId
+            )
         }
     }
 }

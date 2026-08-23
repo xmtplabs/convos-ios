@@ -543,6 +543,22 @@ public struct MessageContextMenuOverlay: View {
                     }
                     ContextMenuRow(icon: "square.and.arrow.down", title: "Save", action: saveAction)
                 }
+
+                if !isReadOnly {
+                    let deleteAction = {
+                        let msg = message
+                        dismissMenu()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                            state.beginMessageSelection(with: msg)
+                        }
+                    }
+                    ContextMenuRow(
+                        icon: "trash",
+                        title: "Delete",
+                        isDestructive: true,
+                        action: deleteAction
+                    )
+                }
             }
             .padding(.vertical, 10)
             .foregroundStyle(.primary)
@@ -629,8 +645,8 @@ public struct MessageContextMenuOverlay: View {
         static let maxPreviewHeight: CGFloat = 75
         static let photoHorizontalInset: CGFloat = 16
         static let photoCornerRadius: CGFloat = DesignConstants.CornerRadius.photo
-        static let textMenuEstimatedHeight: CGFloat = 80
-        static let photoMenuEstimatedHeight: CGFloat = 160
+        static let textMenuEstimatedHeight: CGFloat = 132
+        static let photoMenuEstimatedHeight: CGFloat = 212
         /// Slack above and below the message preview. Applied twice by
         /// `endBubbleRect` - once inside its bottom padding and once again
         /// against the content height - so the effective reservation is double
@@ -1098,10 +1114,11 @@ private func shareFile(key: String, filename: String?) {
 private struct ContextMenuRow: View {
     let icon: String
     let title: String
+    var isDestructive: Bool = false
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button(role: isDestructive ? .destructive : nil, action: action) {
             HStack(spacing: 14) {
                 Image(systemName: icon)
                     .font(.system(size: 17, weight: .regular))
@@ -1114,6 +1131,7 @@ private struct ContextMenuRow: View {
             .padding(.vertical, 11)
             .contentShape(Rectangle())
         }
+        .foregroundStyle(isDestructive ? .colorCaution : .primary)
     }
 }
 

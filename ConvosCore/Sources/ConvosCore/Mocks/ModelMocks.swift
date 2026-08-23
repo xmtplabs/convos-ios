@@ -419,6 +419,14 @@ private func summaryFromFirstMetadataChange(
             return "\(creatorDisplayName) paused agents, so they'll never see the following messages"
         }
         return "\(creatorDisplayName) set agents to \(mode.transcriptTitle)"
+    case .disappearingMessages:
+        guard let rawValue = metadataChange.newValue,
+              let retention = Int64(rawValue),
+              retention > 0 else {
+            return "\(creatorDisplayName) turned off disappearing messages"
+        }
+        let duration = DisappearingMessageDuration.title(forRetentionDurationInNs: retention)
+        return "\(creatorDisplayName) turned on disappearing messages for \(duration). If an agent is in this chat, it can save messages outside Convos"
     case .metadata, .unknown:
         return nil
     }

@@ -12,6 +12,22 @@ import UniformTypeIdentifiers
 /// full-resolution photo would.
 private let bundleChipThumbnailMaxPixelSize: Int = 240
 
+public struct MessageDeletionTarget: Hashable, Sendable {
+    public let localMessageId: String
+    public let xmtpMessageId: String?
+
+    public init(localMessageId: String, xmtpMessageId: String?) {
+        self.localMessageId = localMessageId
+        self.xmtpMessageId = xmtpMessageId
+    }
+}
+
+public enum MessageDeletionError: Error {
+    case unavailable
+    case conversationNotFound
+    case unpublishedMessage
+}
+
 /// One entry in a `MultiRemoteAttachment` bundle. Eager photo/video variants
 /// reference an upload that was already kicked off by the composer; voice
 /// memo and file variants point at a local URL the writer encrypts + uploads
@@ -142,6 +158,18 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
 
     func retryFailedMessage(id: String) async throws
     func deleteFailedMessage(id: String) async throws
+    func deleteMessagesForMe(_ targets: [MessageDeletionTarget]) async throws
+    func deleteMessagesForEveryone(_ targets: [MessageDeletionTarget]) async throws
+}
+
+public extension OutgoingMessageWriterProtocol {
+    func deleteMessagesForMe(_ targets: [MessageDeletionTarget]) async throws {
+        throw MessageDeletionError.unavailable
+    }
+
+    func deleteMessagesForEveryone(_ targets: [MessageDeletionTarget]) async throws {
+        throw MessageDeletionError.unavailable
+    }
 }
 
 enum OutgoingMessageWriterError: Error, CustomStringConvertible {
@@ -3101,6 +3129,44 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             if deleted == 0 {
                 Log.warning("No failed message found to delete for clientMessageId: \(clientMessageId)")
             }
+        }
+    }
+
+    func deleteMessagesForMe(_ targets: [MessageDeletionTarget]) async throws {
+        guard !targets.isEmpty else { return }
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let localDeletionWriter = DisappearingMessageDeletionWriter(databaseWriter: databaseWriter)
+        for target in targets {
+            if let xmtpMessageId = target.xmtpMessageId {
+                try inboxReady.client.conversationsProvider.deleteMessageLocally(messageId: xmtpMessageId)
+                try await localDeletionWriter.deleteSelectedMessages(
+                    messageIds: [target.localMessageId, xmtpMessageId]
+                )
+            } else {
+                try await localDeletionWriter.deleteSelectedMessages(messageIds: [target.localMessageId])
+            }
+        }
+    }
+
+    func deleteMessagesForEveryone(_ targets: [MessageDeletionTarget]) async throws {
+        guard !targets.isEmpty else { return }
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        guard let conversation = try await inboxReady.client.conversation(with: conversationId) else {
+            throw MessageDeletionError.conversationNotFound
+        }
+
+        let localDeletionWriter = DisappearingMessageDeletionWriter(databaseWriter: databaseWriter)
+        for target in targets {
+            guard let xmtpMessageId = target.xmtpMessageId else {
+                throw MessageDeletionError.unpublishedMessage
+            }
+            _ = try await conversation.deleteMessage(messageId: xmtpMessageId)
+            // Publish each deletion before preparing the next. If a later
+            // deletion fails, there is no hidden partial batch left queued.
+            try await conversation.publishMessages()
+            try await localDeletionWriter.deleteSelectedMessages(
+                messageIds: [target.localMessageId, xmtpMessageId]
+            )
         }
     }
 }
