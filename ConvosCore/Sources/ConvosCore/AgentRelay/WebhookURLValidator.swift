@@ -166,6 +166,9 @@ public struct WebhookURLValidator: Sendable {
         if first == 10 || first == 127 || first == 0 {
             return true
         }
+        if first == 100, (64 ... 127).contains(second) {
+            return true
+        }
         if first == 169, second == 254 {
             return true
         }
@@ -175,7 +178,7 @@ public struct WebhookURLValidator: Sendable {
         if first == 192, second == 168 {
             return true
         }
-        return (224 ... 239).contains(first)
+        return (224 ... 255).contains(first)
     }
 
     private func isBlockedIPv6(_ host: String) -> Bool {

@@ -72,6 +72,23 @@ struct AgentRelayConnectionAndValidationTests {
         expectValidationFailure("https://10.0.0.1/x")
     }
 
+    @Test("dev rejects the start of shared IPv4 space")
+    func devRejectsSharedIPv4Start() {
+        expectValidationFailure("https://100.64.0.1/webhook")
+    }
+
+    @Test("dev rejects the end of shared IPv4 space")
+    func devRejectsSharedIPv4End() {
+        expectValidationFailure("https://100.127.255.254/webhook")
+    }
+
+    @Test("dev accepts IPv4 above shared address space")
+    func devAcceptsIPv4AboveSharedSpace() throws {
+        let string = "https://100.128.0.1/webhook"
+        let url = try WebhookURLValidator(environment: makeConfiguredEnvironment(local: false)).validate(string)
+        #expect(url.absoluteString == string)
+    }
+
     @Test("dev rejects IPv6 loopback")
     func devRejectsIPv6Loopback() {
         expectValidationFailure("https://[::1]/x")
@@ -80,6 +97,11 @@ struct AgentRelayConnectionAndValidationTests {
     @Test("dev rejects IPv4-mapped IPv6")
     func devRejectsMappedIPv6() {
         expectValidationFailure("https://[::ffff:127.0.0.1]/x")
+    }
+
+    @Test("dev rejects shared IPv4 mapped into IPv6")
+    func devRejectsMappedSharedIPv4() {
+        expectValidationFailure("https://[::ffff:100.64.0.1]/webhook")
     }
 
     @Test("dev rejects integer IPv4")
