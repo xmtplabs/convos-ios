@@ -1080,13 +1080,13 @@ private extension ConversationView {
     }
 
     /// Hands the current thing to the agent to edit: drops its link into the
-    /// agent composer and leads with a "Please update this" starter prompt, then
+    /// agent composer and leads with a "Please change this" starter prompt, then
     /// switches to the Agent tab. Gated by the menu to when the agent DM is bound.
     private func askAgentToEditCurrentThing() {
         guard let target = agentDmSession?.dmViewModel,
               let link = homeBrowserEntries.last?.url.absoluteString else { return }
         prefillComposer(target, withLink: link)
-        let prompt = "Please update this"
+        let prompt = "Please change this"
         target.messageText = target.messageText.isEmpty ? prompt : "\(prompt)\n\(target.messageText)"
         selectTab(.agent)
     }
