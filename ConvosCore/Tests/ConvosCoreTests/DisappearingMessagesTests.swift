@@ -123,6 +123,72 @@ struct DisappearingMessagesTests {
         #expect(remaining.2 == 0)
     }
 
+    @Test("A local client id resolves to its published message row")
+    func localClientMessageIdIsDeleted() async throws {
+        let databaseManager = MockDatabaseManager.makeTestDatabase()
+        let now = Date()
+        let conversationId = "manual-deletion-conversation"
+        let senderId = "sender"
+
+        try await databaseManager.dbWriter.write { db in
+            try DBMember(inboxId: senderId).save(db, onConflict: .ignore)
+            try DBConversation(
+                id: conversationId,
+                clientConversationId: "client-\(conversationId)",
+                inviteTag: "tag-\(conversationId)",
+                creatorId: senderId,
+                kind: .group,
+                consent: .allowed,
+                createdAt: now,
+                name: "Private conversation",
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: false,
+                expiresAt: nil,
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                conversationEmoji: nil,
+                imageLastRenewed: nil,
+                isUnused: false,
+                hasHadVerifiedAgent: false,
+                disappearingMessageRetentionDurationInNs: nil
+            ).insert(db)
+
+            let message = DBMessage(
+                id: "published-xmtp-id",
+                clientMessageId: "stable-local-id",
+                conversationId: conversationId,
+                senderId: senderId,
+                dateNs: now.nanosecondsSince1970,
+                date: now,
+                sortId: nil,
+                status: .published,
+                messageType: .original,
+                contentType: .text,
+                text: "delete me",
+                emoji: nil,
+                invite: nil,
+                linkPreview: nil,
+                sourceMessageId: nil,
+                attachmentUrls: [],
+                update: nil
+            )
+            try message.insert(db)
+        }
+
+        let writer = DisappearingMessageDeletionWriter(databaseWriter: databaseManager.dbWriter)
+        try await writer.delete(messageIds: ["stable-local-id"])
+
+        let remainingCount = try await databaseManager.dbReader.read { db in
+            try DBMessage.fetchCount(db)
+        }
+        #expect(remainingCount == 0)
+    }
+
     private func makeMessage(
         id: String,
         conversationId: String,

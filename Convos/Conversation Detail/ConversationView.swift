@@ -76,6 +76,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// choice: pause only, or pause and enable the remembered timer.
     @State private var showingPausePrivacyPrompt: Bool = false
     @State private var disappearingMessagesError: String?
+    @State private var showingMessageDeleteConfirmation: Bool = false
+    @State private var isDeletingSelectedMessages: Bool = false
+    @State private var messageDeletionError: String?
     /// The selected full-screen surface, shared by the content and top switcher.
     @State private var selectedTab: ConversationTab = .group
     /// Tabs the user has visited. The agent DM mounts on first visit and stays
@@ -570,6 +573,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
         return dmViewModel
     }
 
+    private var activeContextMenuState: MessageContextMenuState {
+        selectedTab == .agent ? agentContextMenuState : contextMenuState
+    }
+
     /// The focus coordinator for the selected lane's composer, so a reply opens
     /// the composer the reply will be sent from.
     private var activeLaneFocusCoordinator: FocusCoordinator {
@@ -669,6 +676,31 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     var body: some View {
         conversationPresentations(conversationCore)
+        .confirmationDialog(
+            messageDeleteConfirmationTitle,
+            isPresented: $showingMessageDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            if activeContextMenuState.canDeleteSelectionForEveryone {
+                Button("Delete for everyone", role: .destructive) {
+                    deleteSelectedMessages(forEveryone: true)
+                }
+            }
+            Button("Delete for me", role: .destructive) {
+                deleteSelectedMessages(forEveryone: false)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(messageDeleteConfirmationMessage)
+        }
+        .alert("Couldn't delete messages", isPresented: Binding(
+            get: { messageDeletionError != nil },
+            set: { if !$0 { messageDeletionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { messageDeletionError = nil }
+        } message: {
+            Text(messageDeletionError ?? "Please try again.")
+        }
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
             viewModel.checkForAgentShareURL()
@@ -703,6 +735,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onDisappear {
             viewModel.onConversationDisappeared()
+            contextMenuState.cancelMessageSelection()
+            agentContextMenuState.cancelMessageSelection()
             updateGroupOnScreen(isOnScreen: false)
             // The DM clears its own registration when its page unmounts, which
             // only happens if the Agent tab was ever visited. Clearing from here
@@ -933,6 +967,8 @@ private extension ConversationView {
     /// dropping.
     private func handleSelectedTabChange(from oldTab: ConversationTab, to newTab: ConversationTab) {
         visitedTabs.insert(newTab)
+        contextMenuState.cancelMessageSelection()
+        agentContextMenuState.cancelMessageSelection()
         transferKeyboard(to: newTab)
         // A right-swipe can both start a reply and switch away; cancel the
         // in-flight reply swipe so the tab change doesn't fire one.
@@ -1356,7 +1392,7 @@ private extension ConversationView {
         // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
         // toolbar item is dropped for that flow. Browser pages hide the
         // trailing item entirely.
-        if !topBarTrailingHidden && !isBrowsingHome {
+        if !topBarTrailingHidden && !isBrowsingHome && !activeContextMenuState.isSelectingMessages {
             ToolbarItem(placement: .topBarTrailing) {
                 surfaceTrailingAction
             }
@@ -1554,14 +1590,19 @@ private extension ConversationView {
         ZStack(alignment: .top) {
             pageHost
             ConversationTopChrome(topSafeAreaInset: windowSafeAreaInsets.top) {
-                ConversationSegmentedControl(
-                    selectedTab: $selectedTab,
-                    tabs: availableTabs,
-                    badgedTabs: badgedTabs
-                )
+                if activeContextMenuState.isSelectingMessages {
+                    messageSelectionHeader
+                } else {
+                    ConversationSegmentedControl(
+                        selectedTab: $selectedTab,
+                        tabs: availableTabs,
+                        badgedTabs: badgedTabs
+                    )
+                }
             }
         }
         .overlay { messageContextMenuOverlay }
+        .overlay(alignment: .bottom) { messageSelectionBottomBar }
         // The agent composer's own state mirrors its own coordinator. Without
         // it, `FocusCoordinator.moveFocus` still runs and still updates the
         // coordinator, but nothing takes first responder. The group composer
@@ -1726,6 +1767,103 @@ private extension ConversationView {
         )
         .environment(\.agentShareResolver, lane.agentShareResolver)
         .environment(\.inviteMembershipResolver, lane.inviteMembershipResolver)
+    }
+
+    var messageSelectionHeader: some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            Text("\(activeContextMenuState.selectedMessages.count) selected")
+                .font(.headline)
+                .foregroundStyle(.colorTextPrimary)
+            Spacer()
+            Button {
+                activeContextMenuState.cancelMessageSelection()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .disabled(isDeletingSelectedMessages)
+            .accessibilityLabel("Cancel message selection")
+        }
+        .padding(.leading, DesignConstants.Spacing.step4x)
+    }
+
+    @ViewBuilder
+    var messageSelectionBottomBar: some View {
+        if activeContextMenuState.isSelectingMessages {
+            VStack(spacing: 0) {
+                Divider()
+                HStack {
+                    Text("\(activeContextMenuState.selectedMessages.count) selected")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.colorTextSecondary)
+                    Spacer()
+                    Button(role: .destructive) {
+                        showingMessageDeleteConfirmation = true
+                    } label: {
+                        Group {
+                            if isDeletingSelectedMessages {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "trash.fill")
+                                    .font(.system(size: 18, weight: .semibold))
+                            }
+                        }
+                        .frame(width: 48, height: 48)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.colorCaution)
+                    .disabled(isDeletingSelectedMessages)
+                    .accessibilityLabel("Delete selected messages")
+                }
+                .padding(.horizontal, DesignConstants.Spacing.step5x)
+                .padding(.top, DesignConstants.Spacing.step3x)
+                .padding(.bottom, max(windowSafeAreaInsets.bottom, DesignConstants.Spacing.step3x))
+            }
+            .background(.ultraThinMaterial)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .zIndex(200)
+        }
+    }
+
+    var messageDeleteConfirmationTitle: String {
+        let count = activeContextMenuState.selectedMessages.count
+        return count == 1 ? "Delete message?" : "Delete \(count) messages?"
+    }
+
+    var messageDeleteConfirmationMessage: String {
+        guard activeContextMenuState.canDeleteSelectionForEveryone else {
+            return "This removes the selected messages from this device only."
+        }
+        let hasAgent = activeLaneViewModel.conversation.members.contains(where: \.isAgent)
+        if hasAgent {
+            return "This removes the selected messages for people using message deletion. Agents may still keep copies outside Convos."
+        }
+        return "This removes the selected messages for people using message deletion."
+    }
+
+    func deleteSelectedMessages(forEveryone: Bool) {
+        let state = activeContextMenuState
+        let messages = state.selectedMessages
+        let lane = activeLaneViewModel
+        guard !messages.isEmpty else { return }
+
+        isDeletingSelectedMessages = true
+        Task {
+            do {
+                if forEveryone {
+                    try await lane.deleteMessagesForEveryone(messages)
+                } else {
+                    try await lane.deleteMessagesForMe(messages)
+                }
+                state.cancelMessageSelection()
+            } catch {
+                Log.error("Failed deleting selected messages: \(error.localizedDescription)")
+                messageDeletionError = "Please try again."
+            }
+            isDeletingSelectedMessages = false
+        }
     }
 
     /// Extra rows above the group composer: the injected bottom-bar slot plus

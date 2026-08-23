@@ -96,6 +96,8 @@ public protocol ConversationsProvider {
     ) async throws -> Dm
 
     func findMessage(messageId: String) throws -> XMTPiOS.DecodedMessage?
+    /// Removes a message only from this installation's libxmtp database.
+    func deleteMessageLocally(messageId: String) throws
 
     func sync() async throws
     func syncAllConversations(consentStates: [ConsentState]?) async throws -> GroupSyncSummary

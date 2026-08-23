@@ -35,6 +35,25 @@ public class MessageContextMenuState: @unchecked Sendable {
     public var isExpanded: Bool = false
     public var sourceID: UUID?
 
+    /// The messages currently checked in WhatsApp-style delete selection.
+    /// The values are retained so the host can perform the operation after
+    /// the transcript rows disappear from the live repository.
+    public private(set) var selectedMessagesById: [String: AnyMessage] = [:]
+
+    public var isSelectingMessages: Bool {
+        !selectedMessagesById.isEmpty
+    }
+
+    public var selectedMessages: [AnyMessage] {
+        selectedMessagesById.values.sorted { $0.date < $1.date }
+    }
+
+    public var canDeleteSelectionForEveryone: Bool {
+        !selectedMessages.isEmpty && selectedMessages.allSatisfy {
+            $0.sender.isCurrentUser && $0.status == .published && $0.xmtpMessageId != nil
+        }
+    }
+
     public var currentSourceFrame: CGRect = .zero
 
     /// Bumped to cancel any in-flight swipe-to-reply gesture on this list's
@@ -86,6 +105,24 @@ public class MessageContextMenuState: @unchecked Sendable {
         isReplyParent = false
         isExpanded = false
         sourceID = nil
+    }
+
+    public func beginMessageSelection(with message: AnyMessage) {
+        selectedMessagesById = [message.messageId: message]
+    }
+
+    public func toggleMessageSelection(_ message: AnyMessage) {
+        if selectedMessagesById.removeValue(forKey: message.messageId) == nil {
+            selectedMessagesById[message.messageId] = message
+        }
+    }
+
+    public func isMessageSelected(_ message: AnyMessage) -> Bool {
+        selectedMessagesById[message.messageId] != nil
+    }
+
+    public func cancelMessageSelection() {
+        selectedMessagesById.removeAll()
     }
 }
 

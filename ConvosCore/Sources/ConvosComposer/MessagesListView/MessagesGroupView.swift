@@ -57,6 +57,7 @@ struct MessagesGroupView: View {
 
     @Environment(\.displayScale) private var displayScale: CGFloat
     @Environment(\.messageAgentReceiptStore) private var messageAgentReceiptStore: MessageAgentReceiptStore
+    @Environment(\.messageContextMenuState) private var contextMenuState: MessageContextMenuState
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
     /// Animated mirror of `group.readByMembers` for the status row. Cell
@@ -272,7 +273,7 @@ struct MessagesGroupView: View {
             && (message.status == .published || message.status == .unpublished)
         let isFailed: Bool = message.sender.isCurrentUser && message.status == .failed
 
-        messageRowContent(
+        selectableMessageRow(
             message: message,
             bubbleType: bubbleType,
             isFailed: isFailed,
@@ -887,6 +888,53 @@ private struct MessageAgentReceiptIndicator: View {
         static let pillHeight: CGFloat = 36
         static let tapTargetSize: CGFloat = 24
         static let maxVisibleReceipts: Int = 3
+    }
+}
+
+private extension MessagesGroupView {
+    func selectableMessageRow(
+        message: AnyMessage,
+        bubbleType: MessageBubbleType,
+        isFailed: Bool,
+        isLast: Bool,
+        isFullWidthAttachment: Bool,
+        voiceMemoTranscriptIsTailed: Bool
+    ) -> some View {
+        let isSelecting: Bool = contextMenuState.isSelectingMessages
+        let isSelected: Bool = contextMenuState.isMessageSelected(message)
+
+        return HStack(alignment: .center, spacing: 0) {
+            if isSelecting {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(isSelected ? .colorGreen : .colorTextTertiary)
+                    .frame(width: 48)
+                    .frame(minHeight: 44)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+
+            messageRowContent(
+                message: message,
+                bubbleType: bubbleType,
+                isFailed: isFailed,
+                isLast: isLast,
+                isFullWidthAttachment: isFullWidthAttachment,
+                voiceMemoTranscriptIsTailed: voiceMemoTranscriptIsTailed
+            )
+            .allowsHitTesting(!isSelecting)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard isSelecting else { return }
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
+                contextMenuState.toggleMessageSelection(message)
+            }
+        }
+        .accessibilityElement(children: isSelecting ? .ignore : .contain)
+        .accessibilityLabel(isSelecting ? (isSelected ? "Selected message" : "Unselected message") : "")
+        .accessibilityAddTraits(isSelecting ? .isButton : [])
+        .animation(.spring(response: 0.24, dampingFraction: 0.86), value: isSelecting)
+        .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isSelected)
     }
 }
 

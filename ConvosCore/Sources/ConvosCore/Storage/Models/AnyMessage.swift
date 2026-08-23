@@ -68,6 +68,17 @@ public enum AnyMessage: Hashable, Equatable, Codable, Sendable, Identifiable {
         }
     }
 
+    /// The protocol message id used for an XMTP delete-for-everyone request.
+    /// Nil until an optimistic send has been published and reconciled.
+    public var xmtpMessageId: String? {
+        switch self {
+        case .message(let message, _):
+            return message.xmtpId
+        case .reply(let reply, _):
+            return reply.xmtpId
+        }
+    }
+
     public var date: Date {
         switch self {
         case .message(let message, _):
