@@ -94,15 +94,23 @@ final class TaskletConnectionTests: XCTestCase {
         XCTAssertEqual(ExternalAgentProvider.connectMCP.shortDescription, "Coming soon")
     }
 
-    func testAddedProviderStoreKeepsDisconnectedAgentsAvailableForReconnect() throws {
+    func testAddedProviderStoreKeepsDisconnectedAgentsAvailableForReconnect() async throws {
         let suiteName = "AddedExternalAgentStoreTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        let stateManager = MockSessionStateManager()
+        stateManager.setState(.ready(try await stateManager.waitForInboxReadyResult()))
+        let session = MockInboxesService(
+            mockMessagingService: MockMessagingService(sessionStateManager: stateManager)
+        )
 
-        AddedExternalAgentStore.remember(.tasklet, defaults: defaults)
-        AddedExternalAgentStore.remember(.grokBot, defaults: defaults)
+        AddedExternalAgentStore.remember(.tasklet, session: session, defaults: defaults)
+        AddedExternalAgentStore.remember(.grokBot, session: session, defaults: defaults)
 
-        XCTAssertEqual(AddedExternalAgentStore.providers(defaults: defaults), [.tasklet, .grokBot])
+        XCTAssertEqual(
+            AddedExternalAgentStore.providers(session: session, defaults: defaults),
+            [.tasklet, .grokBot]
+        )
     }
 }
 
