@@ -368,7 +368,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         } message: {
             Text("Paused agents won’t see new messages. You can also make new messages disappear after your selected timer.")
         }
-        .alert("Timer not updated", isPresented: Binding(
+        .alert("Couldn't update disappearing messages", isPresented: Binding(
             get: { disappearingMessagesError != nil },
             set: { if !$0 { disappearingMessagesError = nil } }
         )) {
@@ -1992,7 +1992,8 @@ private extension ConversationView {
                 try await viewModel.updateDisappearingMessages(duration)
                 DisappearingMessagesPreferences.remember(duration, conversationId: conversationId)
             } catch {
-                disappearingMessagesError = error.localizedDescription
+                Log.error("Failed to enable disappearing messages after pausing agents in \(conversationId): \(error)")
+                disappearingMessagesError = "Please try again."
             }
         }
     }
