@@ -4972,10 +4972,8 @@ extension ConversationViewModel {
 
     /// Whether the messages list has any item at all - a real message or a
     /// system item (join status, agent presence, "earlier messages are
-    /// hidden"). Used to gate a tab's empty-state overlay so it hides as
-    /// soon as anything renders in the list behind it, rather than only
-    /// once a real message lands (which let the overlay render on top of a
-    /// system cell already on screen).
+    /// hidden"). Used to gate a tab's empty-state item so it is replaced as
+    /// soon as anything else renders in the list.
     var hasAnyMessagesListItems: Bool {
         !messages.isEmpty
     }

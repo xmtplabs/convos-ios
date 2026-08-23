@@ -42,6 +42,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryAgentJoin: (() -> Void)?
     var onInviteAgent: (() -> Void)?
+    var onInvitePeople: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var memberContactOverride: ((String) -> Contact?)?
     var isAgentJoinPending: Bool = false
@@ -163,6 +164,9 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             },
             onInviteAgent: { [weak self] in
                 self?.onInviteAgent?()
+            },
+            onInvitePeople: { [weak self] in
+                self?.onInvitePeople?()
             },
             onRetryTranscript: { [weak self] item in
                 self?.onRetryTranscript?(item)

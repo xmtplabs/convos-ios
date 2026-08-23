@@ -60,39 +60,7 @@ struct AgentDmPageView: View {
 
     private var agentName: String { session.agentName }
 
-    @Environment(\.safeAreaInsets) private var windowSafeAreaInsets: EdgeInsets
-    @State private var emptyStateKeyboardHeight: CGFloat = 0.0
     @State private var emptyStateSettled: Bool = false
-
-    /// Centred over the page and faded rather than inserted into the list, so
-    /// it never holds a scroll position. Never takes hits - it is only text.
-    @ViewBuilder
-    private var agentDmEmptyStateOverlay: some View {
-        if case .ready(let dmVm) = phase {
-            // Hides on any item actually rendered in the DM transcript.
-            // `dmVm.hasAnyMessagesListItems` reads the *raw* messages list,
-            // which still carries origin-conversation system items (update,
-            // agentPresentInfo, conversationInfo, agentJoinStatus) that
-            // `dmItems(_:)` below filters out before display - a fresh DM
-            // gets one of those immediately, so gating on the raw list hid
-            // the empty state from the very first frame. Gate on the same
-            // filtered list the transcript renders instead.
-            let shows: Bool = emptyStateSettled && dmItems(dmVm).isEmpty
-            let opacity: Double = shows ? 1.0 : 0.0
-            let chromeInset: CGFloat = windowSafeAreaInsets.top + ConversationChromeMetrics.contentClearance
-            let shift: CGFloat = EmptyStateKeyboard.shift(chromeInset: chromeInset, keyboardHeight: emptyStateKeyboardHeight)
-            AgentDmEmptyStateView(variant: agentVariant(in: dmVm), hidesText: emptyStateKeyboardHeight > 0.0)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .offset(y: shift)
-                .trackingKeyboardHeight($emptyStateKeyboardHeight)
-                // `.container` only, same as the group's: the unqualified form
-                // ignores the keyboard too, leaving the block centred behind it.
-                .ignoresSafeArea(.container)
-                .opacity(opacity)
-                .allowsHitTesting(false)
-                .animation(.easeInOut(duration: 0.25), value: shows)
-        }
-    }
 
     /// The stamp lives on the agent member's profile, written by the assistants
     /// worker at join. nil for a default agent, and nil off dev.
@@ -111,7 +79,6 @@ struct AgentDmPageView: View {
                 addAgentState
             }
         }
-        .overlay { agentDmEmptyStateOverlay }
         .task {
             // Messages land just after the page appears; without this the
             // empty state would flash open and shut on a DM that has any.
@@ -282,8 +249,8 @@ struct AgentDmPageView: View {
     }
 
     /// The DM transcript: membership, invite, and agent-presence cells are
-    /// origin-conversation concepts; the DM leads with the disclosure cell
-    /// instead (see docs/plans/agent-dms.md).
+    /// origin-conversation concepts. A disclosure cell fills a settled empty
+    /// transcript and disappears as soon as any filtered item arrives.
     private func dmItems(_ dmVm: ConversationViewModel) -> [MessagesListItemType] {
         let items = dmVm.messagesWithThinkingIndicators.compactMap { (item: MessagesListItemType) -> MessagesListItemType? in
             switch item {
@@ -300,9 +267,8 @@ struct AgentDmPageView: View {
                 return item
             }
         }
-        // No leading disclosure cell: it is the page's empty state now, centred
-        // over the transcript rather than pinned to the top of it.
-        return items
+        guard emptyStateSettled, items.isEmpty else { return items }
+        return [.agentDmInfo(agentName: agentName, variant: agentVariant(in: dmVm))]
     }
 
     // MARK: - Full chat (mirrors ConversationView.messagesView with the DM VM)
@@ -414,10 +380,8 @@ struct AgentDmPageView: View {
             voiceMemoRecorder: dmVm.voiceMemoRecorder,
             onSendVoiceMemo: { dmVm.sendVoiceMemo() },
             extraBottomInset: extraBottomInset,
-            // Clearance for the conversation's floating top chrome. The full
-            // chrome, matching the group transcript: the leading `.agentDmInfo`
-            // cell used to fill the capsule's row, and without it the first
-            // message rode up under the chrome and sat higher than the group's.
+            // Clearance for the conversation's floating top chrome, matching
+            // the group transcript.
             topContentInset: ConversationChromeMetrics.contentClearance,
             // Same reason as the group transcript: the controller only adjusts
             // for safe area and tracks the keyboard when it owns its bottom bar.

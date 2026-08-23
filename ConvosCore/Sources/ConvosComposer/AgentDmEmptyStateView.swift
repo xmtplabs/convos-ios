@@ -5,10 +5,6 @@ import SwiftUI
 /// What an agent DM shows before it has any messages: what the lane is for,
 /// and the shared-memory disclosure (see docs/plans/agent-dms.md).
 ///
-/// This used to be the transcript's first cell, which meant it stayed in the
-/// scroll forever. It is centred over the page now and fades out on the first
-/// message instead.
-///
 /// Figma 8069:38615. The three lines step down the iOS type scale - .body,
 /// .subheadline, .footnote - with the lower two in secondary.
 ///
@@ -19,9 +15,8 @@ import SwiftUI
 /// indistinguishable from a default one until its behavior disagrees.
 public struct AgentDmEmptyStateView: View {
     let variant: AgentVariantStamp?
-    /// Drops the copy while the keyboard is up - same reason as the group's
-    /// empty state. This one is all copy, so it leaves nothing on screen, which
-    /// is the point: there is no room for it over the keyboard.
+    /// Drops the copy while the keyboard is up. This one is all copy, so it
+    /// leaves nothing on screen when there is not room above the composer.
     let hidesText: Bool
 
     public init(variant: AgentVariantStamp? = nil, hidesText: Bool = false) {

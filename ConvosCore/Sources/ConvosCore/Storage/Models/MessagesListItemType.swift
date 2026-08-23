@@ -58,11 +58,9 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case capabilityConnect(id: String, prompt: CapabilityConnectPrompt, agentName: String, origin: AnyMessage.Origin)
     case agentBuilderSummary(AgentBuilderCardContent)
     case agentActivating(AgentActivatingCardContent)
-    /// The agent-DM disclosure header: always the first cell of an agent-DM
-    /// transcript (and its empty state). See docs/plans/agent-dms.md. Carries
-    /// the agent's variant stamp so the DM can say which runtime it is talking
-    /// to -- the in-chat ribbon rides the agent contact card, which a DM
-    /// deliberately drops, so without this a varianted DM looks like any other.
+    case groupEmptyState(isInviteEnabled: Bool)
+    /// The agent-DM disclosure empty state. Carries the agent's variant stamp
+    /// so the DM can say which runtime it is talking to.
     case agentDmInfo(agentName: String, variant: AgentVariantStamp?)
     case typingIndicator(typers: [ConversationMember])
 
@@ -99,6 +97,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "agent-builder-summary-\(content.id)"
         case .agentActivating(let content):
             return "agent-activating-\(content.id)"
+        case .groupEmptyState:
+            return "group-empty-state"
         case .agentDmInfo(_, let variant):
             // The slug rides the identity so a stamp that arrives after first
             // render (profile sync) re-renders the cell instead of sticking.
@@ -141,7 +141,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .agentActivating, .agentDmInfo, .typingIndicator:
+        case .date, .invite, .conversationInfo, .agentOutOfCredits, .agentJoinStatus, .agentPresentInfo, .agentBuilderSummary, .agentActivating, .groupEmptyState, .agentDmInfo, .typingIndicator:
             return nil
         case .connectionEvent(_, _, let origin):
             return origin
@@ -157,12 +157,14 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
         return false
     }
 
-    /// Whether this cell already explains an empty transcript on its own. The
-    /// agent DM's disclosure header does, and always shows - so the "no comments"
-    /// stand-in beneath it would be a second answer to the same question.
+    /// Whether this cell already explains an empty transcript on its own.
     public var explainsAnEmptyTranscript: Bool {
-        if case .agentDmInfo = self { return true }
-        return false
+        switch self {
+        case .groupEmptyState, .agentDmInfo:
+            return true
+        default:
+            return false
+        }
     }
 
     public var shouldAnimate: Bool {
@@ -171,7 +173,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
 
     public var alignment: MessagesListItemAlignment {
         switch self {
-        case .invite, .conversationInfo, .agentBuilderSummary, .agentActivating:
+        case .invite, .conversationInfo, .agentBuilderSummary, .agentActivating, .groupEmptyState, .agentDmInfo:
             return .center
         case .agentOutOfCredits:
             return .fullWidth
@@ -206,6 +208,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "MessagesListItemTypeCell-agentBuilderSummary"
         case .agentActivating:
             return "MessagesListItemTypeCell-agentActivating"
+        case .groupEmptyState:
+            return "MessagesListItemTypeCell-groupEmptyState"
         case .agentDmInfo:
             return "MessagesListItemTypeCell-agentDmInfo"
         case .typingIndicator:
@@ -227,6 +231,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             "MessagesListItemTypeCell-capabilityConnect",
             "MessagesListItemTypeCell-agentBuilderSummary",
             "MessagesListItemTypeCell-agentActivating",
+            "MessagesListItemTypeCell-groupEmptyState",
             "MessagesListItemTypeCell-agentDmInfo",
             "TypingIndicatorCollectionCell",
         ]
