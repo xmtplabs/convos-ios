@@ -37,6 +37,25 @@ final class ConversationViewModelPendingDraftTests: XCTestCase {
         XCTAssertNil(store.take(for: conversationId))
     }
 
+    func testTypingAfterApplyingURLDraftDoesNotCreatePastedLinkPreview() {
+        let conversationId: String = "pending-draft-url-\(UUID().uuidString)"
+        let viewModel = makeViewModel(conversationId: conversationId)
+        let store = PendingComposerDraftStore(environment: ConfigManager.shared.currentEnvironment)
+        let draftText: String = "https://example.com"
+        store.stage(PendingComposerDraft(
+            conversationId: conversationId,
+            text: draftText,
+            stagedAt: Date()
+        ))
+
+        viewModel.applyPendingComposerDraft()
+        viewModel.messageText = "\(draftText)a"
+        viewModel.checkForPastedLink()
+
+        XCTAssertEqual(viewModel.messageText, "\(draftText)a")
+        XCTAssertNil(viewModel.pastedLinkPreview)
+    }
+
     private func makeViewModel(conversationId: String) -> ConversationViewModel {
         ConversationViewModel(
             conversation: .mock(id: conversationId, name: "Draft test"),

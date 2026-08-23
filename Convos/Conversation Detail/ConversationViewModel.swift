@@ -752,6 +752,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var previousMessageTextLength: Int = 0
     var pastedLinkPreview: LinkPreview?
 
+    func syncPasteDetectionBaseline() {
+        previousMessageTextLength = messageText.count
+    }
+
     func checkForPastedLink() {
         let inserted = messageText.count - previousMessageTextLength
         previousMessageTextLength = messageText.count

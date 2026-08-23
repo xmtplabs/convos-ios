@@ -7,6 +7,7 @@ extension ConversationViewModel {
         guard let draft = store.take(for: conversation.id) else { return }
         guard !messageText.isEmpty else {
             messageText = draft.text
+            syncPasteDetectionBaseline()
             return
         }
         var existingText: String = messageText
@@ -14,5 +15,6 @@ extension ConversationViewModel {
             existingText.removeLast()
         }
         messageText = "\(existingText)\n\n\(draft.text)"
+        syncPasteDetectionBaseline()
     }
 }

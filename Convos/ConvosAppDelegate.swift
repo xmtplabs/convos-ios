@@ -191,11 +191,14 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         if userInfo["notificationType"] as? String == AgentRelayPushPayload.notificationType {
             let requestId: String = userInfo["requestId"] as? String ?? response.notification.request.identifier
             Self.removeDeliveredAgentRelayNotification(requestId: requestId)
-            NotificationCenter.default.post(
-                name: .agentRelayNotificationTapped,
-                object: nil,
-                userInfo: userInfo
-            )
+            // Defer delivery so the cold-launch view can subscribe before the tap is posted.
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .agentRelayNotificationTapped,
+                    object: nil,
+                    userInfo: userInfo
+                )
+            }
             return
         }
 

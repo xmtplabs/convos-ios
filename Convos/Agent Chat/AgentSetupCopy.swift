@@ -235,7 +235,9 @@ final class AgentSetupViewModel {
             ? .bearer(secret: secret)
             : .capabilityURL
         let connection = AgentConnection(provider: provider, webhookURL: webhookURL, auth: auth)
-        let wasConnected = (try? dependencies.connectionStore.load(provider: provider)) != nil
+        let previousConnection = try? dependencies.connectionStore.load(provider: provider)
+        let previousActiveProvider = dependencies.connectionStore.activeProvider
+        let wasConnected: Bool = previousConnection != nil
 
         do {
             try dependencies.connectionStore.save(connection)
@@ -264,8 +266,18 @@ final class AgentSetupViewModel {
                 connection: connection
             )
             apply(outcome)
+            switch outcome {
+            case .failed, .expired:
+                restoreConnection(previousConnection, activeProvider: previousActiveProvider)
+            case .completed:
+                break
+            // These outcomes confirm that the webhook accepted delivery even without a final result here.
+            case .stillWorking, .collectedElsewhere:
+                break
+            }
         } catch {
             state = .failed(AgentSetupCopy.errorMessage(error, provider: provider))
+            restoreConnection(previousConnection, activeProvider: previousActiveProvider)
         }
     }
 
@@ -280,6 +292,19 @@ final class AgentSetupViewModel {
         } catch {
             validationMessage = AgentSetupCopy.errorMessage(error, provider: provider)
         }
+    }
+
+    private func restoreConnection(
+        _ previousConnection: AgentConnection?,
+        activeProvider previousActiveProvider: ExternalAgentProvider?
+    ) {
+        if let previousConnection {
+            try? dependencies.connectionStore.save(previousConnection)
+        } else {
+            try? dependencies.connectionStore.delete(provider: provider)
+        }
+        dependencies.connectionStore.activeProvider = previousActiveProvider
+        isConnected = previousConnection != nil
     }
 
     private func apply(_ outcome: AgentTurnOutcome) {

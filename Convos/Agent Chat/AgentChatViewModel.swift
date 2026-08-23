@@ -76,9 +76,7 @@ final class AgentChatViewModel {
     func submit() {
         let prompt: String = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { return }
-        composerText = ""
-        stopWaitingOnInFlightTurns()
-        perform(prompt: prompt)
+        perform(prompt: prompt, clearsComposerWhenReady: true)
     }
 
     func retry(turn: AgentTurn) {
@@ -197,6 +195,10 @@ final class AgentChatViewModel {
         submissionTask?.cancel()
         submissionTask = nil
         isSubmitting = false
+        markInFlightTurnsSuperseded()
+    }
+
+    private func markInFlightTurnsSuperseded() {
         for turn in turns where turn.status == .pending {
             do {
                 try dependencies.writer.markSuperseded(requestId: turn.requestId)
@@ -206,22 +208,28 @@ final class AgentChatViewModel {
         }
     }
 
-    private func perform(prompt: String) {
+    private func perform(prompt: String, clearsComposerWhenReady: Bool = false) {
         errorMessage = nil
         isSubmitting = true
         let dependencies = dependencies
         let provider = provider
         let waitUntilReady = waitUntilReady
+        let previousSubmissionTask = submissionTask
         submissionTask = Task { [weak self] in
             defer { self?.isSubmitting = false }
             do {
                 guard let connection = try dependencies.connectionStore.load(provider: provider) else {
                     throw AgentRelayError.notConnected
                 }
+                try await waitUntilReady()
+                if clearsComposerWhenReady {
+                    previousSubmissionTask?.cancel()
+                    self?.composerText = ""
+                    self?.markInFlightTurnsSuperseded()
+                }
                 let outcome = try await dependencies.client.send(
                     prompt: prompt,
-                    connection: connection,
-                    waitUntilReady: waitUntilReady
+                    connection: connection
                 )
                 self?.apply(outcome)
             } catch is CancellationError {

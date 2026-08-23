@@ -39,17 +39,96 @@ final class AgentChatViewModelTests: XCTestCase {
         let fixture = try AgentChatViewModelFixture()
         let inFlight = makeAgentChatTurn(
             requestId: "request_in_flight",
-            provider: .town,
+            provider: .tasklet,
             status: .pending,
             createdAt: Date().addingTimeInterval(-30)
         )
         try fixture.insertPending(inFlight)
-        let viewModel = fixture.makeViewModel(provider: .town, initialText: "A newer request")
+        let viewModel = fixture.makeViewModel(provider: .tasklet, initialText: "A newer request")
 
         viewModel.submit()
 
-        let status: AgentTurnStatus? = try fixture.repository.turn(requestId: inFlight.requestId)?.status
+        let deadline = Date().addingTimeInterval(1)
+        var status: AgentTurnStatus? = try fixture.repository.turn(requestId: inFlight.requestId)?.status
+        while status == .pending, Date() < deadline {
+            try await Task.sleep(nanoseconds: 1_000_000)
+            status = try fixture.repository.turn(requestId: inFlight.requestId)?.status
+        }
         XCTAssertEqual(status, .superseded)
+    }
+
+    func testSubmitWithoutConnectionPreservesComposerAndPendingTurn() async throws {
+        let fixture = try AgentChatViewModelFixture(installDefaultConnection: false)
+        let inFlight = makeAgentChatTurn(
+            requestId: "request_without_connection",
+            provider: .tasklet,
+            status: .pending
+        )
+        try fixture.insertPending(inFlight)
+        let draftText = "Keep this draft"
+        let viewModel = fixture.makeViewModel(provider: .tasklet, initialText: draftText)
+
+        viewModel.submit()
+        let deadline = Date().addingTimeInterval(1)
+        while viewModel.errorMessage == nil, Date() < deadline {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+
+        let status: AgentTurnStatus? = try fixture.repository.turn(requestId: inFlight.requestId)?.status
+        XCTAssertEqual(viewModel.composerText, draftText)
+        XCTAssertEqual(status, .pending)
+        XCTAssertNotNil(viewModel.errorMessage)
+    }
+
+    func testFailedReconnectRestoresPreviousConnectionAndActiveProvider() async throws {
+        let fixture = try AgentChatViewModelFixture(rejectedWebhookPaths: ["/rejected"])
+        let viewModel = AgentSetupViewModel(provider: .tasklet, dependencies: fixture.dependencies)
+        let workingURL = try XCTUnwrap(URL(string: "https://93.184.216.34/working"))
+
+        await viewModel.connect(webhookURLText: workingURL.absoluteString, secret: "")
+        let workingConnection = AgentConnection(
+            provider: .tasklet,
+            webhookURL: workingURL,
+            auth: .capabilityURL
+        )
+        XCTAssertEqual(try fixture.connectionStore.load(provider: .tasklet), workingConnection)
+
+        let townURL = try XCTUnwrap(URL(string: "https://93.184.216.34/town"))
+        try fixture.connectionStore.save(AgentConnection(
+            provider: .town,
+            webhookURL: townURL,
+            auth: .bearer(secret: "working-secret")
+        ))
+        fixture.connectionStore.activeProvider = .town
+
+        await viewModel.connect(webhookURLText: "https://93.184.216.34/rejected", secret: "")
+
+        XCTAssertEqual(try fixture.connectionStore.load(provider: .tasklet), workingConnection)
+        XCTAssertEqual(fixture.connectionStore.activeProvider, .town)
+        XCTAssertTrue(viewModel.isConnected)
+        guard case .failed = viewModel.state else {
+            XCTFail("Expected rejected reconnect to report a failure")
+            return
+        }
+    }
+
+    func testFailedFirstConnectionDeletesRejectedCredentials() async throws {
+        let fixture = try AgentChatViewModelFixture(
+            installDefaultConnection: false,
+            rejectedWebhookPaths: ["/rejected"]
+        )
+        fixture.connectionStore.activeProvider = .town
+        let viewModel = AgentSetupViewModel(provider: .tasklet, dependencies: fixture.dependencies)
+
+        await viewModel.connect(webhookURLText: "https://93.184.216.34/rejected", secret: "")
+
+        XCTAssertNil(try fixture.connectionStore.load(provider: .tasklet))
+        XCTAssertEqual(fixture.connectionStore.activeProvider, .town)
+        XCTAssertFalse(viewModel.isConnected)
+        guard case .failed = viewModel.state else {
+            XCTFail("Expected rejected connection to report a failure")
+            return
+        }
     }
 
     func testCheckAgainCollectsThenRearmsWatch() async throws {
@@ -217,13 +296,16 @@ private final class AgentChatViewModelFixture {
     let repository: AgentChatRepository
     let api: RecordingAgentRelayBackendAPI
     let webhook: RecordingAgentWebhookTransport
+    let connectionStore: AgentConnectionStore
+    let dependencies: AgentRelayDependencies
 
-    private let dependencies: AgentRelayDependencies
     private let defaultsSuiteName: String
 
     init(
         fetchOutcomes: [AgentRelayFetchOutcome] = [],
-        ackFailureRequestIds: Set<String> = []
+        ackFailureRequestIds: Set<String> = [],
+        installDefaultConnection: Bool = true,
+        rejectedWebhookPaths: Set<String> = []
     ) throws {
         let database = try AgentChatDatabase.inMemoryForTests()
         let writer = AgentChatWriter(database: database)
@@ -232,7 +314,7 @@ private final class AgentChatViewModelFixture {
             fetchOutcomes: fetchOutcomes,
             ackFailureRequestIds: ackFailureRequestIds
         )
-        let webhook = RecordingAgentWebhookTransport()
+        let webhook = RecordingAgentWebhookTransport(rejectedPaths: rejectedWebhookPaths)
         let client = AgentRelayClient(
             api: api,
             webhook: webhook,
@@ -256,16 +338,19 @@ private final class AgentChatViewModelFixture {
             keychain: AgentChatViewModelKeychain()
         )
         let webhookURL = try XCTUnwrap(URL(string: "https://93.184.216.34/tasklet"))
-        try connectionStore.save(AgentConnection(
-            provider: .tasklet,
-            webhookURL: webhookURL,
-            auth: .capabilityURL
-        ))
+        if installDefaultConnection {
+            try connectionStore.save(AgentConnection(
+                provider: .tasklet,
+                webhookURL: webhookURL,
+                auth: .capabilityURL
+            ))
+        }
         let mcpURL = try XCTUnwrap(URL(string: "https://api.example.com/api/v2/agent-relay/mcp"))
 
         self.repository = repository
         self.api = api
         self.webhook = webhook
+        self.connectionStore = connectionStore
         self.defaultsSuiteName = defaultsSuiteName
         self.dependencies = AgentRelayDependencies(
             database: database,
@@ -354,8 +439,16 @@ private enum AgentChatViewModelTestError: Error {
 
 private actor RecordingAgentWebhookTransport: AgentWebhookTransport {
     private var prompts: [String] = []
+    private let rejectedPaths: Set<String>
+
+    init(rejectedPaths: Set<String> = []) {
+        self.rejectedPaths = rejectedPaths
+    }
 
     func trigger(payload: AgentWebhookPayload, url: URL, auth: AgentWebhookAuth) async throws {
+        guard !rejectedPaths.contains(url.path) else {
+            throw AgentRelayError.webhookUnreachable
+        }
         prompts.append(payload.prompt)
     }
 
