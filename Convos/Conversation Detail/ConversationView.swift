@@ -1074,6 +1074,18 @@ private extension ConversationView {
         selectTab(tab)
     }
 
+    /// Hands the current thing to the agent to edit: drops its link into the
+    /// agent composer and leads with a "Please update this" starter prompt, then
+    /// switches to the Agent tab. Gated by the menu to when the agent DM is bound.
+    private func askAgentToEditCurrentThing() {
+        guard let target = agentDmSession?.dmViewModel,
+              let link = homeBrowserEntries.last?.url.absoluteString else { return }
+        prefillComposer(target, withLink: link)
+        let prompt = "Please update this"
+        target.messageText = target.messageText.isEmpty ? prompt : "\(prompt)\n\(target.messageText)"
+        selectTab(.agent)
+    }
+
     /// An empty composer with no existing card takes the link as an immediate
     /// preview card; anything else appends the link so a draft (or an existing
     /// card, of which there can be only one) is never clobbered. The appended
@@ -1153,7 +1165,7 @@ private extension ConversationView {
                 ToolbarItem(placement: .topBarTrailing) {
                     EditThingMenu(
                         canAskAgent: agentDmSession?.dmViewModel != nil,
-                        onAskForChanges: { shareCurrentThing(to: .agent) }
+                        onAskForChanges: askAgentToEditCurrentThing
                     )
                 }
                 ToolbarItem(placement: .topBarTrailing) {
