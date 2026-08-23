@@ -99,7 +99,7 @@ struct DisappearingMessagesView: View {
             automaticallyEnableWhenAgentsPause = DisappearingMessagesPreferences
                 .automaticallyEnableWhenAgentsPause(conversationId: viewModel.conversation.id)
         }
-        .alert("Timer not updated", isPresented: Binding(
+        .alert("Couldn't update disappearing messages", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -154,7 +154,8 @@ struct DisappearingMessagesView: View {
                     )
                 }
             } catch {
-                errorMessage = error.localizedDescription
+                Log.error("Failed to update disappearing messages for \(viewModel.conversation.id): \(error)")
+                errorMessage = "Please try again."
             }
         }
     }
