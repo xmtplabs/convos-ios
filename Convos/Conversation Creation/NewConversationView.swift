@@ -62,10 +62,10 @@ struct NewConversationView: View {
             focusCoordinator: focusCoordinator,
             insetsTopSafeArea: insetsTopSafeArea,
             sidebarColumnWidth: $sidebarWidth,
-            // The shell renders the centered indicator for this flow (see
-            // `MainTabView.activeConvoVM`). Rendering a second one here would
-            // duplicate the shared matched-geometry id and crash the push.
-            rendersConversationIndicator: false
+            // The shell renders the centered indicator for pushed flows (see
+            // `MainTabView.activeConvoVM`). Standalone sheets have no shell,
+            // so their presenter owns the indicator.
+            rendersConversationIndicator: embedsNavigationStack
         ) { focusBinding, coordinator in
             ConditionalNavigationStack(embedsStack: embedsNavigationStack) {
                 @Bindable var viewModel = viewModel
