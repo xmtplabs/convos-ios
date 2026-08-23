@@ -5,9 +5,26 @@ import Testing
 
 @Suite("Disappearing messages", .serialized)
 struct DisappearingMessagesTests {
-    @Test("V1 timer choices match the product contract")
+    @Test("Timer choices match the product contract")
     func timerChoices() {
-        #expect(DisappearingMessageDuration.allCases.map(\.title) == ["24 hours", "7 days", "90 days"])
+        #expect(DisappearingMessageDuration.allCases.map(\.title) == [
+            "1 minute",
+            "5 minutes",
+            "1 hour",
+            "8 hours",
+            "24 hours",
+            "7 days",
+            "90 days",
+        ])
+        #expect(DisappearingMessageDuration.allCases.map(\.rawValue) == [
+            60_000_000_000,
+            300_000_000_000,
+            3_600_000_000_000,
+            28_800_000_000_000,
+            86_400_000_000_000,
+            604_800_000_000_000,
+            7_776_000_000_000_000,
+        ])
         #expect(DisappearingMessageDuration.privacyDefault == .twentyFourHours)
     }
 
