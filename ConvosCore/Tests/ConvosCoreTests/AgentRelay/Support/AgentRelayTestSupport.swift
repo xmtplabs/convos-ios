@@ -33,6 +33,7 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
     private var state: State
     private let mintValue: AgentRelayMint
     private let completedEntries: [AgentRelayCompletedEntry]
+    private let listCompletedError: Error?
     private let recorder: AgentRelayCallRecorder?
 
     init(
@@ -41,10 +42,12 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
         completedEntries: [AgentRelayCompletedEntry] = [],
         ackFailuresRemaining: Int = 0,
         blocksFetch: Bool = false,
+        listCompletedError: Error? = nil,
         recorder: AgentRelayCallRecorder? = nil
     ) {
         mintValue = mint
         self.completedEntries = completedEntries
+        self.listCompletedError = listCompletedError
         self.recorder = recorder
         state = State(
             fetchOutcomes: fetchOutcomes,
@@ -96,6 +99,9 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
 
     func listCompleted() async throws -> [AgentRelayCompletedEntry] {
         recorder?.append("listCompleted")
+        if let listCompletedError {
+            throw listCompletedError
+        }
         return completedEntries
     }
 }
@@ -176,7 +182,17 @@ struct StubAgentHistoryBuilder: AgentHistoryBuilding {
 
 final class InMemoryAgentRelayKeychain: KeychainServiceProtocol, @unchecked Sendable {
     private let lock: NSLock = NSLock()
+    private let deleteFailureAccounts: Set<String>
     private var storage: [String: Data] = [:]
+    private var storedDeletedAccounts: [String] = []
+
+    init(deleteFailureAccounts: Set<String> = []) {
+        self.deleteFailureAccounts = deleteFailureAccounts
+    }
+
+    var deletedAccounts: [String] {
+        lock.withLock { storedDeletedAccounts }
+    }
 
     func saveString(_ value: String, account: String) throws {
         guard let data = value.data(using: .utf8) else { throw AgentRelayTestError.expected }
@@ -199,9 +215,27 @@ final class InMemoryAgentRelayKeychain: KeychainServiceProtocol, @unchecked Send
     }
 
     func delete(account: String) throws {
-        lock.withLock {
+        let shouldFail = lock.withLock { () -> Bool in
+            storedDeletedAccounts.append(account)
+            guard !deleteFailureAccounts.contains(account) else { return true }
             _ = storage.removeValue(forKey: account)
+            return false
         }
+        if shouldFail {
+            throw AgentRelayTestError.expected
+        }
+    }
+}
+
+struct StubWebhookHostResolver: WebhookHostResolving {
+    let addressesByHost: [String: [String]]
+
+    init(addressesByHost: [String: [String]] = [:]) {
+        self.addressesByHost = addressesByHost
+    }
+
+    func resolvedAddresses(forHost host: String) throws -> [String] {
+        addressesByHost[host] ?? []
     }
 }
 
@@ -246,7 +280,7 @@ func makeAgentTurn(
 }
 
 func makeAgentConnection(provider: ExternalAgentProvider = .town) -> AgentConnection {
-    let url = URL(string: "https://hooks.example.com/webhook") ?? URL(fileURLWithPath: "/webhook")
+    let url = URL(string: "https://93.184.216.34/webhook") ?? URL(fileURLWithPath: "/webhook")
     switch provider {
     case .town:
         return AgentConnection(provider: .town, webhookURL: url, auth: .bearer(secret: "bearer-secret"))

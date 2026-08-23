@@ -32,6 +32,9 @@ public final class AgentHistoryBuilder: AgentHistoryBuilding {
         while characterCount > Constant.maximumCharacters, let oldest = entries.first {
             characterCount -= oldest.text.count
             entries.removeFirst()
+            guard entries.first?.role == "agent", let pairedReply = entries.first else { continue }
+            characterCount -= pairedReply.text.count
+            entries.removeFirst()
         }
         return entries
     }

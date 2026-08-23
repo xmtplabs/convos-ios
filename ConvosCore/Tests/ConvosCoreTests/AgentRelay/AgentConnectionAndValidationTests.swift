@@ -102,17 +102,65 @@ struct AgentRelayConnectionAndValidationTests {
         expectValidationFailure("https://foo.local/x")
     }
 
+    @Test("dev rejects localhost with a trailing DNS root dot")
+    func devRejectsRootDottedLocalhost() {
+        expectValidationFailure("https://localhost./webhook")
+    }
+
+    @Test("dev rejects local hostnames with a trailing DNS root dot")
+    func devRejectsRootDottedLocalNetworkHostname() {
+        expectValidationFailure("https://printer.local./webhook")
+    }
+
+    @Test("dev still rejects bracketed private IPv6 hosts")
+    func devRejectsBracketedPrivateIPv6() {
+        expectValidationFailure("https://[fd00::1]/webhook")
+    }
+
     @Test("dev accepts HTTPS host and explicit port")
     func devAcceptsHTTPSPort() throws {
-        let url = try WebhookURLValidator(environment: makeConfiguredEnvironment(local: false)).validate("https://hooks.town.com:8443/x")
+        let validator = WebhookURLValidator(
+            environment: makeConfiguredEnvironment(local: false),
+            resolver: StubWebhookHostResolver(addressesByHost: ["hooks.town.com": ["93.184.216.34"]])
+        )
+        let url = try validator.validate("https://hooks.town.com:8443/x")
         #expect(url.port == 8_443)
     }
 
     @Test("dev accepts a long Tasklet capability URL")
     func devAcceptsLongCapabilityURL() throws {
         let longURL = "https://hooks.tasklet.example/webhook?token=\(String(repeating: "a", count: 1_024))"
-        let url = try WebhookURLValidator(environment: makeConfiguredEnvironment(local: false)).validate(longURL)
+        let validator = WebhookURLValidator(
+            environment: makeConfiguredEnvironment(local: false),
+            resolver: StubWebhookHostResolver(addressesByHost: ["hooks.tasklet.example": ["93.184.216.34"]])
+        )
+        let url = try validator.validate(longURL)
         #expect(url.absoluteString == longURL)
+    }
+
+    @Test("dev rejects a hostname resolving to loopback")
+    func devRejectsResolvedLoopback() {
+        let validator = WebhookURLValidator(
+            environment: makeConfiguredEnvironment(local: false),
+            resolver: StubWebhookHostResolver(addressesByHost: ["evil.example": ["127.0.0.1"]])
+        )
+
+        #expect(throws: AgentRelayError.self) {
+            try validator.validate("https://evil.example/webhook")
+        }
+    }
+
+    @Test("dev accepts a hostname resolving to a public address")
+    func devAcceptsResolvedPublicAddress() throws {
+        let string = "https://ok.example/webhook"
+        let validator = WebhookURLValidator(
+            environment: makeConfiguredEnvironment(local: false),
+            resolver: StubWebhookHostResolver(addressesByHost: ["ok.example": ["93.184.216.34"]])
+        )
+
+        let url = try validator.validate(string)
+
+        #expect(url.absoluteString == string)
     }
 
     @Test("local accepts exact loopback over HTTP")
@@ -210,6 +258,34 @@ struct AgentRelayConnectionAndValidationTests {
 
         try connections.save(makeAgentConnection(provider: .tasklet))
         #expect(try connections.load(provider: .tasklet) == makeAgentConnection(provider: .tasklet))
+    }
+
+    @Test("reset continues all cleanup after a provider deletion fails")
+    func resetContinuesAfterProviderDeletionFailure() throws {
+        let environment = AppEnvironment.tests
+        let suite = environment.appGroupIdentifier
+        UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let keychain = InMemoryAgentRelayKeychain(deleteFailureAccounts: ["agentRelay.town.secret"])
+        let database = try AgentChatDatabase(environment: environment)
+        let writer = AgentChatWriter(database: database)
+        try writer.deleteAll()
+        try writer.insertPending(makeAgentTurn(requestId: "request_partial_reset"))
+        let connections = AgentConnectionStore(environment: environment, keychain: keychain)
+        try connections.save(makeAgentConnection(provider: .town))
+        try connections.save(makeAgentConnection(provider: .tasklet))
+        PendingComposerDraftStore(environment: environment).stage(
+            PendingComposerDraft(conversationId: "conversation", text: "Draft", stagedAt: Date())
+        )
+
+        #expect(throws: AgentRelayTestError.self) {
+            try AgentRelayReset.wipeAll(environment: environment, keychain: keychain)
+        }
+
+        #expect(try AgentChatRepository(database: database).turns(limit: 10).isEmpty)
+        #expect(keychain.deletedAccounts.contains("agentRelay.tasklet.webhookURL"))
+        #expect(try keychain.retrieveString(account: "agentRelay.tasklet.webhookURL") == nil)
+        #expect(PendingComposerDraftStore(environment: environment).take(for: "conversation") == nil)
     }
 
     private func expectValidationFailure(_ string: String) {

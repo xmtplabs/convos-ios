@@ -43,7 +43,7 @@ public final class AgentChatWriter: AgentChatWriterProtocol {
                 try completedTurn.insert(db)
                 return
             }
-            guard turn.status == .pending else { return }
+            guard turn.status != .completed else { return }
 
             // Existing rows keep their stored provider; this argument is only used when inserting.
             turn.status = .completed

@@ -737,15 +737,21 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await wipeResidualInboxRows()
 
         // The agent-chat transcript and relay credentials are account data:
-        // wipe them here, not in the per-identity paths. A failure must not
-        // leave the account half torn down, so it is logged, not rethrown.
+        // wipe them here, not in the per-identity paths. The reset attempts
+        // every relay cleanup before its first failure is propagated.
+        var relayWipeError: Error?
         do {
             try AgentRelayReset.wipeAll(environment: environment)
         } catch {
             Log.error("Failed to wipe agent relay data: \(error.localizedDescription)")
+            relayWipeError = error
         }
 
         cachedMessagingService.withLock { $0 = nil }
+
+        if let relayWipeError {
+            throw relayWipeError
+        }
     }
 
     private func wipeResidualInboxRows() async throws {

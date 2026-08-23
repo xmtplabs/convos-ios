@@ -52,6 +52,59 @@ struct AgentRelayHistoryBuilderTests {
         #expect(history.allSatisfy { $0.text.first == "2" })
     }
 
+    @Test("character trimming never leaves an orphaned agent reply")
+    func historyTrimsCompletePairs() throws {
+        let database = try AgentChatDatabase.inMemoryForTests()
+        let writer = AgentChatWriter(database: database)
+        let repository = AgentChatRepository(database: database)
+        let start = Date(timeIntervalSince1970: 3_000)
+        try writer.insertPending(makeAgentTurn(
+            requestId: "request_old_large",
+            prompt: String(repeating: "u", count: 30_000),
+            createdAt: start
+        ))
+        try writer.markCompleted(
+            requestId: "request_old_large",
+            result: makeAgentRelayResult(message: "a", completedAt: start.addingTimeInterval(0.5)),
+            provider: .town
+        )
+        try writer.insertPending(makeAgentTurn(
+            requestId: "request_new",
+            prompt: String(repeating: "n", count: 5_000),
+            createdAt: start.addingTimeInterval(1)
+        ))
+        try writer.markCompleted(
+            requestId: "request_new",
+            result: makeAgentRelayResult(message: String(repeating: "r", count: 5_000), completedAt: start.addingTimeInterval(1.5)),
+            provider: .town
+        )
+
+        let history = try AgentHistoryBuilder(repository: repository).history(excluding: nil)
+
+        #expect(history.map(\.role) == ["user", "agent"])
+        #expect(history.first?.text.first == "n")
+    }
+
+    @Test("a single pair over the character budget is removed safely")
+    func oversizedSinglePairDoesNotIndexOutOfBounds() throws {
+        let database = try AgentChatDatabase.inMemoryForTests()
+        let writer = AgentChatWriter(database: database)
+        let repository = AgentChatRepository(database: database)
+        try writer.insertPending(makeAgentTurn(
+            requestId: "request_oversized",
+            prompt: String(repeating: "u", count: 25_000)
+        ))
+        try writer.markCompleted(
+            requestId: "request_oversized",
+            result: makeAgentRelayResult(message: String(repeating: "a", count: 25_000)),
+            provider: .town
+        )
+
+        let history = try AgentHistoryBuilder(repository: repository).history(excluding: nil)
+
+        #expect(history.isEmpty)
+    }
+
     @Test("history excludes pending, failed, and the current request")
     func historyExcludesNonCompletedAndCurrentTurns() throws {
         let database = try AgentChatDatabase.inMemoryForTests()

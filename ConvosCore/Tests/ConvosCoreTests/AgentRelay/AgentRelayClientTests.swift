@@ -189,20 +189,66 @@ struct AgentRelayClientTests {
         #expect(api.ackCount == 1)
     }
 
-    @Test("recovery silently acks listed entries without a local row")
-    func recoveryAcksUnknownEntryWithoutInserting() async throws {
+    @Test("recovery collects and persists listed entries without a local row")
+    func recoveryCollectsUnknownEntryAndInserts() async throws {
         let database = try AgentChatDatabase.inMemoryForTests()
         let writer = AgentChatWriter(database: database)
         let repository = AgentChatRepository(database: database)
-        let entry = AgentRelayCompletedEntry(requestId: "request_unknown", provider: .tasklet, result: makeAgentRelayResult())
-        let api = ScriptedAgentRelayAPI(completedEntries: [entry])
+        let result = makeAgentRelayResult(message: "Recovered from mailbox")
+        let entry = AgentRelayCompletedEntry(requestId: "request_unknown", provider: .tasklet, result: result)
+        let api = ScriptedAgentRelayAPI(fetchOutcomes: [.completed(result)], completedEntries: [entry])
         let client = AgentRelayClient(api: api, webhook: ScriptedWebhookTransport(), store: writer, history: StubAgentHistoryBuilder())
 
         await AgentRelayRecoveryCoordinator(client: client, repository: repository, writer: writer).runOnLaunch()
 
-        #expect(try repository.turns(limit: 10).isEmpty)
+        let turn = try repository.turn(requestId: "request_unknown")
+        #expect(turn?.status == .completed)
+        #expect(turn?.provider == .tasklet)
+        #expect(turn?.resultMessage == "Recovered from mailbox")
+        #expect(turn?.ackedAt != nil)
         #expect(api.ackCount == 1)
+        #expect(api.fetchCount == 1)
+    }
+
+    @Test("recovery is a no-op when completed listing fails")
+    func recoveryListingFailureDoesNotMutateLocalState() async throws {
+        let database = try AgentChatDatabase.inMemoryForTests()
+        let repository = AgentChatRepository(database: database)
+        let setupWriter = AgentChatWriter(database: database)
+        try setupWriter.insertPending(makeAgentTurn(requestId: "request_stale", expiresAt: Date().addingTimeInterval(-1)))
+        let recorder = AgentRelayCallRecorder()
+        let writer = RecordingAgentChatWriter(recorder: recorder)
+        let api = ScriptedAgentRelayAPI(listCompletedError: AgentRelayTestError.expected)
+        let client = AgentRelayClient(api: api, webhook: ScriptedWebhookTransport(), store: writer, history: StubAgentHistoryBuilder())
+
+        await AgentRelayRecoveryCoordinator(client: client, repository: repository, writer: writer).runOnLaunch()
+
+        #expect(recorder.calls.isEmpty)
         #expect(api.fetchCount == 0)
+        #expect(api.ackCount == 0)
+        #expect(try repository.turn(requestId: "request_stale")?.status == .pending)
+    }
+
+    @Test("recovery replaces an expired row with a listed completion")
+    func recoveryReconcilesExpiredEntry() async throws {
+        let database = try AgentChatDatabase.inMemoryForTests()
+        let writer = AgentChatWriter(database: database)
+        let repository = AgentChatRepository(database: database)
+        try writer.insertPending(makeAgentTurn(requestId: "request_expired_recovery", status: .expired))
+        let result = makeAgentRelayResult(message: "Real completion")
+        let entry = AgentRelayCompletedEntry(requestId: "request_expired_recovery", provider: .tasklet, result: result)
+        let api = ScriptedAgentRelayAPI(fetchOutcomes: [.completed(result)], completedEntries: [entry])
+        let client = AgentRelayClient(api: api, webhook: ScriptedWebhookTransport(), store: writer, history: StubAgentHistoryBuilder())
+
+        await AgentRelayRecoveryCoordinator(client: client, repository: repository, writer: writer).runOnLaunch()
+
+        let turn = try repository.turn(requestId: "request_expired_recovery")
+        #expect(turn?.status == .completed)
+        #expect(turn?.provider == .town)
+        #expect(turn?.resultMessage == "Real completion")
+        #expect(turn?.errorCode == nil)
+        #expect(turn?.ackedAt != nil)
+        #expect(api.ackCount == 1)
     }
 
     @Test("recovery expires stale pending rows absent from the listing")

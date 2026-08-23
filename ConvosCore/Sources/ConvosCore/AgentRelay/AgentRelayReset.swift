@@ -10,12 +10,33 @@ public enum AgentRelayReset {
     }
 
     static func wipeAll(environment: AppEnvironment, keychain: any KeychainServiceProtocol) throws {
-        let database = try AgentChatDatabase(environment: environment)
-        try AgentChatWriter(database: database).deleteAll()
+        var firstError: Error?
+        do {
+            let database = try AgentChatDatabase(environment: environment)
+            try AgentChatWriter(database: database).deleteAll()
+        } catch {
+            firstError = error
+        }
 
         let connections = AgentConnectionStore(environment: environment, keychain: keychain)
-        try connections.delete(provider: .town)
-        try connections.delete(provider: .tasklet)
+        do {
+            try connections.delete(provider: .town)
+        } catch {
+            if firstError == nil {
+                firstError = error
+            }
+        }
+        do {
+            try connections.delete(provider: .tasklet)
+        } catch {
+            if firstError == nil {
+                firstError = error
+            }
+        }
         PendingComposerDraftStore(environment: environment).clear()
+
+        if let firstError {
+            throw firstError
+        }
     }
 }

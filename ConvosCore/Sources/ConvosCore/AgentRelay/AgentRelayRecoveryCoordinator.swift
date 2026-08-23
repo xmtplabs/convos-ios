@@ -30,23 +30,28 @@ public final class AgentRelayRecoveryCoordinator: Sendable {
         do {
             entries = try await client.completedEntries()
         } catch {
-            entries = []
             Log.warning("Agent relay completed listing failed")
+            return
         }
 
         let listedRequestIds = Set(entries.map(\.requestId))
         for entry in entries {
             do {
                 guard let localTurn = try repository.turn(requestId: entry.requestId) else {
-                    try await client.acknowledge(requestId: entry.requestId)
+                    _ = try await client.collect(requestId: entry.requestId, provider: entry.provider)
                     continue
                 }
 
-                if localTurn.status == .pending {
+                switch localTurn.status {
+                case .pending:
                     _ = try await client.collect(requestId: entry.requestId, provider: entry.provider ?? localTurn.provider)
-                } else if localTurn.status == .completed, localTurn.ackedAt == nil {
-                    try await client.acknowledge(requestId: entry.requestId)
-                    try writer.markAcked(requestId: entry.requestId)
+                case .completed:
+                    if localTurn.ackedAt == nil {
+                        try await client.acknowledge(requestId: entry.requestId)
+                        try writer.markAcked(requestId: entry.requestId)
+                    }
+                case .failed, .expired, .collectedElsewhere:
+                    _ = try await client.collect(requestId: entry.requestId, provider: entry.provider ?? localTurn.provider)
                 }
             } catch {
                 Log.warning("Agent relay recovery failed for request \(entry.requestId.prefix(12))")
