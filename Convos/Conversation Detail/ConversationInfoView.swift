@@ -387,6 +387,31 @@ struct ConversationInfoView: View {
         }
     }
 
+    private var privacySection: some View {
+        Section {
+            NavigationLink {
+                DisappearingMessagesView(viewModel: viewModel)
+            } label: {
+                FeatureRowItem(
+                    imageName: nil,
+                    symbolName: "timer",
+                    title: "Disappearing messages",
+                    subtitle: viewModel.conversation.disappearingMessagesDurationTitle ?? "Off",
+                    iconBackgroundColor: .colorFillMinimal,
+                    iconForegroundColor: .colorTextPrimary
+                ) {
+                    EmptyView()
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("disappearing-messages-row")
+        } header: {
+            Text("Privacy")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.colorTextSecondary)
+        }
+    }
+
     var body: some View {
         infoContent
             .addFromContactsPicker(
@@ -428,6 +453,8 @@ struct ConversationInfoView: View {
                     )
                 }
             }
+
+            privacySection
 
             preferencesSection
 

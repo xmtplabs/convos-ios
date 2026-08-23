@@ -62,6 +62,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// It lives here rather than in the composer because the level belongs to
     /// the conversation; the composer only draws the control.
     @State private var participation: AgentParticipationStore?
+    /// Pause is the moment privacy intent is clearest. When no timer is active
+    /// and the per-conversation automation is off, this presents one bounded
+    /// choice: pause only, or pause and enable the remembered timer.
+    @State private var showingPausePrivacyPrompt: Bool = false
+    @State private var disappearingMessagesError: String?
     /// The conversation sheet's selected tab, the single source of truth for
     /// both the backing view behind the sheet and the bar the sheet hosts.
     @State private var selectedTab: ConversationTab = .group
@@ -203,7 +208,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     }
 
     private func messagesView(focus: FocusState<MessagesViewInputFocus?>.Binding) -> some View {
-        MessagesView(
+        let content = MessagesView(
             contextMenuState: contextMenuState,
             conversation: viewModel.conversation,
             messages: groupMessages,
@@ -341,6 +346,35 @@ struct ConversationView<MessagesBottomBar: View>: View {
             Button("OK", role: .cancel) { participation?.dismissError() }
         } message: {
             Text(participation?.errorMessage ?? "Please try again.")
+        }
+
+        return privacyPrompts(for: content)
+    }
+
+    private func privacyPrompts<Content: View>(for content: Content) -> some View {
+        content
+        .confirmationDialog(
+            "Pause agents?",
+            isPresented: $showingPausePrivacyPrompt,
+            titleVisibility: .visible
+        ) {
+            Button("Pause + turn on disappearing messages") {
+                pauseAgents(enableDisappearingMessages: true)
+            }
+            Button("Pause only") {
+                pauseAgents(enableDisappearingMessages: false)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Paused agents won’t see new messages. You can also make new messages disappear after your selected timer.")
+        }
+        .alert("Timer not updated", isPresented: Binding(
+            get: { disappearingMessagesError != nil },
+            set: { if !$0 { disappearingMessagesError = nil } }
+        )) {
+            Button("OK", role: .cancel) { disappearingMessagesError = nil }
+        } message: {
+            Text(disappearingMessagesError ?? "Please try again.")
         }
     }
 
@@ -1928,7 +1962,38 @@ private extension ConversationView {
             isLoading: !participation.hasLoaded,
             agentName: participationAgentName
         ) { level in
-            Task { await participation.set(level) }
+            selectParticipationLevel(level)
+        }
+    }
+
+    func selectParticipationLevel(_ level: AgentParticipationLevel) {
+        guard level == .paused,
+              !viewModel.conversation.isDisappearingMessagesEnabled else {
+            Task { await participation?.set(level) }
+            return
+        }
+
+        let conversationId = viewModel.conversation.id
+        if DisappearingMessagesPreferences.automaticallyEnableWhenAgentsPause(conversationId: conversationId) {
+            pauseAgents(enableDisappearingMessages: true)
+        } else {
+            showingPausePrivacyPrompt = true
+        }
+    }
+
+    func pauseAgents(enableDisappearingMessages: Bool) {
+        Task {
+            await participation?.set(.paused)
+            guard enableDisappearingMessages, participation?.level == .paused else { return }
+
+            let conversationId = viewModel.conversation.id
+            let duration = DisappearingMessagesPreferences.preferredDuration(conversationId: conversationId)
+            do {
+                try await viewModel.updateDisappearingMessages(duration)
+                DisappearingMessagesPreferences.remember(duration, conversationId: conversationId)
+            } catch {
+                disappearingMessagesError = error.localizedDescription
+            }
         }
     }
 

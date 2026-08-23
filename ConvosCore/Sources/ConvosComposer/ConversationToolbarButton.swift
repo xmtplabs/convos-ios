@@ -51,10 +51,16 @@ public struct ConversationToolbarButton: View {
                     .foregroundStyle(.colorCaution)
             }
         } else {
-            Text(subtitle)
-                .lineLimit(1)
-                .font(.caption)
-                .foregroundStyle(subtitleColor)
+            HStack(spacing: DesignConstants.Spacing.stepHalf) {
+                if conversation.isDisappearingMessagesEnabled {
+                    Image(systemName: "timer")
+                        .accessibilityHidden(true)
+                }
+                Text(subtitle)
+                    .lineLimit(1)
+            }
+            .font(.caption)
+            .foregroundStyle(subtitleColor)
         }
     }
 
@@ -95,7 +101,11 @@ public struct ConversationToolbarButton: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), \(subtitle)")
+        .accessibilityLabel(
+            [title, subtitle, conversation.disappearingMessagesDurationTitle.map { "disappearing messages \($0)" }]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+        )
         .accessibilityIdentifier("conversation-toolbar-button")
     }
 }

@@ -189,4 +189,10 @@ public final class MockConversationsProvider: ConversationsProvider, @unchecked 
     ) -> AsyncThrowingStream<DecodedMessage, any Error> {
         AsyncThrowingStream { _ in }
     }
+
+    public func streamMessageDeletions(
+        onClose: (() -> Void)?
+    ) -> AsyncThrowingStream<DecodedMessageV2, any Error> {
+        AsyncThrowingStream { continuation in continuation.finish() }
+    }
 }

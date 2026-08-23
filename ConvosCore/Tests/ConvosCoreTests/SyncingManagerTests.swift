@@ -284,6 +284,12 @@ class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
             }
         }
     }
+
+    func streamMessageDeletions(
+        onClose: (() -> Void)?
+    ) -> AsyncThrowingStream<DecodedMessageV2, any Error> {
+        AsyncThrowingStream { continuation in continuation.finish() }
+    }
 }
 
 class TestableMockGroupConversationSender: GroupConversationSender {

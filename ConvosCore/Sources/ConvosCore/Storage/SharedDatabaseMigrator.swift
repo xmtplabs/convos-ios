@@ -223,6 +223,27 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConversationParticipationMode", migrate: Self.addConversationParticipationMode)
         migrator.registerMigration("clearCutListenParticipationMode", migrate: Self.clearCutListenParticipationMode)
         migrator.registerMigration("addConversationSpaceURLString", migrate: Self.addConversationSpaceURLString)
+        migrator.registerMigration(
+            "addConversationDisappearingMessageRetention",
+            migrate: Self.addConversationDisappearingMessageRetention
+        )
+    }
+
+    /// Mirrors libxmtp's active retention interval into the app database and
+    /// records the exact expiry libxmtp computes for each application message.
+    /// The protocol remains authoritative; nil means no timer / no expiry.
+    static func addConversationDisappearingMessageRetention(_ db: Database) throws {
+        try db.alter(table: "conversation") { t in
+            t.add(column: "disappearingMessageRetentionDurationInNs", .integer)
+        }
+        try db.alter(table: "message") { t in
+            t.add(column: "expiresAtNs", .integer)
+        }
+        try db.create(
+            index: "message_on_expiresAtNs",
+            on: "message",
+            columns: ["expiresAtNs"]
+        )
     }
 
     /// The deployed Space web URL for the conversation, mirrored from the

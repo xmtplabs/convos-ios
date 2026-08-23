@@ -80,6 +80,10 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     /// exists yet. Lets the list render a combined last-message preview and
     /// a DM-aware unread indicator without surfacing the DM as its own row.
     public var agentDm: AgentDmSummary?
+    /// The XMTP conversation-wide retention duration, or nil when messages do
+    /// not disappear. Mirrored into the app database so settings, chat chrome,
+    /// and the conversations list all observe the same synced state.
+    public var disappearingMessageRetentionDurationInNs: Int64?
 }
 
 // MARK: - AgentDmSummary
@@ -159,7 +163,8 @@ public extension Conversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURL: spaceURL,
-            agentDm: agentDm
+            agentDm: agentDm,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs
         )
     }
 
@@ -205,7 +210,19 @@ public extension Conversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURL: spaceURL,
-            agentDm: agentDm
+            agentDm: agentDm,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs
+        )
+    }
+
+    var isDisappearingMessagesEnabled: Bool {
+        guard let duration = disappearingMessageRetentionDurationInNs else { return false }
+        return duration > 0
+    }
+
+    var disappearingMessagesDurationTitle: String? {
+        disappearingMessageRetentionDurationInNs.map(
+            DisappearingMessageDuration.title(forRetentionDurationInNs:)
         )
     }
 

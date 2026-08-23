@@ -4248,6 +4248,10 @@ extension ConversationViewModel {
         try await metadataWriter.updateSpaceURL(urlString, for: conversation.id)
     }
 
+    func updateDisappearingMessages(_ duration: DisappearingMessageDuration?) async throws {
+        try await metadataWriter.updateDisappearingMessages(duration, for: conversation.id)
+    }
+
     /// Presents the invite-code sheet (`InviteCodeSheet`) via
     /// `ConversationPresenter`. Used by the home page's
     /// `window.convos.showInviteCode()` bridge call.

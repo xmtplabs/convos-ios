@@ -32,10 +32,15 @@ struct ConversationInfoPreview: View {
     }
 
     private var accessibilityLabelText: String {
-        let base = "\(resolvedDisplayName), \(conversation.membersCountString)"
-        return showsBackwardsSecrecyNote
-            ? "\(base). Earlier messages are hidden for privacy"
-            : base
+        var parts = [resolvedDisplayName, conversation.membersCountString]
+        if showsBackwardsSecrecyNote { parts.append("Earlier messages are hidden for privacy") }
+        if let duration = conversation.disappearingMessagesDurationTitle {
+            parts.append("Messages disappear after \(duration)")
+            if conversation.hasAgent, conversation.participationMode != .paused {
+                parts.append("An agent is listening and may save these messages even after they disappear from Convos")
+            }
+        }
+        return parts.joined(separator: ". ")
     }
 
     var body: some View {
@@ -85,6 +90,25 @@ struct ConversationInfoPreview: View {
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
                 }
+            }
+
+            if let duration = conversation.disappearingMessagesDurationTitle {
+                HStack(alignment: .top, spacing: DesignConstants.Spacing.stepX) {
+                    Image(systemName: "timer")
+                        .foregroundStyle(.colorFillTertiary)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                        Text("Messages disappear after \(duration).")
+                        if conversation.hasAgent, conversation.participationMode != .paused {
+                            Text("An agent is listening and may save these messages even after they disappear from Convos.")
+                        }
+                    }
+                    .multilineTextAlignment(.leading)
+                }
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+                .frame(maxWidth: 294.0, alignment: .leading)
             }
         }
         .accessibilityElement(children: .combine)

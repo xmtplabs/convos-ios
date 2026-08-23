@@ -12,6 +12,7 @@ public struct ConversationUpdate: Hashable, Codable, Sendable {
                  // carries every custom field, and only a mode change in it
                  // earns a transcript row.
                  participationMode = "participation_mode",
+                 disappearingMessages = "message_disappear_in_ns",
                  unknown
 
             var showsInMessagesList: Bool {
