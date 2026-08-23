@@ -237,6 +237,8 @@ class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
         nil
     }
 
+    func deleteMessageLocally(messageId: String) throws {}
+
     func findOrCreateDm(with peerInboxId: String) async throws -> XMTPiOS.Dm {
         fatalError("not implemented in test mock")
     }

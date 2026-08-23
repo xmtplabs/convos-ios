@@ -4,6 +4,9 @@ import Foundation
 
 public struct Message: Hashable, Codable, Sendable {
     public let id: String
+    /// The published XMTP message id. `id` remains the stable local/client id
+    /// used by the transcript while optimistic sends are reconciled.
+    public let xmtpId: String?
     public let sender: ConversationMember
     public let source: MessageSource
     public let status: MessageStatus
@@ -14,6 +17,7 @@ public struct Message: Hashable, Codable, Sendable {
 
     public init(
         id: String,
+        xmtpId: String? = nil,
         sender: ConversationMember,
         source: MessageSource,
         status: MessageStatus,
@@ -22,6 +26,7 @@ public struct Message: Hashable, Codable, Sendable {
         reactions: [MessageReaction]
     ) {
         self.id = id
+        self.xmtpId = xmtpId
         self.sender = sender
         self.source = source
         self.status = status

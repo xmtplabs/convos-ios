@@ -515,6 +515,7 @@ extension Array where Element == DBMessage {
 
                 let message = Message(
                     id: dbMessage.clientMessageId,
+                    xmtpId: dbMessage.status == .published ? dbMessage.id : nil,
                     sender: sender,
                     source: source,
                     status: dbMessage.status,
@@ -740,6 +741,7 @@ extension Array where Element == DBMessage {
               let parentSender = memberProfileCache.member(for: sourceDBMessage.senderId) else {
             let message = Message(
                 id: dbMessage.clientMessageId,
+                xmtpId: dbMessage.status == .published ? dbMessage.id : nil,
                 sender: sender, source: source, status: dbMessage.status,
                 content: replyContent, date: dbMessage.date, reactions: reactions
             )
@@ -797,12 +799,14 @@ extension Array where Element == DBMessage {
 
         let parentMessage = Message(
             id: sourceDBMessage.clientMessageId,
+            xmtpId: sourceDBMessage.status == .published ? sourceDBMessage.id : nil,
             sender: parentSender, source: parentSource, status: sourceDBMessage.status,
             content: parentContent, date: sourceDBMessage.date, reactions: []
         )
 
         let messageReply = MessageReply(
             id: dbMessage.clientMessageId,
+            xmtpId: dbMessage.status == .published ? dbMessage.id : nil,
             sender: sender, source: source, status: dbMessage.status,
             content: replyContent, date: dbMessage.date,
             parentMessage: parentMessage, reactions: reactions

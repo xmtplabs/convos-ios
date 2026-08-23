@@ -178,6 +178,8 @@ public final class MockConversationsProvider: ConversationsProvider, @unchecked 
         nil
     }
 
+    public func deleteMessageLocally(messageId: String) throws {}
+
     public func syncAllConversations(consentStates: [ConsentState]?) async throws -> GroupSyncSummary {
         GroupSyncSummary(numEligible: 0, numSynced: 0)
     }

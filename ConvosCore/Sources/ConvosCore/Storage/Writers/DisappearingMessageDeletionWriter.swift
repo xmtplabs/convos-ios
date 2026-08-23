@@ -12,8 +12,13 @@ struct DisappearingMessageDeletionWriter: Sendable {
     }
 
     func delete(messageId: String) async throws {
+        try await delete(messageIds: [messageId])
+    }
+
+    func delete(messageIds: [String]) async throws {
+        guard !messageIds.isEmpty else { return }
         let attachmentKeys = try await databaseWriter.write { db in
-            try deleteMessages(matching: [messageId], db: db)
+            try deleteMessages(matching: messageIds, db: db)
         }
         await removeLocalArtifacts(attachmentKeys)
     }
@@ -37,7 +42,11 @@ struct DisappearingMessageDeletionWriter: Sendable {
 
     private func deleteMessages(matching messageIds: [String], db: Database) throws -> [String] {
         let records = try DBMessage
-            .filter(messageIds.contains(DBMessage.Columns.id) || messageIds.contains(DBMessage.Columns.sourceMessageId))
+            .filter(
+                messageIds.contains(DBMessage.Columns.id)
+                    || messageIds.contains(DBMessage.Columns.clientMessageId)
+                    || messageIds.contains(DBMessage.Columns.sourceMessageId)
+            )
             .fetchAll(db)
         guard !records.isEmpty else { return [] }
 
@@ -61,7 +70,7 @@ struct DisappearingMessageDeletionWriter: Sendable {
             .filter(clientMessageIds.contains(DBPendingPhotoUpload.Columns.clientMessageId))
             .deleteAll(db)
         try DBMessage.filter(idsToDelete.contains(DBMessage.Columns.id)).deleteAll(db)
-        Log.debug("Deleted \(idsToDelete.count) expired local message row(s)")
+        Log.debug("Deleted \(idsToDelete.count) local message row(s)")
 
         return attachmentKeys
     }
@@ -77,14 +86,14 @@ struct DisappearingMessageDeletionWriter: Sendable {
                 } catch CocoaError.fileNoSuchFile {
                     // The cache may already have evicted the local file.
                 } catch {
-                    Log.warning("Failed to remove expired message attachment: \(error)")
+                    Log.warning("Failed to remove deleted message attachment: \(error)")
                 }
             }
 
             do {
                 try await FileAttachmentCache.shared.removeCachedFiles(for: key)
             } catch {
-                Log.warning("Failed to remove expired file cache: \(error)")
+                Log.warning("Failed to remove deleted file cache: \(error)")
             }
         }
     }
