@@ -3135,16 +3135,17 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     func deleteMessagesForMe(_ targets: [MessageDeletionTarget]) async throws {
         guard !targets.isEmpty else { return }
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+        let localDeletionWriter = DisappearingMessageDeletionWriter(databaseWriter: databaseWriter)
         for target in targets {
-            guard let xmtpMessageId = target.xmtpMessageId else { continue }
-            try inboxReady.client.conversationsProvider.deleteMessageLocally(messageId: xmtpMessageId)
+            if let xmtpMessageId = target.xmtpMessageId {
+                try inboxReady.client.conversationsProvider.deleteMessageLocally(messageId: xmtpMessageId)
+                try await localDeletionWriter.deleteSelectedMessages(
+                    messageIds: [target.localMessageId, xmtpMessageId]
+                )
+            } else {
+                try await localDeletionWriter.deleteSelectedMessages(messageIds: [target.localMessageId])
+            }
         }
-
-        let identifiers = targets.flatMap { target in
-            [target.localMessageId, target.xmtpMessageId].compactMap { $0 }
-        }
-        try await DisappearingMessageDeletionWriter(databaseWriter: databaseWriter)
-            .delete(messageIds: identifiers)
     }
 
     func deleteMessagesForEveryone(_ targets: [MessageDeletionTarget]) async throws {
@@ -3154,18 +3155,18 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             throw MessageDeletionError.conversationNotFound
         }
 
+        let localDeletionWriter = DisappearingMessageDeletionWriter(databaseWriter: databaseWriter)
         for target in targets {
             guard let xmtpMessageId = target.xmtpMessageId else {
                 throw MessageDeletionError.unpublishedMessage
             }
             _ = try await conversation.deleteMessage(messageId: xmtpMessageId)
+            // Publish each deletion before preparing the next. If a later
+            // deletion fails, there is no hidden partial batch left queued.
+            try await conversation.publishMessages()
+            try await localDeletionWriter.deleteSelectedMessages(
+                messageIds: [target.localMessageId, xmtpMessageId]
+            )
         }
-        try await conversation.publishMessages()
-
-        let identifiers = targets.flatMap { target in
-            [target.localMessageId, target.xmtpMessageId].compactMap { $0 }
-        }
-        try await DisappearingMessageDeletionWriter(databaseWriter: databaseWriter)
-            .delete(messageIds: identifiers)
     }
 }
