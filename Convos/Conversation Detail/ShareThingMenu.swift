@@ -15,14 +15,14 @@ struct ShareThingMenu: View {
     var body: some View {
         Menu {
             Button(action: onShareToGroup) {
-                Text("Share with group")
+                Text("Share to group")
                 Image(systemName: "message")
             }
             .accessibilityIdentifier("share-thing-to-group")
 
             if canShareToAgent {
                 Button(action: onShareToAgent) {
-                    Text("Work with agent")
+                    Text("Send to agent")
                     Image(systemName: "pencil")
                 }
                 .accessibilityIdentifier("share-thing-to-agent")
