@@ -116,7 +116,8 @@ extension XMTPiOS.DecodedMessage {
             linkPreview: components.linkPreview,
             sourceMessageId: components.sourceMessageId,
             attachmentUrls: components.attachmentUrls,
-            update: components.update
+            update: components.update,
+            expiresAtNs: expiresAtNs
         )
     }
 
@@ -471,6 +472,16 @@ extension XMTPiOS.DecodedMessage {
                             newValue: nil
                         )
                     }
+                } else if $0.fieldName == "message_disappear_from_ns" {
+                    // The start timestamp and retention interval are updated as
+                    // one setting. Only retention produces a visible row.
+                    return nil
+                } else if $0.fieldName == ConversationUpdate.MetadataChange.Field.disappearingMessages.rawValue {
+                    return .init(
+                        field: ConversationUpdate.MetadataChange.Field.disappearingMessages.rawValue,
+                        oldValue: $0.hasOldValue ? $0.oldValue : nil,
+                        newValue: $0.hasNewValue ? $0.newValue : nil
+                    )
                 } else if $0.fieldName == ConversationUpdate.MetadataChange.Field.metadata.rawValue {
                     return Self.appDataMetadataChange(
                         oldValue: $0.hasOldValue ? $0.oldValue : nil,

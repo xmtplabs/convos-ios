@@ -86,7 +86,8 @@ extension DBConversationDetails {
             wasCreatedFromAgentBuilder: conversationAgentBuilderSummary != nil,
             isAgentDm: conversation.isAgentDm,
             participationMode: conversation.participationMode ?? .default,
-            spaceURL: conversation.spaceURLString.flatMap { URL(string: $0) }
+            spaceURL: conversation.spaceURLString.flatMap { URL(string: $0) },
+            disappearingMessageRetentionDurationInNs: conversation.disappearingMessageRetentionDurationInNs
         )
     }
 

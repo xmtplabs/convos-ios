@@ -37,6 +37,7 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
         static let linkPreview: Column = Column(CodingKeys.linkPreview)
         static let sourceMessageId: Column = Column(CodingKeys.sourceMessageId)
         static let attachmentUrls: Column = Column(CodingKeys.attachmentUrls)
+        static let expiresAtNs: Column = Column(CodingKeys.expiresAtNs)
     }
 
     let id: String // external
@@ -59,9 +60,52 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
     let sourceMessageId: String? // replies and reactions
     let attachmentUrls: [String]
     let update: Update?
+    /// The authoritative expiry computed by libxmtp for this application
+    /// message. Nil means the message is not subject to a disappearing timer.
+    let expiresAtNs: Int64?
 
     var attachmentUrl: String? {
         attachmentUrls.first
+    }
+
+    init(
+        id: String,
+        clientMessageId: String,
+        conversationId: String,
+        senderId: String,
+        dateNs: Int64,
+        date: Date,
+        sortId: Int64?,
+        status: MessageStatus,
+        messageType: DBMessageType,
+        contentType: MessageContentType,
+        text: String?,
+        emoji: String?,
+        invite: MessageInvite?,
+        linkPreview: LinkPreview?,
+        sourceMessageId: String?,
+        attachmentUrls: [String],
+        update: Update?,
+        expiresAtNs: Int64? = nil
+    ) {
+        self.id = id
+        self.clientMessageId = clientMessageId
+        self.conversationId = conversationId
+        self.senderId = senderId
+        self.dateNs = dateNs
+        self.date = date
+        self.sortId = sortId
+        self.status = status
+        self.messageType = messageType
+        self.contentType = contentType
+        self.text = text
+        self.emoji = emoji
+        self.invite = invite
+        self.linkPreview = linkPreview
+        self.sourceMessageId = sourceMessageId
+        self.attachmentUrls = attachmentUrls
+        self.update = update
+        self.expiresAtNs = expiresAtNs
     }
 
     static let sourceMessageForeignKey: ForeignKey = ForeignKey([Columns.sourceMessageId], to: [Columns.id])
@@ -126,7 +170,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            expiresAtNs: expiresAtNs
         )
     }
 
@@ -148,7 +193,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            expiresAtNs: expiresAtNs
         )
     }
 
@@ -170,7 +216,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            expiresAtNs: expiresAtNs
         )
     }
 
@@ -192,7 +239,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            expiresAtNs: expiresAtNs
         )
     }
 
@@ -214,7 +262,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            expiresAtNs: expiresAtNs
         )
     }
 
@@ -236,7 +285,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            expiresAtNs: expiresAtNs
         )
     }
 
@@ -258,7 +308,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            expiresAtNs: expiresAtNs
         )
     }
 
@@ -280,7 +331,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            expiresAtNs: expiresAtNs
         )
     }
 
@@ -302,7 +354,8 @@ extension DBMessage {
             linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            expiresAtNs: expiresAtNs
         )
     }
 

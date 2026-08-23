@@ -104,6 +104,9 @@ public protocol ConversationsProvider {
         consentStates: [XMTPiOS.ConsentState]?,
         onClose: (() -> Void)?
     ) -> AsyncThrowingStream<XMTPiOS.DecodedMessage, Error>
+    func streamMessageDeletions(
+        onClose: (() -> Void)?
+    ) -> AsyncThrowingStream<XMTPiOS.DecodedMessageV2, Error>
 }
 
 public protocol XMTPClientProvider: AnyObject {

@@ -810,6 +810,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         /// metadata; nil for non-DMs or DMs without a recorded origin.
         let originConversationId: String?
         let participationMode: ConversationParticipationMode?
+        let disappearingMessageRetentionDurationInNs: Int64?
         /// The deployed Space web URL carried in the group's appData; the
         /// Assistant Worker is the sole authority. Nil until one is published.
         let spaceURLString: String?
@@ -863,6 +864,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isAgentDm: isAgentDm,
             originConversationId: originConversationId,
             participationMode: try? conversation.participationMode,
+            disappearingMessageRetentionDurationInNs: conversation.disappearingMessageSettings?.retentionDurationInNs,
             spaceURLString: (try? conversation.spaceURL).flatMap { $0 },
             memberCount: memberCount
         )
@@ -1019,6 +1021,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isAgentDm: metadata.isAgentDm,
             participationMode: metadata.participationMode,
             spaceURLString: metadata.spaceURLString,
+            disappearingMessageRetentionDurationInNs: metadata.disappearingMessageRetentionDurationInNs,
             // Shares one definition of the empty-vs-throw semantics with the
             // consent gate (`StreamProcessor.contactsVouch`). A failed read
             // persists as `.unresolved` rather than being flattened to "no

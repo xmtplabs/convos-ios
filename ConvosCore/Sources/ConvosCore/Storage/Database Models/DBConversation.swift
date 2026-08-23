@@ -53,6 +53,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let isAgentDm: Column = Column(CodingKeys.isAgentDm)
         static let participationMode: Column = Column(CodingKeys.participationMode)
         static let spaceURLString: Column = Column(CodingKeys.spaceURLString)
+        static let disappearingMessageRetentionDurationInNs: Column = Column(CodingKeys.disappearingMessageRetentionDurationInNs)
         static let addedById: Column = Column(CodingKeys.addedById)
         static let adderStatus: Column = Column(CodingKeys.adderStatus)
     }
@@ -89,6 +90,10 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     /// group's appData. The Assistant Worker is the sole authority; clients
     /// only read it. Nil while no Space has been published.
     let spaceURLString: String?
+    /// XMTP's conversation-wide retention duration. Nil means disappearing
+    /// messages are off; a positive value is the expiry interval in
+    /// nanoseconds for application messages.
+    let disappearingMessageRetentionDurationInNs: Int64?
     /// Storage for `adder` - read that instead, and set it through `init`.
     /// The pair is kept consistent by a CHECK constraint: `addedById` is
     /// non-null exactly when `adderStatus` is `resolved`.
@@ -131,6 +136,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         isAgentDm: Bool = false,
         participationMode: ConversationParticipationMode? = nil,
         spaceURLString: String? = nil,
+        disappearingMessageRetentionDurationInNs: Int64? = nil,
         adder: AdderResolution = .notRecorded
     ) {
         self.id = id
@@ -158,6 +164,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         self.isAgentDm = isAgentDm
         self.participationMode = participationMode
         self.spaceURLString = spaceURLString
+        self.disappearingMessageRetentionDurationInNs = disappearingMessageRetentionDurationInNs
         self.addedById = adder.knownInboxId
         self.adderStatus = adder.status
     }
@@ -347,6 +354,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -378,6 +386,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -409,6 +418,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -440,6 +450,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -471,6 +482,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -504,6 +516,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -535,6 +548,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -566,6 +580,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -597,6 +612,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -628,6 +644,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -659,6 +676,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -690,6 +708,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -721,6 +740,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -752,6 +772,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -783,6 +804,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -814,6 +836,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -844,7 +867,8 @@ extension DBConversation {
             hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm,
             participationMode: participationMode,
-            spaceURLString: spaceURLString
+            spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs
         )
     }
 
@@ -875,6 +899,71 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
+            adder: adder
+        )
+    }
+
+    func with(spaceURLString: String?) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
+            adder: adder
+        )
+    }
+
+    func with(disappearingMessageRetentionDurationInNs: Int64?) -> Self {
+        .init(
+            id: id,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
+            isAgentDm: isAgentDm,
+            participationMode: participationMode,
+            spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -906,6 +995,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -937,6 +1027,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
@@ -968,6 +1059,7 @@ extension DBConversation {
             isAgentDm: isAgentDm,
             participationMode: participationMode,
             spaceURLString: spaceURLString,
+            disappearingMessageRetentionDurationInNs: disappearingMessageRetentionDurationInNs,
             adder: adder
         )
     }
