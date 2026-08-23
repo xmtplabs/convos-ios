@@ -25,8 +25,8 @@ final class AgentChatViewModel {
         self.dependencies = dependencies
         self.waitUntilReady = {}
         self.composerText = initialText
-        let initialTurns: [AgentTurn] = (try? dependencies.repository.turns(limit: Constant.turnLimit)) ?? []
-        self.turns = initialTurns.filter { $0.provider == provider }
+        let initialTurns: [AgentTurn] = (try? dependencies.repository.turns(provider: provider, limit: Constant.turnLimit)) ?? []
+        self.turns = initialTurns
         observeTurns()
     }
 
@@ -42,8 +42,8 @@ final class AgentChatViewModel {
             _ = try await session.messagingService().sessionStateManager.waitForInboxReadyResult()
         }
         self.composerText = initialText
-        let initialTurns: [AgentTurn] = (try? dependencies.repository.turns(limit: Constant.turnLimit)) ?? []
-        self.turns = initialTurns.filter { $0.provider == provider }
+        let initialTurns: [AgentTurn] = (try? dependencies.repository.turns(provider: provider, limit: Constant.turnLimit)) ?? []
+        self.turns = initialTurns
         observeTurns()
     }
 
@@ -115,7 +115,7 @@ final class AgentChatViewModel {
                 )
                 guard result == nil else { return }
                 let currentStatus: AgentTurnStatus? = try dependencies.repository.turn(requestId: turn.requestId)?.status
-                guard currentStatus == .pending else { return }
+                guard currentStatus == .pending || currentStatus == .superseded else { return }
                 let outcome = try await dependencies.client.watch(requestId: turn.requestId)
                 self?.apply(outcome)
             } catch is CancellationError {
@@ -240,7 +240,7 @@ final class AgentChatViewModel {
     }
 
     private func observeTurns() {
-        let stream = dependencies.repository.turnsStream(limit: Constant.turnLimit)
+        let stream = dependencies.repository.turnsStream(provider: provider, limit: Constant.turnLimit)
         observationTask = Task { [weak self] in
             for await updatedTurns in stream {
                 guard !Task.isCancelled else { return }
@@ -250,9 +250,8 @@ final class AgentChatViewModel {
     }
 
     private func applyObservedTurns(_ updatedTurns: [AgentTurn]) {
-        let providerTurns: [AgentTurn] = updatedTurns.filter { $0.provider == provider }
-        turns = providerTurns
-        removeNotificationsForCompletedTurns(providerTurns)
+        turns = updatedTurns
+        removeNotificationsForCompletedTurns(updatedTurns)
     }
 
     private func removeNotificationsForCompletedTurns(_ updatedTurns: [AgentTurn]) {

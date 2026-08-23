@@ -208,6 +208,7 @@ struct MainTabView: View {
             dependencies: agentRelayDependencies
         )
         presentingAppSettings = false
+        conversationsViewModel.selectedConversationId = nil
         activeTab = .agents
         agentsPath = [provider]
     }

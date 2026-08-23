@@ -35,6 +35,32 @@ struct AgentRelayDatabaseTests {
         #expect(turns.map(\.requestId) == ["request_2", "request_3"])
     }
 
+    @Test("provider repository applies its limit after filtering")
+    func providerRepositoryLimitsAfterFiltering() throws {
+        let database = try AgentChatDatabase.inMemoryForTests()
+        let writer = AgentChatWriter(database: database)
+        let repository = AgentChatRepository(database: database)
+        let start = Date(timeIntervalSince1970: 1_000)
+        for index in 0 ..< 2 {
+            try writer.insertPending(makeAgentTurn(
+                requestId: "town_\(index)",
+                provider: .town,
+                createdAt: start.addingTimeInterval(Double(index))
+            ))
+        }
+        for index in 0 ... 200 {
+            try writer.insertPending(makeAgentTurn(
+                requestId: "tasklet_\(index)",
+                provider: .tasklet,
+                createdAt: start.addingTimeInterval(Double(index + 2))
+            ))
+        }
+
+        let turns = try repository.turns(provider: .town, limit: 200)
+
+        #expect(turns.map(\.requestId) == ["town_0", "town_1"])
+    }
+
     @Test("pending repository excludes terminal turns")
     func pendingRepositoryFiltersStatus() throws {
         let database = try AgentChatDatabase.inMemoryForTests()

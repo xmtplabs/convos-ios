@@ -84,6 +84,38 @@ final class AgentChatViewModelTests: XCTestCase {
         XCTAssertEqual(ackCount, 1)
     }
 
+    func testCheckAgainRearmsWatchForSupersededTurn() async throws {
+        let completedResult = AgentRelayTurnResult(
+            message: "Completed superseded turn",
+            links: [],
+            completedAt: Date()
+        )
+        let fixture = try AgentChatViewModelFixture(fetchOutcomes: [
+            .pending(expiresAt: Date().addingTimeInterval(3_600)),
+            .completed(completedResult),
+        ])
+        let supersededTurn = makeAgentChatTurn(
+            requestId: "request_superseded_check_again",
+            provider: .town,
+            status: .superseded,
+            createdAt: Date().addingTimeInterval(-601)
+        )
+        try fixture.insertPending(supersededTurn)
+        let viewModel = fixture.makeViewModel(provider: .town)
+
+        viewModel.checkAgain(turn: supersededTurn)
+        let deadline = Date().addingTimeInterval(1)
+        while await fixture.api.fetchWaitMilliseconds.count < 2, Date() < deadline {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+
+        let fetchWaitMilliseconds: [Int] = await fixture.api.fetchWaitMilliseconds
+        let turn = try fixture.repository.turn(requestId: supersededTurn.requestId)
+        XCTAssertEqual(fetchWaitMilliseconds, [0, 25_000])
+        XCTAssertEqual(turn?.status, .completed)
+        XCTAssertEqual(turn?.resultMessage, completedResult.message)
+    }
+
     func testAgentRelayPreviewBuildUsesPRBundleSuffix() {
         XCTAssertTrue(ConfigManager.isAgentRelayPreviewBundleIdentifier("org.convos.ios-preview.pr"))
         XCTAssertFalse(ConfigManager.isAgentRelayPreviewBundleIdentifier("org.convos.ios-preview"))
@@ -152,7 +184,7 @@ private final class AgentChatViewModelFixture {
             environment: environment,
             keychain: AgentChatViewModelKeychain()
         )
-        let webhookURL = try XCTUnwrap(URL(string: "https://hooks.example.com/tasklet"))
+        let webhookURL = try XCTUnwrap(URL(string: "https://93.184.216.34/tasklet"))
         try connectionStore.save(AgentConnection(
             provider: .tasklet,
             webhookURL: webhookURL,
@@ -195,6 +227,7 @@ private final class AgentChatViewModelFixture {
 private actor RecordingAgentRelayBackendAPI: AgentRelayBackendAPI {
     private var mintCount: Int = 0
     private(set) var ackCount: Int = 0
+    private(set) var fetchWaitMilliseconds: [Int] = []
     private var fetchOutcomes: [AgentRelayFetchOutcome]
 
     init(fetchOutcomes: [AgentRelayFetchOutcome] = []) {
@@ -214,6 +247,7 @@ private actor RecordingAgentRelayBackendAPI: AgentRelayBackendAPI {
     }
 
     func fetch(requestId: String, waitMs: Int) async throws -> AgentRelayFetchOutcome {
+        fetchWaitMilliseconds.append(waitMs)
         guard !fetchOutcomes.isEmpty else {
             return .completed(AgentRelayTurnResult(
                 message: "Completed",
