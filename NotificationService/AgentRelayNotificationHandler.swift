@@ -12,18 +12,18 @@ struct AgentRelayNotificationHandler {
 
         do {
             let result = try await collect(payload)
-            guard let result else {
-                return UNMutableNotificationContent()
-            }
-            let content = original.mutableCopy() as? UNMutableNotificationContent
-                ?? UNMutableNotificationContent()
-            content.title = payload.provider?.displayName ?? "Agent"
-            content.body = String(result.message.prefix(Constant.previewLength))
-            content.threadIdentifier = AgentRelayPushPayload.notificationType
-            return content
+            return AgentRelayNotificationContent.content(
+                for: .collected(result),
+                original: original,
+                provider: payload.provider
+            )
         } catch {
             Log.warning("Agent relay notification collection failed: \(error.localizedDescription)")
-            return original
+            return AgentRelayNotificationContent.content(
+                for: .failed,
+                original: original,
+                provider: payload.provider
+            )
         }
     }
 
@@ -50,6 +50,5 @@ struct AgentRelayNotificationHandler {
 
     private enum Constant {
         static let timeout: TimeInterval = 15
-        static let previewLength: Int = 120
     }
 }
