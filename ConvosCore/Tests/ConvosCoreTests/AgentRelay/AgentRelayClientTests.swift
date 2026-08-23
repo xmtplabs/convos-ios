@@ -12,7 +12,7 @@ struct AgentRelayClientTests {
         let client = AgentRelayClient(
             api: api,
             webhook: ScriptedWebhookTransport(recorder: recorder),
-            store: RecordingAgentChatWriter(recorder: recorder),
+            store: RecordingAgentChatWriter(recorder: recorder, provider: .town),
             history: StubAgentHistoryBuilder()
         )
 
@@ -20,6 +20,47 @@ struct AgentRelayClientTests {
 
         #expect(outcome == .completed(result))
         #expect(recorder.calls == ["mint", "pending", "webhook", "fetch", "completed", "ack", "acked"])
+    }
+
+    @Test("watch persists a completion with the pending turn provider")
+    func watchUsesStoredProviderForCompletion() async throws {
+        let recorder = AgentRelayCallRecorder()
+        let result = makeAgentRelayResult()
+        let api = ScriptedAgentRelayAPI(fetchOutcomes: [.completed(result)], recorder: recorder)
+        let writer = RecordingAgentChatWriter(recorder: recorder, provider: .tasklet)
+        let client = AgentRelayClient(
+            api: api,
+            webhook: ScriptedWebhookTransport(),
+            store: writer,
+            history: StubAgentHistoryBuilder()
+        )
+
+        let outcome = try await client.watch(requestId: "request_tasklet")
+
+        #expect(outcome == .completed(result))
+        #expect(writer.completedProviders == [.tasklet])
+        #expect(api.ackCount == 1)
+    }
+
+    @Test("watch leaves an unattributable completion in the mailbox")
+    func watchWithoutProviderDoesNotPersistOrAck() async throws {
+        let recorder = AgentRelayCallRecorder()
+        let result = makeAgentRelayResult()
+        let api = ScriptedAgentRelayAPI(fetchOutcomes: [.completed(result)], recorder: recorder)
+        let writer = RecordingAgentChatWriter(recorder: recorder)
+        let client = AgentRelayClient(
+            api: api,
+            webhook: ScriptedWebhookTransport(),
+            store: writer,
+            history: StubAgentHistoryBuilder()
+        )
+
+        let outcome = try await client.watch(requestId: "request_unattributed")
+
+        #expect(outcome == .stillWorking)
+        #expect(writer.completedProviders.isEmpty)
+        #expect(api.ackCount == 0)
+        #expect(recorder.calls == ["fetch"])
     }
 
     @Test("send derives one provider from the connection")

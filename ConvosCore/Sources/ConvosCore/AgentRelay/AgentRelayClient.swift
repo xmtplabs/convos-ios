@@ -112,7 +112,13 @@ public final class AgentRelayClient: Sendable {
             let outcome = try await api.fetch(requestId: requestId, waitMs: waitMilliseconds)
             switch outcome {
             case let .completed(result):
-                try store.markCompleted(requestId: requestId, result: result, provider: .town)
+                let providerReader = store as? any AgentTurnProviderReading
+                let provider = try providerReader?.provider(requestId: requestId)
+                guard let provider else {
+                    Log.warning("Agent relay watch could not attribute request \(requestId.prefix(12))")
+                    return .stillWorking
+                }
+                try store.markCompleted(requestId: requestId, result: result, provider: provider)
                 try await api.ack(requestId: requestId)
                 try store.markAcked(requestId: requestId)
                 return .completed(result)
