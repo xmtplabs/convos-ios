@@ -92,6 +92,9 @@ struct NewConversationView: View {
                             onScannedInviteCode: viewModel.handleScannedCode,
                             onInviteShared: viewModel.markInviteShared,
                             onHomeBrowsingChanged: { isBrowsingHome = $0 },
+                            topChromeInsetOverride: embedsNavigationStack
+                                ? DesignConstants.Spacing.step3x
+                                : nil,
                             bottomBarContent: { EmptyView() }
                         )
                     } else {

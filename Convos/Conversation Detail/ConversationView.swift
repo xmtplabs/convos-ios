@@ -53,6 +53,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// host that renders one too (the new-convo sheet's close) hides its own
     /// and the bar keeps a single leading button.
     var onHomeBrowsingChanged: ((Bool) -> Void)?
+    /// Replaces the window safe-area inset used to position the floating top
+    /// chrome. Standalone sheets pass the same fixed inset as their locally
+    /// rendered conversation indicator.
+    var topChromeInsetOverride: CGFloat?
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
@@ -138,6 +142,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private var conversationIdForMetrics: String {
         viewModel.conversation.id
+    }
+
+    private var topChromeInset: CGFloat {
+        topChromeInsetOverride ?? windowSafeAreaInsets.top
     }
 
     /// Substitutes the user's contact (name + avatar) for any member's
@@ -1304,8 +1312,8 @@ private extension ConversationView {
             pageHost
             // The wash is its own layer, not the chrome's background: it runs
             // taller than the chrome's frame and a background would clip it.
-            ConversationChromeScrim(topSafeAreaInset: windowSafeAreaInsets.top)
-            ConversationTopChrome(topSafeAreaInset: windowSafeAreaInsets.top) {
+            ConversationChromeScrim(topSafeAreaInset: topChromeInset)
+            ConversationTopChrome(topSafeAreaInset: topChromeInset) {
                 ConversationSegmentedControl(
                     selectedTab: $selectedTab,
                     tabs: availableTabs,
