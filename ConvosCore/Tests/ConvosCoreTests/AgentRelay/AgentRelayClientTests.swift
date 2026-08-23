@@ -67,6 +67,32 @@ struct AgentRelayClientTests {
         #expect(turns.first?.ackedAt != nil)
     }
 
+    @Test("polling caps its wait at the deadline and performs a final instant check")
+    func pollingCapsWaitAtDeadline() async throws {
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let clock = ScriptedDateProvider(dates: [
+            startedAt,
+            startedAt.addingTimeInterval(595),
+            startedAt.addingTimeInterval(600),
+        ])
+        let api = ScriptedAgentRelayAPI(fetchOutcomes: [
+            .pending(expiresAt: startedAt.addingTimeInterval(3_600)),
+            .pending(expiresAt: startedAt.addingTimeInterval(3_600)),
+        ])
+        let client = AgentRelayClient(
+            api: api,
+            webhook: ScriptedWebhookTransport(),
+            store: RecordingAgentChatWriter(recorder: AgentRelayCallRecorder()),
+            history: StubAgentHistoryBuilder(),
+            now: { clock.now() }
+        )
+
+        let outcome = try await client.watch(requestId: "request_deadline")
+
+        #expect(outcome == .stillWorking)
+        #expect(api.fetchWaitMilliseconds == [5_000, 0])
+    }
+
     @Test("expired fetch marks a pending row expired")
     func expiredFetchMarksTurnExpired() async throws {
         let database = try AgentChatDatabase.inMemoryForTests()

@@ -57,6 +57,28 @@ struct AgentRelayConnectionAndValidationTests {
         #expect(store.activeProvider == nil)
     }
 
+    @Test("disconnect clears defaults and active provider when Keychain deletion fails")
+    func deleteClearsDefaultsAfterKeychainFailure() throws {
+        let suite = "group.agent-relay-delete-failure-\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let keychain = InMemoryAgentRelayKeychain(deleteFailureAccounts: ["agentRelay.town.secret"])
+        let store = AgentConnectionStore(
+            environment: makeConfiguredEnvironment(local: false, suiteName: suite),
+            keychain: keychain
+        )
+        try store.save(makeAgentConnection(provider: .town))
+
+        #expect(throws: AgentRelayTestError.self) {
+            try store.delete(provider: .town)
+        }
+
+        let defaults = UserDefaults(suiteName: suite)
+        #expect(try store.load(provider: .town) == nil)
+        #expect(defaults?.bool(forKey: "agentRelay.town.connected") == false)
+        #expect(defaults?.object(forKey: "agentRelay.town.webhookURL") == nil)
+        #expect(store.activeProvider == nil)
+    }
+
     @Test("dev rejects HTTP webhook URLs")
     func devRejectsHTTP() {
         expectValidationFailure("http://hooks.town.com/x")

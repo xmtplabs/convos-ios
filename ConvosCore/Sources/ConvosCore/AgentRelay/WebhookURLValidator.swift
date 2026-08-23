@@ -60,8 +60,8 @@ public struct SystemWebhookHostResolver: WebhookHostResolving {
 }
 
 /// Save-time validation of a webhook URL: https, host present, no userinfo,
-/// and no loopback, link-local, private, IPv4-mapped, integer or hex IPv4,
-/// or `.local` host. In the `.local` environment only, exact `127.0.0.1`
+/// and no loopback, link-local, private, unsafe IPv4-mapped, integer or hex
+/// IPv4, or `.local` host. In the `.local` environment only, exact `127.0.0.1`
 /// and `localhost` are accepted over http or https so the fake provider can
 /// be reached from a simulator.
 public struct WebhookURLValidator: Sendable {
@@ -160,39 +160,49 @@ public struct WebhookURLValidator: Sendable {
         var address = in_addr()
         guard inet_pton(AF_INET, host, &address) == 1 else { return false }
 
-        let value = UInt32(bigEndian: address.s_addr)
-        let first = UInt8((value >> 24) & 0xff)
-        let second = UInt8((value >> 16) & 0xff)
-        if first == 10 || first == 127 || first == 0 {
-            return true
+        let value: UInt32 = UInt32(bigEndian: address.s_addr)
+        return Constant.blockedIPv4Networks.contains { network in
+            matchesIPv4(value, network: network.network, prefixLength: network.prefixLength)
         }
-        if first == 100, (64 ... 127).contains(second) {
-            return true
-        }
-        if first == 169, second == 254 {
-            return true
-        }
-        if first == 172, (16 ... 31).contains(second) {
-            return true
-        }
-        if first == 192, second == 168 {
-            return true
-        }
-        return (224 ... 255).contains(first)
     }
 
     private func isBlockedIPv6(_ host: String) -> Bool {
         var address = in6_addr()
         guard inet_pton(AF_INET6, host, &address) == 1 else { return false }
 
-        let bytes = withUnsafeBytes(of: &address) { Array($0) }
-        let isUnspecified = bytes.allSatisfy { $0 == 0 }
-        let isLoopback = bytes.dropLast().allSatisfy { $0 == 0 } && bytes.last == 1
-        let isLinkLocal = bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80
-        let isUniqueLocal = (bytes[0] & 0xfe) == 0xfc
-        let isMulticast = bytes[0] == 0xff
-        let isMappedIPv4 = bytes.prefix(10).allSatisfy { $0 == 0 } && bytes[10] == 0xff && bytes[11] == 0xff
-        return isUnspecified || isLoopback || isLinkLocal || isUniqueLocal || isMulticast || isMappedIPv4
+        let bytes: [UInt8] = withUnsafeBytes(of: &address) { Array($0) }
+        if matchesIPv6(bytes, network: Constant.ipv4MappedPrefix, prefixLength: 96) {
+            var mappedAddress = in_addr()
+            withUnsafeMutableBytes(of: &mappedAddress) { destination in
+                destination.copyBytes(from: bytes.suffix(4))
+            }
+            var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+            guard inet_ntop(AF_INET, &mappedAddress, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil else { return true }
+            return isBlockedIPv4(String(cString: buffer))
+        }
+        return Constant.blockedIPv6Networks.contains { network in
+            matchesIPv6(bytes, network: network.network, prefixLength: network.prefixLength)
+        }
+    }
+
+    private func matchesIPv4(_ value: UInt32, network: UInt32, prefixLength: UInt8) -> Bool {
+        let mask: UInt32 = UInt32.max << (UInt32.bitWidth - Int(prefixLength))
+        return value & mask == network & mask
+    }
+
+    private func matchesIPv6(_ value: [UInt8], network: [UInt8], prefixLength: Int) -> Bool {
+        guard value.count == network.count,
+              prefixLength >= 0,
+              prefixLength <= value.count * UInt8.bitWidth else {
+            return false
+        }
+        let completeByteCount: Int = prefixLength / UInt8.bitWidth
+        guard value.prefix(completeByteCount).elementsEqual(network.prefix(completeByteCount)) else { return false }
+
+        let remainingBitCount: Int = prefixLength % UInt8.bitWidth
+        guard remainingBitCount > 0 else { return true }
+        let mask: UInt8 = UInt8.max << (UInt8.bitWidth - remainingBitCount)
+        return value[completeByteCount] & mask == network[completeByteCount] & mask
     }
 
     private func isLiteralIPAddress(_ host: String) -> Bool {
@@ -203,5 +213,41 @@ public struct WebhookURLValidator: Sendable {
 
         var ipv6 = in6_addr()
         return inet_pton(AF_INET6, host, &ipv6) == 1
+    }
+
+    private enum Constant {
+        static let blockedIPv4Networks: [(network: UInt32, prefixLength: UInt8)] = [
+            (0x0000_0000, 8), // 0.0.0.0/8
+            (0x0a00_0000, 8), // 10.0.0.0/8
+            (0x6440_0000, 10), // 100.64.0.0/10
+            (0x7f00_0000, 8), // 127.0.0.0/8
+            (0xa9fe_0000, 16), // 169.254.0.0/16
+            (0xac10_0000, 12), // 172.16.0.0/12
+            (0xc000_0000, 24), // 192.0.0.0/24
+            (0xc000_0200, 24), // 192.0.2.0/24
+            (0xc058_6300, 24), // 192.88.99.0/24
+            (0xc0a8_0000, 16), // 192.168.0.0/16
+            (0xc612_0000, 15), // 198.18.0.0/15
+            (0xc633_6400, 24), // 198.51.100.0/24
+            (0xcb00_7100, 24), // 203.0.113.0/24
+            (0xe000_0000, 4), // 224.0.0.0/4
+            (0xf000_0000, 4), // 240.0.0.0/4
+            (0xffff_ffff, 32), // 255.255.255.255/32
+        ]
+        static let blockedIPv6Networks: [(network: [UInt8], prefixLength: Int)] = [
+            ([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], 128), // ::/128
+            ([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01], 128), // ::1/128
+            ([0x00, 0x64, 0xff, 0x9b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], 96), // 64:ff9b::/96
+            ([0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], 64), // 100::/64
+            ([0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], 32), // 2001:db8::/32
+            ([0xfc, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], 7), // fc00::/7
+            ([0xfe, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], 10), // fe80::/10
+            ([0xfe, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], 10), // fec0::/10
+            ([0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], 8), // ff00::/8
+        ]
+        static let ipv4MappedPrefix: [UInt8] = [
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
+        ]
     }
 }

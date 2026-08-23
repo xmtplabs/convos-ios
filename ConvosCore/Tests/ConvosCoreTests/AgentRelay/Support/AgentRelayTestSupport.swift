@@ -24,6 +24,7 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
     private struct State {
         var fetchOutcomes: [AgentRelayFetchOutcome]
         var fetchCount: Int = 0
+        var fetchWaitMilliseconds: [Int] = []
         var ackCount: Int = 0
         var ackFailuresRemaining: Int
         var blocksFetch: Bool
@@ -60,6 +61,10 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
         lock.withLock { state.fetchCount }
     }
 
+    var fetchWaitMilliseconds: [Int] {
+        lock.withLock { state.fetchWaitMilliseconds }
+    }
+
     var ackCount: Int {
         lock.withLock { state.ackCount }
     }
@@ -72,6 +77,7 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
     func fetch(requestId: String, waitMs: Int) async throws -> AgentRelayFetchOutcome {
         let blocksFetch = lock.withLock { () -> Bool in
             state.fetchCount += 1
+            state.fetchWaitMilliseconds.append(waitMs)
             return state.blocksFetch
         }
         recorder?.append("fetch")
@@ -103,6 +109,26 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
             throw listCompletedError
         }
         return completedEntries
+    }
+}
+
+final class ScriptedDateProvider: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private let dates: [Date]
+    private var index: Int = 0
+
+    init(dates: [Date]) {
+        self.dates = dates
+    }
+
+    func now() -> Date {
+        lock.withLock {
+            guard let lastDate = dates.last else { return Date(timeIntervalSince1970: 0) }
+            guard index < dates.count else { return lastDate }
+            let date = dates[index]
+            index += 1
+            return date
+        }
     }
 }
 

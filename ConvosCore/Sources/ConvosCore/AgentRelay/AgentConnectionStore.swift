@@ -76,17 +76,28 @@ public final class AgentConnectionStore: AgentConnectionStoreProtocol, @unchecke
     }
 
     public func delete(provider: ExternalAgentProvider) throws {
+        var keychainError: Error?
         switch provider {
         case .town:
-            try keychain.delete(account: Constant.townSecretAccount)
+            do {
+                try keychain.delete(account: Constant.townSecretAccount)
+            } catch {
+                keychainError = error
+            }
             defaults.removeObject(forKey: Constant.townWebhookURLKey)
         case .tasklet:
-            try keychain.delete(account: Constant.taskletWebhookURLAccount)
+            do {
+                try keychain.delete(account: Constant.taskletWebhookURLAccount)
+            } catch {
+                keychainError = error
+            }
         }
         defaults.removeObject(forKey: connectedKey(for: provider))
         if activeProvider == provider {
             activeProvider = nil
         }
+        guard let keychainError else { return }
+        throw keychainError
     }
 
     private func connectedKey(for provider: ExternalAgentProvider) -> String {

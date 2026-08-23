@@ -6,17 +6,20 @@ public final class AgentRelayClient: Sendable {
     private let webhook: any AgentWebhookTransport
     private let store: any AgentChatWriterProtocol
     private let history: any AgentHistoryBuilding
+    private let now: @Sendable () -> Date
 
     public init(
         api: any AgentRelayBackendAPI,
         webhook: any AgentWebhookTransport,
         store: any AgentChatWriterProtocol,
-        history: any AgentHistoryBuilding
+        history: any AgentHistoryBuilding,
+        now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.api = api
         self.webhook = webhook
         self.store = store
         self.history = history
+        self.now = now
     }
 
     /// Mint, journal, trigger, then watch. Returns when the turn completes,
@@ -26,7 +29,7 @@ public final class AgentRelayClient: Sendable {
         provider: ExternalAgentProvider,
         connection: AgentConnection
     ) async throws -> AgentTurnOutcome {
-        let startedAt = Date()
+        let startedAt = now()
         let mint = try await api.mint(provider: provider)
         let turn = AgentTurn(
             requestId: mint.requestId,
@@ -61,7 +64,7 @@ public final class AgentRelayClient: Sendable {
 
     /// Resume watching a pending turn (launch recovery, foreground).
     public func watch(requestId: String) async throws -> AgentTurnOutcome {
-        try await watch(requestId: requestId, startedAt: Date())
+        try await watch(requestId: requestId, startedAt: now())
     }
 
     /// One-shot collect used by the NSE and by the foreground on push:
@@ -97,11 +100,11 @@ public final class AgentRelayClient: Sendable {
     private func watch(requestId: String, startedAt: Date) async throws -> AgentTurnOutcome {
         while true {
             try Task.checkCancellation()
-            guard Date().timeIntervalSince(startedAt) < Constant.watchDeadline else {
-                return .stillWorking
-            }
+            let elapsed: TimeInterval = now().timeIntervalSince(startedAt)
+            let remainingMilliseconds: Int = max(0, Int((Constant.watchDeadline - elapsed) * 1_000))
+            let waitMilliseconds: Int = min(Constant.longPollWaitMilliseconds, remainingMilliseconds)
 
-            let outcome = try await api.fetch(requestId: requestId, waitMs: Constant.longPollWaitMilliseconds)
+            let outcome = try await api.fetch(requestId: requestId, waitMs: waitMilliseconds)
             switch outcome {
             case let .completed(result):
                 try store.markCompleted(requestId: requestId, result: result, provider: .town)
@@ -109,6 +112,7 @@ public final class AgentRelayClient: Sendable {
                 try store.markAcked(requestId: requestId)
                 return .completed(result)
             case .pending:
+                guard remainingMilliseconds > 0 else { return .stillWorking }
                 continue
             case .expired:
                 try store.markExpired(requestId: requestId)
