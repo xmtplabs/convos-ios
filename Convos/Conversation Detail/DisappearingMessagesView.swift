@@ -13,7 +13,9 @@ enum DisappearingMessagesPreferences {
         UserDefaults.standard.set(enabled, forKey: autoEnablePrefix + conversationId)
     }
 
-    static func preferredDuration(conversationId: String) -> DisappearingMessageDuration {
+    /// The timer Pause should enable. A conversation remembers the last timer
+    /// someone selected; 24 hours is the privacy-first default before that.
+    static func durationWhenAgentsPause(conversationId: String) -> DisappearingMessageDuration {
         let stored = UserDefaults.standard.object(forKey: preferredDurationPrefix + conversationId) as? NSNumber
         return stored
             .flatMap { DisappearingMessageDuration(rawValue: $0.int64Value) }
@@ -58,7 +60,7 @@ struct DisappearingMessagesView: View {
 
             Section {
                 Toggle(
-                    "Turn on disappearing messages any time an agent is paused",
+                    "Turn on disappearing messages when an agent is paused",
                     isOn: $automaticallyEnableWhenAgentsPause
                 )
                     .onChange(of: automaticallyEnableWhenAgentsPause) { _, enabled in
@@ -69,7 +71,7 @@ struct DisappearingMessagesView: View {
                     }
                     .accessibilityIdentifier("disappearing-messages-on-pause-toggle")
             } footer: {
-                Text("When you pause agents in this conversation, Convos will turn on your last selected timer too.")
+                Text("When you pause an agent, messages will disappear after 24 hours unless you’ve selected another timer.")
             }
 
             if viewModel.conversation.hasAgent {

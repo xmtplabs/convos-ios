@@ -391,7 +391,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Paused agents won’t see new messages. You can also make new messages disappear after your selected timer.")
+            Text("Paused agents won’t see new messages. You can also make new messages disappear after your selected timer, or after 24 hours if you haven’t chosen one.")
         }
         .alert("Couldn't update disappearing messages", isPresented: Binding(
             get: { disappearingMessagesError != nil },
@@ -2201,7 +2201,7 @@ private extension ConversationView {
             guard enableDisappearingMessages, participation?.level == .paused else { return }
 
             let conversationId = viewModel.conversation.id
-            let duration = DisappearingMessagesPreferences.preferredDuration(conversationId: conversationId)
+            let duration = DisappearingMessagesPreferences.durationWhenAgentsPause(conversationId: conversationId)
             do {
                 try await viewModel.updateDisappearingMessages(duration)
                 DisappearingMessagesPreferences.remember(duration, conversationId: conversationId)
