@@ -15,15 +15,17 @@ struct EditThingMenu: View {
             Button(action: onAskForChanges) {
                 Text("Ask for changes")
                 Text("Your agent will change it")
-                Image(systemName: "bubble.left")
+                Image(systemName: "message")
             }
             .disabled(!canAskAgent)
             .accessibilityIdentifier("edit-thing-ask-agent")
 
+            // Disabled, so the row (icon included) renders in the faint inactive
+            // style, matching the "Soon" state.
             Button(action: {}) {
                 Text("Edit with an app")
                 Text("Soon")
-                Image(systemName: "square.on.square")
+                Image(systemName: "pencil")
             }
             .disabled(true)
             .accessibilityIdentifier("edit-thing-with-app")
