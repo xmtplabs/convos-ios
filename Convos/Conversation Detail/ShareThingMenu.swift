@@ -24,7 +24,7 @@ struct ShareThingMenu: View {
             if canShareToAgent {
                 Button(action: onShareToAgent) {
                     Text("Send to agent")
-                    Image(systemName: "pencil")
+                    Image(systemName: "arrowshape.turn.up.forward")
                 }
                 .accessibilityIdentifier("share-thing-to-agent")
             }
