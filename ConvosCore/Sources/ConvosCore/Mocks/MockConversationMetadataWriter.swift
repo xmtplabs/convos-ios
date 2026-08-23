@@ -14,7 +14,6 @@ public final class MockConversationMetadataWriter: ConversationMetadataWriterPro
     public var updatedImages: [(image: ImageType, conversation: Conversation)] = []
     public var updatedExpiresAt: [(expiresAt: Date, conversationId: String)] = []
     public var updatedParticipationModes: [(mode: ConversationParticipationMode, conversationId: String)] = []
-    public var updatedSpaceURLs: [(urlString: String?, conversationId: String)] = []
     public var updatedDisappearingMessages: [(duration: DisappearingMessageDuration?, conversationId: String)] = []
     public var updatedIncludeInfoInPublicPreview: [(enabled: Bool, conversationId: String)] = []
     public var lockedConversations: [String] = []
@@ -71,10 +70,6 @@ public final class MockConversationMetadataWriter: ConversationMetadataWriterPro
 
     public func updateParticipationMode(_ mode: ConversationParticipationMode, for conversationId: String) async throws {
         updatedParticipationModes.append((mode: mode, conversationId: conversationId))
-    }
-
-    public func updateSpaceURL(_ urlString: String?, for conversationId: String) async throws {
-        updatedSpaceURLs.append((urlString: urlString, conversationId: conversationId))
     }
 
     public func updateDisappearingMessages(

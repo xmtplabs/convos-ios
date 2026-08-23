@@ -4054,30 +4054,8 @@ extension ConversationViewModel {
         UIPasteboard.general.string = urlString
     }
 
-    /// Debug override for the Space web URL: writes the given value into the
-    /// group's appData (or clears it when nil), replacing whatever the
-    /// Assistant Worker published. Backs the "Space URL" row in conversation
-    /// info's debug section.
-    func debugOverrideSpaceURL(_ urlString: String?) async throws {
-        try await metadataWriter.updateSpaceURL(urlString, for: conversation.id)
-    }
-
     func updateDisappearingMessages(_ duration: DisappearingMessageDuration?) async throws {
         try await metadataWriter.updateDisappearingMessages(duration, for: conversation.id)
-    }
-
-    /// Presents the invite-code sheet (`InviteCodeSheet`) via
-    /// `ConversationPresenter`. Used by the home page's
-    /// `window.convos.showInviteCode()` bridge call.
-    func showInviteCode() {
-        Log.info("ConversationViewModel.showInviteCode called (conversationId=\(conversation.id), isFull=\(isFull))")
-        // A full conversation can't mint new invite links, so even if the
-        // sheet is reached, the invite code can't be shown.
-        guard !isFull else {
-            Log.warning("ConversationViewModel.showInviteCode: conversation is full; not presenting invite code sheet")
-            return
-        }
-        presentingInviteCode = true
     }
 
     /// Adds the given inboxIds as members of this conversation via the

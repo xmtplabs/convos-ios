@@ -415,10 +415,7 @@ private func summaryFromFirstMetadataChange(
     case .participationMode:
         guard let newValue = metadataChange.newValue,
               let mode = ConversationParticipationMode(rawValue: newValue) else { return nil }
-        if mode == .paused {
-            return "\(creatorDisplayName) paused agents, so they'll never see the following messages"
-        }
-        return "\(creatorDisplayName) set agents to \(mode.transcriptTitle)"
+        return "\(creatorDisplayName) set the participation mode to \"\(mode.title)\""
     case .disappearingMessages:
         guard let rawValue = metadataChange.newValue,
               let retention = Int64(rawValue),
