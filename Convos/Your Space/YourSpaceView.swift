@@ -241,6 +241,7 @@ struct YourSpaceView: View {
                 ExternalAgentOnboardingView(
                     prototypeState: personalAgentState,
                     initialProvider: onboardingInitialProvider,
+                    session: viewModel.session,
                     onConnected: connectPersonalAgent
                 )
             }
@@ -269,6 +270,7 @@ struct YourSpaceView: View {
                 YourSpacePersonalCardEditor(
                     profile: profileSettingsViewModel.profile,
                     profileImage: profileSettingsViewModel.profileImage,
+                    session: viewModel.session,
                     recentContext: briefing.recentUpdates,
                     rememberedFields: $rememberedFields,
                     onShareField: shareRememberedField
@@ -1225,7 +1227,8 @@ private extension YourSpaceView {
 
     private var personalAgentSelectorProviders: [ExternalAgentProvider] {
         var providers = personalAgentState.connectedExternalProviders
-        for provider in AddedExternalAgentStore.providers() where !providers.contains(provider) {
+        for provider in AddedExternalAgentStore.providers(session: viewModel.session)
+            where !providers.contains(provider) {
             providers.append(provider)
         }
         if let activePersonalAgent,
@@ -1355,7 +1358,7 @@ private extension YourSpaceView {
 
     private func connectPersonalAgent(_ provider: ExternalAgentProvider) {
         personalAgentState.connect(provider)
-        AddedExternalAgentStore.remember(provider)
+        AddedExternalAgentStore.remember(provider, session: viewModel.session)
         personalAgentProviderRawValue = provider.rawValue
         if provider == .grokBot,
            let firstAgent = GrokBotConnectionStore.configuration()?.enabledAgents.first {
@@ -1368,7 +1371,7 @@ private extension YourSpaceView {
     private func restorePersonalAgentIfNeeded() {
         personalAgentState.restoreExternalConnections()
         for provider in personalAgentState.connectedExternalProviders {
-            AddedExternalAgentStore.remember(provider)
+            AddedExternalAgentStore.remember(provider, session: viewModel.session)
         }
         if let provider = activePersonalAgent,
            provider.connectionAvailability == .live {

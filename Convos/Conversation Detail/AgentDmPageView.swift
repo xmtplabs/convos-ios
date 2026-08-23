@@ -108,6 +108,7 @@ struct AgentDmPageView: View {
                     selectedLane: selectedLane,
                     prototypeState: prototypeState,
                     conversationId: session.originConversationId,
+                    session: session.originSession,
                     onSelect: onSelectLane
                 )
             }
@@ -475,7 +476,7 @@ struct AgentDmPageView: View {
                 memberContactDetailSheet(for: member, dmVm: dmVm)
             }
             .sheet(isPresented: $dmVm.presentingProfileSettings) {
-                ProfileSetupSheet(mode: .edit)
+                ProfileSetupSheet(mode: .edit, session: dmVm.session)
             }
             .selfSizingSheet(item: $dmVm.presentingReactionsForMessage) { message in
                 reactionsDrawer(for: message, dmVm: dmVm)
@@ -509,8 +510,9 @@ struct AgentDmPageView: View {
         PaywallView(viewModel: paywallViewModel)
     }
 
-    /// The contact card for a tapped avatar. `onStartAgentDm` is nil: the
-    /// only agent reachable from here is the one whose DM this already is.
+    /// The contact card for a tapped avatar. Starting the attributed group
+    /// agent routes back through the origin conversation so this nested DM
+    /// profile behaves like every other member-profile entry point.
     private func memberContactDetailSheet(
         for member: ConversationMember,
         dmVm: ConversationViewModel
@@ -519,7 +521,17 @@ struct AgentDmPageView: View {
             viewModel: dmVm,
             member: member,
             profileSettingsViewModel: profileSettingsViewModel,
-            onStartAgentDm: nil
+            onStartAgentDm: { agentInboxId in
+                dmVm.presentingProfileForMember = nil
+                NotificationCenter.default.post(
+                    name: .selectAgentDmPageRequested,
+                    object: nil,
+                    userInfo: [
+                        "conversationId": session.originConversationId,
+                        "agentInboxId": agentInboxId,
+                    ]
+                )
+            }
         )
     }
 

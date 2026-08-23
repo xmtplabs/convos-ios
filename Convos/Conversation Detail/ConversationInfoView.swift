@@ -165,7 +165,14 @@ struct ConversationInfoView: View {
                 repository: viewModel.makeAgentFilesLinksRepository(),
                 members: viewModel.conversation.members,
                 profileSheetContent: { member in
-                    AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: .shared))
+                    AnyView(
+                        MemberContactDetailSheetContent(
+                            viewModel: viewModel,
+                            member: member,
+                            profileSettingsViewModel: .shared,
+                            onStartAgentDm: startAgentDmAction(for: member)
+                        )
+                    )
                 }
             )
         } label: {
@@ -182,6 +189,24 @@ struct ConversationInfoView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("files-links-row")
+    }
+
+    private func startAgentDmAction(for member: ConversationMember) -> ((String) -> Void)? {
+        guard let groupAgent = viewModel.conversation.groupAgentSetUp(by: member.profile.inboxId) else {
+            return nil
+        }
+        return { agentInboxId in
+            guard agentInboxId == groupAgent.profile.inboxId else { return }
+            viewModel.presentingConversationSettings = false
+            NotificationCenter.default.post(
+                name: .selectAgentDmPageRequested,
+                object: nil,
+                userInfo: [
+                    "conversationId": viewModel.conversation.id,
+                    "agentInboxId": agentInboxId,
+                ]
+            )
+        }
     }
 
     @ViewBuilder

@@ -162,7 +162,7 @@ struct AppSettingsView: View {
             )
             .listRowInsets(.all, DesignConstants.Spacing.step2x)
             .sheet(isPresented: $presentingMyInfoSheet) {
-                ProfileSetupSheet(mode: .edit)
+                ProfileSetupSheet(mode: .edit, session: session)
             }
         } footer: {
             Text("Your name and pic")

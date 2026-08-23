@@ -84,6 +84,12 @@ final class AgentDmSession {
         originViewModel.conversation.id
     }
 
+    /// Active account session used to scope device-local personal-agent
+    /// choices to the current inbox rather than the whole app installation.
+    var originSession: any SessionManagerProtocol {
+        originViewModel.session
+    }
+
     /// True while a join requested from this conversation is still in flight -
     /// the agent isn't a member yet, so there is nothing to bind to. Together
     /// with `agentInboxId` and `dmViewModel` this is what the Agent tab reads

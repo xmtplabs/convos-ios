@@ -294,6 +294,12 @@ struct ConvosApp: App {
         if ProcessInfo.processInfo.environment["CONVOS_AGENT_MODEL_PROTOTYPE"] == "1" {
             AgentModelPrototypeView(coreActions: coreActions)
                 .withSafeAreaEnvironment()
+        } else if ProcessInfo.processInfo.environment["CONVOS_SOCIAL_AGENT_PROFILE_PROTOTYPE"] == "1" {
+            SocialAgentProfilePrototypeView()
+                .withSafeAreaEnvironment()
+        } else if ProcessInfo.processInfo.environment["CONVOS_SOCIAL_AGENT_SETTINGS_PROTOTYPE"] == "1" {
+            SocialAgentProfileSettingsPrototypeView(session: convos.session)
+                .withSafeAreaEnvironment()
         } else if ProcessInfo.processInfo.environment["CONVOS_PERSONAL_CONTEXT_PROTOTYPE"] == "1" {
             PersonalContextShareView(conversationId: "design-review", onShared: { _ in })
                 .withSafeAreaEnvironment()

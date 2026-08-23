@@ -142,8 +142,23 @@ struct ConversationMembersListView: View {
             contactsRepository: contactsRepository
         )
         let onRemove: () -> Void = { viewModel.remove(member: member) }
+        let onStartAgentDm: (String) -> Void = { agentInboxId in
+            viewModel.presentingConversationSettings = false
+            NotificationCenter.default.post(
+                name: .selectAgentDmPageRequested,
+                object: nil,
+                userInfo: [
+                    "conversationId": viewModel.conversation.id,
+                    "agentInboxId": agentInboxId,
+                ]
+            )
+        }
         ContactDetailView(
             contact: resolvedContact,
+            connectedAgentProviderIds: member.profile.connectedAgentProviderIds,
+            groupAgentSetUpByContact: viewModel.conversation.groupAgentSetUp(
+                by: member.profile.inboxId
+            ),
             mode: .scopedToConversation(
                 conversationId: viewModel.conversation.id,
                 canRemoveMembers: viewModel.canRemoveMembers,
@@ -156,7 +171,8 @@ struct ConversationMembersListView: View {
             session: viewModel.session,
             coreActions: viewModel.coreActions,
             showsCloseButton: false,
-            onRemove: onRemove
+            onRemove: onRemove,
+            onStartAgentDm: onStartAgentDm
         )
     }
 }

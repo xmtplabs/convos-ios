@@ -31,6 +31,7 @@ enum ProfileSetupSheetMode {
 struct ProfileSetupSheet: View {
     let mode: ProfileSetupSheetMode
     var onSaved: (() -> Void)?
+    private let session: (any SessionManagerProtocol)?
 
     private let profileSettingsViewModel: ProfileSettingsViewModel = .shared
 
@@ -49,6 +50,9 @@ struct ProfileSetupSheet: View {
     @State private var isCameraPresented: Bool = false
     @State private var hasAgreedToTerms: Bool = true
     @State private var isSaving: Bool = false
+    @State private var showsAgentsOnProfile: Bool
+    @State private var isPublishingAgentVisibility: Bool = false
+    @State private var agentVisibilityError: String?
     /// Whether the user has touched the draft. Gates the one-time reseed
     /// below: a sheet opened before the global profile finished loading is
     /// seeded from default values, and saving that stale draft would clear
@@ -68,14 +72,22 @@ struct ProfileSetupSheet: View {
     /// such gap on any device; the overdraw is otherwise clipped away.
     private static let headerBleedHeight: CGFloat = 400.0
 
-    init(mode: ProfileSetupSheetMode, onSaved: (() -> Void)? = nil) {
+    init(
+        mode: ProfileSetupSheetMode,
+        session: (any SessionManagerProtocol)? = nil,
+        onSaved: (() -> Void)? = nil
+    ) {
         self.mode = mode
+        self.session = session
         self.onSaved = onSaved
         let viewModel = ProfileSettingsViewModel.shared
         _displayName = State(initialValue: viewModel.editingDisplayName)
         _profileImage = State(initialValue: viewModel.profileImage)
         _profileImageAssetIdentifier = State(initialValue: viewModel.profileImageAssetIdentifier)
         _contentHeight = State(initialValue: mode.showsTermsRow ? 398.0 : 343.0)
+        _showsAgentsOnProfile = State(
+            initialValue: session.map { SocialAgentProfileSharing.isEnabled(session: $0) } ?? false
+        )
     }
 
     /// Live preview for the avatar: monogram of the typed name until a
@@ -97,6 +109,7 @@ struct ProfileSetupSheet: View {
         hasName
             && (!mode.showsTermsRow || hasAgreedToTerms)
             && !isSaving
+            && !isPublishingAgentVisibility
     }
 
     var body: some View {
@@ -107,6 +120,9 @@ struct ProfileSetupSheet: View {
                 nameRow
                 if mode.showsTermsRow {
                     termsRow
+                }
+                if mode == .edit, session != nil {
+                    agentVisibilityRow
                 }
                 saveButton
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -149,6 +165,11 @@ struct ProfileSetupSheet: View {
         // which the interactive elements set directly below.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("profile-setup-sheet")
+        .alert("Couldn’t update your profile", isPresented: agentVisibilityErrorBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(agentVisibilityError ?? "Please try again.")
+        }
         .sheet(isPresented: $isImagePickerPresented) {
             PhotoLibraryPicker(
                 preselectedAssetIdentifier: profileImageAssetIdentifier,
@@ -316,6 +337,60 @@ struct ProfileSetupSheet: View {
         .accessibilityIdentifier("profile-setup-save-button")
     }
 
+    private var agentVisibilityRow: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            Toggle(isOn: Binding(
+                get: { showsAgentsOnProfile },
+                set: { newValue in updateAgentVisibility(newValue) }
+            )) {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                    Text("Show what agents I use on my profile in Convos")
+                        .font(.body.weight(.semibold))
+                    Text(showsAgentsOnProfile ? "Visible in your Convos profiles" : "Only you can see your connected agents")
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+            .tint(.colorLava)
+            .disabled(isPublishingAgentVisibility)
+            .frame(minHeight: 44)
+
+            Label(
+                "Only provider names are shared—never prompts, conversations, credentials, context, tools, or activity.",
+                systemImage: "lock.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.colorTextSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(DesignConstants.Spacing.step4x)
+        .background(.colorBackgroundRaised, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
+        .accessibilityIdentifier("profile-setup-agent-visibility")
+    }
+
+    private var agentVisibilityErrorBinding: Binding<Bool> {
+        Binding(
+            get: { agentVisibilityError != nil },
+            set: { if !$0 { agentVisibilityError = nil } }
+        )
+    }
+
+    private func updateAgentVisibility(_ isEnabled: Bool) {
+        guard let session, !isPublishingAgentVisibility else { return }
+        let previousValue = showsAgentsOnProfile
+        showsAgentsOnProfile = isEnabled
+        isPublishingAgentVisibility = true
+        Task { @MainActor in
+            defer { isPublishingAgentVisibility = false }
+            do {
+                try await SocialAgentProfileSharing.publish(isEnabled: isEnabled, session: session)
+            } catch {
+                showsAgentsOnProfile = previousValue
+                agentVisibilityError = "Your privacy setting wasn’t changed. Check your connection and try again."
+            }
+        }
+    }
+
     private func save() {
         guard !isSaving else { return }
         isSaving = true
@@ -344,6 +419,21 @@ struct ProfileSetupSheet: View {
         }
     }
 }
+
+#if DEBUG
+struct SocialAgentProfileSettingsPrototypeView: View {
+    let session: any SessionManagerProtocol
+    @State private var isPresented: Bool = true
+
+    var body: some View {
+        Color.colorBackgroundRaisedSecondary
+            .ignoresSafeArea()
+            .sheet(isPresented: $isPresented) {
+                ProfileSetupSheet(mode: .edit, session: session)
+            }
+    }
+}
+#endif
 
 #Preview("First launch") {
     Color.clear

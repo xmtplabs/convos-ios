@@ -214,6 +214,67 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+// MARK: - Social agent identity
+
+/// The deliberately narrow profile contract for sharing which personal-agent
+/// providers somebody uses. Provider identifiers are global profile metadata,
+/// so they follow the user's profile into every conversation. They never carry
+/// credentials, prompts, requests, context, outputs, or connection state.
+public enum SocialAgentProfileMetadata {
+    public static let visibilityKey: String = "showConnectedAgentProviders"
+    public static let providerIdsKey: String = "connectedAgentProviderIds"
+
+    /// Returns provider ids only after the user has explicitly opted in.
+    /// Unknown ids remain forward-compatible on the wire; the app filters them
+    /// against the providers it knows how to present.
+    public static func providerIds(from metadata: ProfileMetadata?) -> [String] {
+        guard metadata?[visibilityKey]?.boolValue == true,
+              let encoded = metadata?[providerIdsKey]?.stringValue else {
+            return []
+        }
+        var seen: Set<String> = []
+        return encoded
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    /// Mutates a full global metadata map without disturbing unrelated keys.
+    /// Turning sharing off also removes the provider list, keeping the wire
+    /// payload as private as the rendered profile.
+    public static func update(
+        _ metadata: inout ProfileMetadata,
+        isVisible: Bool,
+        providerIds: [String]
+    ) {
+        metadata[visibilityKey] = .bool(isVisible)
+        guard isVisible else {
+            metadata.removeValue(forKey: providerIdsKey)
+            return
+        }
+
+        var seen: Set<String> = []
+        let sanitized = providerIds
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        if sanitized.isEmpty {
+            metadata.removeValue(forKey: providerIdsKey)
+        } else {
+            metadata[providerIdsKey] = .string(sanitized.joined(separator: ","))
+        }
+    }
+}
+
+public extension Profile {
+    /// Personal-agent provider identities this member chose to show in this
+    /// conversation. An empty list means either sharing is off or no provider
+    /// has been connected yet; those states intentionally look identical to
+    /// another member.
+    var connectedAgentProviderIds: [String] {
+        SocialAgentProfileMetadata.providerIds(from: metadata)
+    }
+}
+
 // MARK: - Agent template metadata
 
 extension Profile {

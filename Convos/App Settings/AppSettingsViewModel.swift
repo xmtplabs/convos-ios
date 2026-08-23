@@ -65,6 +65,7 @@ final class AppSettingsViewModel {
         Self.resetConversationDefaults()
         Self.resetConversationsDefaults()
         Self.resetOnboardingDefaults()
+        Self.resetPersonalAgentDefaults()
     }
 
     // The profile singleton holds a writer bound to the old inbox. Delete-all
@@ -89,6 +90,17 @@ final class AppSettingsViewModel {
 
     private static func resetOnboardingDefaults() {
         ConversationOnboardingCoordinator.resetUserDefaults()
+    }
+
+    private static func resetPersonalAgentDefaults() {
+        AddedExternalAgentStore.resetAll()
+        SocialAgentProfileSharing.resetAll()
+        UserDefaults.standard.removeObject(forKey: "your-space-personal-agent-provider")
+        UserDefaults.standard.removeObject(forKey: "your-space-grokbot-agent-id")
+        try? CodexConnectionStore.disconnect()
+        try? TownConnectionStore.disconnect()
+        try? TaskletConnectionStore.disconnect()
+        try? GrokBotConnectionStore.disconnect()
     }
 
     private func runDeletion(onComplete: @escaping () -> Void) async {

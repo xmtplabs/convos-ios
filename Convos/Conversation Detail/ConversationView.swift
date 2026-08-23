@@ -458,7 +458,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private var personalAgentProvidersForSelector: [ExternalAgentProvider] {
         var providers = agentChatPrototypeState.connectedExternalProviders
-        for provider in AddedExternalAgentStore.providers() where !providers.contains(provider) {
+        for provider in AddedExternalAgentStore.providers(session: viewModel.session)
+            where !providers.contains(provider) {
             providers.append(provider)
         }
         if let remembered = ExternalAgentProvider(rawValue: personalAgentProviderRawValue),
@@ -754,12 +755,13 @@ private extension ConversationView {
                 // ProfileSetupSheet owns the full save; no dismiss handler -
                 // the old onProfileSettingsDismissed re-saved from the stale
                 // myProfileViewModel and clobbered the just-saved profile.
-                ProfileSetupSheet(mode: .edit)
+                ProfileSetupSheet(mode: .edit, session: viewModel.session)
             }
             .sheet(item: $messageToSendToAgent) { message in
                 AgentMessageDestinationSheet(
                     lanes: agentChatLanes,
                     prototypeState: agentChatPrototypeState,
+                    session: viewModel.session,
                     onSelect: { lane in
                         openGroupMessage(message, in: lane)
                     }
@@ -1397,17 +1399,25 @@ private extension ConversationView {
         { presentingAddFromContactsPicker = true }
     }
 
-    /// Non-nil only for the agent the Agent tab is bound to (the
-    /// conversation's first verified agent); anyone else falls back to the
-    /// contact card's direct-create path. Hoisted out of the view function
-    /// so it stays a single builder expression.
+    /// Opens the exact verified group agent this person invited. The callback
+    /// belongs to the profiled human, while its argument is the attributed
+    /// agent inbox; keeping those identities separate preserves the action for
+    /// agents that do not carry a reusable template id.
     private func startAgentDmAction(for member: ConversationMember) -> ((String) -> Void)? {
-        guard member.profile.inboxId == primaryAgentInboxId else { return nil }
-        return { _ in
+        guard let groupAgent = viewModel.conversation.groupAgentSetUp(by: member.profile.inboxId) else {
+            return nil
+        }
+        return { agentInboxId in
+            guard agentInboxId == groupAgent.profile.inboxId else { return }
             viewModel.presentingProfileForMember = nil
-            withAnimation(.easeInOut(duration: 0.25)) {
-                selectTab(.agent)
-            }
+            NotificationCenter.default.post(
+                name: .selectAgentDmPageRequested,
+                object: nil,
+                userInfo: [
+                    "conversationId": viewModel.conversation.id,
+                    "agentInboxId": agentInboxId,
+                ]
+            )
         }
     }
 
@@ -1448,7 +1458,14 @@ private extension ConversationView {
     }
 
     private func profileSheetForMember(_ member: ConversationMember) -> AnyView {
-        AnyView(MemberContactDetailSheetContent(viewModel: viewModel, member: member, profileSettingsViewModel: profileSettingsViewModel))
+        AnyView(
+            MemberContactDetailSheetContent(
+                viewModel: viewModel,
+                member: member,
+                profileSettingsViewModel: profileSettingsViewModel,
+                onStartAgentDm: startAgentDmAction(for: member)
+            )
+        )
     }
 
     /// Approval sheet for the pending capability request, opened from the
@@ -1838,6 +1855,10 @@ struct MemberContactDetailSheetContent: View {
             ContactDetailView(
                 contact: resolvedContact,
                 variantStamp: member.profile.variant,
+                connectedAgentProviderIds: member.profile.connectedAgentProviderIds,
+                groupAgentSetUpByContact: viewModel.conversation.groupAgentSetUp(
+                    by: member.profile.inboxId
+                ),
                 mode: .scopedToConversation(
                     conversationId: viewModel.conversation.id,
                     canRemoveMembers: viewModel.canRemoveMembers,

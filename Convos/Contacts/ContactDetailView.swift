@@ -3,6 +3,17 @@ import ConvosCore
 import ConvosMetrics
 import SwiftUI
 
+extension Conversation {
+    /// Verified group agent this person actually invited into the conversation.
+    /// The backend does not expose an abstract ownership field; the inviter is
+    /// the concrete, synchronized signal behind the profile's "set up by" copy.
+    func groupAgentSetUp(by inboxId: String) -> ConversationMember? {
+        members.first { member in
+            member.isVerifiedAgent && member.invitedBy?.inboxId == inboxId
+        }
+    }
+}
+
 // MARK: - Module overview
 //
 // `ContactDetailView` is the single canonical "look at this person" surface
@@ -50,6 +61,12 @@ struct ContactDetailView: View {
     /// chat-side entry point (`nil` elsewhere). Drives the 🧪 variant card on
     /// the agent profile, mirroring the in-chat ribbon.
     let variantStamp: AgentVariantStamp?
+    /// Provider ids this member explicitly published in their conversation-
+    /// scoped profile snapshot. Empty when the member opted out.
+    let connectedAgentProviderIds: [String]
+    /// Verified agent this human invited into the current conversation. The
+    /// inviter relationship is the app's trustworthy "set up by" signal.
+    let groupAgentSetUpByContact: ConversationMember?
     let mode: ContactDetailMode
     /// True when the view should render its own X close button in the
     /// nav-bar's cancellation slot. Sheet entry points (where there is no
@@ -113,8 +130,15 @@ struct ContactDetailView: View {
     @State private var hasPlusSubscription: Bool
     @State private var presentingAgentModelPicker: Bool = false
     @State private var presentingAgentModelPaywall: Bool = false
+    @State private var connectedAgentProviders: [ExternalAgentProvider]
+    @State private var presentingExternalAgentOnboarding: Bool = false
+    @State private var selectedExternalAgentProvider: ExternalAgentProvider?
+    @State private var personalAgentPrototypeState: AgentChatPrototypeState = .init()
+    @State private var isPublishingAgentProfileVisibility: Bool = false
+    @State private var agentProfileVisibilityError: String?
     @State private var navState: ContactCardNavigatorImpl = .init()
     @State private var navigator: ContactCardCollector?
+    @State private var showsAgentsOnProfile: Bool
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -127,6 +151,8 @@ struct ContactDetailView: View {
     init(
         contact: Contact,
         variantStamp: AgentVariantStamp? = nil,
+        connectedAgentProviderIds: [String] = [],
+        groupAgentSetUpByContact: ConversationMember? = nil,
         mode: ContactDetailMode = .standalone,
         contactsWriter: any ContactsWriterProtocol,
         contactsRepository: any ContactsRepositoryProtocol,
@@ -140,6 +166,8 @@ struct ContactDetailView: View {
     ) {
         self.contact = contact
         self.variantStamp = variantStamp
+        self.connectedAgentProviderIds = connectedAgentProviderIds
+        self.groupAgentSetUpByContact = groupAgentSetUpByContact
         self.mode = mode
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
@@ -173,6 +201,15 @@ struct ContactDetailView: View {
                 : nil
         )
         _hasPlusSubscription = State(initialValue: hasPlusSubscription)
+        let publishedProviders = connectedAgentProviderIds.compactMap(ExternalAgentProvider.init(rawValue:))
+        _connectedAgentProviders = State(
+            initialValue: mode.isCurrentUser
+                ? session.map { AddedExternalAgentStore.providers(session: $0) } ?? []
+                : publishedProviders
+        )
+        _showsAgentsOnProfile = State(
+            initialValue: session.map { SocialAgentProfileSharing.isEnabled(session: $0) } ?? false
+        )
     }
 
     var body: some View {
@@ -198,6 +235,9 @@ struct ContactDetailView: View {
             .onAppear {
                 ensureNavigator()
                 navState.markScreenAppeared()
+                if mode.isCurrentUser, let session {
+                    connectedAgentProviders = AddedExternalAgentStore.providers(session: session)
+                }
             }
             .onDisappear {
                 navigator?.closed(context: navState.closeContext())
@@ -241,6 +281,14 @@ struct ContactDetailView: View {
             .sheet(isPresented: $presentingAgentModelPaywall) {
                 agentModelPaywall
             }
+            .fullScreenCover(isPresented: $presentingExternalAgentOnboarding) {
+                ExternalAgentOnboardingView(
+                    prototypeState: personalAgentPrototypeState,
+                    initialProvider: selectedExternalAgentProvider,
+                    session: session,
+                    onConnected: handleConnectedAgentFromProfile
+                )
+            }
             .navigationDestination(item: $pushedConversation) { vm in
                 pushedConversationView(vm)
             }
@@ -257,6 +305,11 @@ struct ContactDetailView: View {
                         ? "This removes the agent from the conversation. It stops responding here, and you can add it back later."
                         : "This removes them from the conversation."
                 )
+            }
+            .alert("Couldn’t update your profile", isPresented: agentProfileVisibilityErrorBinding) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(agentProfileVisibilityError ?? "Please try again.")
             }
     }
 
@@ -401,6 +454,23 @@ struct ContactDetailView: View {
                     .padding(.top, DesignConstants.Spacing.step2x)
                 }
                 headerBadge
+                if showsAgentSocialProfileSection {
+                    AgentSocialProfileSection(
+                        ownerName: contact.resolvedDisplayName,
+                        isCurrentUser: mode.isCurrentUser,
+                        connectedProviders: connectedAgentProviders,
+                        showsAgentsOnProfile: showsAgentsOnProfile,
+                        isPublishingVisibility: isPublishingAgentProfileVisibility,
+                        groupAgent: groupAgentSetUpByContact,
+                        canStartWithGroupAgent: canStartWithGroupAgent,
+                        onVisibilityChange: handleAgentProfileVisibilityChange,
+                        onSelectProvider: presentExternalAgentProvider,
+                        onManageAgents: presentExternalAgentDirectory,
+                        onStartWithGroupAgent: handleStartWithGroupAgent
+                    )
+                    .padding(.top, DesignConstants.Spacing.step8x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                }
                 if !ConfigManager.shared.currentEnvironment.isProduction, let variant = variantStamp {
                     ConversationVariantBanner(variant: variant)
                         .padding(.top, DesignConstants.Spacing.step6x)
@@ -456,7 +526,9 @@ struct ContactDetailView: View {
                 )
                 .padding(
                     .top,
-                    showsAgentModelPrototype
+                    showsAgentSocialProfileSection
+                        ? DesignConstants.Spacing.step6x
+                        : showsAgentModelPrototype
                         ? DesignConstants.Spacing.step6x
                         : DesignConstants.Spacing.step8x
                 )
@@ -472,17 +544,6 @@ struct ContactDetailView: View {
     }
 
     // MARK: - Derived
-
-    private var isVerifiedAgent: Bool {
-        contact.isVerifiedAgent
-    }
-
-    /// The selector is intentionally non-production until the agent runtime
-    /// owns a model catalog and mutation endpoint. This prevents a local-only
-    /// prototype preference from promising a server-side behavior change.
-    private var showsAgentModelPrototype: Bool {
-        isVerifiedAgent && !ConfigManager.shared.currentEnvironment.isProduction
-    }
 
     /// Shows only the context this user explicitly approved for the current
     /// conversation. The prototype store is local and non-production; the
@@ -883,6 +944,100 @@ struct ContactDetailView: View {
     }
 }
 
+// MARK: - Social agent profile orchestration
+
+private extension ContactDetailView {
+    var isVerifiedAgent: Bool {
+        contact.isVerifiedAgent
+    }
+
+    /// The selector is intentionally non-production until the agent runtime
+    /// owns a model catalog and mutation endpoint.
+    var showsAgentModelPrototype: Bool {
+        isVerifiedAgent && !ConfigManager.shared.currentEnvironment.isProduction
+    }
+
+    /// Human profiles surface personal-agent identity only when it has useful
+    /// content. The current user's own profile always shows the opt-in control.
+    var showsAgentSocialProfileSection: Bool {
+        !contact.isAgent
+            && (mode.isCurrentUser
+                || groupAgentSetUpByContact != nil
+                || !connectedAgentProviders.isEmpty)
+    }
+
+    var canStartWithGroupAgent: Bool {
+        guard let groupAgentSetUpByContact else { return false }
+        return groupAgentSetUpByContact.profile.agentTemplateId != nil || onStartAgentDm != nil
+    }
+
+    var agentProfileVisibilityErrorBinding: Binding<Bool> {
+        Binding(
+            get: { agentProfileVisibilityError != nil },
+            set: { if !$0 { agentProfileVisibilityError = nil } }
+        )
+    }
+
+    func handleAgentProfileVisibilityChange(_ isEnabled: Bool) {
+        guard let session, !isPublishingAgentProfileVisibility else { return }
+        let previousValue = showsAgentsOnProfile
+        showsAgentsOnProfile = isEnabled
+        isPublishingAgentProfileVisibility = true
+        Task { @MainActor in
+            defer { isPublishingAgentProfileVisibility = false }
+            do {
+                try await SocialAgentProfileSharing.publish(isEnabled: isEnabled, session: session)
+            } catch {
+                showsAgentsOnProfile = previousValue
+                agentProfileVisibilityError = "Your privacy setting wasn’t changed. Check your connection and try again."
+                Log.error("Failed updating social agent profile visibility: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func presentExternalAgentProvider(_ provider: ExternalAgentProvider) {
+        selectedExternalAgentProvider = provider
+        presentingExternalAgentOnboarding = true
+    }
+
+    func presentExternalAgentDirectory() {
+        selectedExternalAgentProvider = nil
+        presentingExternalAgentOnboarding = true
+    }
+
+    func handleConnectedAgentFromProfile(_ provider: ExternalAgentProvider) {
+        guard let session else { return }
+        AddedExternalAgentStore.remember(provider, session: session)
+        connectedAgentProviders = AddedExternalAgentStore.providers(session: session)
+        selectedExternalAgentProvider = nil
+        presentingExternalAgentOnboarding = false
+    }
+
+    func handleStartWithGroupAgent() {
+        guard let groupAgentSetUpByContact else { return }
+        if let templateId = groupAgentSetUpByContact.profile.agentTemplateId,
+           let session {
+            let optimisticIdentity = AgentShareInfo(
+                templateId: templateId,
+                displayName: groupAgentSetUpByContact.displayName,
+                emoji: groupAgentSetUpByContact.profile.profileEmoji,
+                descriptionText: groupAgentSetUpByContact.profile.agentDescription,
+                avatarURL: groupAgentSetUpByContact.profile.avatar
+            )
+            presentingNewConvo = NewConversationViewModel(
+                session: session,
+                mode: .newConversationWithTemplate(
+                    templateId: templateId,
+                    optimisticIdentity: optimisticIdentity
+                ),
+                coreActions: coreActions
+            )
+            return
+        }
+        onStartAgentDm?(groupAgentSetUpByContact.profile.inboxId)
+    }
+}
+
 // MARK: - Header
 
 private struct ContactDetailHeader: View {
@@ -897,6 +1052,229 @@ private struct ContactDetailHeader: View {
                 .font(.largeTitle.weight(.bold))
                 .foregroundStyle(.colorTextPrimary)
         }
+    }
+}
+
+// MARK: - Social agent identity
+
+/// A human profile's intentionally narrow agent identity: who set up this
+/// conversation's verified group agent, and which personal-agent providers
+/// the member explicitly chose to show. The content is useful social proof,
+/// never a window into an agent's private work.
+private struct AgentSocialProfileSection: View {
+    let ownerName: String
+    let isCurrentUser: Bool
+    let connectedProviders: [ExternalAgentProvider]
+    let showsAgentsOnProfile: Bool
+    let isPublishingVisibility: Bool
+    let groupAgent: ConversationMember?
+    let canStartWithGroupAgent: Bool
+    let onVisibilityChange: (Bool) -> Void
+    let onSelectProvider: (ExternalAgentProvider) -> Void
+    let onManageAgents: () -> Void
+    let onStartWithGroupAgent: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step8x) {
+            if let groupAgent {
+                groupAgentSection(groupAgent)
+            }
+            if isCurrentUser || !connectedProviders.isEmpty {
+                connectedAgentsSection
+            }
+        }
+    }
+
+    private func groupAgentSection(_ agent: ConversationMember) -> some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            Text("Group agent")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.colorTextPrimary)
+
+            VStack(spacing: 0) {
+                HStack(alignment: .center, spacing: DesignConstants.Spacing.step3x) {
+                    MessageAvatarView(
+                        profile: agent.profile,
+                        size: 48,
+                        agentVerification: agent.agentVerification
+                    )
+                    .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                        Text(agent.displayName)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.colorTextPrimary)
+                        Text("\(isCurrentUser ? "You" : ownerName) set up \(agent.displayName) for this convo.")
+                            .font(.footnote)
+                            .foregroundStyle(.colorTextSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(DesignConstants.Spacing.step4x)
+
+                if canStartWithGroupAgent {
+                    Divider()
+                        .padding(.leading, 76)
+                    Button(action: onStartWithGroupAgent) {
+                        HStack(spacing: DesignConstants.Spacing.step2x) {
+                            Text("Start with \(agent.displayName)")
+                                .font(.body.weight(.semibold))
+                            Spacer(minLength: 0)
+                            Image(systemName: "arrow.up.right")
+                                .font(.body.weight(.semibold))
+                                .accessibilityHidden(true)
+                        }
+                        .foregroundStyle(.colorTextPrimary)
+                        .frame(minHeight: 52)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Starts a private conversation with this agent")
+                    .accessibilityIdentifier("contact-detail-start-group-agent")
+                }
+            }
+            .background(.colorBackgroundRaised, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
+        }
+    }
+
+    private var connectedAgentsSection: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Connected agents")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.colorTextPrimary)
+                Spacer(minLength: 0)
+                if !connectedProviders.isEmpty {
+                    Text("\(connectedProviders.count)")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+
+            VStack(spacing: 0) {
+                if isCurrentUser {
+                    profileVisibilityRow
+                    Divider()
+                        .padding(.leading, DesignConstants.Spacing.step4x)
+                }
+
+                ForEach(Array(connectedProviders.enumerated()), id: \.element.id) { index, provider in
+                    if index > 0 {
+                        Divider()
+                            .padding(.leading, 72)
+                    }
+                    providerRow(provider)
+                }
+
+                if !connectedProviders.isEmpty {
+                    Divider()
+                        .padding(.leading, DesignConstants.Spacing.step4x)
+                }
+                manageAgentsRow
+            }
+            .background(.colorBackgroundRaised, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
+
+            if !isCurrentUser {
+                Text("Provider names only. Their prompts, activity, context, and conversations stay private.")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, DesignConstants.Spacing.step2x)
+            }
+        }
+    }
+
+    private var profileVisibilityRow: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            Toggle(isOn: Binding(
+                get: { showsAgentsOnProfile },
+                set: { newValue in
+                    onVisibilityChange(newValue)
+                }
+            )) {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                    Text("Show what agents I use on my profile in Convos")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                    Text(showsAgentsOnProfile ? "Visible in your Convos profiles" : "Only you can see this list")
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+            .tint(.colorLava)
+            .disabled(isPublishingVisibility)
+            .frame(minHeight: 44)
+
+            Label {
+                Text("This never shares anything about your agents—only the provider names you choose to show.")
+            } icon: {
+                Image(systemName: "lock.fill")
+            }
+            .font(.caption)
+            .foregroundStyle(.colorTextSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(DesignConstants.Spacing.step4x)
+        .accessibilityIdentifier("contact-detail-agent-profile-visibility")
+    }
+
+    private func providerRow(_ provider: ExternalAgentProvider) -> some View {
+        Button {
+            onSelectProvider(provider)
+        } label: {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                ExternalAgentProviderBadge(provider: provider, size: 44)
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                    Text(provider.displayName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                    Text(provider.shortDescription)
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: DesignConstants.Spacing.step2x)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.colorTextTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .frame(minHeight: 64)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens the \(provider.displayName) connection details")
+        .accessibilityIdentifier("contact-detail-connected-agent-\(provider.rawValue)")
+    }
+
+    private var manageAgentsRow: some View {
+        Button(action: onManageAgents) {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                Image(systemName: "plus")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .frame(width: 44, height: 44)
+                    .background(.colorFillPrimary, in: .circle)
+                    .accessibilityHidden(true)
+                Text(isCurrentUser ? "Manage personal agents" : "Set up your own personal agents")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.up.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.colorTextTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .frame(minHeight: 64)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens Bring any agent to Convos")
+        .accessibilityIdentifier("contact-detail-manage-personal-agents")
     }
 }
 
@@ -1510,6 +1888,63 @@ extension Contact {
         .with(agentAttestation: attestation)
     }
 }
+
+#if DEBUG
+/// Deterministic launch fixture for simulator design review. It exercises the
+/// real contact-detail hierarchy without requiring a signed-in account or
+/// publishing prototype metadata.
+struct SocialAgentProfilePrototypeView: View {
+    private let groupAgent: ConversationMember = ConversationMember(
+        profile: Profile(
+            inboxId: "fixture-maple-agent",
+            conversationId: "fixture-nashville-boys",
+            name: "Maple",
+            avatar: nil,
+            isAgent: true
+        ),
+        role: .member,
+        isCurrentUser: false,
+        isAgent: true,
+        agentVerification: .verified(.convos),
+        invitedBy: Profile(
+            inboxId: "fixture-shane",
+            conversationId: "fixture-nashville-boys",
+            name: "Shane Mac",
+            avatar: nil
+        ),
+        joinedAt: Date().addingTimeInterval(-5 * 24 * 60 * 60)
+    )
+
+    var body: some View {
+        NavigationStack {
+            ContactDetailView(
+                contact: .mock(
+                    inboxId: "fixture-shane",
+                    displayName: "Shane Mac",
+                    addedViaConversationId: "fixture-nashville-boys"
+                ),
+                connectedAgentProviderIds: [
+                    ExternalAgentProvider.codex.rawValue,
+                    ExternalAgentProvider.town.rawValue,
+                    ExternalAgentProvider.grokBot.rawValue,
+                ],
+                groupAgentSetUpByContact: groupAgent,
+                mode: .scopedToConversation(
+                    conversationId: "fixture-nashville-boys",
+                    canRemoveMembers: false,
+                    isCurrentUser: false,
+                    invitedBy: Profile.mock(name: "Saul"),
+                    joinedAt: Date().addingTimeInterval(-5 * 24 * 60 * 60)
+                ),
+                contactsWriter: MockContactsWriter(),
+                contactsRepository: MockContactsRepository(),
+                coreActions: NoOpCoreActions(),
+                onStartAgentDm: { _ in }
+            )
+        }
+    }
+}
+#endif
 
 #Preview("Default") {
     NavigationStack {

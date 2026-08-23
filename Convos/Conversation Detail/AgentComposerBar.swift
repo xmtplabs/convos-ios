@@ -78,6 +78,7 @@ struct AgentComposerBar: View {
                 selectedLane: selectedLane,
                 prototypeState: state,
                 conversationId: conversationId,
+                session: session.originSession,
                 onSelect: onSelectLane
             )
         }

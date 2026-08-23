@@ -80,6 +80,16 @@ struct AttachmentPreviewSheet: View {
         .onChange(of: presentingProfileForMember) { oldMember, newMember in
             handleMemberSheetChanged(from: oldMember, to: newMember)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { _ in
+            guard presentingProfileForMember != nil else { return }
+            presentingProfileForMember = nil
+            // The sender profile is presented over this attachment sheet.
+            // Unwind it first, then the preview, so the newly selected agent
+            // lane is the screen the person lands on.
+            DispatchQueue.main.async {
+                dismiss()
+            }
+        }
     }
 
     private var canShareAttachment: Bool {

@@ -847,6 +847,7 @@ private struct YourSpaceUsefulDetailCard: View {
 struct YourSpacePersonalCardEditor: View {
     let profile: Profile
     let profileImage: UIImage?
+    let session: any SessionManagerProtocol
     let recentContext: [YourSpaceUpdate]
     @Binding var rememberedFields: [YourSpaceRememberedField]
     let onShareField: (YourSpaceRememberedField) -> Void
@@ -953,7 +954,7 @@ struct YourSpacePersonalCardEditor: View {
             }
         }
         .sheet(isPresented: $presentingProfileEditor) {
-            ProfileSetupSheet(mode: .edit)
+            ProfileSetupSheet(mode: .edit, session: session)
         }
         .sheet(
             isPresented: $presentingFieldEditor,

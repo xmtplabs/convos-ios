@@ -753,6 +753,7 @@ struct AgentSwitcherSheet: View {
     let selectedLane: AgentChatLane
     let prototypeState: AgentChatPrototypeState
     let conversationId: String
+    let session: any SessionManagerProtocol
     let onSelect: (AgentChatLane) -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -883,9 +884,10 @@ struct AgentSwitcherSheet: View {
             ExternalAgentOnboardingView(
                 prototypeState: prototypeState,
                 initialProvider: reconnectProvider,
+                session: session,
                 onConnected: { provider in
                     prototypeState.connect(provider)
-                    AddedExternalAgentStore.remember(provider)
+                    AddedExternalAgentStore.remember(provider, session: session)
                     let lane: AgentChatLane?
                     if provider == .grokBot {
                         lane = GrokBotConnectionStore.configuration()?.enabledAgents.first.map(AgentChatLane.grokBot)
@@ -975,6 +977,7 @@ struct AgentSwitcherSheet: View {
 struct AgentMessageDestinationSheet: View {
     let lanes: [AgentChatLane]
     let prototypeState: AgentChatPrototypeState
+    let session: any SessionManagerProtocol
     let onSelect: (AgentChatLane) -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -1033,9 +1036,10 @@ struct AgentMessageDestinationSheet: View {
             ExternalAgentOnboardingView(
                 prototypeState: prototypeState,
                 initialProvider: reconnectProvider,
+                session: session,
                 onConnected: { provider in
                     prototypeState.connect(provider)
-                    AddedExternalAgentStore.remember(provider)
+                    AddedExternalAgentStore.remember(provider, session: session)
                     let connectedLane: AgentChatLane?
                     if provider == .grokBot {
                         connectedLane = GrokBotConnectionStore.configuration()?

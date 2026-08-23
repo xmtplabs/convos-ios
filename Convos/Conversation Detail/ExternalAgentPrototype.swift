@@ -1,4 +1,5 @@
 import ConvosComposer
+import ConvosCore
 import Foundation
 import SwiftUI
 
@@ -205,24 +206,67 @@ enum ExternalAgentConnectionAvailability: Equatable {
     case comingSoon
 }
 
+/// Shared provider mark used by setup and the social profile surface. Keeping
+/// the same shape, symbol, and tint makes a provider tapped on somebody's
+/// profile immediately recognizable on the connection screen it opens.
+struct ExternalAgentProviderBadge: View {
+    let provider: ExternalAgentProvider
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: provider.symbolName)
+            .font(.system(size: size * 0.36, weight: .semibold))
+            .foregroundStyle(Color.white)
+            .frame(width: size, height: size)
+            .background(provider.tint, in: .circle)
+            .accessibilityHidden(true)
+    }
+}
+
 /// Remembers providers the user has deliberately added independently of their
 /// current credential state, so a disconnected agent stays in native pickers
 /// and routes back through setup instead of silently disappearing.
 enum AddedExternalAgentStore {
-    private static let key: String = "external-agents.added-providers"
+    private static let keyPrefix: String = "external-agents.added-providers"
 
-    static func providers(defaults: UserDefaults = .standard) -> [ExternalAgentProvider] {
+    static func providers(
+        session: any SessionManagerProtocol,
+        defaults: UserDefaults = .standard
+    ) -> [ExternalAgentProvider] {
+        guard let key = scopedKey(session: session) else { return [] }
         let remembered = Set(defaults.stringArray(forKey: key) ?? [])
         return ExternalAgentProvider.allCases.filter {
             $0.connectionAvailability == .live && remembered.contains($0.rawValue)
         }
     }
 
-    static func remember(_ provider: ExternalAgentProvider, defaults: UserDefaults = .standard) {
-        guard provider.connectionAvailability == .live else { return }
+    static func remember(
+        _ provider: ExternalAgentProvider,
+        session: any SessionManagerProtocol,
+        defaults: UserDefaults = .standard
+    ) {
+        guard provider.connectionAvailability == .live,
+              let key = scopedKey(session: session) else { return }
         var values = Set(defaults.stringArray(forKey: key) ?? [])
         values.insert(provider.rawValue)
         defaults.set(Array(values).sorted(), forKey: key)
+    }
+
+    /// Delete-all creates a new inbox. Identity-scoped keys already prevent
+    /// inheritance, and clearing the old values avoids retaining abandoned
+    /// provider choices on the device.
+    static func resetAll(defaults: UserDefaults = .standard) {
+        for key in defaults.dictionaryRepresentation().keys
+            where key == keyPrefix || key.hasPrefix("\(keyPrefix).") {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    private static func scopedKey(session: any SessionManagerProtocol) -> String? {
+        guard case .authorized(let inboxId) = session.messagingServiceSync().state else {
+            return nil
+        }
+        return "\(keyPrefix).\(inboxId)"
     }
 }
 
@@ -249,18 +293,27 @@ struct ExternalAgentAccess: Equatable {
 struct ExternalAgentOnboardingView: View {
     let prototypeState: AgentChatPrototypeState
     let onConnected: (ExternalAgentProvider) -> Void
+    private let session: (any SessionManagerProtocol)?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var selectedProvider: ExternalAgentProvider?
+    @State private var isPublishingProfileVisibility: Bool = false
+    @State private var profileVisibilityError: String?
+    @State private var showsAgentsOnProfile: Bool
 
     init(
         prototypeState: AgentChatPrototypeState,
         initialProvider: ExternalAgentProvider? = nil,
+        session: (any SessionManagerProtocol)? = nil,
         onConnected: @escaping (ExternalAgentProvider) -> Void
     ) {
         self.prototypeState = prototypeState
+        self.session = session
         self.onConnected = onConnected
         _selectedProvider = State(initialValue: initialProvider)
+        _showsAgentsOnProfile = State(
+            initialValue: session.map { SocialAgentProfileSharing.isEnabled(session: $0) } ?? false
+        )
     }
 
     var body: some View {
@@ -268,6 +321,7 @@ struct ExternalAgentOnboardingView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step8x) {
                     introduction
+                    profileVisibilityCard
                     providerList
                     privacyNote
                 }
@@ -283,6 +337,11 @@ struct ExternalAgentOnboardingView: View {
             }
             .navigationDestination(item: $selectedProvider) { provider in
                 connectionView(provider)
+            }
+            .alert("Couldn’t update your profile", isPresented: profileVisibilityErrorBinding) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(profileVisibilityError ?? "Please try again.")
             }
         }
         .environment(\.colorScheme, .light)
@@ -317,12 +376,47 @@ struct ExternalAgentOnboardingView: View {
                 }
 
             ForEach(Array(ExternalAgentProvider.allCases.enumerated()), id: \.element.id) { index, provider in
-                providerBadge(provider, size: 44)
+                ExternalAgentProviderBadge(provider: provider, size: 44)
                     .offset(constellationOffset(at: index))
             }
         }
         .frame(height: 152)
         .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var profileVisibilityCard: some View {
+        if session != nil {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+                Toggle(isOn: profileVisibilityBinding) {
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                        Text("Show what agents I use on my profile in Convos")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.colorTextPrimary)
+                        Text(showsAgentsOnProfile ? "Visible in your Convos profiles" : "Only you can see your connected agents")
+                            .font(.footnote)
+                            .foregroundStyle(.colorTextSecondary)
+                    }
+                }
+                .tint(.colorLava)
+                .disabled(isPublishingProfileVisibility)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("external-agent-profile-visibility-toggle")
+
+                HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
+                    Image(systemName: "lock.fill")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.colorTextSecondary)
+                        .frame(width: 20)
+                    Text("This only shows provider names. Your prompts, conversations, credentials, context, tools, and agent activity are never shared.")
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(DesignConstants.Spacing.step4x)
+            .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: 16))
+        }
     }
 
     private var providerList: some View {
@@ -332,7 +426,7 @@ struct ExternalAgentOnboardingView: View {
                     selectedProvider = provider
                 } label: {
                     HStack(spacing: DesignConstants.Spacing.step3x) {
-                        providerBadge(provider, size: 46)
+                        ExternalAgentProviderBadge(provider: provider, size: 46)
                         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                             Text(provider.displayName)
                                 .font(.body.weight(.semibold))
@@ -379,19 +473,19 @@ struct ExternalAgentOnboardingView: View {
     private func connectionView(_ provider: ExternalAgentProvider) -> some View {
         if provider == .codex {
             CodexConnectionSetupView {
-                onConnected(.codex)
+                completeConnection(.codex)
             }
         } else if provider == .town {
             TownConnectionSetupView {
-                onConnected(.town)
+                completeConnection(.town)
             }
         } else if provider == .tasklet {
             TaskletConnectionSetupView {
-                onConnected(.tasklet)
+                completeConnection(.tasklet)
             }
         } else if provider == .grokBot {
             GrokBotConnectionSetupView {
-                onConnected(.grokBot)
+                completeConnection(.grokBot)
             }
         } else {
             demoConnectionView(provider)
@@ -402,7 +496,7 @@ struct ExternalAgentOnboardingView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step8x) {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-                    providerBadge(provider, size: 68)
+                    ExternalAgentProviderBadge(provider: provider, size: 68)
                     Text(provider.connectionTitle)
                         .font(.largeTitle.bold())
                         .tracking(-0.8)
@@ -463,12 +557,50 @@ struct ExternalAgentOnboardingView: View {
         }
     }
 
-    private func providerBadge(_ provider: ExternalAgentProvider, size: CGFloat) -> some View {
-        Image(systemName: provider.symbolName)
-            .font(.system(size: size * 0.36, weight: .semibold))
-            .foregroundStyle(Color.white)
-            .frame(width: size, height: size)
-            .background(provider.tint, in: .circle)
+    private var profileVisibilityBinding: Binding<Bool> {
+        Binding(
+            get: { showsAgentsOnProfile },
+            set: { newValue in
+                handleProfileVisibilityChange(newValue)
+            }
+        )
+    }
+
+    private var profileVisibilityErrorBinding: Binding<Bool> {
+        Binding(
+            get: { profileVisibilityError != nil },
+            set: { if !$0 { profileVisibilityError = nil } }
+        )
+    }
+
+    private func handleProfileVisibilityChange(_ isEnabled: Bool) {
+        guard let session, !isPublishingProfileVisibility else { return }
+        let previousValue = showsAgentsOnProfile
+        showsAgentsOnProfile = isEnabled
+        isPublishingProfileVisibility = true
+        Task { @MainActor in
+            defer { isPublishingProfileVisibility = false }
+            do {
+                try await SocialAgentProfileSharing.publish(
+                    isEnabled: isEnabled,
+                    session: session
+                )
+            } catch {
+                showsAgentsOnProfile = previousValue
+                profileVisibilityError = "Your privacy setting wasn’t changed. Check your connection and try again."
+                Log.error("Failed updating social agent profile visibility: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func completeConnection(_ provider: ExternalAgentProvider) {
+        if let session {
+            AddedExternalAgentStore.remember(provider, session: session)
+            Task { @MainActor in
+                await SocialAgentProfileSharing.republishIfEnabled(session: session)
+            }
+        }
+        onConnected(provider)
     }
 
     private func constellationOffset(at index: Int) -> CGSize {
