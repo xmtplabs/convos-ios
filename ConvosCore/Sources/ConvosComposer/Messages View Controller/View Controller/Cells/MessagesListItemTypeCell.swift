@@ -160,10 +160,11 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         .padding(.vertical, DesignConstants.Spacing.step4x)
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
 
-                case let .agentDmInfo(_, variant):
-                    // No longer inserted - the DM's disclosure is the page's
-                    // empty state now. Kept so the case stays exhaustive.
-                    AgentDmEmptyStateView(variant: variant)
+                case .groupEmptyState, .agentDmInfo:
+                    MessagesEmptyStateCellContent(
+                        item: item,
+                        onInvitePeople: config.onInvitePeople
+                    )
 
                 case .typingIndicator:
                     EmptyView()

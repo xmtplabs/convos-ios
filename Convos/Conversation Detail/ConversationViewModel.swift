@@ -4969,6 +4969,14 @@ extension ConversationViewModel {
             return !group.messages.isEmpty
         }
     }
+
+    /// Whether the messages list has any item at all - a real message or a
+    /// system item (join status, agent presence, "earlier messages are
+    /// hidden"). Used to gate a tab's empty-state item so it is replaced as
+    /// soon as anything else renders in the list.
+    var hasAnyMessagesListItems: Bool {
+        !messages.isEmpty
+    }
 }
 
 // MARK: - Reactions

@@ -38,6 +38,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onDeleteMessage: ((AnyMessage) -> Void)? { get set }
     var onRetryAgentJoin: (() -> Void)? { get set }
     var onInviteAgent: (() -> Void)? { get set }
+    var onInvitePeople: (() -> Void)? { get set }
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)? { get set }
     var memberContactOverride: ((String) -> Contact?)? { get set }
     var isAgentJoinPending: Bool { get set }
