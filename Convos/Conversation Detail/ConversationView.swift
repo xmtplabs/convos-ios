@@ -129,6 +129,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.agentRelayDependencies) private var agentRelayDependencies: AgentRelayDependencies?
     @State private var agentChatDraft: AgentChatDraft?
+    @State private var isApplyingComposerDraft: Bool = false
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -539,6 +540,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     var body: some View {
         conversationPresentations(conversationCore)
         .onChange(of: viewModel.messageText) { _, _ in
+            // A staged draft can contain a URL but was not pasted by the user.
+            guard !isApplyingComposerDraft else {
+                isApplyingComposerDraft = false
+                return
+            }
             viewModel.checkForInviteURL()
             viewModel.checkForAgentShareURL()
             viewModel.checkForPastedLink()
@@ -547,7 +553,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear {
             ensureNavigator()
-            viewModel.applyPendingComposerDraft()
+            applyPendingComposerDraft()
             navState.markScreenAppeared()
             updateGroupOnScreen(isOnScreen: true)
             // Seed before the viewed check: a DM-notification open lands
@@ -573,7 +579,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { notification in
             let conversationId: String? = notification.userInfo?["conversationId"] as? String
             if conversationId == viewModel.conversation.id {
-                viewModel.applyPendingComposerDraft()
+                applyPendingComposerDraft()
             }
         }
         .onDisappear {
@@ -603,6 +609,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onDisappear {
             VoiceMemoPlayer.shared.stop()
             viewModel.voiceMemoRecorder.cancelRecording()
+        }
+    }
+
+    private func applyPendingComposerDraft() {
+        let previousText = viewModel.messageText
+        isApplyingComposerDraft = true
+        viewModel.applyPendingComposerDraft()
+        if viewModel.messageText == previousText {
+            isApplyingComposerDraft = false
         }
     }
 }

@@ -146,10 +146,24 @@ final class AgentChatViewModelTests: XCTestCase {
         XCTAssertEqual(turns.first?.prompt, failedTurn.prompt)
     }
 
-    func testClearHistoryAcknowledgesAndDeletesAllSettledRowsBeyondTranscriptLimit() async throws {
+    func testClearHistoryDeletesSettledRowsBeyondTranscriptLimitAndRetainsSupersededRows() async throws {
         let fixture = try AgentChatViewModelFixture()
-        let requestIds: [String] = (0 ..< 250).map { "request_clear_\($0)" }
-        for requestId in requestIds {
+        let settledStatuses: [AgentTurnStatus] = [.completed, .failed, .expired, .collectedElsewhere]
+        let settledRequestIds: [String] = (0 ..< 250).map { "request_clear_\($0)" }
+        let supersededRequestIds: [String] = (0 ..< 50).map { "request_superseded_\($0)" }
+        var completedRequestIds: Set<String> = []
+        for (index, requestId) in settledRequestIds.enumerated() {
+            let status = settledStatuses[index % settledStatuses.count]
+            if status == .completed {
+                completedRequestIds.insert(requestId)
+            }
+            try fixture.insertPending(makeAgentChatTurn(
+                requestId: requestId,
+                provider: .town,
+                status: status
+            ))
+        }
+        for requestId in supersededRequestIds {
             try fixture.insertPending(makeAgentChatTurn(
                 requestId: requestId,
                 provider: .town,
@@ -162,12 +176,13 @@ final class AgentChatViewModelTests: XCTestCase {
         viewModel.clearHistory()
 
         let deadline = Date().addingTimeInterval(2)
-        while await fixture.api.acknowledgedRequestIds.count < requestIds.count, Date() < deadline {
+        while try fixture.repository.turns(limit: .max).count > supersededRequestIds.count, Date() < deadline {
             try await Task.sleep(nanoseconds: 1_000_000)
         }
         let acknowledgedRequestIds = await fixture.api.acknowledgedRequestIds
-        XCTAssertEqual(Set(acknowledgedRequestIds), Set(requestIds))
-        XCTAssertTrue(try fixture.repository.turns(limit: .max).isEmpty)
+        let remainingRequestIds = Set(try fixture.repository.turns(limit: .max).map(\.requestId))
+        XCTAssertEqual(Set(acknowledgedRequestIds), completedRequestIds)
+        XCTAssertEqual(remainingRequestIds, Set(supersededRequestIds))
     }
 
     func testClearHistoryRetainsOnlyTheRowWhoseAcknowledgementFails() async throws {
@@ -178,7 +193,7 @@ final class AgentChatViewModelTests: XCTestCase {
             try fixture.insertPending(makeAgentChatTurn(
                 requestId: requestId,
                 provider: .town,
-                status: .superseded
+                status: .completed
             ))
         }
         let viewModel = fixture.makeViewModel(provider: .town)

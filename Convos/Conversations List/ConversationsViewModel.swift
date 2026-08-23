@@ -780,7 +780,7 @@ final class ConversationsViewModel {
         if conversationInPage(id: id) == nil {
             outOfWindowSelectedConversation = conversation
         }
-        selectedInitialAgentDmInboxId = agentDmInboxIdForMostRecentUnread(in: conversation)
+        selectedInitialAgentDmInboxId = nil
         selectedConversationId = id
         return true
     }

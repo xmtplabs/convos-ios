@@ -113,19 +113,19 @@ public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderRe
         try database.pool.read { db in
             try AgentTurn
                 .filter(Column("provider") == provider.rawValue)
-                .filter(Column("status") != AgentTurnStatus.pending.rawValue)
+                .filter(Constant.settledStatusValues.contains(Column("status")))
                 .order(Column("createdAt").asc)
                 .fetchAll(db)
         }
     }
 
     /// Deletes one finished row after any required mailbox acknowledgement.
-    /// A row that became pending is retained.
+    /// A row that became pending or superseded is retained.
     public func deleteSettledTurn(requestId: String) throws {
         try database.pool.write { db in
             _ = try AgentTurn
                 .filter(Column("requestId") == requestId)
-                .filter(Column("status") != AgentTurnStatus.pending.rawValue)
+                .filter(Constant.settledStatusValues.contains(Column("status")))
                 .deleteAll(db)
         }
     }
@@ -149,5 +149,11 @@ public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderRe
 
     private enum Constant {
         static let collectedElsewherePrompt: String = "(completed on another device)"
+        static let settledStatusValues: [String] = [
+            AgentTurnStatus.completed,
+            AgentTurnStatus.failed,
+            AgentTurnStatus.expired,
+            AgentTurnStatus.collectedElsewhere,
+        ].map(\.rawValue)
     }
 }

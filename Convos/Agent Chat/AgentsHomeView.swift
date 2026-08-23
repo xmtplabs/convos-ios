@@ -46,9 +46,17 @@ struct AgentsHomeView: View {
     }
 
     private func reloadConnections() {
-        connectedProviders = Set(ExternalAgentProvider.allCases.filter { provider in
-            (try? dependencies.connectionStore.load(provider: provider)) != nil
-        })
+        var loadedProviders: Set<ExternalAgentProvider> = []
+        do {
+            for provider in ExternalAgentProvider.allCases
+                where try dependencies.connectionStore.load(provider: provider) != nil {
+                loadedProviders.insert(provider)
+            }
+        } catch {
+            Log.error("Failed to reload agent connections: \(error.localizedDescription)")
+            return
+        }
+        connectedProviders = loadedProviders
     }
 }
 

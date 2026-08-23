@@ -136,6 +136,38 @@ final class ConversationsViewModelDeleteTests: XCTestCase {
         XCTAssertEqual(viewModel.selectedConversation?.id, conversation.id)
     }
 
+    func testGroupNotificationRouteClearsPreviouslySelectedAgentDm() {
+        var conversationWithAgentDm = Conversation.mock(id: "conv-with-agent-dm", name: "Agent convo")
+        conversationWithAgentDm.agentDm = Conversation.AgentDmSummary(
+            inboxId: "agent-inbox",
+            displayName: "Agent",
+            lastMessage: nil,
+            isUnread: true
+        )
+        var groupConversation = Conversation.mock(id: "conv-group-notification", name: "Group convo")
+        groupConversation.agentDm = Conversation.AgentDmSummary(
+            inboxId: "group-agent-inbox",
+            displayName: "Group agent",
+            lastMessage: nil,
+            isUnread: true
+        )
+        let pager = MockConversationsPager(conversationsById: [groupConversation.id: groupConversation])
+        let session = TestSessionManager(
+            base: MockInboxesService(),
+            messagingService: MockMessagingService(),
+            conversationsPager: pager
+        )
+        let viewModel = ConversationsViewModel(session: session)
+        viewModel.select(conversationWithAgentDm)
+        XCTAssertEqual(viewModel.selectedInitialAgentDmInboxId, "agent-inbox")
+
+        let routed = viewModel.routeToTappedConversation(groupConversation.id)
+
+        XCTAssertTrue(routed)
+        XCTAssertNil(viewModel.selectedInitialAgentDmInboxId)
+        XCTAssertEqual(viewModel.selectedConversationId, groupConversation.id)
+    }
+
     // MARK: - Helpers
 
     private func waitUntil(

@@ -131,18 +131,18 @@ final class AgentChatViewModel {
     /// clear, so the menu item is disabled rather than opening a dialog that
     /// would delete nothing.
     var hasClearableHistory: Bool {
-        turns.contains { $0.status != .pending }
+        turns.contains { turn in
+            turn.status != .pending && turn.status != .superseded
+        }
     }
 
     /// Drops this provider's finished transcript rows and releases the mailboxes
     /// the backend is still holding for them, so a cleared history cannot come
-    /// back on the next launch. The turn still in flight is left alone.
+    /// back on the next launch. Pending and superseded turns are left alone.
     ///
-    /// Two states can still own a live mailbox when they are deleted: a
-    /// completed turn whose ack never landed, and a superseded one, which was
-    /// never acked at all because the agent may still answer it. Both are acked
-    /// here; the rest (failed, expired, collected elsewhere) have no mailbox
-    /// left to release.
+    /// A completed turn whose ack never landed can still own a live mailbox, so
+    /// it is acknowledged before deletion. Failed, expired, and
+    /// collected-elsewhere turns have no mailbox left to release.
     func clearHistory() {
         let dependencies = dependencies
         let provider = provider
@@ -285,9 +285,7 @@ private extension AgentTurn {
         switch status {
         case .completed:
             return ackedAt == nil
-        case .superseded:
-            return ackedAt == nil
-        case .pending, .failed, .expired, .collectedElsewhere:
+        case .pending, .failed, .expired, .collectedElsewhere, .superseded:
             return false
         }
     }

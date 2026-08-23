@@ -286,7 +286,7 @@ final class RecordingAgentChatWriter: AgentChatWriterProtocol, AgentTurnProvider
     }
 
     func provider(requestId: String) throws -> ExternalAgentProvider? {
-        storedProvider
+        lock.withLock { storedProvider ?? storedPendingProviders.last }
     }
 
     func markCompleted(requestId: String, result: AgentRelayTurnResult, provider: ExternalAgentProvider) throws {
