@@ -123,6 +123,7 @@ let package = Package(
             dependencies: [
                 "ConvosCore",
                 "ConvosAppData",
+                .target(name: "ConvosComposer", condition: .when(platforms: [.iOS])),
                 .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
                 .product(name: "XMTPiOS", package: "libxmtp"),
                 .product(name: "CSecp256k1", package: "CSecp256k1.swift"),
