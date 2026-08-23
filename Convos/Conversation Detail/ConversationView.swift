@@ -1860,7 +1860,8 @@ private extension ConversationView {
                 state.cancelMessageSelection()
             } catch {
                 Log.error("Failed deleting selected messages: \(error.localizedDescription)")
-                messageDeletionError = "Please try again."
+                state.cancelMessageSelection()
+                messageDeletionError = "Some messages may not have been deleted. Please try again."
             }
             isDeletingSelectedMessages = false
         }

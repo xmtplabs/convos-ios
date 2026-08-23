@@ -1086,10 +1086,13 @@ actor SyncingManager: SyncingManagerProtocol {
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
 
-                try await disappearingMessageDeletionWriter.pruneExpiredMessages()
                 let stream = params.client.conversationsProvider.streamMessageDeletions {
                     Log.debug("Message deletion stream closed via onClose callback")
                 }
+                // Subscribe first, then close the foreground/startup gap with
+                // a prune. A deletion that lands during pruning is observed by
+                // the live stream instead of waiting for the next resume.
+                try await disappearingMessageDeletionWriter.pruneExpiredMessages()
                 for try await message in stream {
                     try Task.checkCancellation()
                     try await disappearingMessageDeletionWriter.delete(messageId: message.id)
@@ -1105,7 +1108,8 @@ actor SyncingManager: SyncingManagerProtocol {
         }
 
         if !Task.isCancelled && retryCount >= maxStreamRetries {
-            Log.error("Message deletion stream: max retries exceeded; cleanup will retry on next resume")
+            Log.error("Message deletion stream: max retries exceeded")
+            enqueueAction(.streamFailed)
         }
     }
 

@@ -282,7 +282,24 @@ class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
     func streamMessageDeletions(
         onClose: (() -> Void)?
     ) -> AsyncThrowingStream<DecodedMessageV2, any Error> {
-        AsyncThrowingStream { continuation in continuation.finish() }
+        let behavior = streamBehavior
+        return AsyncThrowingStream { continuation in
+            switch behavior {
+            case .neverClose, .delayedStart:
+                break
+            case .throwImmediately:
+                continuation.finish(
+                    throwing: NSError(
+                        domain: "test",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Deletion stream failed"]
+                    )
+                )
+            case .empty, .emitOneThenClose, .emitMultipleThenClose:
+                onClose?()
+                continuation.finish()
+            }
+        }
     }
 }
 

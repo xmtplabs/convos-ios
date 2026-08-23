@@ -12,13 +12,23 @@ struct DisappearingMessageDeletionWriter: Sendable {
     }
 
     func delete(messageId: String) async throws {
-        try await delete(messageIds: [messageId])
+        try await delete(messageIds: [messageId], includingReferences: true)
     }
 
-    func delete(messageIds: [String]) async throws {
+    /// Removes only the rows the user explicitly selected. Replies and
+    /// reactions that reference a selected message remain untouched.
+    func deleteSelectedMessages(messageIds: [String]) async throws {
+        try await delete(messageIds: messageIds, includingReferences: false)
+    }
+
+    private func delete(messageIds: [String], includingReferences: Bool) async throws {
         guard !messageIds.isEmpty else { return }
         let attachmentKeys = try await databaseWriter.write { db in
-            try deleteMessages(matching: messageIds, db: db)
+            try deleteMessages(
+                matching: messageIds,
+                includingReferences: includingReferences,
+                db: db
+            )
         }
         await removeLocalArtifacts(attachmentKeys)
     }
@@ -35,19 +45,22 @@ struct DisappearingMessageDeletionWriter: Sendable {
                 arguments: [nowNs]
             )
             guard !expiredIds.isEmpty else { return [String]() }
-            return try deleteMessages(matching: expiredIds, db: db)
+            return try deleteMessages(matching: expiredIds, includingReferences: true, db: db)
         }
         await removeLocalArtifacts(attachmentKeys)
     }
 
-    private func deleteMessages(matching messageIds: [String], db: Database) throws -> [String] {
-        let records = try DBMessage
-            .filter(
-                messageIds.contains(DBMessage.Columns.id)
-                    || messageIds.contains(DBMessage.Columns.clientMessageId)
-                    || messageIds.contains(DBMessage.Columns.sourceMessageId)
-            )
-            .fetchAll(db)
+    private func deleteMessages(
+        matching messageIds: [String],
+        includingReferences: Bool,
+        db: Database
+    ) throws -> [String] {
+        var filter = messageIds.contains(DBMessage.Columns.id)
+            || messageIds.contains(DBMessage.Columns.clientMessageId)
+        if includingReferences {
+            filter = filter || messageIds.contains(DBMessage.Columns.sourceMessageId)
+        }
+        let records = try DBMessage.filter(filter).fetchAll(db)
         guard !records.isEmpty else { return [] }
 
         let idsToDelete = records.map(\.id)

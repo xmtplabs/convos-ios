@@ -178,15 +178,35 @@ struct DisappearingMessagesTests {
                 update: nil
             )
             try message.insert(db)
+            let reply = DBMessage(
+                id: "reply-xmtp-id",
+                clientMessageId: "reply-local-id",
+                conversationId: conversationId,
+                senderId: senderId,
+                dateNs: now.addingTimeInterval(1).nanosecondsSince1970,
+                date: now.addingTimeInterval(1),
+                sortId: nil,
+                status: .published,
+                messageType: .reply,
+                contentType: .text,
+                text: "keep me",
+                emoji: nil,
+                invite: nil,
+                linkPreview: nil,
+                sourceMessageId: "published-xmtp-id",
+                attachmentUrls: [],
+                update: nil
+            )
+            try reply.insert(db)
         }
 
         let writer = DisappearingMessageDeletionWriter(databaseWriter: databaseManager.dbWriter)
-        try await writer.delete(messageIds: ["stable-local-id"])
+        try await writer.deleteSelectedMessages(messageIds: ["stable-local-id"])
 
-        let remainingCount = try await databaseManager.dbReader.read { db in
-            try DBMessage.fetchCount(db)
+        let remainingIds = try await databaseManager.dbReader.read { db in
+            try String.fetchAll(db, sql: "SELECT id FROM message ORDER BY id")
         }
-        #expect(remainingCount == 0)
+        #expect(remainingIds == ["reply-xmtp-id"])
     }
 
     private func makeMessage(
