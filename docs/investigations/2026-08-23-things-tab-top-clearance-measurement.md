@@ -14,7 +14,7 @@ native safe-area bug on the pushed `HomeBrowserPageView`.
 | Scheme / config | `Convos (Dev)`, `-configuration Dev -derivedDataPath .derivedData` |
 | Bundle id | `org.convos.ios-preview` |
 | Logical screen | 402 x 874 pt, scale 3.0 (screenshots 1206 x 2622 px) |
-| Nominal safe-area-inset-top | 62 pt (derived from the chrome layout, see below) |
+| Nominal safe-area-inset-top | 62 pt (iPhone 17 Pro portrait; confirmed from the toolbar capsule row's accessibility frame, see below) |
 | Space state | real provisioned Space: "Welcome home" grid with populated Notes / Members / Events / Reminders widgets (not the preparing/placeholder state) |
 
 ## Method
@@ -42,14 +42,25 @@ the pill.
 
 **Home - Reminders delta = 23.67 pt (~24 pt).**
 
-The segmented control sits at exactly the same Y on both screens (pill spans
-123.00-153.00 pt), which is consistent with
-`ConversationTopChrome.controlBottom(topSafeAreaInset: 62)`
-= 62 + 52 (`capsuleRowHeight`) + 8 (`capsuleControlSpacing`) + 32
-(`controlHeight`) = 154 pt; the measured 153.0 pt is the pill's antialiased
-outer edge one third of a point above that. Solving the same relation from the
-measured pill top (123 pt = inset + 52 + 8) yields the nominal
-safe-area-inset-top of 62 pt for this device.
+The segmented control sits at exactly the same Y on both screens: the white pill
+spans 123.00-153.00 pt, matching the accessibility frame of
+`conversation-tab-context` (y = 123, height = 30) exactly.
+
+The 62 pt safe-area-inset-top is not derived from the pill; it is read
+independently from the accessibility tree: the toolbar capsule row
+(`conversation-toolbar-button`) has frame y = 62, height = 52, and the capsule
+row is laid out flush to the top safe area with height
+`ConversationChromeMetrics.capsuleRowHeight` = 52 - so inset = 62 pt, the nominal
+value for iPhone 17 Pro in portrait.
+
+The computed control rect is therefore
+62 + 52 (`capsuleRowHeight`) + 8 (`capsuleControlSpacing`) = 122 pt top and
+122 + 32 (`controlHeight`) = 154 pt bottom, i.e. 1 pt outside the measured
+white-pill edge on each side (the capsule's antialiased/rounded edge is not pure
+white, and the accessibility frame agrees with the measured 123-153). Using the
+computed 154 pt instead of the measured 153.00 pt shifts both gaps down by
+exactly 1 pt (102.33 and 78.67) and leaves the Home - Reminders delta unchanged
+at 23.67 pt, so the verdict does not depend on which of the two edges is used.
 
 ## Verdict: H1
 
