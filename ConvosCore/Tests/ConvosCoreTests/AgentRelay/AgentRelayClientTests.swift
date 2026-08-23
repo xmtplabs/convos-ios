@@ -16,10 +16,35 @@ struct AgentRelayClientTests {
             history: StubAgentHistoryBuilder()
         )
 
-        let outcome = try await client.send(prompt: "Prompt", provider: .town, connection: makeAgentConnection())
+        let outcome = try await client.send(prompt: "Prompt", connection: makeAgentConnection())
 
         #expect(outcome == .completed(result))
         #expect(recorder.calls == ["mint", "pending", "webhook", "fetch", "completed", "ack", "acked"])
+    }
+
+    @Test("send derives one provider from the connection")
+    func sendUsesConnectionProviderThroughoutTriggerSetup() async throws {
+        let recorder = AgentRelayCallRecorder()
+        let api = ScriptedAgentRelayAPI(recorder: recorder)
+        let webhook = ScriptedWebhookTransport(
+            error: AgentWebhookTransportError.rejected(status: 401),
+            recorder: recorder
+        )
+        let writer = RecordingAgentChatWriter(recorder: recorder)
+        let client = AgentRelayClient(
+            api: api,
+            webhook: webhook,
+            store: writer,
+            history: StubAgentHistoryBuilder()
+        )
+
+        let outcome = try await client.send(prompt: "Prompt", connection: makeAgentConnection(provider: .tasklet))
+
+        #expect(outcome == .failed(.webhookRejected(provider: .tasklet, status: 401)))
+        #expect(api.mintProviders == [.tasklet])
+        #expect(writer.pendingProviders == [.tasklet])
+        #expect(webhook.auths == [.capabilityURL])
+        #expect(recorder.calls == ["mint", "pending", "webhook", "failed"])
     }
 
     @Test("webhook rejection marks the row failed and never polls")
@@ -31,7 +56,7 @@ struct AgentRelayClientTests {
         let webhook = ScriptedWebhookTransport(error: AgentWebhookTransportError.rejected(status: 401))
         let client = AgentRelayClient(api: api, webhook: webhook, store: writer, history: StubAgentHistoryBuilder())
 
-        let outcome = try await client.send(prompt: "Prompt", provider: .town, connection: makeAgentConnection())
+        let outcome = try await client.send(prompt: "Prompt", connection: makeAgentConnection())
         let turn = try repository.turn(requestId: "request_test")
 
         #expect(outcome == .failed(.webhookRejected(provider: .town, status: 401)))
@@ -58,7 +83,7 @@ struct AgentRelayClientTests {
             history: StubAgentHistoryBuilder()
         )
 
-        _ = try await client.send(prompt: "Prompt", provider: .town, connection: makeAgentConnection())
+        _ = try await client.send(prompt: "Prompt", connection: makeAgentConnection())
 
         let turns = try repository.turns(limit: 10)
         #expect(api.fetchCount == 3)
@@ -312,6 +337,27 @@ struct AgentRelayClientTests {
         #expect(turn?.provider == .tasklet)
         #expect(turn?.ackedAt != nil)
         #expect(api.ackCount == 1)
+    }
+
+    @Test("collect leaves an unattributable completion in the mailbox")
+    func collectWithoutAnyProviderDoesNotPersistOrAck() async throws {
+        let recorder = AgentRelayCallRecorder()
+        let result = makeAgentRelayResult(message: "Needs provider")
+        let api = ScriptedAgentRelayAPI(fetchOutcomes: [.completed(result)], recorder: recorder)
+        let writer = RecordingAgentChatWriter(recorder: recorder)
+        let client = AgentRelayClient(
+            api: api,
+            webhook: ScriptedWebhookTransport(),
+            store: writer,
+            history: StubAgentHistoryBuilder()
+        )
+
+        let collected = try await client.collect(requestId: "request_unattributed", provider: nil)
+
+        #expect(collected == nil)
+        #expect(writer.completedProviders.isEmpty)
+        #expect(api.ackCount == 0)
+        #expect(recorder.calls == ["fetch"])
     }
 
     @Test("collect on not found returns nil without inserting")

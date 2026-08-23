@@ -13,7 +13,11 @@ public protocol AgentChatWriterProtocol: Sendable {
     func deleteAll() throws
 }
 
-public final class AgentChatWriter: AgentChatWriterProtocol {
+protocol AgentTurnProviderReading: Sendable {
+    func provider(requestId: String) throws -> ExternalAgentProvider?
+}
+
+public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderReading {
     private let database: AgentChatDatabase
 
     public init(database: AgentChatDatabase) {
@@ -23,6 +27,12 @@ public final class AgentChatWriter: AgentChatWriterProtocol {
     public func insertPending(_ turn: AgentTurn) throws {
         try database.pool.write { db in
             try turn.insert(db)
+        }
+    }
+
+    func provider(requestId: String) throws -> ExternalAgentProvider? {
+        try database.pool.read { db in
+            try AgentTurn.fetchOne(db, key: requestId)?.provider
         }
     }
 

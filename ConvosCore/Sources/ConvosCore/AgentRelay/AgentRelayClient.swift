@@ -26,9 +26,9 @@ public final class AgentRelayClient: Sendable {
     /// fails, or the 10-minute watch deadline passes.
     public func send(
         prompt: String,
-        provider: ExternalAgentProvider,
         connection: AgentConnection
     ) async throws -> AgentTurnOutcome {
+        let provider = connection.provider
         let startedAt = now()
         let mint = try await api.mint(provider: provider)
         let turn = AgentTurn(
@@ -76,8 +76,13 @@ public final class AgentRelayClient: Sendable {
         let outcome = try await api.fetch(requestId: requestId, waitMs: 0)
         switch outcome {
         case let .completed(result):
-            // Push payloads carry a provider; the fallback matters only for a missing local row.
-            try store.markCompleted(requestId: requestId, result: result, provider: provider ?? .town)
+            let providerReader = store as? any AgentTurnProviderReading
+            let resolvedProvider = try provider ?? providerReader?.provider(requestId: requestId)
+            guard let resolvedProvider else {
+                Log.warning("Agent relay collect could not attribute request \(requestId.prefix(12))")
+                return nil
+            }
+            try store.markCompleted(requestId: requestId, result: result, provider: resolvedProvider)
             try await api.ack(requestId: requestId)
             try store.markAcked(requestId: requestId)
             return result

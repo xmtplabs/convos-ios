@@ -164,7 +164,7 @@ struct AgentRelayTransportTests {
             auth: .bearer(secret: "top-secret")
         )
 
-        _ = try await client.send(prompt: "private prompt", provider: .town, connection: connection)
+        _ = try await client.send(prompt: "private prompt", connection: connection)
 
         let output = log.calls.joined(separator: "\n")
         #expect(!output.contains("return-secret"))

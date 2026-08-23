@@ -23,6 +23,7 @@ final class AgentRelayCallRecorder: @unchecked Sendable {
 final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
     private struct State {
         var fetchOutcomes: [AgentRelayFetchOutcome]
+        var mintProviders: [ExternalAgentProvider] = []
         var fetchCount: Int = 0
         var fetchWaitMilliseconds: [Int] = []
         var ackCount: Int = 0
@@ -61,6 +62,10 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
         lock.withLock { state.fetchCount }
     }
 
+    var mintProviders: [ExternalAgentProvider] {
+        lock.withLock { state.mintProviders }
+    }
+
     var fetchWaitMilliseconds: [Int] {
         lock.withLock { state.fetchWaitMilliseconds }
     }
@@ -70,6 +75,9 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
     }
 
     func mint(provider: ExternalAgentProvider) async throws -> AgentRelayMint {
+        lock.withLock {
+            state.mintProviders.append(provider)
+        }
         recorder?.append("mint")
         return mintValue
     }
@@ -137,6 +145,7 @@ final class ScriptedWebhookTransport: AgentWebhookTransport, @unchecked Sendable
     private let error: Error?
     private let recorder: AgentRelayCallRecorder?
     private var storedPayloads: [AgentWebhookPayload] = []
+    private var storedAuths: [AgentWebhookAuth] = []
 
     init(error: Error? = nil, recorder: AgentRelayCallRecorder? = nil) {
         self.error = error
@@ -147,9 +156,14 @@ final class ScriptedWebhookTransport: AgentWebhookTransport, @unchecked Sendable
         lock.withLock { storedPayloads }
     }
 
+    var auths: [AgentWebhookAuth] {
+        lock.withLock { storedAuths }
+    }
+
     func trigger(payload: AgentWebhookPayload, url: URL, auth: AgentWebhookAuth) async throws {
         lock.withLock {
             storedPayloads.append(payload)
+            storedAuths.append(auth)
         }
         recorder?.append("webhook")
         if let error {
@@ -158,18 +172,41 @@ final class ScriptedWebhookTransport: AgentWebhookTransport, @unchecked Sendable
     }
 }
 
-final class RecordingAgentChatWriter: AgentChatWriterProtocol, @unchecked Sendable {
+final class RecordingAgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderReading, @unchecked Sendable {
     private let recorder: AgentRelayCallRecorder
+    private let lock: NSLock = NSLock()
+    private let storedProvider: ExternalAgentProvider?
+    private var storedPendingProviders: [ExternalAgentProvider] = []
+    private var storedCompletedProviders: [ExternalAgentProvider] = []
 
-    init(recorder: AgentRelayCallRecorder) {
+    init(recorder: AgentRelayCallRecorder, provider: ExternalAgentProvider? = nil) {
         self.recorder = recorder
+        storedProvider = provider
+    }
+
+    var pendingProviders: [ExternalAgentProvider] {
+        lock.withLock { storedPendingProviders }
+    }
+
+    var completedProviders: [ExternalAgentProvider] {
+        lock.withLock { storedCompletedProviders }
     }
 
     func insertPending(_ turn: AgentTurn) throws {
+        lock.withLock {
+            storedPendingProviders.append(turn.provider)
+        }
         recorder.append("pending")
     }
 
+    func provider(requestId: String) throws -> ExternalAgentProvider? {
+        storedProvider
+    }
+
     func markCompleted(requestId: String, result: AgentRelayTurnResult, provider: ExternalAgentProvider) throws {
+        lock.withLock {
+            storedCompletedProviders.append(provider)
+        }
         recorder.append("completed")
     }
 
