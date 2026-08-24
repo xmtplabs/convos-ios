@@ -31,6 +31,10 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
                            method: String,
                            queryParameters: [String: String]?) async throws -> URLRequest
 
+    /// Executes a request through the client's 401 re-authentication and
+    /// retry path.
+    func performAuthenticatedRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
+
     /// Register device with AppCheck authentication (no JWT required - device-level operation)
     func registerDevice(deviceId: String, pushToken: String?) async throws
 
@@ -315,6 +319,12 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// Withdraws one agent's opt-in
     /// (`DELETE /v2/conversations/{conversationId}/abilities/{abilityId}?agentInboxId=`).
     func deleteConversationAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws
+}
+
+public extension ConvosAPIClientProtocol {
+    func performAuthenticatedRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        throw APIError.notAuthenticated
+    }
 }
 
 extension ConvosAPIClientProtocol {
@@ -794,41 +804,6 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             // Unhandled statuses remain generic server errors.
             throw APIError.serverError(parseErrorMessage(from: data))
         }
-    }
-
-    func performAuthenticatedRequest(
-        _ request: URLRequest,
-        retryCount: Int = 0
-    ) async throws -> (Data, HTTPURLResponse) {
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
-        }
-
-        guard httpResponse.statusCode == 401 else {
-            return (data, httpResponse)
-        }
-
-        guard overrideJWTToken == nil else {
-            Log.error("Authentication failed in JWT override mode - cannot re-authenticate without AppCheck")
-            throw APIError.notAuthenticated
-        }
-
-        guard retryCount < maxRetryCount else {
-            Log.error("Max retry count (\(maxRetryCount)) exceeded for request")
-            throw APIError.notAuthenticated
-        }
-
-        Log.info("Attempting re-authentication (attempt \(retryCount + 1) of \(maxRetryCount))")
-        let freshJWT = try await reAuthenticate()
-        guard !freshJWT.isEmpty else {
-            throw APIError.notAuthenticated
-        }
-
-        var newRequest = request
-        newRequest.setValue(freshJWT, forHTTPHeaderField: "X-Convos-AuthToken")
-        return try await performAuthenticatedRequest(newRequest, retryCount: retryCount + 1)
     }
 
     func uploadAttachment(
@@ -1502,6 +1477,47 @@ extension ConvosAPIClient {
         default:
             throw AgentGenerationError.server(parseErrorMessage(from: data))
         }
+    }
+}
+
+extension ConvosAPIClient {
+    func performAuthenticatedRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        try await performAuthenticatedRequest(request, retryCount: 0)
+    }
+
+    private func performAuthenticatedRequest(
+        _ request: URLRequest,
+        retryCount: Int
+    ) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 401 else {
+            return (data, httpResponse)
+        }
+
+        guard overrideJWTToken == nil else {
+            Log.error("Authentication failed in JWT override mode - cannot re-authenticate without AppCheck")
+            throw APIError.notAuthenticated
+        }
+
+        guard retryCount < maxRetryCount else {
+            Log.error("Max retry count (\(maxRetryCount)) exceeded for request")
+            throw APIError.notAuthenticated
+        }
+
+        Log.info("Attempting re-authentication (attempt \(retryCount + 1) of \(maxRetryCount))")
+        let freshJWT = try await reAuthenticate()
+        guard !freshJWT.isEmpty else {
+            throw APIError.notAuthenticated
+        }
+
+        var newRequest = request
+        newRequest.setValue(freshJWT, forHTTPHeaderField: "X-Convos-AuthToken")
+        return try await performAuthenticatedRequest(newRequest, retryCount: retryCount + 1)
     }
 }
 

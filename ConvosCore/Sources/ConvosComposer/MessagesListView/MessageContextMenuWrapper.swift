@@ -3,6 +3,8 @@ import ConvosCore
 import SwiftUI
 import UIKit
 
+public typealias MessageCopyToAgentAction = (String) -> Void
+
 // MARK: - Press State Environment
 
 private struct MessagePressedKey: EnvironmentKey {

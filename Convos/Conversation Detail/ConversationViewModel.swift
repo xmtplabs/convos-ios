@@ -752,6 +752,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var previousMessageTextLength: Int = 0
     var pastedLinkPreview: LinkPreview?
 
+    func syncPasteDetectionBaseline() {
+        previousMessageTextLength = messageText.count
+    }
+
     func checkForPastedLink() {
         let inserted = messageText.count - previousMessageTextLength
         previousMessageTextLength = messageText.count
@@ -1304,6 +1308,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
         startOnboarding()
         registerInlineAttachmentRecovery()
+        applyPendingComposerDraft()
 
         // The initial assignment of `conversation` does not run its
         // `didSet`, so a conversation that already has other members must
@@ -1382,6 +1387,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
+        applyPendingComposerDraft()
         observeAgentBuilderSummary()
 
         self.editingConversationName = conversation.name ?? ""

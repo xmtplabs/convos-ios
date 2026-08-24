@@ -14,12 +14,16 @@ struct ConvosApp: App {
     let metricsDelegate: PostHogCollector
     let coreActions: any CoreActions
     let conversationsViewModel: ConversationsViewModel
+    let agentRelayDependencies: AgentRelayDependencies?
     let profileSettingsViewModel: ProfileSettingsViewModel = .shared
     /// Guards the opportunistic agent-timezone republish to once per foreground
     /// session, so background-foregrounding the app repeatedly does not re-run
     /// it. A reference type so the flag survives across `onChange` invocations
     /// of the value-type App.
     private let timezoneForegroundGuard: ForegroundOnceGuard = ForegroundOnceGuard()
+    /// The launch task owns the initial recovery pass. Starting consumed keeps
+    /// SwiftUI's first active transition from scheduling the same pass again.
+    private let agentRelayForegroundGuard: ForegroundOnceGuard = ForegroundOnceGuard(initiallyConsumed: true)
 
     /// Deletes the cache the home's snapshot cover used to write.
     ///
@@ -139,7 +143,16 @@ struct ConvosApp: App {
         }
         self.coreActions = coreMetrics.actions
         self.conversationsViewModel = .init(session: convos.session, coreActions: coreMetrics.actions)
+        let relayDependencies = try? AgentRelayDependencies(environment: environment)
+        self.agentRelayDependencies = relayDependencies
         appDelegate.session = convos.session
+        let relaySession = convos.session
+        appDelegate.agentRelayPushCollector = { payload in
+            await relayDependencies?.collectForegroundPush(payload, session: relaySession)
+        }
+        Task {
+            await relayDependencies?.recoverOnLaunch(session: relaySession)
+        }
         // Runs when a share-extension upload wakes the app in the background:
         // publish whatever the extension staged but never got to send.
         let drainWriter = convos.databaseWriter
@@ -306,14 +319,15 @@ struct ConvosApp: App {
             )
             .additionalTopSafeArea(DesignConstants.Spacing.stepX)
             .withSafeAreaEnvironment()
+            .environment(\.agentRelayDependencies, agentRelayDependencies)
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
                 case .active:
                     handleScenePhaseActive()
                 case .background:
-                    // Re-arm the once-per-foreground guard so the next time the
-                    // app comes back to the foreground it republishes again.
+                    // Re-arm once-per-foreground work for the next active session.
                     timezoneForegroundGuard.reset()
+                    agentRelayForegroundGuard.reset()
                 default:
                     break
                 }
@@ -322,6 +336,12 @@ struct ConvosApp: App {
     }
 
     private func handleScenePhaseActive() {
+        if agentRelayForegroundGuard.tryConsume() {
+            let session = convos.session
+            Task {
+                await agentRelayDependencies?.recoverOnForeground(session: session)
+            }
+        }
         // Foreground refresh — TTL-debounced inside both services, so this is a
         // cheap no-op if we were just active. Catches the case where credits
         // changed server-side while the app was backgrounded (agent runtime
@@ -382,12 +402,16 @@ struct ConvosApp: App {
     }
 }
 
-/// Single-shot guard for the once-per-foreground-session timezone republish.
+/// Single-shot guard for once-per-foreground-session work.
 /// `tryConsume()` returns true exactly once until `reset()` re-arms it on the
 /// next background transition.
-private final class ForegroundOnceGuard: @unchecked Sendable {
+final class ForegroundOnceGuard: @unchecked Sendable {
     private let lock: NSLock = NSLock()
-    private var consumed: Bool = false
+    private var consumed: Bool
+
+    init(initiallyConsumed: Bool = false) {
+        consumed = initiallyConsumed
+    }
 
     func tryConsume() -> Bool {
         lock.lock()

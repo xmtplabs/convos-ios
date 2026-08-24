@@ -43,7 +43,7 @@ public final class AgentRelayRecoveryCoordinator: Sendable {
                 }
 
                 switch localTurn.status {
-                case .pending:
+                case .pending, .superseded:
                     _ = try await client.collect(requestId: entry.requestId, provider: entry.provider ?? localTurn.provider)
                 case .completed:
                     if localTurn.ackedAt == nil {

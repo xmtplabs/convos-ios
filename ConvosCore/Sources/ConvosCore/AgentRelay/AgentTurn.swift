@@ -7,6 +7,11 @@ public enum AgentTurnStatus: String, Codable, Sendable {
     case failed
     case expired
     case collectedElsewhere // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
+    /// The user sent another message while this turn was still in flight, so
+    /// the device stopped waiting for it. Nothing was cancelled on the agent's
+    /// own platform and the backend mailbox stays live, so a late answer is
+    /// still collected and the row still becomes `completed` in place.
+    case superseded
 }
 
 /// One relay turn: the in-flight journal while pending and the transcript

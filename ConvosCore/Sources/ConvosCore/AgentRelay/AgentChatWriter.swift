@@ -75,7 +75,7 @@ public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderRe
 
     public func markExpired(requestId: String) throws {
         try updateExisting(requestId: requestId) { turn in
-            guard turn.status == .pending else { return }
+            guard turn.status == .pending || turn.status == .superseded else { return }
             turn.status = .expired
             turn.errorCode = nil
         }
@@ -83,8 +83,8 @@ public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderRe
 
     public func markCollectedElsewhere(requestId: String) throws {
         try updateExisting(requestId: requestId) { turn in
-            guard turn.status == .pending else { return }
-            turn.status = .collectedElsewhere
+            guard turn.status == .pending || turn.status == .superseded else { return }
+            turn.status = turn.expiresAt < Date() ? .expired : .collectedElsewhere
             turn.errorCode = nil
         }
     }
@@ -92,6 +92,41 @@ public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderRe
     public func markAcked(requestId: String) throws {
         try updateExisting(requestId: requestId) { turn in
             turn.ackedAt = Date()
+        }
+    }
+
+    /// Stops this device waiting on an in-flight turn because the user sent a
+    /// new one. Deliberately not on `AgentChatWriterProtocol`: it is a
+    /// foreground-only transition the relay client never performs, and the
+    /// protocol is the client's contract.
+    public func markSuperseded(requestId: String) throws {
+        try updateExisting(requestId: requestId) { turn in
+            guard turn.status == .pending else { return }
+            turn.status = .superseded
+            turn.errorCode = nil
+        }
+    }
+
+    /// Returns every finished row for a provider, without the transcript's UI
+    /// limit, so callers can release any live mailbox before deleting its row.
+    public func settledTurns(provider: ExternalAgentProvider) throws -> [AgentTurn] {
+        try database.pool.read { db in
+            try AgentTurn
+                .filter(Column("provider") == provider.rawValue)
+                .filter(Constant.settledStatusValues.contains(Column("status")))
+                .order(Column("createdAt").asc)
+                .fetchAll(db)
+        }
+    }
+
+    /// Deletes one finished row after any required mailbox acknowledgement.
+    /// A row that became pending or superseded is retained.
+    public func deleteSettledTurn(requestId: String) throws {
+        try database.pool.write { db in
+            _ = try AgentTurn
+                .filter(Column("requestId") == requestId)
+                .filter(Constant.settledStatusValues.contains(Column("status")))
+                .deleteAll(db)
         }
     }
 
@@ -114,5 +149,11 @@ public final class AgentChatWriter: AgentChatWriterProtocol, AgentTurnProviderRe
 
     private enum Constant {
         static let collectedElsewherePrompt: String = "(completed on another device)"
+        static let settledStatusValues: [String] = [
+            AgentTurnStatus.completed,
+            AgentTurnStatus.failed,
+            AgentTurnStatus.expired,
+            AgentTurnStatus.collectedElsewhere,
+        ].map(\.rawValue)
     }
 }

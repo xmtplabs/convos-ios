@@ -10,19 +10,22 @@ public struct MessageContextMenuOverlay: View {
     let onReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onCopy: (String) -> Void
+    let onCopyToAgent: MessageCopyToAgentAction?
 
     public init(
         state: MessageContextMenuState,
         isReadOnly: Bool = false,
         onReaction: @escaping (String, String) -> Void,
         onReply: @escaping (AnyMessage) -> Void,
-        onCopy: @escaping (String) -> Void
+        onCopy: @escaping (String) -> Void,
+        onCopyToAgent: MessageCopyToAgentAction? = nil
     ) {
         self.state = state
         self.isReadOnly = isReadOnly
         self.onReaction = onReaction
         self.onReply = onReply
         self.onCopy = onCopy
+        self.onCopyToAgent = onCopyToAgent
     }
 
     @State private var appeared: Bool = false
@@ -524,6 +527,14 @@ public struct MessageContextMenuOverlay: View {
                         onCopy(text)
                     }
                     ContextMenuRow(icon: "doc.on.doc", title: "Copy", action: copyAction)
+
+                    if let onCopyToAgent {
+                        let agentAction = {
+                            dismissMenu()
+                            onCopyToAgent(text)
+                        }
+                        ContextMenuRow(icon: "sparkles", title: "Copy to agent", action: agentAction)
+                    }
                 }
 
                 if let attachment = photoAttachment {

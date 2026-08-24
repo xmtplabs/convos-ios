@@ -6,6 +6,7 @@ public final class AgentRelayClient: Sendable {
     private let webhook: any AgentWebhookTransport
     private let store: any AgentChatWriterProtocol
     private let history: any AgentHistoryBuilding
+    private let sleep: @Sendable (TimeInterval) async throws -> Void
     private let now: @Sendable () -> Date
 
     public init(
@@ -13,12 +14,16 @@ public final class AgentRelayClient: Sendable {
         webhook: any AgentWebhookTransport,
         store: any AgentChatWriterProtocol,
         history: any AgentHistoryBuilding,
+        sleep: @escaping @Sendable (TimeInterval) async throws -> Void = {
+            try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000))
+        },
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.api = api
         self.webhook = webhook
         self.store = store
         self.history = history
+        self.sleep = sleep
         self.now = now
     }
 
@@ -26,8 +31,10 @@ public final class AgentRelayClient: Sendable {
     /// fails, or the 10-minute watch deadline passes.
     public func send(
         prompt: String,
-        connection: AgentConnection
+        connection: AgentConnection,
+        waitUntilReady: @Sendable () async throws -> Void = {}
     ) async throws -> AgentTurnOutcome {
+        try await waitUntilReady()
         let provider = connection.provider
         let startedAt = now()
         let mint = try await api.mint(provider: provider)
@@ -36,7 +43,7 @@ public final class AgentRelayClient: Sendable {
             provider: provider,
             status: .pending,
             prompt: prompt,
-            createdAt: Date(),
+            createdAt: now(),
             expiresAt: mint.expiresAt
         )
         try store.insertPending(turn)
@@ -89,7 +96,10 @@ public final class AgentRelayClient: Sendable {
         case .expired:
             try store.markExpired(requestId: requestId)
             return nil
-        case .notFound, .pending:
+        case .notFound:
+            try store.markCollectedElsewhere(requestId: requestId)
+            return nil
+        case .pending:
             return nil
         }
     }
@@ -98,18 +108,51 @@ public final class AgentRelayClient: Sendable {
         try await api.listCompleted()
     }
 
-    func acknowledge(requestId: String) async throws {
+    /// Acks one completed mailbox without saving anything locally. Used by
+    /// recovery, and by the app when the user clears history for rows the
+    /// backend is still holding open.
+    public func acknowledge(requestId: String) async throws {
         try await api.ack(requestId: requestId)
     }
 
     private func watch(requestId: String, startedAt: Date) async throws -> AgentTurnOutcome {
+        var retryAttempt: Int = 0
         while true {
             try Task.checkCancellation()
             let elapsed: TimeInterval = now().timeIntervalSince(startedAt)
             let remainingMilliseconds: Int = max(0, Int((Constant.watchDeadline - elapsed) * 1_000))
             let waitMilliseconds: Int = min(Constant.longPollWaitMilliseconds, remainingMilliseconds)
 
-            let outcome = try await api.fetch(requestId: requestId, waitMs: waitMilliseconds)
+            let outcome: AgentRelayFetchOutcome
+            do {
+                outcome = try await api.fetch(requestId: requestId, waitMs: waitMilliseconds)
+                retryAttempt = 0
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as AgentRelayError {
+                guard !Task.isCancelled else { throw CancellationError() }
+                guard error == .relayUnreachable else { throw error }
+                let shouldRetry: Bool = try await backOffAfterFetchFailure(
+                    error,
+                    requestId: requestId,
+                    startedAt: startedAt,
+                    retryAttempt: retryAttempt
+                )
+                retryAttempt += 1
+                guard shouldRetry else { return .stillWorking }
+                continue
+            } catch {
+                guard !Task.isCancelled else { throw CancellationError() }
+                let shouldRetry: Bool = try await backOffAfterFetchFailure(
+                    error,
+                    requestId: requestId,
+                    startedAt: startedAt,
+                    retryAttempt: retryAttempt
+                )
+                retryAttempt += 1
+                guard shouldRetry else { return .stillWorking }
+                continue
+            }
             switch outcome {
             case let .completed(result):
                 let providerReader = store as? any AgentTurnProviderReading
@@ -135,6 +178,28 @@ public final class AgentRelayClient: Sendable {
         }
     }
 
+    private func backOffAfterFetchFailure(
+        _ error: Error,
+        requestId: String,
+        startedAt: Date,
+        retryAttempt: Int
+    ) async throws -> Bool {
+        let exponent: Int = min(retryAttempt, Constant.maximumBackoffExponent)
+        let delay: TimeInterval = TimeInterval(1 << exponent)
+        let elapsed: TimeInterval = now().timeIntervalSince(startedAt)
+        let remaining: TimeInterval = max(0, Constant.watchDeadline - elapsed)
+        Log.warning("Agent relay watch retrying request \(requestId.prefix(12)) after fetch failure: \(error.localizedDescription)")
+        guard remaining > delay else {
+            guard remaining > 0 else { return false }
+            try await sleep(remaining)
+            try Task.checkCancellation()
+            return false
+        }
+        try await sleep(delay)
+        try Task.checkCancellation()
+        return true
+    }
+
     private func mapWebhookError(_ error: Error, provider: ExternalAgentProvider) -> AgentRelayError {
         if let relayError = error as? AgentRelayError {
             return relayError
@@ -153,5 +218,6 @@ public final class AgentRelayClient: Sendable {
     private enum Constant {
         static let longPollWaitMilliseconds: Int = 25_000
         static let watchDeadline: TimeInterval = 600
+        static let maximumBackoffExponent: Int = 3
     }
 }

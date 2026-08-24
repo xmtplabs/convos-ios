@@ -20,15 +20,69 @@ final class AgentRelayCallRecorder: @unchecked Sendable {
     }
 }
 
+final class MutableAgentRelayClock: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var storedNow: Date
+
+    init(now: Date) {
+        storedNow = now
+    }
+
+    var current: Date {
+        lock.withLock { storedNow }
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.withLock {
+            storedNow = storedNow.addingTimeInterval(interval)
+        }
+    }
+}
+
+final class ControlledAgentRelayReadiness: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released: Bool = false
+
+    var isWaiting: Bool {
+        lock.withLock { continuation != nil }
+    }
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let shouldResume = lock.withLock { () -> Bool in
+                guard !released else { return true }
+                self.continuation = continuation
+                return false
+            }
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            released = true
+            defer { self.continuation = nil }
+            return self.continuation
+        }
+        continuation?.resume()
+    }
+}
+
 final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
     private struct State {
         var fetchOutcomes: [AgentRelayFetchOutcome]
         var mintProviders: [ExternalAgentProvider] = []
+        var fetchErrors: [Error] = []
+        var repeatedFetchError: Error?
         var fetchCount: Int = 0
         var fetchWaitMilliseconds: [Int] = []
         var ackCount: Int = 0
         var ackFailuresRemaining: Int
         var blocksFetch: Bool
+        var completedListingErrors: [Error] = []
     }
 
     private let lock: NSLock = NSLock()
@@ -74,6 +128,24 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
         lock.withLock { state.ackCount }
     }
 
+    func failNextCompletedListings(with errors: [Error]) {
+        lock.withLock {
+            state.completedListingErrors = errors
+        }
+    }
+
+    func failNextFetches(with errors: [Error]) {
+        lock.withLock {
+            state.fetchErrors = errors
+        }
+    }
+
+    func failEveryFetch(with error: Error) {
+        lock.withLock {
+            state.repeatedFetchError = error
+        }
+    }
+
     func mint(provider: ExternalAgentProvider) async throws -> AgentRelayMint {
         lock.withLock {
             state.mintProviders.append(provider)
@@ -92,10 +164,17 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
         if blocksFetch {
             try await Task.sleep(nanoseconds: 60_000_000_000)
         }
-        return lock.withLock {
-            guard !state.fetchOutcomes.isEmpty else { return .notFound }
-            return state.fetchOutcomes.removeFirst()
+        let result: Result<AgentRelayFetchOutcome, Error> = lock.withLock {
+            if !state.fetchErrors.isEmpty {
+                return .failure(state.fetchErrors.removeFirst())
+            }
+            if let repeatedFetchError = state.repeatedFetchError {
+                return .failure(repeatedFetchError)
+            }
+            guard !state.fetchOutcomes.isEmpty else { return .success(.notFound) }
+            return .success(state.fetchOutcomes.removeFirst())
         }
+        return try result.get()
     }
 
     func ack(requestId: String) async throws {
@@ -113,6 +192,13 @@ final class ScriptedAgentRelayAPI: AgentRelayBackendAPI, @unchecked Sendable {
 
     func listCompleted() async throws -> [AgentRelayCompletedEntry] {
         recorder?.append("listCompleted")
+        let error: Error? = lock.withLock {
+            guard !state.completedListingErrors.isEmpty else { return nil }
+            return state.completedListingErrors.removeFirst()
+        }
+        if let error {
+            throw error
+        }
         if let listCompletedError {
             throw listCompletedError
         }
@@ -200,7 +286,7 @@ final class RecordingAgentChatWriter: AgentChatWriterProtocol, AgentTurnProvider
     }
 
     func provider(requestId: String) throws -> ExternalAgentProvider? {
-        storedProvider
+        lock.withLock { storedProvider ?? storedPendingProviders.last }
     }
 
     func markCompleted(requestId: String, result: AgentRelayTurnResult, provider: ExternalAgentProvider) throws {
@@ -321,6 +407,7 @@ func makeAgentRelayResult(message: String = "Done", completedAt: Date = Date()) 
 
 func makeAgentTurn(
     requestId: String,
+    provider: ExternalAgentProvider = .town,
     status: AgentTurnStatus = .pending,
     prompt: String = "Prompt",
     createdAt: Date = Date(),
@@ -331,7 +418,7 @@ func makeAgentTurn(
 ) -> AgentTurn {
     AgentTurn(
         requestId: requestId,
-        provider: .town,
+        provider: provider,
         status: status,
         prompt: prompt,
         resultMessage: resultMessage,

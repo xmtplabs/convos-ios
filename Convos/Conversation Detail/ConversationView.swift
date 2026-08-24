@@ -127,6 +127,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var navState: ConversationNavigatorImpl = .init()
     @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.agentRelayDependencies) private var agentRelayDependencies: AgentRelayDependencies?
+    @State private var agentChatDraft: AgentChatDraft?
+    @State private var isApplyingComposerDraft: Bool = false
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -537,6 +540,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     var body: some View {
         conversationPresentations(conversationCore)
         .onChange(of: viewModel.messageText) { _, _ in
+            // A staged draft can contain a URL but was not pasted by the user.
+            guard !isApplyingComposerDraft else {
+                isApplyingComposerDraft = false
+                return
+            }
             viewModel.checkForInviteURL()
             viewModel.checkForAgentShareURL()
             viewModel.checkForPastedLink()
@@ -545,6 +553,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear {
             ensureNavigator()
+            applyPendingComposerDraft()
             navState.markScreenAppeared()
             updateGroupOnScreen(isOnScreen: true)
             // Seed before the viewed check: a DM-notification open lands
@@ -566,6 +575,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
             handleSelectAgentDmPageRequest(note)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { notification in
+            let conversationId: String? = notification.userInfo?["conversationId"] as? String
+            if conversationId == viewModel.conversation.id {
+                applyPendingComposerDraft()
+            }
         }
         .onDisappear {
             viewModel.onConversationDisappeared()
@@ -596,6 +611,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
             viewModel.voiceMemoRecorder.cancelRecording()
         }
     }
+
+    private func applyPendingComposerDraft() {
+        let previousText = viewModel.messageText
+        isApplyingComposerDraft = true
+        viewModel.applyPendingComposerDraft()
+        if viewModel.messageText == previousText {
+            isApplyingComposerDraft = false
+        }
+    }
 }
 
 // MARK: - Presentations
@@ -614,7 +638,26 @@ private extension ConversationView {
     /// type-check budget and the body-length limit.
     @ViewBuilder
     func conversationPresentations(_ content: some View) -> some View {
-        messagePresentations(conversationLevelPresentations(connectionsBrowserPresentation(content)))
+        let connectionContent = connectionsBrowserPresentation(content)
+        let conversationContent = conversationLevelPresentations(connectionContent)
+        let messageContent = messagePresentations(conversationContent)
+        agentChatPresentation(messageContent)
+    }
+
+    @ViewBuilder
+    func agentChatPresentation(_ content: some View) -> some View {
+        content.sheet(item: $agentChatDraft) { draft in
+            if let agentRelayDependencies {
+                NavigationStack {
+                    AgentChatView(
+                        provider: draft.provider,
+                        dependencies: agentRelayDependencies,
+                        session: viewModel.session,
+                        initialText: draft.text
+                    )
+                }
+            }
+        }
     }
 
     /// The Connections browser, raised full-screen by the agent composer's
@@ -1602,7 +1645,8 @@ private extension ConversationView {
             onReply: handleContextMenuReply(_:),
             onCopy: { text in
                 UIPasteboard.general.string = text
-            }
+            },
+            onCopyToAgent: copyToAgentAction(state: state, lane: lane)
         )
         .environment(\.agentShareResolver, lane.agentShareResolver)
         .environment(\.inviteMembershipResolver, lane.inviteMembershipResolver)
@@ -1611,6 +1655,22 @@ private extension ConversationView {
         // routes where the bubble's own tap routes only because of this.
         .environment(\.messageLinkRouter, routeSpaceLink(_:))
         .environment(\.conversationSpaceURL, viewModel.conversation.spaceURL)
+    }
+
+    func copyToAgentAction(
+        state: MessageContextMenuState,
+        lane _: ConversationViewModel
+    ) -> ((String) -> Void)? {
+        guard FeatureFlags.shared.agentRelayEnabled,
+              let dependencies = agentRelayDependencies,
+              let provider = dependencies.connectionStore.activeProvider,
+              (try? dependencies.connectionStore.load(provider: provider)) != nil else {
+            return nil
+        }
+        return { text in
+            guard state.presentedMessage != nil else { return }
+            agentChatDraft = AgentChatDraft(provider: provider, text: text)
+        }
     }
 
     /// Extra rows above the group composer: the injected bottom-bar slot plus

@@ -9,31 +9,31 @@ import SQLite3
 public final class AgentChatDatabase: Sendable {
     public let pool: DatabasePool
 
-    public init(environment: AppEnvironment) throws {
+    public init(environment: AppEnvironment, maximumReaderCount: Int = 5) throws {
         let directory = environment.defaultDatabasesDirectoryURL
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(Constant.fileName)
-        pool = try Self.openPool(at: url.path)
+        pool = try Self.openPool(at: url.path, maximumReaderCount: maximumReaderCount)
     }
 
     /// A throwaway database for tests: a unique temporary file, because a
     /// `DatabasePool` cannot be opened on an in-memory database.
-    public static func inMemoryForTests() throws -> AgentChatDatabase {
+    public static func inMemoryForTests(maximumReaderCount: Int = 5) throws -> AgentChatDatabase {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("agent-chat-\(UUID().uuidString).sqlite")
-        return try AgentChatDatabase(pool: openPool(at: url.path))
+        return try AgentChatDatabase(pool: openPool(at: url.path, maximumReaderCount: maximumReaderCount))
     }
 
     private init(pool: DatabasePool) {
         self.pool = pool
     }
 
-    private static func openPool(at path: String) throws -> DatabasePool {
+    private static func openPool(at path: String, maximumReaderCount: Int) throws -> DatabasePool {
         var config = Configuration()
         let isNSE = Bundle.main.bundleIdentifier?.contains("NotificationService") ?? false
         config.label = isNSE ? "AgentChatDB-NSE" : "AgentChatDB-MainApp"
         config.foreignKeysEnabled = true
-        config.maximumReaderCount = 5
+        config.maximumReaderCount = maximumReaderCount
         config.busyMode = .timeout(10.0)
         config.journalMode = .wal
         config.prepareDatabase { db in
