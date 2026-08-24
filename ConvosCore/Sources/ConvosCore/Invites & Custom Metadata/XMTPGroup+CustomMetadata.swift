@@ -142,6 +142,26 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// Overwrites the Space web URL in appData, or clears it when nil. The
+    /// Assistant Worker is the value's authority (see `spaceURL`); this setter
+    /// exists only for the debug override in conversation info, and the worker
+    /// may replace whatever it writes on its next publish.
+    public func updateSpaceURL(_ urlString: String?) async throws {
+        try await atomicUpdateMetadata(operation: "updateSpaceURL") { metadata in
+            if let urlString {
+                metadata.spaceURL = urlString
+            } else {
+                metadata.clearSpaceURL()
+            }
+        } verify: { metadata in
+            if let urlString {
+                return metadata.spaceURL == urlString
+            } else {
+                return !metadata.hasSpaceURL
+            }
+        }
+    }
+
     /// Stamps this conversation as a private DM with an agent. Called once by
     /// the device that creates the DM conversation, before adding the agent.
     public func markAsAgentDm(originConversationId: Data? = nil) async throws {
@@ -210,11 +230,21 @@ extension XMTPiOS.Group {
     }
 
     /// Seeds every piece of creator-authored metadata in one commit: the
-    /// invite tag, the image encryption key, and (when a seed is provided)
-    /// the conversation emoji. Each individual `ensure*` call publishes its
-    /// own MLS commit with a network round trip, so the creation path calls
-    /// this instead of chaining them. No-ops without a commit when every
-    /// field is already present.
+    /// invite tag, the image encryption key, (when a seed is provided) the
+    /// conversation emoji, and the initial participation mode. Each individual
+    /// `ensure*` call publishes its own MLS commit with a network round trip,
+    /// so the creation path calls this instead of chaining them. No-ops without
+    /// a commit when every field is already present.
+    ///
+    /// The participation mode is seeded to Listen (`.mentionsOnly`) so a new
+    /// conversation's agents stay quiet until addressed. This only reaches group
+    /// chats: agent DMs are created by the agent, so their `creatorInboxId` is
+    /// never this client and they never call this creator-only method. The seed
+    /// is tied to authoring the invite tag -- the one field written exactly once,
+    /// at creation -- so it never fires when this method re-runs on an already
+    /// established group (e.g. `StreamProcessor` reprocessing a legacy
+    /// creator-owned conversation), which would otherwise flip that room off the
+    /// legacy default and publish a spurious commit.
     ///
     /// Only the conversation creator should call this - it authors the
     /// invite tag (see `ensureInviteTag`).
@@ -223,6 +253,11 @@ extension XMTPiOS.Group {
         let needsTag = current.tag.isEmpty
         let needsKey = !current.hasImageEncryptionKey
         let needsEmoji = emojiSeed != nil && (!current.hasEmoji || current.emoji.isEmpty)
+        // Only seed the initial mode in the same commit that first authors the
+        // invite tag, i.e. a brand-new group. An established group (tag already
+        // present) that happens to carry no mode must keep rendering as the
+        // legacy default, untouched.
+        let seedsParticipationMode = needsTag && current.conversationParticipationMode == nil
         guard needsTag || needsKey || needsEmoji else { return }
 
         // Generate the tag only when it's actually missing so a transient
@@ -251,10 +286,14 @@ extension XMTPiOS.Group {
             if let newEmoji, !metadata.hasEmoji || metadata.emoji.isEmpty {
                 metadata.emoji = newEmoji
             }
+            if seedsParticipationMode, metadata.conversationParticipationMode == nil {
+                metadata.participationMode = ConversationParticipationMode.mentionsOnly.proto
+            }
         } verify: { metadata in
             guard !metadata.tag.isEmpty else { return false }
             guard newKey == nil || metadata.hasImageEncryptionKey else { return false }
-            return newEmoji == nil || (metadata.hasEmoji && !metadata.emoji.isEmpty)
+            guard newEmoji == nil || (metadata.hasEmoji && !metadata.emoji.isEmpty) else { return false }
+            return !seedsParticipationMode || metadata.conversationParticipationMode != nil
         }
     }
 

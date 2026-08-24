@@ -23,6 +23,18 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
                  method: String,
                  queryParameters: [String: String]?) throws -> URLRequest
 
+    /// Builds a request with the JWT attached (override token first, then
+    /// the keychain slots) and returns it for the caller to execute on its
+    /// own session. The agent relay uses this so long-poll responses never
+    /// pass through the client's body-logging path.
+    func authorizedRequest(for endpoint: String,
+                           method: String,
+                           queryParameters: [String: String]?) async throws -> URLRequest
+
+    /// Executes a request through the client's 401 re-authentication and
+    /// retry path.
+    func performAuthenticatedRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
+
     /// Register device with AppCheck authentication (no JWT required - device-level operation)
     func registerDevice(deviceId: String, pushToken: String?) async throws
 
@@ -126,6 +138,15 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
         conversationId: String,
         variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse
+
+    /// Stops the turn the conversation's agents are running right now, without
+    /// injecting a chat message — the stop button, not a message the user
+    /// sends. Same control-plane hop and variant routing as participation.
+    /// Idempotent: an agent with no turn running is a successful no-op.
+    func interruptAgent(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentInterruptResponse
 
     /// Mints the paste-ready Space share message for a conversation: one
     /// sentence naming the receiving agent's import skill plus a clone URL
@@ -307,6 +328,12 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// Withdraws one agent's opt-in
     /// (`DELETE /v2/conversations/{conversationId}/abilities/{abilityId}?agentInboxId=`).
     func deleteConversationAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws
+}
+
+public extension ConvosAPIClientProtocol {
+    func performAuthenticatedRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        throw APIError.notAuthenticated
+    }
 }
 
 extension ConvosAPIClientProtocol {
@@ -679,6 +706,12 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         return attachingAuthHeader(to: request)
     }
 
+    func authorizedRequest(for endpoint: String,
+                           method: String,
+                           queryParameters: [String: String]?) async throws -> URLRequest {
+        try authenticatedRequest(for: endpoint, method: method, queryParameters: queryParameters)
+    }
+
     /// Attaches the auth header to a prebuilt request. Split from
     /// `authenticatedRequest` so the abilities endpoints, which build their
     /// URLs through URLComponents (strict per-segment percent-encoding that
@@ -780,41 +813,6 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             // Unhandled statuses remain generic server errors.
             throw APIError.serverError(parseErrorMessage(from: data))
         }
-    }
-
-    func performAuthenticatedRequest(
-        _ request: URLRequest,
-        retryCount: Int = 0
-    ) async throws -> (Data, HTTPURLResponse) {
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
-        }
-
-        guard httpResponse.statusCode == 401 else {
-            return (data, httpResponse)
-        }
-
-        guard overrideJWTToken == nil else {
-            Log.error("Authentication failed in JWT override mode - cannot re-authenticate without AppCheck")
-            throw APIError.notAuthenticated
-        }
-
-        guard retryCount < maxRetryCount else {
-            Log.error("Max retry count (\(maxRetryCount)) exceeded for request")
-            throw APIError.notAuthenticated
-        }
-
-        Log.info("Attempting re-authentication (attempt \(retryCount + 1) of \(maxRetryCount))")
-        let freshJWT = try await reAuthenticate()
-        guard !freshJWT.isEmpty else {
-            throw APIError.notAuthenticated
-        }
-
-        var newRequest = request
-        newRequest.setValue(freshJWT, forHTTPHeaderField: "X-Convos-AuthToken")
-        return try await performAuthenticatedRequest(newRequest, retryCount: retryCount + 1)
     }
 
     func uploadAttachment(
@@ -1343,6 +1341,27 @@ extension ConvosAPIClient {
         variantId.map { ["variantId": $0] }
     }
 
+    /// Lives in an extension (not the main class body) only to keep
+    /// `ConvosAPIClient` under SwiftLint's `type_body_length`; behaviorally it
+    /// is a sibling of `setAgentParticipation`.
+    func interruptAgent(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentInterruptResponse {
+        // Same worker-routing constraint as participation: an agent provisioned
+        // on a variant worker only exists there, so a stop that omits the
+        // variantId lands on the default worker and stops nothing.
+        var request = try authenticatedRequest(
+            for: "v2/conversations/\(participationPathComponent(conversationId))/interrupt",
+            method: "POST",
+            queryParameters: prodSafeVariantId(variantId).map { ["variantId": $0] }
+        )
+        // No body: the stop carries no state, it just signals whatever is
+        // running now. Bounded so a stuck call cannot leave the control spinning.
+        request.timeoutInterval = 20
+        return try await performRequest(request)
+    }
+
     func requestAgentJoin(
         _ joinRequest: ConvosAPI.AgentJoinRequest,
         forceErrorCode: Int? = nil
@@ -1488,6 +1507,47 @@ extension ConvosAPIClient {
         default:
             throw AgentGenerationError.server(parseErrorMessage(from: data))
         }
+    }
+}
+
+extension ConvosAPIClient {
+    func performAuthenticatedRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        try await performAuthenticatedRequest(request, retryCount: 0)
+    }
+
+    private func performAuthenticatedRequest(
+        _ request: URLRequest,
+        retryCount: Int
+    ) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 401 else {
+            return (data, httpResponse)
+        }
+
+        guard overrideJWTToken == nil else {
+            Log.error("Authentication failed in JWT override mode - cannot re-authenticate without AppCheck")
+            throw APIError.notAuthenticated
+        }
+
+        guard retryCount < maxRetryCount else {
+            Log.error("Max retry count (\(maxRetryCount)) exceeded for request")
+            throw APIError.notAuthenticated
+        }
+
+        Log.info("Attempting re-authentication (attempt \(retryCount + 1) of \(maxRetryCount))")
+        let freshJWT = try await reAuthenticate()
+        guard !freshJWT.isEmpty else {
+            throw APIError.notAuthenticated
+        }
+
+        var newRequest = request
+        newRequest.setValue(freshJWT, forHTTPHeaderField: "X-Convos-AuthToken")
+        return try await performAuthenticatedRequest(newRequest, retryCount: retryCount + 1)
     }
 }
 

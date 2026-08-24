@@ -99,6 +99,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAgentJoin: () -> Void
     let onInviteAgent: () -> Void
+    var onInvitePeople: () -> Void = {}
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let profileSheetForMember: (ConversationMember) -> AnyView
     let memberContactOverride: (String) -> Contact?
@@ -238,6 +239,7 @@ struct MessagesView<BottomBarContent: View>: View {
             onDeleteMessage: onDeleteMessage,
             onRetryAgentJoin: onRetryAgentJoin,
             onInviteAgent: onInviteAgent,
+            onInvitePeople: onInvitePeople,
             onRetryTranscript: onRetryTranscript,
             profileSheetForMember: profileSheetForMember,
             memberContactOverride: memberContactOverride,

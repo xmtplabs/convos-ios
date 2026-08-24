@@ -4,8 +4,10 @@ import ConvosMetrics
 import SwiftUI
 
 /// Root tab shell for the app. Hosts `ConversationsView` under the "Convos"
-/// tab and `ContactsView` under "Contacts", in a standard SwiftUI `TabView`
-/// with the system tab bar.
+/// tab, `ContactsView` under "Contacts" and `AgentsHomeView` under "Agents",
+/// in a standard SwiftUI `TabView` with the system tab bar. The Agents tab is
+/// behind the agent-relay feature flag, as is the App Settings "Agents" row.
+/// Both entry points reach the same `AgentsHomeView` when the flag is on.
 ///
 /// The compose button lives in the shared toolbar; the app-indicator pill is
 /// a top-leading overlay (see `sharedAppIndicatorOverlay`).
@@ -25,6 +27,11 @@ struct MainTabView: View {
     /// re-center the pill. `ContactsView` pushes onto it via value-based
     /// `NavigationLink`s.
     @State private var contactsPath: [Contact] = []
+    /// NavigationStack path for the Agents tab, lifted here for the same
+    /// reason `contactsPath` is: the shell has to be able to push a provider's
+    /// chat from outside the tab (a tapped agent notification, or an agent
+    /// switch made inside a chat) and to know when a chat is on screen.
+    @State private var agentsPath: [ExternalAgentProvider] = []
     /// Drives the app-settings sheet that the `AppIndicatorPill` (in
     /// every tab that renders one) presents on tap. Lives at this shell
     /// level so every tab shares a single sheet instance — the
@@ -53,6 +60,11 @@ struct MainTabView: View {
     @State var conversationsNavigator: ConversationsCollector?
     @State var contactsNavState: ContactsNavigatorImpl = .init()
     @State var contactsNavigator: ContactsCollector?
+    /// The Agents tab has no screen in the shared `ConvosMetrics` package yet,
+    /// so it carries the lifecycle half only. Emitting one of the existing
+    /// tabs' events for it would put wrong data in the funnel, which is worse
+    /// than the gap.
+    @State var agentsNavState: AgentsNavigatorImpl = .init()
     @Environment(\.scenePhase) private var scenePhase: ScenePhase
     /// Live subscription drives the app-indicator subtitle (plan name,
     /// or "Basic" when not subscribed). Seeded from the service's current
@@ -94,6 +106,7 @@ struct MainTabView: View {
     /// window chrome) and on iPad in fullscreen.
     @State private var isInTrafficLightWindow: Bool = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+    @Environment(\.agentRelayDependencies) private var agentRelayDependencies: AgentRelayDependencies?
 
     private var appIndicatorContext: AppIndicatorContext {
         AppIndicatorContext(
@@ -145,6 +158,13 @@ struct MainTabView: View {
         activeTab == .contacts && !contactsPath.isEmpty
     }
 
+    /// `true` when the Agents tab has a provider screen pushed. Those screens
+    /// carry their own inline title, so the shell's leading pill stands down
+    /// exactly as it does for a pushed contact detail.
+    private var isAgentDetailPushed: Bool {
+        activeTab == .agents && !agentsPath.isEmpty
+    }
+
     /// `true` while the compose flow is pushed onto the Chats tab's stack.
     /// That screen carries its own conversation indicator, so the shell's
     /// leading pill stands down for it the same way it does for a pushed
@@ -172,10 +192,32 @@ struct MainTabView: View {
         presentingAppSettings = false
     }
 
+    private func handleAgentRelayEnabledChanged(_ isEnabled: Bool) {
+        guard !isEnabled, activeTab == .agents else { return }
+        activeTab = .chats
+    }
+
+    /// A tapped agent notification (and an agent switch made inside a chat)
+    /// lands on the Agents tab with that provider's chat pushed, rather than
+    /// on a sheet over whatever the user was doing. Ignored when the tab is
+    /// not there to land on.
+    private func handleAgentRelayNotificationTapped(_ notification: Notification) {
+        guard FeatureFlags.shared.agentRelayEnabled else { return }
+        let provider = AgentRelayNotificationRoute.provider(
+            from: notification,
+            dependencies: agentRelayDependencies
+        )
+        presentingAppSettings = false
+        conversationsViewModel.selectedConversationId = nil
+        activeTab = .agents
+        agentsPath = [provider]
+    }
+
     var body: some View {
         bodyCore
             .profilesRepository(conversationsViewModel.session.messagingServiceSync().profilesRepository())
             .onAppear {
+                handleAgentRelayEnabledChanged(FeatureFlags.shared.agentRelayEnabled)
                 ensureNavigators()
                 tabRootNavState.markScreenAppeared()
                 navStateForTab(activeTab).markScreenAppeared()
@@ -204,6 +246,14 @@ struct MainTabView: View {
                     contactsTabContent
                 }
             }
+
+            if FeatureFlags.shared.agentRelayEnabled {
+                Tab(ConvosTab.agents.title, systemImage: ConvosTab.agents.symbol, value: ConvosTab.agents) {
+                    tabContainer(for: .agents) {
+                        agentsTabContent
+                    }
+                }
+            }
         }
         .tint(Color.colorTextPrimary)
         .onChange(of: activeTab) { _, newTab in
@@ -211,6 +261,9 @@ struct MainTabView: View {
             // scan navigation gated on the Chats tab consumes only once the
             // switch has actually committed.
             conversationsViewModel.isChatsTabActive = newTab == .chats
+        }
+        .onChange(of: FeatureFlags.shared.agentRelayEnabled) { _, isEnabled in
+            handleAgentRelayEnabledChanged(isEnabled)
         }
     }
 
@@ -230,6 +283,22 @@ struct MainTabView: View {
             onScanJoinedConversation: handleContactsScanJoinedConversation,
             hasPushedContactDetail: !contactsPath.isEmpty
         )
+    }
+
+    /// The Agents tab's root. `AgentsHomeView` is the same screen the App
+    /// Settings "Agents" row pushes - one implementation, two entry points -
+    /// so a provider's chat and setup flow are reached identically from both.
+    @ViewBuilder
+    private var agentsTabContent: some View {
+        if let agentRelayDependencies {
+            AgentsHomeView(
+                mode: .tabRoot,
+                dependencies: agentRelayDependencies,
+                session: conversationsViewModel.session
+            )
+        } else {
+            AgentsUnavailableView()
+        }
     }
 
     /// A scan started from the Contacts tab joined a conversation. The joined
@@ -256,6 +325,10 @@ struct MainTabView: View {
         // detail is pushed; the other tabs use an internally-managed stack.
         if tab == .contacts {
             NavigationStack(path: $contactsPath) {
+                tabChrome(content(), for: tab)
+            }
+        } else if tab == .agents {
+            NavigationStack(path: $agentsPath) {
                 tabChrome(content(), for: tab)
             }
         } else {
@@ -326,13 +399,14 @@ struct MainTabView: View {
         VStack(spacing: 0) {
             if let activeConvoVM = activeConvoVM {
                 centeredConversationIndicator(for: activeConvoVM)
-            } else if !isContactDetailPushed && !isNewConversationPushed {
+            } else if !isContactDetailPushed && !isAgentDetailPushed && !isNewConversationPushed {
                 leadingAppIndicatorPill
             }
             Spacer()
         }
         .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: activeConvoVM != nil)
         .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: isContactDetailPushed)
+        .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: isAgentDetailPushed)
         .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: isNewConversationPushed)
         .ignoresSafeArea()
         .allowsHitTesting(true)
@@ -521,6 +595,7 @@ extension MainTabView {
         switch tab {
         case .chats: return conversationsNavState
         case .contacts: return contactsNavState
+        case .agents: return agentsNavState
         }
     }
 
@@ -528,6 +603,7 @@ extension MainTabView {
         switch tab {
         case .chats: conversationsNavigator?.closed(context: context)
         case .contacts: contactsNavigator?.closed(context: context)
+        case .agents: break
         }
     }
 
@@ -542,6 +618,8 @@ extension MainTabView {
             tabRootNavigator?.navigateTo(conversations: ConversationsNavigatorArgs())
         case .contacts:
             tabRootNavigator?.navigateTo(contacts: ContactsNavigatorArgs())
+        case .agents:
+            break
         }
     }
 
@@ -573,6 +651,7 @@ extension MainTabView {
         switch source {
         case .chats: conversationsNavigator?.present(appSettings: AppSettingsNavigatorArgs())
         case .contacts: contactsNavigator?.present(appSettings: AppSettingsNavigatorArgs())
+        case .agents: break
         }
     }
 
@@ -684,6 +763,9 @@ extension MainTabView {
         }
         .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { _ in
             handleConversationNotificationTapped()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .agentRelayNotificationTapped)) { notification in
+            handleAgentRelayNotificationTapped(notification)
         }
         .onChange(of: isNewConversationPushed) { _, isPushed in
             handleNewConversationPushed(isPushed)

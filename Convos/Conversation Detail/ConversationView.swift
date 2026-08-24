@@ -53,6 +53,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// host that renders one too (the new-convo sheet's close) hides its own
     /// and the bar keeps a single leading button.
     var onHomeBrowsingChanged: ((Bool) -> Void)?
+    /// Replaces the window safe-area inset used to position the floating top
+    /// chrome. Standalone sheets pass the same fixed inset as their locally
+    /// rendered conversation indicator.
+    var topChromeInsetOverride: CGFloat?
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
@@ -127,6 +131,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var navState: ConversationNavigatorImpl = .init()
     @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.agentRelayDependencies) private var agentRelayDependencies: AgentRelayDependencies?
+    @State private var agentChatDraft: AgentChatDraft?
+    @State private var isApplyingComposerDraft: Bool = false
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -138,6 +145,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     private var conversationIdForMetrics: String {
         viewModel.conversation.id
+    }
+
+    private var topChromeInset: CGFloat {
+        topChromeInsetOverride ?? windowSafeAreaInsets.top
     }
 
     /// Substitutes the user's contact (name + avatar) for any member's
@@ -206,7 +217,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         MessagesView(
             contextMenuState: contextMenuState,
             conversation: viewModel.conversation,
-            messages: viewModel.messagesWithThinkingIndicators,
+            messages: groupMessages,
             invite: viewModel.invite,
             hasLoadedAllMessages: viewModel.hasLoadedAllMessages,
             profile: viewModel.profile,
@@ -281,6 +292,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onDeleteMessage: viewModel.deleteMessage(_:),
             onRetryAgentJoin: { viewModel.retryAgentJoin() },
             onInviteAgent: {},
+            onInvitePeople: handleAddFromContactsTap,
             onRetryTranscript: { item in
                 viewModel.retryTranscript(for: item)
             },
@@ -536,6 +548,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     var body: some View {
         conversationPresentations(conversationCore)
         .onChange(of: viewModel.messageText) { _, _ in
+            // A staged draft can contain a URL but was not pasted by the user.
+            guard !isApplyingComposerDraft else {
+                isApplyingComposerDraft = false
+                return
+            }
             viewModel.checkForInviteURL()
             viewModel.checkForAgentShareURL()
             viewModel.checkForPastedLink()
@@ -544,6 +561,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear {
             ensureNavigator()
+            applyPendingComposerDraft()
             navState.markScreenAppeared()
             updateGroupOnScreen(isOnScreen: true)
             // Seed before the viewed check: a DM-notification open lands
@@ -565,6 +583,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
             handleSelectAgentDmPageRequest(note)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { notification in
+            let conversationId: String? = notification.userInfo?["conversationId"] as? String
+            if conversationId == viewModel.conversation.id {
+                applyPendingComposerDraft()
+            }
         }
         .onDisappear {
             viewModel.onConversationDisappeared()
@@ -595,6 +619,15 @@ struct ConversationView<MessagesBottomBar: View>: View {
             viewModel.voiceMemoRecorder.cancelRecording()
         }
     }
+
+    private func applyPendingComposerDraft() {
+        let previousText = viewModel.messageText
+        isApplyingComposerDraft = true
+        viewModel.applyPendingComposerDraft()
+        if viewModel.messageText == previousText {
+            isApplyingComposerDraft = false
+        }
+    }
 }
 
 // MARK: - Presentations
@@ -613,7 +646,26 @@ private extension ConversationView {
     /// type-check budget and the body-length limit.
     @ViewBuilder
     func conversationPresentations(_ content: some View) -> some View {
-        messagePresentations(conversationLevelPresentations(connectionsBrowserPresentation(content)))
+        let connectionContent = connectionsBrowserPresentation(content)
+        let conversationContent = conversationLevelPresentations(connectionContent)
+        let messageContent = messagePresentations(conversationContent)
+        agentChatPresentation(messageContent)
+    }
+
+    @ViewBuilder
+    func agentChatPresentation(_ content: some View) -> some View {
+        content.sheet(item: $agentChatDraft) { draft in
+            if let agentRelayDependencies {
+                NavigationStack {
+                    AgentChatView(
+                        provider: draft.provider,
+                        dependencies: agentRelayDependencies,
+                        session: viewModel.session,
+                        initialText: draft.text
+                    )
+                }
+            }
+        }
     }
 
     /// The Connections browser, raised full-screen by the agent composer's
@@ -712,6 +764,7 @@ private extension ConversationView {
                     descriptor: descriptor,
                     conversation: viewModel.conversation,
                     viewModel: viewModel,
+                    onStop: { Task { await viewModel.interruptAgent() } },
                     profileSheetForMember: profileSheetForMember
                 )
             }
@@ -1303,8 +1356,8 @@ private extension ConversationView {
             pageHost
             // The wash is its own layer, not the chrome's background: it runs
             // taller than the chrome's frame and a background would clip it.
-            ConversationChromeScrim(topSafeAreaInset: windowSafeAreaInsets.top)
-            ConversationTopChrome(topSafeAreaInset: windowSafeAreaInsets.top) {
+            ConversationChromeScrim(topSafeAreaInset: topChromeInset)
+            ConversationTopChrome(topSafeAreaInset: topChromeInset) {
                 ConversationSegmentedControl(
                     selectedTab: $selectedTab,
                     tabs: availableTabs,
@@ -1403,44 +1456,30 @@ private extension ConversationView {
 
     private var groupPage: some View {
         messagesView(focus: $focusState)
-            .overlay { groupEmptyStateOverlay }
             .task {
                 // Messages arrive just after the page appears, so an
                 // isEmpty-only gate would flash the empty state open and shut
                 // on every conversation that has any. Wait for the first
-                // emission to settle before it is allowed to show at all;
-                // fading out afterwards is instant either way.
+                // emission to settle before it is allowed to show at all.
                 try? await Task.sleep(for: .milliseconds(300))
                 groupEmptyStateSettled = true
             }
     }
 
-    /// Gated on `groupEmptyStateSettled` so it can only fade in once the
-    /// transcript has had a chance to deliver its first messages.
+    /// Gated on `groupEmptyStateSettled` so it can only appear once the
+    /// transcript has had a chance to deliver its first messages. Hides on
+    /// any item in the list - including a system item like "you joined" or
+    /// "earlier messages are hidden" - not just a real message.
     private var showsGroupEmptyState: Bool {
-        selectedTab == .group && groupEmptyStateSettled && !viewModel.hasAnyMessages
+        selectedTab == .group && groupEmptyStateSettled && !viewModel.hasAnyMessagesListItems
     }
 
-    /// Rides the group page rather than the screen-level chrome layer, so it
-    /// travels with the horizontal page swipe instead of hanging still over it.
-    ///
-    /// Sized to its own content, never to the page: a full-bleed overlay sits
-    /// on top of the pager and eats the pan, so the tabs cannot be dragged.
-    /// `GroupEmptyStateView` makes its text transparent to touches for the same
-    /// reason - only the button takes them.
-    private var groupEmptyStateOverlay: some View {
-        GroupEmptyStateView(
-            isInviteEnabled: messagesTopBarTrailingItemEnabled && !effectiveReadOnly,
-            onInvite: handleAddFromContactsTap
-        )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Centres against the screen rather than the page's inset box, which
-        // would land the block ~46pt low. The frame carries no background, so
-        // its empty area stays transparent to the pager's pan.
-        .ignoresSafeArea()
-        .opacity(showsGroupEmptyState ? 1.0 : 0.0)
-        .allowsHitTesting(showsGroupEmptyState)
-        .animation(.easeInOut(duration: 0.25), value: showsGroupEmptyState)
+    private var groupMessages: [MessagesListItemType] {
+        guard showsGroupEmptyState else {
+            return viewModel.messagesWithThinkingIndicators
+        }
+        let isInviteEnabled: Bool = messagesTopBarTrailingItemEnabled && !effectiveReadOnly
+        return [.groupEmptyState(isInviteEnabled: isInviteEnabled)]
     }
 
     @ViewBuilder
@@ -1499,7 +1538,8 @@ private extension ConversationView {
             entry: entry,
             onNavigationRequest: { url in
                 pushHomeBrowserPage(for: url)
-            }
+            },
+            bridgeNavigation: homeBridgeNavigation
         )
     }
 
@@ -1530,9 +1570,51 @@ private extension ConversationView {
                 webURL: viewModel.conversation.spaceURL,
                 onNavigationRequest: { url in
                     pushHomeBrowserPage(for: url)
-                }
+                },
+                bridgeNavigation: homeBridgeNavigation
             )
         }
+    }
+
+    /// Native destinations for the home page's `window.convos` invite/chat
+    /// calls, mirroring Android's `DesktopBridgeNavigation` wiring in
+    /// `ConversationScreen`. Each closure reads live state when invoked: the
+    /// bridge holds one instance per web view, refreshed on every update pass.
+    private var homeBridgeNavigation: HomeBridgeNavigation {
+        HomeBridgeNavigation(
+            showShareSheet: {
+                // Same gate as the native invite controls: a stale/removed
+                // device or pending-invite conversation can't mint or share.
+                guard inviteActionsEnabled else {
+                    Log.warning("HomeBridgeNavigation showShareSheet ignored; invite actions disabled")
+                    return
+                }
+                // Same routing as the composer's "Invite friends": a full
+                // conversation can't mint invites and explains itself instead.
+                if viewModel.isFull {
+                    showingFullInfo = true
+                } else {
+                    presentingInviteShareSheet = true
+                }
+            },
+            showScan: { onScanInviteCode() },
+            showInviteCode: {
+                guard inviteActionsEnabled else {
+                    Log.warning("HomeBridgeNavigation showInviteCode ignored; invite actions disabled")
+                    return
+                }
+                Log.info("HomeBridgeNavigation wired showInviteCode closure invoked; forwarding to viewModel")
+                viewModel.showInviteCode()
+            },
+            showInvitePicker: {
+                guard inviteActionsEnabled else {
+                    Log.warning("HomeBridgeNavigation showInvitePicker ignored; invite actions disabled")
+                    return
+                }
+                presentingAddFromContactsPicker = true
+            },
+            showMembersList: { viewModel.presentingConversationSettings = true }
+        )
     }
 
     /// The single host seam for the composer's connections capability: the
@@ -1580,7 +1662,8 @@ private extension ConversationView {
             onReply: handleContextMenuReply(_:),
             onCopy: { text in
                 UIPasteboard.general.string = text
-            }
+            },
+            onCopyToAgent: copyToAgentAction(state: state, lane: lane)
         )
         .environment(\.agentShareResolver, lane.agentShareResolver)
         .environment(\.inviteMembershipResolver, lane.inviteMembershipResolver)
@@ -1589,6 +1672,22 @@ private extension ConversationView {
         // routes where the bubble's own tap routes only because of this.
         .environment(\.messageLinkRouter, routeSpaceLink(_:))
         .environment(\.conversationSpaceURL, viewModel.conversation.spaceURL)
+    }
+
+    func copyToAgentAction(
+        state: MessageContextMenuState,
+        lane _: ConversationViewModel
+    ) -> ((String) -> Void)? {
+        guard FeatureFlags.shared.agentRelayEnabled,
+              let dependencies = agentRelayDependencies,
+              let provider = dependencies.connectionStore.activeProvider,
+              (try? dependencies.connectionStore.load(provider: provider)) != nil else {
+            return nil
+        }
+        return { text in
+            guard state.presentedMessage != nil else { return }
+            agentChatDraft = AgentChatDraft(provider: provider, text: text)
+        }
     }
 
     /// Extra rows above the group composer: the injected bottom-bar slot plus
@@ -1804,6 +1903,15 @@ extension ConversationView {
     /// view it (e.g. it was open when the removal landed).
     private var effectiveReadOnly: Bool {
         isReadOnly || viewModel.conversation.wasRemoved
+    }
+
+    /// Whether the invite/share affordances may fire. Mirrors the exact gate
+    /// the native `inviteButton` uses (`.disabled(!messagesTopBarTrailingItemEnabled
+    /// || effectiveReadOnly)`), so a stale/removed device or a pending-invite
+    /// conversation can't mint or share invites. The Home web bridge routes its
+    /// invite closures through this same read rather than re-deriving the rule.
+    private var inviteActionsEnabled: Bool {
+        messagesTopBarTrailingItemEnabled && !effectiveReadOnly
     }
 
     /// Read-only surfaces suppress every leading affordance. The inline

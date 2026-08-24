@@ -119,6 +119,55 @@ final class ConversationsViewModelDeleteTests: XCTestCase {
         XCTAssertEqual(afterResume.map(\.id), [conversation.id])
     }
 
+    func testNotificationRouteResolvesAConversationOutsideTheLoadedPageById() {
+        let conversation = Conversation.mock(id: "conv-out-of-window", name: "Older convo")
+        let pager = MockConversationsPager(conversationsById: [conversation.id: conversation])
+        let session = TestSessionManager(
+            base: MockInboxesService(),
+            messagingService: MockMessagingService(),
+            conversationsPager: pager
+        )
+        let viewModel = ConversationsViewModel(session: session)
+
+        let routed = viewModel.routeToTappedConversation(conversation.id)
+
+        XCTAssertTrue(routed)
+        XCTAssertEqual(viewModel.selectedConversationId, conversation.id)
+        XCTAssertEqual(viewModel.selectedConversation?.id, conversation.id)
+    }
+
+    func testGroupNotificationRouteClearsPreviouslySelectedAgentDm() {
+        var conversationWithAgentDm = Conversation.mock(id: "conv-with-agent-dm", name: "Agent convo")
+        conversationWithAgentDm.agentDm = Conversation.AgentDmSummary(
+            inboxId: "agent-inbox",
+            displayName: "Agent",
+            lastMessage: nil,
+            isUnread: true
+        )
+        var groupConversation = Conversation.mock(id: "conv-group-notification", name: "Group convo")
+        groupConversation.agentDm = Conversation.AgentDmSummary(
+            inboxId: "group-agent-inbox",
+            displayName: "Group agent",
+            lastMessage: nil,
+            isUnread: true
+        )
+        let pager = MockConversationsPager(conversationsById: [groupConversation.id: groupConversation])
+        let session = TestSessionManager(
+            base: MockInboxesService(),
+            messagingService: MockMessagingService(),
+            conversationsPager: pager
+        )
+        let viewModel = ConversationsViewModel(session: session)
+        viewModel.select(conversationWithAgentDm)
+        XCTAssertEqual(viewModel.selectedInitialAgentDmInboxId, "agent-inbox")
+
+        let routed = viewModel.routeToTappedConversation(groupConversation.id)
+
+        XCTAssertTrue(routed)
+        XCTAssertNil(viewModel.selectedInitialAgentDmInboxId)
+        XCTAssertEqual(viewModel.selectedConversationId, groupConversation.id)
+    }
+
     // MARK: - Helpers
 
     private func waitUntil(
@@ -208,13 +257,16 @@ private final class DelayedConsentWriter: ConversationConsentWriterProtocol, @un
 private final class TestSessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let base: MockInboxesService
     private let customMessagingService: any MessagingServiceProtocol
+    private let customConversationsPager: any ConversationsPagerProtocol
 
     init(
         base: MockInboxesService,
-        messagingService: any MessagingServiceProtocol
+        messagingService: any MessagingServiceProtocol,
+        conversationsPager: any ConversationsPagerProtocol = MockConversationsPager()
     ) {
         self.base = base
         self.customMessagingService = messagingService
+        self.customConversationsPager = conversationsPager
     }
 
     func prepareNewConversation(variantSlug: String?) async -> (service: AnyMessagingService, conversationId: String?) {
@@ -266,7 +318,7 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
     }
 
     func conversationsPager(for consent: [Consent]) -> any ConversationsPagerProtocol {
-        base.conversationsPager(for: consent)
+        customConversationsPager
     }
 
     func conversationsCountRepo(for consent: [Consent], kinds: [ConversationKind]) -> any ConversationsCountRepositoryProtocol {

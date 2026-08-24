@@ -72,22 +72,6 @@ struct AgentDmPageView: View {
     @State private var emptyStateSettled: Bool = false
     @State private var showingPausedAgentAlert: Bool = false
 
-    /// Centred over the page and faded rather than inserted into the list, so
-    /// it never holds a scroll position. Never takes hits - it is only text.
-    @ViewBuilder
-    private var agentDmEmptyStateOverlay: some View {
-        if case .ready(let dmVm) = phase {
-            let shows: Bool = emptyStateSettled && !dmVm.hasAnyMessages
-            let opacity: Double = shows ? 1.0 : 0.0
-            AgentDmEmptyStateView(variant: agentVariant(in: dmVm))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea()
-                .opacity(opacity)
-                .allowsHitTesting(false)
-                .animation(.easeInOut(duration: 0.25), value: shows)
-        }
-    }
-
     /// The stamp lives on the agent member's profile, written by the assistants
     /// worker at join. nil for a default agent, and nil off dev.
     private func agentVariant(in dmVm: ConversationViewModel) -> AgentVariantStamp? {
@@ -105,7 +89,6 @@ struct AgentDmPageView: View {
                 addAgentState
             }
         }
-        .overlay { agentDmEmptyStateOverlay }
         .task {
             // Messages land just after the page appears; without this the
             // empty state would flash open and shut on a DM that has any.
@@ -289,8 +272,8 @@ struct AgentDmPageView: View {
     }
 
     /// The DM transcript: membership, invite, and agent-presence cells are
-    /// origin-conversation concepts; the DM leads with the disclosure cell
-    /// instead (see docs/plans/agent-dms.md).
+    /// origin-conversation concepts. A disclosure cell fills a settled empty
+    /// transcript and disappears as soon as any filtered item arrives.
     private func dmItems(_ dmVm: ConversationViewModel) -> [MessagesListItemType] {
         let items = dmVm.messagesWithThinkingIndicators.compactMap { (item: MessagesListItemType) -> MessagesListItemType? in
             switch item {
@@ -307,9 +290,8 @@ struct AgentDmPageView: View {
                 return item
             }
         }
-        // No leading disclosure cell: it is the page's empty state now, centred
-        // over the transcript rather than pinned to the top of it.
-        return items
+        guard emptyStateSettled, items.isEmpty else { return items }
+        return [.agentDmInfo(agentName: agentName, variant: agentVariant(in: dmVm))]
     }
 
     // MARK: - Full chat (mirrors ConversationView.messagesView with the DM VM)
@@ -426,10 +408,8 @@ struct AgentDmPageView: View {
             voiceMemoRecorder: dmVm.voiceMemoRecorder,
             onSendVoiceMemo: { dmVm.sendVoiceMemo() },
             extraBottomInset: extraBottomInset,
-            // Clearance for the conversation's floating top chrome. The full
-            // chrome, matching the group transcript: the leading `.agentDmInfo`
-            // cell used to fill the capsule's row, and without it the first
-            // message rode up under the chrome and sat higher than the group's.
+            // Clearance for the conversation's floating top chrome, matching
+            // the group transcript.
             topContentInset: ConversationChromeMetrics.contentClearance,
             // Same reason as the group transcript: the controller only adjusts
             // for safe area and tracks the keyboard when it owns its bottom bar.
@@ -564,6 +544,7 @@ struct AgentDmPageView: View {
             descriptor: descriptor,
             conversation: dmVm.conversation,
             viewModel: dmVm,
+            onStop: { Task { await dmVm.interruptAgent() } },
             profileSheetForMember: { member in AnyView(memberContactDetailSheet(for: member, dmVm: dmVm)) }
         )
     }

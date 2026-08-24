@@ -780,7 +780,7 @@ final class ConversationsViewModel {
         if conversationInPage(id: id) == nil {
             outOfWindowSelectedConversation = conversation
         }
-        selectedInitialAgentDmInboxId = agentDmInboxIdForMostRecentUnread(in: conversation)
+        selectedInitialAgentDmInboxId = nil
         selectedConversationId = id
         return true
     }
@@ -1692,13 +1692,9 @@ extension ConversationsViewModel {
             return true
         }
 
-        // A group (or any listed conversation): open it on the group page.
-        guard let conversation = conversations.first(where: { $0.id == conversationId }) else {
-            return false
-        }
-        selectedInitialAgentDmInboxId = nil
-        selectedConversation = conversation
-        return true
+        // A group (or any listed conversation): resolve it by id so a picker,
+        // deep link, or notification can open a row beyond the loaded page.
+        return selectConversation(id: conversationId)
     }
 
     /// Replays a notification tap that was parked because its destination hadn't

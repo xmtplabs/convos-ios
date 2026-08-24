@@ -61,6 +61,7 @@ struct CellConfig {
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onInviteAgent: () -> Void
+    let onInvitePeople: () -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem]
     let isAgentJoinPending: Bool

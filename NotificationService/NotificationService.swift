@@ -6,7 +6,7 @@ import XMTPiOS
 
 // MARK: - Global Push Handler Singleton
 
-private let globalPushHandler: CachedPushNotificationHandler? = {
+private func makeGlobalPushHandler() -> CachedPushNotificationHandler? {
     do {
         let environment = try NotificationExtensionEnvironment.getEnvironment()
         ConvosLog.configure(environment: environment)
@@ -45,12 +45,20 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
         Log.error(errorMsg)
         return nil
     }
-}()
+}
+
+private enum GlobalPushHandler {
+    static let shared: CachedPushNotificationHandler? = makeGlobalPushHandler()
+}
 
 // Wrapper to safely pass userInfo across isolation boundaries
 // The userInfo dictionary is copied at construction time and not mutated
 private struct SendableUserInfo: @unchecked Sendable {
     let value: [AnyHashable: Any]
+}
+
+private struct SendableNotificationRequest: @unchecked Sendable {
+    let value: UNNotificationRequest
 }
 
 final class NotificationService: UNNotificationServiceExtension, @unchecked Sendable {
@@ -61,6 +69,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
 
     // nonisolated(unsafe) is safe here because access is serialized via handlerQueue
     nonisolated(unsafe) private var contentHandler: ((UNNotificationContent) -> Void)?
+    nonisolated(unsafe) private var originalContent: UNNotificationContent?
+    nonisolated(unsafe) private var isAgentRelay: Bool = false
 
     private let instanceId: Substring = UUID().uuidString.prefix(8)
     private let processId: Int32 = ProcessInfo.processInfo.processIdentifier
@@ -70,17 +80,32 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
     ) {
         let requestId = request.identifier
-        self.contentHandler = contentHandler
+        handlerQueue.sync {
+            self.contentHandler = contentHandler
+            self.originalContent = request.content
+            self.isAgentRelay = request.content.userInfo["notificationType"] as? String
+                == AgentRelayPushPayload.notificationType
+        }
 
         Log.info("[PID: \(processId)] [Instance: \(instanceId)] [Request: \(requestId)] Starting notification processing")
 
-        guard let pushHandler = globalPushHandler else {
+        currentProcessingTask?.cancel()
+        if request.content.userInfo["notificationType"] as? String == AgentRelayPushPayload.notificationType {
+            let sendableRequest = SendableNotificationRequest(value: request)
+            currentProcessingTask = Task {
+                let content = await AgentRelayNotificationHandler().handle(sendableRequest.value)
+                guard !Task.isCancelled else { return }
+                self.deliverNotification(content)
+            }
+            return
+        }
+
+        guard let pushHandler = GlobalPushHandler.shared else {
             Log.error("No global push handler available - suppressing notification")
             deliverNotification(UNMutableNotificationContent())
             return
         }
 
-        currentProcessingTask?.cancel()
         let sendableUserInfo = SendableUserInfo(value: request.content.userInfo)
 
         currentProcessingTask = Task {
@@ -127,8 +152,17 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         Log.warning("[Instance: \(instanceId)] Service extension time expiring")
         currentProcessingTask?.cancel()
         currentProcessingTask = nil
-        if deliverNotification(UNMutableNotificationContent()) {
-            Log.info("Timeout - suppressing notification with empty content")
+        let fallback: (content: UNNotificationContent, relay: Bool) = handlerQueue.sync {
+            if self.isAgentRelay, let originalContent = self.originalContent {
+                return (originalContent, true)
+            }
+            return (UNMutableNotificationContent(), false)
+        }
+        if deliverNotification(fallback.content) {
+            let message = fallback.relay
+                ? "Timeout - delivering original relay notification"
+                : "Timeout - suppressing notification"
+            Log.info(message)
         }
     }
 
@@ -143,6 +177,8 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
                 return false
             }
             self.contentHandler = nil
+            self.originalContent = nil
+            self.isAgentRelay = false
             handler(content)
             return true
         }

@@ -1,3 +1,4 @@
+import ConvosBridge
 import ConvosCore
 import UIKit
 import WebKit
@@ -181,6 +182,12 @@ final class HomeWebViewPool {
         webView.configuration.userContentController.paintReporter
     }
 
+    /// The convos bridge and host installed on a pooled view, for the surface
+    /// to point the host's navigation at itself while it holds the view.
+    func bridgeBinding(of webView: WKWebView) -> HomeBridgeBinding? {
+        HomeBridgeBindingRegistry.shared.binding(for: webView.configuration.userContentController)
+    }
+
     private func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         // The paint script is not installed here: it carries the token of the
@@ -199,7 +206,23 @@ final class HomeWebViewPool {
             reporter,
             for: configuration.userContentController
         )
-        return WKWebView(frame: .zero, configuration: configuration)
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        // The convos bridge is installed with the view, not by the surface that
+        // adopts it. The pool's `prepare` loads the space URL before any surface
+        // exists, and a bridge attached only on adoption would miss that load:
+        // its document-start `convos.js` runs on the next navigation, and an
+        // adopted page is not reloaded, so `window.convos` would never appear.
+        // The message handler outlives every surface; the host it dispatches to
+        // is repointed at whichever surface currently holds the view, and reset
+        // when the view returns to the pool. See `HomeWebView.makeUIView`.
+        let host = HomeBridgeHost()
+        let bridge = ConvosWebBridge(plugins: HomeBridgePlugins.dispatchers(host: host))
+        bridge.attach(to: webView)
+        HomeBridgeBindingRegistry.shared.register(
+            HomeBridgeBinding(bridge: bridge, host: host),
+            for: configuration.userContentController
+        )
+        return webView
     }
 
     /// Arms the paint reporter for a load about to be issued on this view.
@@ -215,6 +238,15 @@ final class HomeWebViewPool {
         let token = UUID().uuidString
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
+        // `removeAllUserScripts` clears every document-start script, the convos
+        // bridge's `window.convos` bootstrap among them. Reinstall it before the
+        // paint script so the page it is about to load still gets the bridge;
+        // without this the button-gating `window.convos` is defined only on the
+        // warm `about:blank` and never on the space URL. The message handler is
+        // not a user script, so it survives the clear untouched.
+        if let bootstrap = ConvosWebBridge.bootstrapUserScript {
+            controller.addUserScript(bootstrap)
+        }
         controller.addUserScript(
             WKUserScript(
                 source: HomeWebViewPaintReporter.script(token: token),
@@ -405,6 +437,48 @@ final class HomeWebViewPaintReporterRegistry {
     }
 
     func reporter(for controller: WKUserContentController) -> HomeWebViewPaintReporter? {
+        table.object(forKey: controller)
+    }
+}
+
+/// The convos bridge installed on a pooled view, together with the mutable host
+/// its plugins dispatch to.
+///
+/// The bridge is registered through a weak proxy, so it needs a strong owner:
+/// the pool holds it here for the life of the view rather than the surface, so
+/// `window.convos` survives a surface being torn down and the view returning to
+/// the pool. The host's closures are repointed at each adopting surface and
+/// reset when the view is released. See `HomeWebViewPool.makeWebView`.
+@MainActor
+final class HomeBridgeBinding {
+    let bridge: ConvosWebBridge
+    let host: HomeBridgeHost
+
+    init(bridge: ConvosWebBridge, host: HomeBridgeHost) {
+        self.bridge = bridge
+        self.host = host
+    }
+}
+
+/// Maps a content controller to the convos bridge binding installed on it.
+///
+/// The same reason as `HomeWebViewPaintReporterRegistry`: WebKit will not hand
+/// a message handler back, so the pool keeps its own map to reach the bridge it
+/// installed. Keys are weak so an evicted web view takes its entry with it.
+@MainActor
+final class HomeBridgeBindingRegistry {
+    static let shared: HomeBridgeBindingRegistry = HomeBridgeBindingRegistry()
+
+    private let table: NSMapTable<WKUserContentController, HomeBridgeBinding> =
+        .weakToStrongObjects()
+
+    private init() {}
+
+    func register(_ binding: HomeBridgeBinding, for controller: WKUserContentController) {
+        table.setObject(binding, forKey: controller)
+    }
+
+    func binding(for controller: WKUserContentController) -> HomeBridgeBinding? {
         table.object(forKey: controller)
     }
 }

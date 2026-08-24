@@ -19,6 +19,9 @@ struct HomeWebSurface: View {
     /// Forwarded to `HomeWebView`; fired when the page requests navigation
     /// away from the space URL.
     var onNavigationRequest: @MainActor (URL) -> Void = { _ in }
+    /// Forwarded to `HomeWebView`: native destinations for the page's
+    /// `window.convos` calls.
+    var bridgeNavigation: HomeBridgeNavigation = HomeBridgeNavigation()
 
     /// Whether the page is showing rather than the cover.
     ///
@@ -33,13 +36,15 @@ struct HomeWebSurface: View {
         isScrollEnabled: Bool = true,
         topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
-        onNavigationRequest: @escaping @MainActor (URL) -> Void = { _ in }
+        onNavigationRequest: @escaping @MainActor (URL) -> Void = { _ in },
+        bridgeNavigation: HomeBridgeNavigation = HomeBridgeNavigation()
     ) {
         self.url = url
         self.isScrollEnabled = isScrollEnabled
         self.topContentInset = topContentInset
         self.bottomContentInset = bottomContentInset
         self.onNavigationRequest = onNavigationRequest
+        self.bridgeNavigation = bridgeNavigation
         _isLoaded = State(initialValue: HomeWebViewPool.shared.adoption(for: url) == .painted)
     }
 
@@ -50,18 +55,7 @@ struct HomeWebSurface: View {
                 isScrollEnabled: isScrollEnabled,
                 topContentInset: topContentInset,
                 bottomContentInset: bottomContentInset,
-                onLoaded: {
-                    // Without a URL the web view loads its inline placeholder,
-                    // which finishes immediately. That is not the space
-                    // arriving, and revealing it would replace the preparing
-                    // state with a bare "Home".
-                    guard url != nil else { return }
-                    // The fallback: a page that reports no paint at all still
-                    // has to be revealed, and a beat past didFinish is the old
-                    // guess at when it has drawn. `onFirstPaint` normally gets
-                    // there first and makes this a no-op.
-                    reveal(after: Constant.revealDelay)
-                },
+                onLoaded: handleLoaded,
                 onFirstPaint: {
                     guard url != nil else { return }
                     // The page says it has drawn, so there is nothing left to
@@ -75,7 +69,9 @@ struct HomeWebSurface: View {
                     // progress bar.
                     isLoaded = true
                 },
-                onNavigationRequest: onNavigationRequest
+                onNavigationRequest: onNavigationRequest,
+                bridgeNavigation: bridgeNavigation,
+                onMarkReady: handleMarkReady
             )
             HomeCoverView(hasSpaceURL: url != nil)
                 .opacity(isLoaded ? 0 : 1)
@@ -97,6 +93,33 @@ struct HomeWebSurface: View {
     private func reveal(after delay: Double) {
         guard !isLoaded else { return }
         withAnimation(.easeInOut(duration: Constant.coverFadeDuration).delay(delay)) {
+            isLoaded = true
+        }
+    }
+
+    /// The didFinish fallback reveal, for pages that never call markReady.
+    private func handleLoaded() {
+        // Without a URL the web view loads its inline placeholder,
+        // which finishes immediately. That is not the space
+        // arriving, and revealing it would replace the preparing
+        // state with a bare "Home".
+        guard url != nil else { return }
+        // The reveal waits a beat past didFinish - a JS page
+        // hasn't painted yet at that moment - and only the
+        // fade animates: the cover must never fade IN, or the
+        // cleared layer shows through.
+        withAnimation(.easeInOut(duration: Constant.coverFadeDuration).delay(Constant.revealDelay)) {
+            isLoaded = true
+        }
+    }
+
+    /// The page declared itself painted through `window.convos.markReady()`,
+    /// so the cover can drop immediately - no didFinish heuristic delay. When
+    /// both paths fire, the first to set `isLoaded` wins and the other is a
+    /// no-op.
+    private func handleMarkReady() {
+        guard url != nil else { return }
+        withAnimation(.easeInOut(duration: Constant.coverFadeDuration)) {
             isLoaded = true
         }
     }

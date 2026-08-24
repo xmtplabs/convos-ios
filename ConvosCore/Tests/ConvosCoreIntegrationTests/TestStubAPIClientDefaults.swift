@@ -13,6 +13,15 @@ import Foundation
 /// its own implementations and is unaffected. Tests that specifically exercise
 /// these methods should override them on their stub or use a dedicated fixture.
 extension ConvosAPIClientProtocol {
+    /// Default for the relay's `authorizedRequest` seam: a request with a
+    /// fake auth header, so fixtures that predate it keep compiling.
+    func authorizedRequest(for endpoint: String, method: String, queryParameters: [String: String]?) async throws -> URLRequest {
+        var request = try request(for: endpoint, method: method, queryParameters: queryParameters)
+        request.httpMethod = method
+        request.setValue("test-jwt-token", forHTTPHeaderField: "X-Convos-AuthToken")
+        return request
+    }
+
     func getCreditBalance() async throws -> CreditBalance {
         CreditBalance(
             balance: 0,
@@ -73,6 +82,20 @@ extension ConvosAPIClientProtocol {
             success: true,
             conversationId: conversationId,
             mode: "speak"
+        )
+    }
+
+    /// Default for the stop control so pre-existing stubs don't re-stub it.
+    /// Reports the idle no-op (nothing was running to stop). Tests that
+    /// exercise the interrupt flow should override this on their fixture.
+    func interruptAgent(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentInterruptResponse {
+        ConvosAPI.AgentInterruptResponse(
+            success: true,
+            conversationId: conversationId,
+            interrupted: 0
         )
     }
 

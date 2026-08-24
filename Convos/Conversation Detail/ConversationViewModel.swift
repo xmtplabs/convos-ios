@@ -752,6 +752,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var previousMessageTextLength: Int = 0
     var pastedLinkPreview: LinkPreview?
 
+    func syncPasteDetectionBaseline() {
+        previousMessageTextLength = messageText.count
+    }
+
     func checkForPastedLink() {
         let inserted = messageText.count - previousMessageTextLength
         previousMessageTextLength = messageText.count
@@ -1304,6 +1308,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
         startOnboarding()
         registerInlineAttachmentRecovery()
+        applyPendingComposerDraft()
 
         // The initial assignment of `conversation` does not run its
         // `didSet`, so a conversation that already has other members must
@@ -1382,6 +1387,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
+        applyPendingComposerDraft()
         observeAgentBuilderSummary()
 
         self.editingConversationName = conversation.name ?? ""
@@ -1634,6 +1640,27 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             }
         } catch {
             Log.error("agent power read failed: \(error)")
+        }
+    }
+
+    /// Stops the turn the conversation's agents are running right now — the stop
+    /// button. A fire-once control-plane call that injects no message and
+    /// persists nothing; the backend reports how many agents were actually
+    /// running, and stopping an idle one is a successful no-op. Quiet on
+    /// failure: the thinking indicator resolves on its own from the runtime.
+    func interruptAgent() async {
+        let conversation = self.conversation
+        guard !conversation.isDraft else { return }
+        do {
+            let client = ConvosAPIClientFactory.client(
+                environment: ConfigManager.shared.currentEnvironment
+            )
+            _ = try await client.interruptAgent(
+                conversationId: conversation.id,
+                variantId: conversationAgentVariantSlug
+            )
+        } catch {
+            Log.error("agent interrupt failed: \(error)")
         }
     }
 
@@ -4240,6 +4267,28 @@ extension ConversationViewModel {
         UIPasteboard.general.string = urlString
     }
 
+    /// Debug override for the Space web URL: writes the given value into the
+    /// group's appData (or clears it when nil), replacing whatever the
+    /// Assistant Worker published. Backs the "Space URL" row in conversation
+    /// info's debug section.
+    func debugOverrideSpaceURL(_ urlString: String?) async throws {
+        try await metadataWriter.updateSpaceURL(urlString, for: conversation.id)
+    }
+
+    /// Presents the invite-code sheet (`InviteCodeSheet`) via
+    /// `ConversationPresenter`. Used by the home page's
+    /// `window.convos.showInviteCode()` bridge call.
+    func showInviteCode() {
+        Log.info("ConversationViewModel.showInviteCode called (conversationId=\(conversation.id), isFull=\(isFull))")
+        // A full conversation can't mint new invite links, so even if the
+        // sheet is reached, the invite code can't be shown.
+        guard !isFull else {
+            Log.warning("ConversationViewModel.showInviteCode: conversation is full; not presenting invite code sheet")
+            return
+        }
+        presentingInviteCode = true
+    }
+
     /// Adds the given inboxIds as members of this conversation via the
     /// existing `addMembers` flow. Used by the "Add from Contacts" entry on
     /// the chat plus-menu.
@@ -4946,6 +4995,14 @@ extension ConversationViewModel {
             guard case .messages(let group) = item else { return false }
             return !group.messages.isEmpty
         }
+    }
+
+    /// Whether the messages list has any item at all - a real message or a
+    /// system item (join status, agent presence, "earlier messages are
+    /// hidden"). Used to gate a tab's empty-state item so it is replaced as
+    /// soon as anything else renders in the list.
+    var hasAnyMessagesListItems: Bool {
+        !messages.isEmpty
     }
 }
 

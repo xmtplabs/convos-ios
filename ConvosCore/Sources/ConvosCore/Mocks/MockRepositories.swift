@@ -75,13 +75,18 @@ public final class MockConversationsPager: ConversationsPagerProtocol, @unchecke
     public var mockPage: ConversationsPage {
         didSet { pageSubject.send(mockPage) }
     }
+    public var mockConversationsById: [String: Conversation]
     public var filter: ConversationsListFilter = .all
     public private(set) var loadMoreCallCount: Int = 0
 
     private let pageSubject: CurrentValueSubject<ConversationsPage, Never>
 
-    public init(page: ConversationsPage = .empty) {
+    public init(
+        page: ConversationsPage = .empty,
+        conversationsById: [String: Conversation] = [:]
+    ) {
         self.mockPage = page
+        self.mockConversationsById = conversationsById
         self.pageSubject = CurrentValueSubject(page)
     }
 
@@ -98,7 +103,7 @@ public final class MockConversationsPager: ConversationsPagerProtocol, @unchecke
     }
 
     public func fetchConversation(id: String) throws -> Conversation? {
-        (mockPage.pinned + mockPage.unpinned).first { $0.id == id }
+        mockConversationsById[id] ?? (mockPage.pinned + mockPage.unpinned).first { $0.id == id }
     }
 }
 
