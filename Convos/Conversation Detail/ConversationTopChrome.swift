@@ -14,10 +14,10 @@ enum ConversationChromeMetrics {
     /// height so the segmented control lands underneath it instead of behind it.
     ///
     /// Derived from `ConversationToolbarButton` rather than guessed at: it is a
-    /// 36pt avatar inset by 8pt on every side. The presenter pads the whole
-    /// capsule down by the top safe area and adds nothing else, so this is the
-    /// row's full height. Taking it for the 44pt of the back and share buttons
-    /// beside it puts the control 8pt too high, overlapping the capsule.
+    /// 36pt avatar inset by 8pt on every side. The presenter and this chrome
+    /// use the same top inset and add nothing else, so this is the row's full
+    /// height. Taking it for the 44pt of the back and share buttons beside it
+    /// puts the control 8pt too high, overlapping the capsule.
     static let capsuleRowHeight: CGFloat =
         capsuleAvatarSize + (DesignConstants.Spacing.step2x * 2)
     /// The avatar inside the title capsule; see `ConversationToolbarButton`.
