@@ -553,6 +553,7 @@ struct YourSpaceInputSheet: View {
     let agentName: String?
     let agentSubtitle: String
     let agentProvider: ExternalAgentProvider?
+    let initialChatText: String
     let codexConfiguration: CodexConnectionConfiguration?
     let codexSnapshot: CodexYourSpaceSnapshot?
     let onAskAgent: ((String) async throws -> String)?
@@ -627,6 +628,9 @@ struct YourSpaceInputSheet: View {
             if mode == .voice {
                 await startRecording()
             } else {
+                if draft.isEmpty, !initialChatText.isEmpty {
+                    draft = initialChatText
+                }
                 try? await Task.sleep(for: .milliseconds(300))
                 isChatFocused = true
             }
