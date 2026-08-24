@@ -516,6 +516,7 @@ struct AgentDmPageView: View {
             descriptor: descriptor,
             conversation: dmVm.conversation,
             viewModel: dmVm,
+            onStop: { Task { await dmVm.interruptAgent() } },
             profileSheetForMember: { member in AnyView(memberContactDetailSheet(for: member, dmVm: dmVm)) }
         )
     }

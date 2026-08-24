@@ -155,6 +155,13 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         .init(success: true, conversationId: conversationId, mode: "speak")
     }
 
+    func interruptAgent(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentInterruptResponse {
+        .init(success: true, conversationId: conversationId, interrupted: 0)
+    }
+
     func shareSpace(
         conversationId: String,
         variantId: String?

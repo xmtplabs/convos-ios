@@ -139,6 +139,15 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
         variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse
 
+    /// Stops the turn the conversation's agents are running right now, without
+    /// injecting a chat message — the stop button, not a message the user
+    /// sends. Same control-plane hop and variant routing as participation.
+    /// Idempotent: an agent with no turn running is a successful no-op.
+    func interruptAgent(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentInterruptResponse
+
     /// Mints the paste-ready Space share message for a conversation: one
     /// sentence naming the receiving agent's import skill plus a clone URL
     /// carrying an expiring read-only repository credential. The caller puts
@@ -1330,6 +1339,27 @@ extension ConvosAPIClient {
     /// stays byte-identical to the pre-variant shape.
     static func agentJoinStatusQueryParameters(variantId: String?) -> [String: String]? {
         variantId.map { ["variantId": $0] }
+    }
+
+    /// Lives in an extension (not the main class body) only to keep
+    /// `ConvosAPIClient` under SwiftLint's `type_body_length`; behaviorally it
+    /// is a sibling of `setAgentParticipation`.
+    func interruptAgent(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentInterruptResponse {
+        // Same worker-routing constraint as participation: an agent provisioned
+        // on a variant worker only exists there, so a stop that omits the
+        // variantId lands on the default worker and stops nothing.
+        var request = try authenticatedRequest(
+            for: "v2/conversations/\(participationPathComponent(conversationId))/interrupt",
+            method: "POST",
+            queryParameters: prodSafeVariantId(variantId).map { ["variantId": $0] }
+        )
+        // No body: the stop carries no state, it just signals whatever is
+        // running now. Bounded so a stuck call cannot leave the control spinning.
+        request.timeoutInterval = 20
+        return try await performRequest(request)
     }
 
     func requestAgentJoin(
