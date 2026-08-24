@@ -10,6 +10,7 @@
 import Combine
 import ConvosComposer
 import ConvosCore
+import ConvosCoreiOS
 import SwiftUI
 
 private struct PersonalAgentHarness: Identifiable {
@@ -42,6 +43,10 @@ struct YourSpaceView: View {
     @State private var onboardingInitialProvider: ExternalAgentProvider?
     @State private var personalAgentState: AgentChatPrototypeState = .init()
     @State private var mockAgentProvider: ExternalAgentProvider?
+    @State private var dockRecorder: VoiceMemoRecorder = .init()
+    @State private var dockRecordingActive: Bool = false
+    @State private var dockTranscribing: Bool = false
+    @State private var pendingChatDraft: String = ""
     @State private var presentingFileImporter: Bool = false
     @State private var fileImportNotice: YourSpaceFileImportNotice?
     @State private var localContextFiles: [YourSpaceStoredFile] = YourSpaceFileStore.storedFiles()
@@ -67,6 +72,7 @@ struct YourSpaceView: View {
     @AppStorage("your-space-agents-widget") private var showsAgentsWidget: Bool = false
     @AppStorage("your-space-personal-agent-provider") private var personalAgentProviderRawValue: String = ""
     @AppStorage("your-space-grokbot-agent-id") private var personalGrokBotAgentId: String = ""
+    private let dockTranscriber: VoiceMemoTranscriber = .init()
 
     private var conversations: [Conversation] {
 #if DEBUG
@@ -241,6 +247,7 @@ struct YourSpaceView: View {
                     agentName: activePersonalAgentName,
                     agentSubtitle: activePersonalAgent.map { $0.switcherSubtitle } ?? "Personal agent",
                     agentProvider: activePersonalAgent,
+                    initialChatText: pendingChatDraft,
                     codexConfiguration: codexConnectionConfiguration,
                     codexSnapshot: codexYourSpaceSnapshot,
                     onAskAgent: isMockAgentActive ? nil : activeAgentRequest,
@@ -359,6 +366,7 @@ struct YourSpaceView: View {
                 }
             }
             .onDisappear {
+                cancelDockRecording()
                 if !usesVisualFixture { viewModel.onDisappear() }
             }
             .onChange(of: viewModel.staleDeviceObserver.isDeviceRemoved) { _, isRemoved in
@@ -1024,6 +1032,25 @@ private extension YourSpaceView {
     }
 
     private var agentDock: some View {
+        dockContent
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.vertical, DesignConstants.Spacing.step3x)
+            .glassEffect(.regular, in: .capsule)
+            .matchedTransitionSource(id: Constant.agentDockTransitionId, in: transitionNamespace)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("your-space-agent-dock")
+    }
+
+    @ViewBuilder
+    private var dockContent: some View {
+        if dockRecordingActive {
+            dockRecordingBar
+        } else {
+            dockIdleContent
+        }
+    }
+
+    private var dockIdleContent: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
             agentDockIdentity
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1031,12 +1058,83 @@ private extension YourSpaceView {
             dockChatButton
             dockVoiceButton
         }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.vertical, DesignConstants.Spacing.step3x)
-        .glassEffect(.regular, in: .capsule)
-        .matchedTransitionSource(id: Constant.agentDockTransitionId, in: transitionNamespace)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("your-space-agent-dock")
+    }
+
+    private var dockRecordingBar: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                Text(formattedRecordingDuration)
+                    .font(.system(size: 17))
+                    .monospacedDigit()
+                    .foregroundStyle(.colorTextSecondary)
+
+                dockWaveform
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(.leading, DesignConstants.Spacing.step2x)
+            .frame(maxWidth: .infinity)
+
+            Button {
+                finishDockRecording(openChat: true)
+            } label: {
+                Image(systemName: "stop.fill")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .frame(width: 44, height: 44)
+                    .background(.colorFillTertiary, in: .circle)
+            }
+            .buttonStyle(.plain)
+            .disabled(dockTranscribing)
+            .accessibilityLabel("Stop and edit in chat")
+            .accessibilityIdentifier("your-space-recording-stop-button")
+
+            Button {
+                finishDockRecording(openChat: false)
+            } label: {
+                Image(systemName: "arrow.up")
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .frame(width: 44, height: 44)
+                    .background(.colorTextPrimary, in: .circle)
+            }
+            .buttonStyle(.plain)
+            .disabled(dockTranscribing)
+            .accessibilityLabel("Send to your agent")
+            .accessibilityIdentifier("your-space-recording-send-button")
+        }
+    }
+
+    private var dockWaveform: some View {
+        Canvas { context, size in
+            let barWidth: CGFloat = 2
+            let barSpacing: CGFloat = 1.5
+            let totalBarWidth: CGFloat = barWidth + barSpacing
+            let visibleBarCount: Int = max(Int(size.width / totalBarWidth), 1)
+            let levels: [Float] = dockRecorder.audioLevels
+            let placeholderHeight: CGFloat = 2
+            let recordedCount: Int = min(levels.count, visibleBarCount)
+            let startIndex: Int = max(levels.count - visibleBarCount, 0)
+
+            for i in 0 ..< visibleBarCount {
+                let x: CGFloat = CGFloat(i) * totalBarWidth
+                let barIndex: Int = i - (visibleBarCount - recordedCount)
+                if barIndex >= 0, barIndex + startIndex < levels.count {
+                    let level: CGFloat = CGFloat(levels[startIndex + barIndex])
+                    let height: CGFloat = max(size.height * level, placeholderHeight)
+                    let rect = CGRect(x: x, y: (size.height - height) / 2, width: barWidth, height: height)
+                    context.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(.colorTextPrimary))
+                } else {
+                    let rect = CGRect(x: x, y: (size.height - placeholderHeight) / 2, width: barWidth, height: placeholderHeight)
+                    context.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(Color.colorTextPrimary.opacity(0.3)))
+                }
+            }
+        }
+        .frame(height: 24)
+    }
+
+    private var formattedRecordingDuration: String {
+        let total: Int = Int(dockRecorder.duration)
+        return String(format: "%02d:%02d", total / 60, total % 60)
     }
 
     @ViewBuilder
@@ -1126,7 +1224,7 @@ private extension YourSpaceView {
 
     private var dockVoiceButton: some View {
         Button {
-            openPersonalAgent(mode: .voice)
+            startDockRecording()
         } label: {
             Image(systemName: "microphone.fill")
                 .font(.body.weight(.semibold))
@@ -1468,6 +1566,9 @@ private extension YourSpaceView {
     }
 
     private func openPersonalAgent(mode: YourSpaceInputMode) {
+        if mode == .chat {
+            pendingChatDraft = ""
+        }
         if isMockAgentActive {
             inputMode = mode
             return
@@ -1485,6 +1586,79 @@ private extension YourSpaceView {
             return
         }
         inputMode = mode
+    }
+
+    private var canUsePersonalAgent: Bool {
+        if isMockAgentActive { return true }
+        guard let activePersonalAgent, activePersonalAgent.hasStoredConnection else { return false }
+        if activePersonalAgent == .grokBot, activeGrokBotAgent == nil { return false }
+        return true
+    }
+
+    private func startDockRecording() {
+        guard canUsePersonalAgent else {
+            openPersonalAgent(mode: .voice)
+            return
+        }
+        guard case .idle = dockRecorder.state else { return }
+        Task {
+            guard await VoiceMemoRecorder.ensureRecordPermission() else {
+                shareNotice = YourSpaceShareNotice(
+                    title: "Microphone access needed",
+                    message: "Allow microphone access in Settings to talk to your agent. You can still use chat."
+                )
+                return
+            }
+            do {
+                try dockRecorder.startRecording()
+                dockRecordingActive = true
+            } catch {
+                shareNotice = YourSpaceShareNotice(title: "Couldn't start listening", message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func finishDockRecording(openChat: Bool) {
+        guard !dockTranscribing else { return }
+        dockRecorder.stopRecording()
+        guard case let .recorded(url, _) = dockRecorder.state else {
+            cancelDockRecording()
+            return
+        }
+        dockTranscribing = true
+        let messageId: String = UUID().uuidString
+        Task {
+            do {
+                let transcript: String = try await dockTranscriber.transcribe(messageId: messageId, fileURL: url)
+                dockRecorder.cancelRecording()
+                dockTranscribing = false
+                dockRecordingActive = false
+                handleDockTranscript(transcript, openChat: openChat)
+            } catch {
+                dockTranscribing = false
+                cancelDockRecording()
+                shareNotice = YourSpaceShareNotice(
+                    title: "Couldn't understand that",
+                    message: "Try recording again or use chat instead. \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    private func cancelDockRecording() {
+        dockRecorder.cancelRecording()
+        dockRecordingActive = false
+    }
+
+    private func handleDockTranscript(_ transcript: String, openChat: Bool) {
+        let trimmed: String = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if openChat {
+            pendingChatDraft = trimmed
+            inputMode = .chat
+        } else if let request = activeAgentRequest {
+            Task { _ = try? await request(trimmed) }
+        }
     }
 
     private func presentPersonalAgentOnboarding(for provider: ExternalAgentProvider? = nil) {
@@ -1643,11 +1817,17 @@ private extension YourSpaceView {
 
 private struct YourSpaceShareNotice: Identifiable {
     let id: UUID = UUID()
-    let title: String = "Couldn't prepare that share"
+    let title: String
     let message: String
 
     init(error: Error) {
+        title = "Couldn't prepare that share"
         message = error.localizedDescription
+    }
+
+    init(title: String, message: String) {
+        self.title = title
+        self.message = message
     }
 }
 
