@@ -19,6 +19,8 @@ struct AgentChatView: View {
     @State private var copyText: AgentConversationCopy?
     @State private var showingDisconnectConfirmation: Bool = false
     @State private var showingClearHistoryConfirmation: Bool = false
+    @State private var isPinnedToBottom: Bool = true
+    @State private var hasPositionedInitialScroll: Bool = false
     @FocusState private var composerFocus: MessagesViewInputFocus?
     @Environment(\.dismiss) private var dismiss: DismissAction
 
@@ -141,11 +143,49 @@ struct AgentChatView: View {
                 .padding(DesignConstants.Spacing.step4x)
             }
             .scrollDismissesKeyboard(.interactively)
+            .onAppear { handleTranscriptAppeared(proxy: proxy) }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                isTranscriptPinnedToBottom(geometry)
+            } action: { _, isPinned in
+                isPinnedToBottom = isPinned
+            }
             .onChange(of: viewModel.turns) { _, turns in
-                guard let last = turns.last else { return }
-                withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                handleTurnsChanged(turns, proxy: proxy)
             }
         }
+    }
+
+    private func handleTranscriptAppeared(proxy: ScrollViewProxy) {
+        guard !hasPositionedInitialScroll, !viewModel.turns.isEmpty else { return }
+        scrollToLastTurn(proxy: proxy, animated: false)
+        hasPositionedInitialScroll = true
+    }
+
+    private func handleTurnsChanged(_ turns: [AgentTurn], proxy: ScrollViewProxy) {
+        guard !turns.isEmpty else { return }
+        if !hasPositionedInitialScroll {
+            scrollToLastTurn(proxy: proxy, animated: false)
+            hasPositionedInitialScroll = true
+        } else if isPinnedToBottom {
+            scrollToLastTurn(proxy: proxy, animated: true)
+        }
+    }
+
+    private func scrollToLastTurn(proxy: ScrollViewProxy, animated: Bool) {
+        guard let lastID: AgentTurn.ID = viewModel.turns.last?.id else { return }
+        if animated {
+            withAnimation { proxy.scrollTo(lastID, anchor: .bottom) }
+        } else {
+            proxy.scrollTo(lastID, anchor: .bottom)
+            // Lazy rows may not have completed their first layout yet.
+            DispatchQueue.main.async { proxy.scrollTo(lastID, anchor: .bottom) }
+        }
+    }
+
+    private func isTranscriptPinnedToBottom(_ geometry: ScrollGeometry) -> Bool {
+        let visibleBottom: CGFloat = geometry.contentOffset.y + geometry.containerSize.height
+        let distanceFromBottom: CGFloat = geometry.contentSize.height - visibleBottom
+        return distanceFromBottom <= Constant.bottomPinThreshold
     }
 
     private func turnPair(_ turn: AgentTurn) -> some View {
@@ -351,6 +391,8 @@ struct AgentChatView: View {
     }
 
     private enum Constant {
+        static let bottomPinThreshold: CGFloat = 40.0
+
         /// The conversation composer's capsule radius, so the two bars are the
         /// same shape.
         static let composerCornerRadius: CGFloat = 26.0
