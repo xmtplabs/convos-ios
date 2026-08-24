@@ -105,7 +105,7 @@ struct TownSetupView: View {
                 .disabled(viewModel.isBusy)
             AgentConnectionTestStatusView(state: viewModel.state, provider: .town)
             if viewModel.isConnected {
-                NavigationLink("Open agent chat") {
+                NavigationLink("Open Relay") {
                     AgentChatView(provider: .town, dependencies: dependencies, session: session)
                 }
                 let disconnectAction = { showingDisconnectConfirmation = true }

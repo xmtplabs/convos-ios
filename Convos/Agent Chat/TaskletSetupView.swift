@@ -91,7 +91,7 @@ struct TaskletSetupView: View {
                 .disabled(viewModel.isBusy)
             AgentConnectionTestStatusView(state: viewModel.state, provider: .tasklet)
             if viewModel.isConnected {
-                NavigationLink("Open agent chat") {
+                NavigationLink("Open Relay") {
                     AgentChatView(provider: .tasklet, dependencies: dependencies, session: session)
                 }
                 let disconnectAction = { showingDisconnectConfirmation = true }
