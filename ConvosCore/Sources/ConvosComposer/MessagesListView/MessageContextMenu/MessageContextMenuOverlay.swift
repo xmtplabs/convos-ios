@@ -533,7 +533,7 @@ public struct MessageContextMenuOverlay: View {
                             dismissMenu()
                             onCopyToAgent(text)
                         }
-                        ContextMenuRow(icon: "sparkles", title: "Copy to agent", action: agentAction)
+                        ContextMenuRow(icon: "antenna.radiowaves.left.and.right", title: "Copy to Relay", action: agentAction)
                     }
                 }
 

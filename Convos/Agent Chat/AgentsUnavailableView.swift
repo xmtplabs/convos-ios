@@ -11,7 +11,7 @@ struct AgentsUnavailableView: View {
             Text("Relay is unavailable")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(.colorTextPrimary)
-            Text("Convos could not open its agent storage on this iPhone. Restarting the app usually clears it.")
+            Text("Convos could not open its Relay storage on this iPhone. Restarting the app usually clears it.")
                 .font(.callout)
                 .foregroundStyle(.colorTextSecondary)
                 .fixedSize(horizontal: false, vertical: true)
