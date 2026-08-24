@@ -69,6 +69,10 @@ struct ContactDetailView: View {
     /// Verified agent this human invited into the current conversation. The
     /// inviter relationship is the app's trustworthy "set up by" signal.
     let groupAgentSetUpByContact: ConversationMember?
+    /// Human-facing convo title used by the self profile preview. Member
+    /// profile entry points pass the live conversation display name; other
+    /// contact-card contexts leave it nil.
+    let conversationDisplayName: String?
     @State private var mode: ContactDetailMode
     /// True when the view should render its own X close button in the
     /// nav-bar's cancellation slot. Sheet entry points (where there is no
@@ -142,6 +146,7 @@ struct ContactDetailView: View {
     @State private var navigator: ContactCardCollector?
     @State private var showsAgentsOnProfile: Bool
     @State private var isPreviewingPublishedProfile: Bool = false
+    @State private var presentingProfileSetup: Bool = false
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -156,6 +161,7 @@ struct ContactDetailView: View {
         variantStamp: AgentVariantStamp? = nil,
         connectedAgentProviderIds: [String] = [],
         groupAgentSetUpByContact: ConversationMember? = nil,
+        conversationDisplayName: String? = nil,
         mode: ContactDetailMode = .standalone,
         contactsWriter: any ContactsWriterProtocol,
         contactsRepository: any ContactsRepositoryProtocol,
@@ -172,6 +178,7 @@ struct ContactDetailView: View {
         self.variantStamp = variantStamp
         self.connectedAgentProviderIds = connectedAgentProviderIds
         self.groupAgentSetUpByContact = groupAgentSetUpByContact
+        self.conversationDisplayName = conversationDisplayName
         self._mode = State(initialValue: resolvedMode)
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
@@ -254,7 +261,7 @@ struct ContactDetailView: View {
     /// type-checker (see the CLAUDE.md build-performance notes) as this view
     /// keeps accruing presentation surfaces.
     private var contentWithModals: some View {
-        bodyContent
+        activeBodyContent
             .modifier(ContactDetailModalsModifier(
                 presentingBlockConfirmation: $presentingBlockConfirmation,
                 presentingPicker: $presentingPicker,
@@ -285,6 +292,9 @@ struct ContactDetailView: View {
             }
             .sheet(isPresented: $presentingAgentModelPaywall) {
                 agentModelPaywall
+            }
+            .sheet(isPresented: $presentingProfileSetup) {
+                ProfileSetupSheet(mode: .edit, session: session)
             }
             .fullScreenCover(isPresented: $presentingExternalAgentOnboarding) {
                 ExternalAgentOnboardingView(
@@ -325,18 +335,6 @@ struct ContactDetailView: View {
     /// entry point pushes onto a tab stack whose shell only hides the bar for
     /// chats selections; without this the bar overlaps the composer.
     /// Harmless in sheet entry points, which have no tab bar.
-    @ViewBuilder
-    private func pushedConversationView(_ viewModel: NewConversationViewModel) -> some View {
-        NewConversationView(
-            viewModel: viewModel,
-            profileSettingsViewModel: profileSettingsViewModel,
-            embedsNavigationStack: false,
-            insetsTopSafeArea: pushedConversationInsetsTopSafeArea
-        )
-        .background(.colorBackgroundSurfaceless)
-        .toolbarVisibility(.hidden, for: .tabBar)
-    }
-
     /// Streams conversations already containing this agent template,
     /// partitioned by who added the agent, from a database observation so
     /// the "Convos with you" sections stay live while the card is on screen
@@ -384,7 +382,18 @@ struct ContactDetailView: View {
 
     @ToolbarContentBuilder
     private var closeToolbarItem: some ToolbarContent {
-        if showsCloseButton {
+        if isPreviewingPublishedProfile {
+            ToolbarItem(placement: .cancellationAction) {
+                let action = {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        isPreviewingPublishedProfile = false
+                    }
+                }
+                Button(role: .cancel, action: action)
+                    .accessibilityLabel("Close profile preview")
+                    .accessibilityIdentifier("published-profile-preview-close")
+            }
+        } else if showsCloseButton {
             ToolbarItem(placement: .cancellationAction) {
                 let action = { dismiss() }
                 Button(role: .cancel, action: action)
@@ -472,8 +481,8 @@ struct ContactDetailView: View {
                 if showsAgentSocialProfileSection {
                     AgentSocialProfileSection(
                         ownerName: contact.resolvedDisplayName,
-                        isCurrentUser: mode.isCurrentUser && !isPreviewingPublishedProfile,
-                        connectedProviders: displayedConnectedAgentProviders,
+                        isCurrentUser: mode.isCurrentUser,
+                        connectedProviders: connectedAgentProviders,
                         showsAgentsOnProfile: showsAgentsOnProfile,
                         isPublishingVisibility: isPublishingAgentProfileVisibility,
                         groupAgent: groupAgentSetUpByContact,
@@ -935,6 +944,42 @@ struct ContactDetailView: View {
 // MARK: - Social agent profile orchestration
 
 private extension ContactDetailView {
+    @ViewBuilder
+    var activeBodyContent: some View {
+        if mode.isCurrentUser, isPreviewingPublishedProfile {
+            PublishedAgentProfilePreviewView(
+                contact: contact,
+                conversationDisplayName: conversationDisplayName,
+                profileSettingsViewModel: profileSettingsViewModel,
+                connectedProviders: connectedAgentProviders,
+                showsAgentsOnProfile: showsAgentsOnProfile,
+                isPublishingVisibility: isPublishingAgentProfileVisibility,
+                groupAgent: groupAgentSetUpByContact,
+                canOpenGroupAgent: canStartWithGroupAgent,
+                onEditProfile: { presentingProfileSetup = true },
+                onVisibilityChange: handleAgentProfileVisibilityChange,
+                onSelectProvider: presentExternalAgentProvider,
+                onSetUpAgents: presentExternalAgentDirectory,
+                onOpenGroupAgent: handleStartWithGroupAgent
+            )
+            .transition(.opacity)
+        } else {
+            bodyContent
+        }
+    }
+
+    @ViewBuilder
+    func pushedConversationView(_ viewModel: NewConversationViewModel) -> some View {
+        NewConversationView(
+            viewModel: viewModel,
+            profileSettingsViewModel: profileSettingsViewModel,
+            embedsNavigationStack: false,
+            insetsTopSafeArea: pushedConversationInsetsTopSafeArea
+        )
+        .background(.colorBackgroundSurfaceless)
+        .toolbarVisibility(.hidden, for: .tabBar)
+    }
+
     func syncBlockedState() async {
         do {
             guard let updated = try contactsRepository.fetchContact(inboxId: contact.inboxId) else {
@@ -981,20 +1026,10 @@ private extension ContactDetailView {
     /// Human profiles surface personal-agent identity only when it has useful
     /// content. The current user's own profile always shows the opt-in control.
     var showsAgentSocialProfileSection: Bool {
-        guard !contact.isAgent else { return false }
-        if mode.isCurrentUser, isPreviewingPublishedProfile {
-            return groupAgentSetUpByContact != nil || !displayedConnectedAgentProviders.isEmpty
-        }
-        return mode.isCurrentUser
+        !contact.isAgent
+            && (mode.isCurrentUser
             || groupAgentSetUpByContact != nil
-            || !connectedAgentProviders.isEmpty
-    }
-
-    var displayedConnectedAgentProviders: [ExternalAgentProvider] {
-        guard mode.isCurrentUser, isPreviewingPublishedProfile else {
-            return connectedAgentProviders
-        }
-        return showsAgentsOnProfile ? connectedAgentProviders : []
+            || !connectedAgentProviders.isEmpty)
     }
 
     /// Pill rendered below the subtitle. "You" for the current user's own
@@ -1018,27 +1053,27 @@ private extension ContactDetailView {
 
     var publishedProfilePreviewControl: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isPreviewingPublishedProfile.toggle()
+            withAnimation(.easeOut(duration: 0.18)) {
+                isPreviewingPublishedProfile = true
             }
         } label: {
             HStack(spacing: DesignConstants.Spacing.step3x) {
-                Image(systemName: isPreviewingPublishedProfile ? "eye.fill" : "eye")
+                Image(systemName: "eye")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
                     .frame(width: 44, height: 44)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                    Text(isPreviewingPublishedProfile ? "Previewing what others see" : "Preview profile as others")
+                    Text("Preview profile as others")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(.colorTextPrimary)
-                    Text(publishedProfilePreviewSubtitle)
+                    Text("Open the profile people see inside this convo")
                         .font(.footnote)
                         .foregroundStyle(.colorTextSecondary)
                         .multilineTextAlignment(.leading)
                 }
                 Spacer(minLength: 0)
-                Text(isPreviewingPublishedProfile ? "Done" : "Preview")
+                Text("Preview")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
             }
@@ -1049,16 +1084,6 @@ private extension ContactDetailView {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("contact-detail-preview-published-profile")
-    }
-
-    var publishedProfilePreviewSubtitle: String {
-        if !isPreviewingPublishedProfile {
-            return "Check your public agent profile on this phone"
-        }
-        if showsAgentsOnProfile {
-            return "Your published agent names are visible below"
-        }
-        return "Your connected agents are hidden from other people"
     }
 
     var canStartWithGroupAgent: Bool {
@@ -1146,6 +1171,301 @@ private struct ContactDetailHeader: View {
             Text(contact.resolvedDisplayName)
                 .font(.largeTitle.weight(.bold))
                 .foregroundStyle(.colorTextPrimary)
+        }
+    }
+}
+
+// MARK: - Published profile preview
+
+/// The current user's conversation-scoped public profile. This is a real
+/// destination rather than an inline filter on the contact card: Preview
+/// opens the same hierarchy the user is choosing to publish, while keeping
+/// the visibility toggle and edit actions available on one phone.
+private struct PublishedAgentProfilePreviewView: View {
+    let contact: Contact
+    let conversationDisplayName: String?
+    let profileSettingsViewModel: ProfileSettingsViewModel
+    let connectedProviders: [ExternalAgentProvider]
+    let showsAgentsOnProfile: Bool
+    let isPublishingVisibility: Bool
+    let groupAgent: ConversationMember?
+    let canOpenGroupAgent: Bool
+    let onEditProfile: () -> Void
+    let onVisibilityChange: (Bool) -> Void
+    let onSelectProvider: (ExternalAgentProvider) -> Void
+    let onSetUpAgents: () -> Void
+    let onOpenGroupAgent: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                identityHeader
+                editProfileButton
+                    .padding(.top, DesignConstants.Spacing.step6x)
+
+                if let groupAgent {
+                    groupAgentSection(groupAgent)
+                        .padding(.top, DesignConstants.Spacing.step8x)
+                }
+
+                connectedAgentsSection
+                    .padding(.top, DesignConstants.Spacing.step8x)
+
+                privacyBoundary
+                    .padding(.top, DesignConstants.Spacing.step4x)
+
+                setUpAgentsButton
+                    .padding(.top, DesignConstants.Spacing.step6x)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.bottom, DesignConstants.Spacing.step10x)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .background(.colorBackgroundRaisedSecondary)
+        .accessibilityIdentifier("published-agent-profile-preview")
+    }
+
+    private var identityHeader: some View {
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            currentProfileAvatar
+                .frame(width: 132, height: 132)
+
+            Text(displayName)
+                .font(.largeTitle.weight(.bold))
+                .foregroundStyle(.colorTextPrimary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.78)
+                .padding(.top, DesignConstants.Spacing.step2x)
+
+            RoleLabelPill(
+                label: "You",
+                accessibilityIdentifier: "published-profile-you-badge"
+            )
+
+            Text("Your profile in \(conversationName)")
+                .font(.body)
+                .foregroundStyle(.colorTextSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var currentProfileAvatar: some View {
+        if hasLoadedGlobalProfile {
+            ProfileAvatarView(
+                profile: profileSettingsViewModel.profile,
+                profileImage: profileSettingsViewModel.profileImage,
+                useSystemPlaceholder: false,
+                size: 132
+            )
+        } else {
+            ContactAvatarView(contact: contact)
+        }
+    }
+
+    private var editProfileButton: some View {
+        Button(action: onEditProfile) {
+            Text("Edit profile")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.colorTextPrimary)
+                .frame(maxWidth: .infinity, minHeight: 56)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .background(.colorFillMinimal, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+        .accessibilityIdentifier("published-profile-edit")
+    }
+
+    private func groupAgentSection(_ agent: ConversationMember) -> some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+            Text("Agent in this convo")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.colorTextPrimary)
+
+            Button(action: onOpenGroupAgent) {
+                HStack(spacing: DesignConstants.Spacing.step3x) {
+                    MessageAvatarView(
+                        profile: agent.profile,
+                        size: 56,
+                        agentVerification: agent.agentVerification
+                    )
+                    .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                        Text(agent.displayName)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.colorTextPrimary)
+                            .lineLimit(1)
+                        Text("Set up by you for \(conversationName)")
+                            .font(.footnote)
+                            .foregroundStyle(.colorTextSecondary)
+                            .lineLimit(2)
+                    }
+
+                    Spacer(minLength: DesignConstants.Spacing.step2x)
+
+                    if canOpenGroupAgent {
+                        Text("Open")
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(.colorTextPrimary)
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.colorTextTertiary)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .padding(DesignConstants.Spacing.step3x)
+                .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canOpenGroupAgent)
+            .background(.colorBackgroundRaised, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+            .accessibilityHint(canOpenGroupAgent ? "Opens a private conversation with this agent" : "")
+            .accessibilityIdentifier("published-profile-group-agent")
+        }
+    }
+
+    private var connectedAgentsSection: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+            HStack(alignment: .center, spacing: DesignConstants.Spacing.step3x) {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                    Text("Connected agents")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.colorTextPrimary)
+                    Text(showsAgentsOnProfile ? "Shown on your profile" : "Hidden from other people")
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                Spacer(minLength: 0)
+                Toggle("Show connected agents on your profile", isOn: Binding(
+                    get: { showsAgentsOnProfile },
+                    set: { newValue in
+                        onVisibilityChange(newValue)
+                    }
+                ))
+                .labelsHidden()
+                .tint(.colorLava)
+                .disabled(isPublishingVisibility)
+                .accessibilityIdentifier("published-profile-agent-visibility")
+            }
+            .frame(minHeight: 52)
+
+            if connectedProviders.isEmpty {
+                Text("No personal agents connected yet.")
+                    .font(.body)
+                    .foregroundStyle(.colorTextSecondary)
+                    .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    .background(
+                        .colorBackgroundRaised,
+                        in: .rect(cornerRadius: DesignConstants.CornerRadius.medium)
+                    )
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(connectedProviders.enumerated()), id: \.element.id) { index, provider in
+                        if index > 0 {
+                            Divider()
+                                .padding(.leading, 72)
+                        }
+                        providerRow(provider)
+                    }
+                }
+                .background(.colorBackgroundRaised, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+            }
+        }
+    }
+
+    private func providerRow(_ provider: ExternalAgentProvider) -> some View {
+        Button { onSelectProvider(provider) } label: {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                ExternalAgentProviderBadge(provider: provider, size: 48)
+
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                    Text(provider.displayName)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                    Text(publicDescription(for: provider))
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: DesignConstants.Spacing.step2x)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.colorTextTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .frame(minHeight: 72)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens \(provider.displayName) connection details")
+        .accessibilityIdentifier("published-profile-agent-\(provider.rawValue)")
+    }
+
+    private var privacyBoundary: some View {
+        Label {
+            Text("Only provider names are shared. Prompts, conversations, context, tools, and activity stay private.")
+        } icon: {
+            Image(systemName: "lock.fill")
+        }
+        .font(.footnote)
+        .foregroundStyle(.colorTextSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+    }
+
+    private var setUpAgentsButton: some View {
+        Button(action: onSetUpAgents) {
+            Text("Set up personal agents")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .frame(maxWidth: .infinity, minHeight: 56)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .background(.colorFillPrimary, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+        .accessibilityIdentifier("published-profile-set-up-agents")
+    }
+
+    private var hasLoadedGlobalProfile: Bool {
+        profileSettingsViewModel.profileImage != nil
+            || !profileSettingsViewModel.editingDisplayName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .isEmpty
+    }
+
+    private var displayName: String {
+        let globalName = profileSettingsViewModel.editingDisplayName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return globalName.isEmpty ? contact.resolvedDisplayName : globalName
+    }
+
+    private var conversationName: String {
+        let title = conversationDisplayName?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return title.isEmpty ? "this convo" : title
+    }
+
+    private func publicDescription(for provider: ExternalAgentProvider) -> String {
+        switch provider {
+        case .town:
+            "Personal agent and routines"
+        case .tasklet:
+            "Always-on cloud agent"
+        case .grokBot:
+            if let count = GrokBotConnectionStore.configuration()?.enabledAgents.count, count > 0 {
+                "\(count) personal agent\(count == 1 ? "" : "s")"
+            } else {
+                provider.shortDescription
+            }
+        default:
+            provider.shortDescription
         }
     }
 }

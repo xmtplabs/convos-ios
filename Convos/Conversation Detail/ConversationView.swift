@@ -2078,6 +2078,7 @@ struct MemberContactDetailSheetContent: View {
             groupAgentSetUpByContact: viewModel.conversation.groupAgentSetUp(
                 by: member.profile.inboxId
             ),
+            conversationDisplayName: viewModel.conversation.displayName,
             mode: mode,
             contactsWriter: contactsWriter,
             contactsRepository: contactsRepository,
