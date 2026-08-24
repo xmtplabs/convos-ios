@@ -436,6 +436,24 @@ public enum ConvosAPI {
             }
         }
     }
+
+    /// Result of a stop: the conversation's agents were asked to interrupt the
+    /// turn they are running now, without a chat message being sent. Nothing is
+    /// persisted — a stop is a transient signal to whatever is running.
+    public struct AgentInterruptResponse: Codable {
+        public let success: Bool
+        public let conversationId: String
+        /// How many of the conversation's agents actually had a turn running to
+        /// stop. Zero is a successful no-op — stopping an idle agent stops
+        /// nothing. Optional so a control plane that predates the field decodes.
+        public let interrupted: Int?
+
+        public init(success: Bool, conversationId: String, interrupted: Int? = nil) {
+            self.success = success
+            self.conversationId = conversationId
+            self.interrupted = interrupted
+        }
+    }
 }
 
 extension ConvosAPI {

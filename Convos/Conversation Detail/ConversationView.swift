@@ -713,6 +713,7 @@ private extension ConversationView {
                     descriptor: descriptor,
                     conversation: viewModel.conversation,
                     viewModel: viewModel,
+                    onStop: { Task { await viewModel.interruptAgent() } },
                     profileSheetForMember: profileSheetForMember
                 )
             }

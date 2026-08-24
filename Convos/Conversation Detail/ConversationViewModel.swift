@@ -1637,6 +1637,27 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
     }
 
+    /// Stops the turn the conversation's agents are running right now — the stop
+    /// button. A fire-once control-plane call that injects no message and
+    /// persists nothing; the backend reports how many agents were actually
+    /// running, and stopping an idle one is a successful no-op. Quiet on
+    /// failure: the thinking indicator resolves on its own from the runtime.
+    func interruptAgent() async {
+        let conversation = self.conversation
+        guard !conversation.isDraft else { return }
+        do {
+            let client = ConvosAPIClientFactory.client(
+                environment: ConfigManager.shared.currentEnvironment
+            )
+            _ = try await client.interruptAgent(
+                conversationId: conversation.id,
+                variantId: conversationAgentVariantSlug
+            )
+        } catch {
+            Log.error("agent interrupt failed: \(error)")
+        }
+    }
+
     private func scheduleAgentPowerRefresh() {
         agentPowerRefreshTask?.cancel()
         agentPowerRefreshTask = Task { [weak self] in
