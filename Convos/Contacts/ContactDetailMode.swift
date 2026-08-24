@@ -59,4 +59,54 @@ enum ContactDetailMode: Hashable {
         if case .scopedToConversation(_, _, _, _, let joined) = self { return joined }
         return nil
     }
+
+    /// Repairs a stale conversation-member `isCurrentUser` flag using the
+    /// session's canonical inbox identity. Member snapshots can briefly be
+    /// hydrated before the current inbox id is available, but the contact
+    /// card must still recognize the signed-in user once the session is
+    /// authorized: self-only agent controls should render, while Chat,
+    /// Remove, and Block must stay hidden.
+    func resolvingCurrentUser(
+        contactInboxId: String,
+        authorizedInboxId: String?
+    ) -> ContactDetailMode {
+        guard case .scopedToConversation(
+            let conversationId,
+            let canRemoveMembers,
+            let memberIsCurrentUser,
+            let invitedBy,
+            let joinedAt
+        ) = self else {
+            return self
+        }
+
+        let inboxMatchesCurrentUser = authorizedInboxId.map {
+            !$0.isEmpty && $0 == contactInboxId
+        } ?? false
+        guard inboxMatchesCurrentUser && !memberIsCurrentUser else { return self }
+
+        return .scopedToConversation(
+            conversationId: conversationId,
+            canRemoveMembers: canRemoveMembers,
+            isCurrentUser: true,
+            invitedBy: invitedBy,
+            joinedAt: joinedAt
+        )
+    }
+
+    func resolvingCurrentUser(
+        contactInboxId: String,
+        session: (any SessionManagerProtocol)?
+    ) -> ContactDetailMode {
+        let authorizedInboxId: String? = session.flatMap { session in
+            guard case .authorized(let inboxId) = session.messagingServiceSync().state else {
+                return nil
+            }
+            return inboxId
+        }
+        return resolvingCurrentUser(
+            contactInboxId: contactInboxId,
+            authorizedInboxId: authorizedInboxId
+        )
+    }
 }

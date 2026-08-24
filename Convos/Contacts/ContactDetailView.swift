@@ -164,11 +164,12 @@ struct ContactDetailView: View {
         onRemove: (() -> Void)? = nil,
         onStartAgentDm: ((String) -> Void)? = nil
     ) {
+        let resolvedMode = mode.resolvingCurrentUser(contactInboxId: contact.inboxId, session: session)
         self.contact = contact
         self.variantStamp = variantStamp
         self.connectedAgentProviderIds = connectedAgentProviderIds
         self.groupAgentSetUpByContact = groupAgentSetUpByContact
-        self.mode = mode
+        self.mode = resolvedMode
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
         self.session = session
@@ -203,7 +204,7 @@ struct ContactDetailView: View {
         _hasPlusSubscription = State(initialValue: hasPlusSubscription)
         let publishedProviders = connectedAgentProviderIds.compactMap(ExternalAgentProvider.init(rawValue:))
         _connectedAgentProviders = State(
-            initialValue: mode.isCurrentUser
+            initialValue: resolvedMode.isCurrentUser
                 ? session.map { AddedExternalAgentStore.providers(session: $0) } ?? []
                 : publishedProviders
         )
