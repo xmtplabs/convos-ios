@@ -254,7 +254,9 @@ struct YourSpaceView: View {
                     onSaveOutput: saveAgentOutput,
                     onSaveLink: saveAgentLink,
                     onShareOutput: shareAgentOutput,
-                    onOpenSettings: onOpenSettings
+                    manageAgents: manageAgents,
+                    onSelectAgent: selectPersonalAgent(id:),
+                    onAddAgent: addAgentFromChat
                 )
                 .navigationTransition(.zoom(sourceID: Constant.agentDockTransitionId, in: transitionNamespace))
             }
@@ -1289,6 +1291,19 @@ private extension YourSpaceView {
         }
         if !harness.provider.hasStoredConnection || (harness.provider == .grokBot && harness.grokBotAgent == nil) {
             presentPersonalAgentOnboarding(for: harness.provider)
+        }
+    }
+
+    private func selectPersonalAgent(id: String) {
+        guard let harness = personalAgentSelectorHarnesses.first(where: { $0.id == id }) else { return }
+        selectPersonalAgent(harness)
+    }
+
+    private func addAgentFromChat() {
+        inputMode = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            presentPersonalAgentOnboarding()
         }
     }
 

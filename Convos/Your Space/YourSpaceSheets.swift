@@ -487,13 +487,16 @@ private struct AgentChatTopBar: View {
     let agentName: String?
     let agentSubtitle: String
     let agentProvider: ExternalAgentProvider?
+    let switcherAgents: [ManageAgentsView.Agent]
     let onBack: () -> Void
-    let onOpenSettings: () -> Void
+    let onManage: () -> Void
+    let onSelectAgent: (String) -> Void
+    let onAddAgent: () -> Void
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
             Button(action: onBack) {
-                Image(systemName: "chevron.backward")
+                Image(systemName: "xmark")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
                     .frame(width: 44, height: 44)
@@ -501,12 +504,12 @@ private struct AgentChatTopBar: View {
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .circle)
-            .accessibilityLabel("Back")
+            .accessibilityLabel("Close")
 
             Spacer(minLength: 0)
 
-            Button(action: onOpenSettings) {
-                Image(systemName: "gearshape")
+            Button(action: onManage) {
+                Image(systemName: "gear")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
                     .frame(width: 44, height: 44)
@@ -514,7 +517,7 @@ private struct AgentChatTopBar: View {
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .circle)
-            .accessibilityLabel("Agent settings")
+            .accessibilityLabel("Manage agents")
         }
         .overlay {
             identityChip
@@ -524,8 +527,19 @@ private struct AgentChatTopBar: View {
     }
 
     private var identityChip: some View {
+        Menu {
+            switcherMenu
+        } label: {
+            identityChipLabel
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Switch agent. \(agentName ?? "Your agent"), \(agentSubtitle)")
+        .accessibilityIdentifier("agent-chat-switcher")
+    }
+
+    private var identityChipLabel: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            AgentAvatarBadge(provider: agentProvider, size: 36)
+            AgentAvatarBadge(provider: agentProvider, size: 32)
 
             VStack(alignment: .leading, spacing: 0) {
                 Text(agentName ?? "Your agent")
@@ -541,8 +555,88 @@ private struct AgentChatTopBar: View {
         .padding(.horizontal, DesignConstants.Spacing.step2x)
         .padding(.vertical, DesignConstants.Spacing.stepX)
         .glassEffect(.regular, in: .capsule)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(agentName ?? "Your agent"), \(agentSubtitle)")
+        .contentShape(.capsule)
+    }
+
+    @ViewBuilder
+    private var switcherMenu: some View {
+        ForEach(switcherAgents) { agent in
+            Button {
+                onSelectAgent(agent.id)
+            } label: {
+                Text(agent.name)
+                Text(agent.subtitle)
+            }
+        }
+
+        Divider()
+
+        Button("Manage", action: onManage)
+        Button("Add an agent", action: onAddAgent)
+    }
+}
+
+private struct AgentChatComposer: View {
+    @Binding var draft: String
+    var isChatFocused: FocusState<Bool>.Binding
+    let agentName: String?
+    let agentProvider: ExternalAgentProvider?
+    let isAgentWorking: Bool
+    let onAddContext: () -> Void
+    let onSubmit: () -> Void
+
+    private var placeholder: String {
+        "Chat with \(agentName ?? "your agent")"
+    }
+
+    private var sendEnabled: Bool {
+        !isAgentWorking && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        let sendColor: Color = sendEnabled ? .colorFillPrimary : .colorFillTertiary
+        return HStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
+            AgentAvatarBadge(provider: agentProvider, size: 36)
+                .padding(DesignConstants.Spacing.stepX)
+                .glassEffect(.regular, in: .circle)
+
+            HStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
+                Button(action: onAddContext) {
+                    Image(systemName: "plus")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextSecondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .disabled(isAgentWorking)
+                .accessibilityLabel("Add context")
+
+                TextField(placeholder, text: $draft, axis: .vertical)
+                    .focused(isChatFocused)
+                    .font(.body)
+                    .lineLimit(1 ... 5)
+                    .submitLabel(.send)
+                    .onSubmit(onSubmit)
+                    .disabled(isAgentWorking)
+                    .accessibilityIdentifier("your-space-chat-input")
+
+                Button(action: onSubmit) {
+                    Image(systemName: "arrow.up")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                        .frame(width: 32, height: 32)
+                        .background(sendColor, in: .circle)
+                }
+                .buttonStyle(.plain)
+                .disabled(!sendEnabled)
+                .accessibilityLabel("Ask your agent")
+            }
+            .padding(DesignConstants.Spacing.step2x)
+            .glassEffect(.regular, in: .rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
     }
 }
 
@@ -560,11 +654,14 @@ struct YourSpaceInputSheet: View {
     let onSaveOutput: (String) throws -> YourSpaceContextItem
     let onSaveLink: (URL) throws -> YourSpaceContextItem
     let onShareOutput: (YourSpaceContextItem) -> Void
-    let onOpenSettings: () -> Void
+    let manageAgents: [ManageAgentsView.Agent]
+    let onSelectAgent: (String) -> Void
+    let onAddAgent: () -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var draft: String = ""
     @State private var presentingAddContext: Bool = false
+    @State private var presentingManageAgents: Bool = false
     @State private var submittedPrompt: String?
     @State private var response: String?
     @State private var savedOutput: YourSpaceContextItem?
@@ -617,8 +714,11 @@ struct YourSpaceInputSheet: View {
                 agentName: agentName,
                 agentSubtitle: agentSubtitle,
                 agentProvider: agentProvider,
+                switcherAgents: manageAgents,
                 onBack: { dismiss() },
-                onOpenSettings: onOpenSettings
+                onManage: { presentingManageAgents = true },
+                onSelectAgent: onSelectAgent,
+                onAddAgent: onAddAgent
             )
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -647,6 +747,13 @@ struct YourSpaceInputSheet: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $presentingManageAgents) {
+            NavigationStack {
+                ManageAgentsView(agents: manageAgents)
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
         .alert(item: $inputError) { error in
             Alert(
                 title: Text(error.title),
@@ -659,72 +766,18 @@ struct YourSpaceInputSheet: View {
     @ViewBuilder
     private var inputBar: some View {
         if mode == .chat {
-            chatComposer
+            AgentChatComposer(
+                draft: $draft,
+                isChatFocused: $isChatFocused,
+                agentName: agentName,
+                agentProvider: agentProvider,
+                isAgentWorking: isAgentWorking,
+                onAddContext: { presentingAddContext = true },
+                onSubmit: { submitQuestion() }
+            )
         } else {
             voiceComposer
         }
-    }
-
-    private var chatComposer: some View {
-        let sendColor: Color = sendEnabled ? .colorFillPrimary : .colorFillTertiary
-        return HStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
-            composerLeadingAvatar
-
-            HStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
-                Button {
-                    presentingAddContext = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.colorTextSecondary)
-                        .frame(width: 32, height: 32)
-                        .contentShape(.circle)
-                }
-                .buttonStyle(.plain)
-                .disabled(isAgentWorking)
-                .accessibilityLabel("Add context")
-
-                TextField(composerPlaceholder, text: $draft, axis: .vertical)
-                    .focused($isChatFocused)
-                    .font(.body)
-                    .lineLimit(1 ... 5)
-                    .submitLabel(.send)
-                    .onSubmit { submitQuestion() }
-                    .disabled(isAgentWorking)
-                    .accessibilityIdentifier("your-space-chat-input")
-
-                Button {
-                    submitQuestion()
-                } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.body.weight(.bold))
-                        .foregroundStyle(.colorTextPrimaryInverted)
-                        .frame(width: 32, height: 32)
-                        .background(sendColor, in: .circle)
-                }
-                .buttonStyle(.plain)
-                .disabled(!sendEnabled)
-                .accessibilityLabel("Ask your agent")
-            }
-            .padding(DesignConstants.Spacing.step2x)
-            .glassEffect(.regular, in: .rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
-    }
-
-    private var composerLeadingAvatar: some View {
-        AgentAvatarBadge(provider: agentProvider, size: 36)
-            .padding(DesignConstants.Spacing.stepX)
-            .glassEffect(.regular, in: .circle)
-    }
-
-    private var composerPlaceholder: String {
-        "Chat with \(agentName ?? "your agent")"
-    }
-
-    private var sendEnabled: Bool {
-        !isAgentWorking && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     @ViewBuilder
