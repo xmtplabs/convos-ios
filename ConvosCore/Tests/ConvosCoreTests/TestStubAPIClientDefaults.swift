@@ -74,6 +74,20 @@ extension ConvosAPIClientProtocol {
         )
     }
 
+    /// Default for the stop control so pre-existing stubs don't re-stub it.
+    /// Reports the idle no-op (nothing was running to stop). Tests that
+    /// exercise the interrupt flow should override this on their fixture.
+    func interruptAgent(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentInterruptResponse {
+        ConvosAPI.AgentInterruptResponse(
+            success: true,
+            conversationId: conversationId,
+            interrupted: 0
+        )
+    }
+
     /// Default for the Space share mint so pre-existing stubs don't re-stub
     /// it. Tests that exercise the share flow should override on their
     /// fixture.
