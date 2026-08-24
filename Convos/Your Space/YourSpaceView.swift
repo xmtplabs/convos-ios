@@ -41,6 +41,7 @@ struct YourSpaceView: View {
     @State private var presentingPersonalAgentOnboarding: Bool = false
     @State private var onboardingInitialProvider: ExternalAgentProvider?
     @State private var personalAgentState: AgentChatPrototypeState = .init()
+    @State private var mockAgentProvider: ExternalAgentProvider?
     @State private var presentingFileImporter: Bool = false
     @State private var fileImportNotice: YourSpaceFileImportNotice?
     @State private var localContextFiles: [YourSpaceStoredFile] = YourSpaceFileStore.storedFiles()
@@ -123,8 +124,15 @@ struct YourSpaceView: View {
         .sorted { $0.date > $1.date }
     }
 
+    private var isMockAgentActive: Bool {
+        mockAgentProvider != nil
+    }
+
     private var activePersonalAgent: ExternalAgentProvider? {
-        ExternalAgentProvider(rawValue: personalAgentProviderRawValue)
+        if let mockAgentProvider {
+            return mockAgentProvider
+        }
+        return ExternalAgentProvider(rawValue: personalAgentProviderRawValue)
     }
 
     private var activeGrokBotAgent: GrokBotAgent? {
@@ -231,7 +239,7 @@ struct YourSpaceView: View {
                     agentProvider: activePersonalAgent,
                     codexConfiguration: codexConnectionConfiguration,
                     codexSnapshot: codexYourSpaceSnapshot,
-                    onAskAgent: activeAgentRequest,
+                    onAskAgent: isMockAgentActive ? nil : activeAgentRequest,
                     onSaveOutput: saveAgentOutput,
                     onSaveLink: saveAgentLink,
                     onShareOutput: shareAgentOutput,
@@ -523,6 +531,10 @@ private extension YourSpaceView {
             Button("Join a convo", systemImage: "qrcode.viewfinder") {
                 viewModel.onJoinConvo()
             }
+
+            Divider()
+
+            toolsMenuContent
         } label: {
             Image(systemName: "plus")
                 .font(.title3.weight(.semibold))
@@ -1065,6 +1077,16 @@ private extension YourSpaceView {
 
     @ViewBuilder
     private var agentDockAvatar: some View {
+        agentDockAvatarBadge
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                    toggleMockAgent()
+                }
+            )
+    }
+
+    @ViewBuilder
+    private var agentDockAvatarBadge: some View {
         if let provider = activePersonalAgent {
             personalAgentBadge(provider, size: 44)
         } else {
@@ -1074,6 +1096,11 @@ private extension YourSpaceView {
                 .frame(width: 44, height: 44)
                 .background(.colorTextPrimary, in: .circle)
         }
+    }
+
+    private func toggleMockAgent() {
+        guard FeatureFlags.shared.isMockConnectedAgentEnabled else { return }
+        mockAgentProvider = isMockAgentActive ? nil : .town
     }
 
     private var dockChatButton: some View {
@@ -1150,6 +1177,10 @@ private extension YourSpaceView {
     }
 
     private func selectPersonalAgent(_ harness: PersonalAgentHarness) {
+        if isMockAgentActive {
+            mockAgentProvider = harness.provider
+            return
+        }
         personalAgentProviderRawValue = harness.provider.rawValue
         if let grokBotAgent = harness.grokBotAgent {
             personalGrokBotAgentId = grokBotAgent.id
@@ -1273,6 +1304,9 @@ private extension YourSpaceView {
     }
 
     private var personalAgentSelectorProviders: [ExternalAgentProvider] {
+        if isMockAgentActive {
+            return [.town, .tasklet, .grokBot]
+        }
         var providers = personalAgentState.connectedExternalProviders
         for provider in AddedExternalAgentStore.providers() where !providers.contains(provider) {
             providers.append(provider)
@@ -1432,6 +1466,10 @@ private extension YourSpaceView {
     }
 
     private func openPersonalAgent(mode: YourSpaceInputMode) {
+        if isMockAgentActive {
+            inputMode = mode
+            return
+        }
         guard let activePersonalAgent else {
             presentPersonalAgentOnboarding()
             return

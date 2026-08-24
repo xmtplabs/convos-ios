@@ -42,6 +42,25 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default -- unlocks a mocked "connected agent" preview in Your
+    /// Space. With it on, long-pressing the agent dock avatar fakes a connected
+    /// personal agent so the dock, the agent switcher, and the full-screen chat
+    /// can be reviewed without a real connection. Toggle from App Settings ->
+    /// Debug. Hard-locked off in production so it can never surface for end users.
+    var isMockConnectedAgentEnabled: Bool {
+        get {
+            access(keyPath: \.isMockConnectedAgentEnabled)
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            return UserDefaults.standard.bool(forKey: Constant.mockConnectedAgentEnabledKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            withMutation(keyPath: \.isMockConnectedAgentEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.mockConnectedAgentEnabledKey)
+            }
+        }
+    }
+
     /// Off by default -- gates the dev-only agent variant selector that appears
     /// in the make-an-agent composer. Toggle from App Settings -> Debug. Hard-
     /// locked off in production so the selector can never surface for end users.
@@ -211,6 +230,7 @@ final class FeatureFlags {
 
     private enum Constant {
         static let debugInjectorEnabledKey: String = "featureFlags.debugInjectorEnabled"
+        static let mockConnectedAgentEnabledKey: String = "featureFlags.mockConnectedAgentEnabled"
         static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"
         static let selectedAgentVariantKey: String = "featureFlags.selectedAgentVariant"
         static let agentVariantSelectorEnabledKey: String = "featureFlags.agentVariantSelectorEnabled"
