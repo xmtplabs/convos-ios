@@ -109,4 +109,23 @@ enum ContactDetailMode: Hashable {
             authorizedInboxId: authorizedInboxId
         )
     }
+
+    /// Resolves self from the session database for this exact conversation.
+    /// The database identity is durable while the messaging service may still
+    /// be authorizing, backgrounded, or replacing its client. Fall back to the
+    /// synchronous service state only when the conversation has not reached
+    /// the database yet.
+    func resolvingCurrentUser(
+        contactInboxId: String,
+        session: any SessionManagerProtocol,
+        conversationId: String
+    ) async -> ContactDetailMode {
+        if let sessionInboxId = await session.inboxId(for: conversationId) {
+            return resolvingCurrentUser(
+                contactInboxId: contactInboxId,
+                authorizedInboxId: sessionInboxId
+            )
+        }
+        return resolvingCurrentUser(contactInboxId: contactInboxId, session: session)
+    }
 }

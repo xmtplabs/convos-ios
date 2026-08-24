@@ -141,6 +141,7 @@ struct ContactDetailView: View {
     @State private var navState: ContactCardNavigatorImpl = .init()
     @State private var navigator: ContactCardCollector?
     @State private var showsAgentsOnProfile: Bool
+    @State private var isPreviewingPublishedProfile: Bool = false
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -448,7 +449,12 @@ struct ContactDetailView: View {
                 // Suggested-agent and agent-share placeholders aren't saved
                 // contacts, so the "Added X ago" line (and Block, below)
                 // don't apply.
-                if !contact.isUnsavedAgentPlaceholder {
+                if mode.isCurrentUser {
+                    Text("Your profile in this convo")
+                        .font(.body)
+                        .foregroundStyle(.colorTextSecondary)
+                        .padding(.top, DesignConstants.Spacing.step2x)
+                } else if !contact.isUnsavedAgentPlaceholder {
                     ContactDetailSubtitle(
                         contact: contact,
                         invitedBy: mode.invitedBy,
@@ -458,11 +464,16 @@ struct ContactDetailView: View {
                     .padding(.top, DesignConstants.Spacing.step2x)
                 }
                 headerBadge
+                if mode.isCurrentUser {
+                    publishedProfilePreviewControl
+                        .padding(.top, DesignConstants.Spacing.step4x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                }
                 if showsAgentSocialProfileSection {
                     AgentSocialProfileSection(
                         ownerName: contact.resolvedDisplayName,
-                        isCurrentUser: mode.isCurrentUser,
-                        connectedProviders: connectedAgentProviders,
+                        isCurrentUser: mode.isCurrentUser && !isPreviewingPublishedProfile,
+                        connectedProviders: displayedConnectedAgentProviders,
                         showsAgentsOnProfile: showsAgentsOnProfile,
                         isPublishingVisibility: isPublishingAgentProfileVisibility,
                         groupAgent: groupAgentSetUpByContact,
@@ -472,7 +483,12 @@ struct ContactDetailView: View {
                         onManageAgents: presentExternalAgentDirectory,
                         onStartWithGroupAgent: handleStartWithGroupAgent
                     )
-                    .padding(.top, DesignConstants.Spacing.step8x)
+                    .padding(
+                        .top,
+                        mode.isCurrentUser
+                            ? DesignConstants.Spacing.step6x
+                            : DesignConstants.Spacing.step8x
+                    )
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
                 }
                 if !ConfigManager.shared.currentEnvironment.isProduction, let variant = variantStamp {
@@ -598,27 +614,6 @@ struct ContactDetailView: View {
     /// row only - the id itself is always plumbed through.
     private var showsInstanceIdRow: Bool {
         ConfigManager.shared.currentEnvironment.isInternalBuild
-    }
-
-    /// Pill rendered below the subtitle. "You" for the current user's
-    /// own card, the agent role label for verified agents, otherwise
-    /// nothing. The top padding is inside the builder so it doesn't
-    /// inflate the gap above the actions row when no badge is showing.
-    @ViewBuilder
-    private var headerBadge: some View {
-        if mode.isCurrentUser {
-            RoleLabelPill(
-                label: "You",
-                accessibilityIdentifier: "contact-detail-you-badge"
-            )
-            .padding(.top, DesignConstants.Spacing.step2x)
-        } else if let roleLabel = contact.agentVerification?.roleLabel {
-            RoleLabelPill(
-                label: roleLabel,
-                accessibilityIdentifier: "contact-detail-role-label-\(contact.inboxId)"
-            )
-            .padding(.top, DesignConstants.Spacing.step2x)
-        }
     }
 
     // MARK: - Picker sheet
@@ -960,14 +955,11 @@ private extension ContactDetailView {
     @MainActor
     func resolveCurrentUserAfterAuthorization() async {
         guard mode.isScopedToConversation, !mode.isCurrentUser, let session else { return }
-        let messagingService = session.messagingServiceSync()
-        guard let inboxReady = try? await messagingService.sessionStateManager.waitForInboxReadyResult() else {
-            return
-        }
-
-        let resolvedMode = mode.resolvingCurrentUser(
+        guard let conversationId = mode.conversationId else { return }
+        let resolvedMode = await mode.resolvingCurrentUser(
             contactInboxId: contact.inboxId,
-            authorizedInboxId: inboxReady.client.inboxId
+            session: session,
+            conversationId: conversationId
         )
         guard resolvedMode.isCurrentUser else { return }
 
@@ -989,10 +981,84 @@ private extension ContactDetailView {
     /// Human profiles surface personal-agent identity only when it has useful
     /// content. The current user's own profile always shows the opt-in control.
     var showsAgentSocialProfileSection: Bool {
-        !contact.isAgent
-            && (mode.isCurrentUser
-                || groupAgentSetUpByContact != nil
-                || !connectedAgentProviders.isEmpty)
+        guard !contact.isAgent else { return false }
+        if mode.isCurrentUser, isPreviewingPublishedProfile {
+            return groupAgentSetUpByContact != nil || !displayedConnectedAgentProviders.isEmpty
+        }
+        return mode.isCurrentUser
+            || groupAgentSetUpByContact != nil
+            || !connectedAgentProviders.isEmpty
+    }
+
+    var displayedConnectedAgentProviders: [ExternalAgentProvider] {
+        guard mode.isCurrentUser, isPreviewingPublishedProfile else {
+            return connectedAgentProviders
+        }
+        return showsAgentsOnProfile ? connectedAgentProviders : []
+    }
+
+    /// Pill rendered below the subtitle. "You" for the current user's own
+    /// card, the agent role label for verified agents, otherwise nothing.
+    @ViewBuilder
+    var headerBadge: some View {
+        if mode.isCurrentUser {
+            RoleLabelPill(
+                label: "You",
+                accessibilityIdentifier: "contact-detail-you-badge"
+            )
+            .padding(.top, DesignConstants.Spacing.step2x)
+        } else if let roleLabel = contact.agentVerification?.roleLabel {
+            RoleLabelPill(
+                label: roleLabel,
+                accessibilityIdentifier: "contact-detail-role-label-\(contact.inboxId)"
+            )
+            .padding(.top, DesignConstants.Spacing.step2x)
+        }
+    }
+
+    var publishedProfilePreviewControl: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isPreviewingPublishedProfile.toggle()
+            }
+        } label: {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                Image(systemName: isPreviewingPublishedProfile ? "eye.fill" : "eye")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(width: 44, height: 44)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                    Text(isPreviewingPublishedProfile ? "Previewing what others see" : "Preview profile as others")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
+                    Text(publishedProfilePreviewSubtitle)
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Text(isPreviewingPublishedProfile ? "Done" : "Preview")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .frame(minHeight: 64)
+            .background(.colorBackgroundRaised, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("contact-detail-preview-published-profile")
+    }
+
+    var publishedProfilePreviewSubtitle: String {
+        if !isPreviewingPublishedProfile {
+            return "Check your public agent profile on this phone"
+        }
+        if showsAgentsOnProfile {
+            return "Your published agent names are visible below"
+        }
+        return "Your connected agents are hidden from other people"
     }
 
     var canStartWithGroupAgent: Bool {

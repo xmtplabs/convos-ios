@@ -124,15 +124,6 @@ struct ConversationMembersListView: View {
 
     @ViewBuilder
     private func memberContactDetailDestination(for member: ConversationMember) -> some View {
-        let messagingService = viewModel.messagingService
-        let contactsRepository = messagingService.contactsRepository()
-        let contactsWriter = messagingService.contactsWriter()
-        let resolvedContact = Contact.resolved(
-            member: member,
-            in: viewModel.conversation.id,
-            contactsRepository: contactsRepository
-        )
-        let onRemove: () -> Void = { viewModel.remove(member: member) }
         let onStartAgentDm: (String) -> Void = { agentInboxId in
             viewModel.presentingConversationSettings = false
             NotificationCenter.default.post(
@@ -144,26 +135,13 @@ struct ConversationMembersListView: View {
                 ]
             )
         }
-        ContactDetailView(
-            contact: resolvedContact,
-            connectedAgentProviderIds: member.profile.connectedAgentProviderIds,
-            groupAgentSetUpByContact: viewModel.conversation.groupAgentSetUp(
-                by: member.profile.inboxId
-            ),
-            mode: .scopedToConversation(
-                conversationId: viewModel.conversation.id,
-                canRemoveMembers: viewModel.canRemoveMembers,
-                isCurrentUser: member.isCurrentUser,
-                invitedBy: member.invitedBy,
-                joinedAt: member.joinedAt
-            ),
-            contactsWriter: contactsWriter,
-            contactsRepository: contactsRepository,
-            session: viewModel.session,
-            coreActions: viewModel.coreActions,
+        MemberContactDetailSheetContent(
+            viewModel: viewModel,
+            member: member,
+            profileSettingsViewModel: .shared,
+            onStartAgentDm: onStartAgentDm,
             showsCloseButton: false,
-            onRemove: onRemove,
-            onStartAgentDm: onStartAgentDm
+            embedsNavigationStack: false
         )
     }
 }

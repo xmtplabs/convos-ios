@@ -2009,9 +2009,56 @@ struct MemberContactDetailSheetContent: View {
     let member: ConversationMember
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     var onStartAgentDm: ((String) -> Void)?
+    var showsCloseButton: Bool = true
+    var embedsNavigationStack: Bool = true
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @State private var sessionResolvedMode: ContactDetailMode?
 
+    @ViewBuilder
     var body: some View {
+        if embedsNavigationStack {
+            NavigationStack { resolvedContent }
+        } else {
+            resolvedContent
+        }
+    }
+
+    @ViewBuilder
+    private var resolvedContent: some View {
+        if let presentationMode {
+            contactDetail(mode: presentationMode)
+        } else {
+            ProgressView("Opening profile…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.colorBackgroundRaisedSecondary)
+                .task(id: member.profile.inboxId) { await resolvePresentationMode() }
+        }
+    }
+
+    private var baseMode: ContactDetailMode {
+        .scopedToConversation(
+            conversationId: viewModel.conversation.id,
+            canRemoveMembers: viewModel.canRemoveMembers,
+            isCurrentUser: member.isCurrentUser,
+            invitedBy: member.invitedBy,
+            joinedAt: member.joinedAt
+        )
+    }
+
+    private var presentationMode: ContactDetailMode? {
+        member.isCurrentUser ? baseMode : sessionResolvedMode
+    }
+
+    @MainActor
+    private func resolvePresentationMode() async {
+        sessionResolvedMode = await baseMode.resolvingCurrentUser(
+            contactInboxId: member.profile.inboxId,
+            session: viewModel.session,
+            conversationId: viewModel.conversation.id
+        )
+    }
+
+    private func contactDetail(mode: ContactDetailMode) -> some View {
         let messagingService = viewModel.messagingService
         let contactsRepository = messagingService.contactsRepository()
         let contactsWriter = messagingService.contactsWriter()
@@ -2024,30 +2071,23 @@ struct MemberContactDetailSheetContent: View {
             viewModel.remove(member: member)
             dismiss()
         }
-        NavigationStack {
-            ContactDetailView(
-                contact: resolvedContact,
-                variantStamp: member.profile.variant,
-                connectedAgentProviderIds: member.profile.connectedAgentProviderIds,
-                groupAgentSetUpByContact: viewModel.conversation.groupAgentSetUp(
-                    by: member.profile.inboxId
-                ),
-                mode: .scopedToConversation(
-                    conversationId: viewModel.conversation.id,
-                    canRemoveMembers: viewModel.canRemoveMembers,
-                    isCurrentUser: member.isCurrentUser,
-                    invitedBy: member.invitedBy,
-                    joinedAt: member.joinedAt
-                ),
-                contactsWriter: contactsWriter,
-                contactsRepository: contactsRepository,
-                session: viewModel.session,
-                coreActions: viewModel.coreActions,
-                profileSettingsViewModel: profileSettingsViewModel,
-                onRemove: onRemove,
-                onStartAgentDm: onStartAgentDm
-            )
-        }
+        return ContactDetailView(
+            contact: resolvedContact,
+            variantStamp: member.profile.variant,
+            connectedAgentProviderIds: member.profile.connectedAgentProviderIds,
+            groupAgentSetUpByContact: viewModel.conversation.groupAgentSetUp(
+                by: member.profile.inboxId
+            ),
+            mode: mode,
+            contactsWriter: contactsWriter,
+            contactsRepository: contactsRepository,
+            session: viewModel.session,
+            coreActions: viewModel.coreActions,
+            profileSettingsViewModel: profileSettingsViewModel,
+            showsCloseButton: showsCloseButton,
+            onRemove: onRemove,
+            onStartAgentDm: onStartAgentDm
+        )
     }
 }
 

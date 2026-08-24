@@ -89,6 +89,43 @@ final class ContactDetailModeTests: XCTestCase {
 
         XCTAssertTrue(resolved.isCurrentUser)
     }
+
+    func testConversationSessionIdentityRepairsStaleMemberFlag() async {
+        let mode: ContactDetailMode = .scopedToConversation(
+            conversationId: "mock-conversation-id",
+            canRemoveMembers: true,
+            isCurrentUser: false,
+            invitedBy: nil,
+            joinedAt: nil
+        )
+
+        let resolved = await mode.resolvingCurrentUser(
+            contactInboxId: "mock-inbox-id",
+            session: MockInboxesService(),
+            conversationId: "mock-conversation-id"
+        )
+
+        XCTAssertTrue(resolved.isCurrentUser)
+        XCTAssertTrue(resolved.canRemoveMembers)
+    }
+
+    func testConversationSessionIdentityKeepsAnotherMemberNonSelf() async {
+        let mode: ContactDetailMode = .scopedToConversation(
+            conversationId: "mock-conversation-id",
+            canRemoveMembers: true,
+            isCurrentUser: false,
+            invitedBy: nil,
+            joinedAt: nil
+        )
+
+        let resolved = await mode.resolvingCurrentUser(
+            contactInboxId: "inbox-alice",
+            session: MockInboxesService(),
+            conversationId: "mock-conversation-id"
+        )
+
+        XCTAssertFalse(resolved.isCurrentUser)
+    }
 }
 
 final class ConversationGroupAgentOwnershipTests: XCTestCase {
