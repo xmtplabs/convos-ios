@@ -53,6 +53,25 @@ enum ExternalAgentProvider: String, CaseIterable, Hashable, Identifiable {
         }
     }
 
+    /// Short, flexible descriptor for the agent switcher rows and the dock
+    /// subtitle. Casual services carry a personal agent name in the title and
+    /// read as "<Service> agent" here; techy services put the product name in
+    /// the title and the platform or company here. The two-line row then stays
+    /// natural for both - "Ray / Town agent" and "Codex / Open AI" - instead of
+    /// forcing an "... agent" suffix onto everything.
+    var switcherSubtitle: String {
+        switch self {
+        case .codex: "Open AI"
+        case .town: "Town agent"
+        case .tasklet: "Tasklet agent"
+        case .claudeCode: "Anthropic"
+        case .hermes: "Self-hosted gateway"
+        case .openClaw: "OpenClaw gateway"
+        case .grokBot: "Grok Bot agent"
+        case .connectMCP: "Connect MCP"
+        }
+    }
+
     var symbolName: String {
         switch self {
         case .codex: "chevron.left.forwardslash.chevron.right"

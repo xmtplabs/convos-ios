@@ -457,20 +457,209 @@ private struct YourSpaceFilesView: View {
     }
 }
 
+private struct AgentAvatarBadge: View {
+    let provider: ExternalAgentProvider?
+    var size: CGFloat = 36
+
+    var body: some View {
+        avatar
+    }
+
+    @ViewBuilder
+    private var avatar: some View {
+        if let provider {
+            Image(systemName: provider.symbolName)
+                .font(.system(size: size * 0.42, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .frame(width: size, height: size)
+                .background(provider.tint, in: .circle)
+        } else {
+            Image(systemName: "sparkles")
+                .font(.system(size: size * 0.42, weight: .semibold))
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .frame(width: size, height: size)
+                .background(.colorLava, in: .circle)
+        }
+    }
+}
+
+private struct AgentChatTopBar: View {
+    let agentName: String?
+    let agentSubtitle: String
+    let agentProvider: ExternalAgentProvider?
+    let onBack: () -> Void
+    let onManage: () -> Void
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Button(action: onBack) {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .accessibilityLabel("Close")
+
+            Spacer(minLength: 0)
+
+            Button(action: onManage) {
+                Image(systemName: "gear")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .accessibilityLabel("Manage agents")
+        }
+        .overlay {
+            identityChip
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step3x)
+    }
+
+    private var identityChip: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            AgentAvatarBadge(provider: agentProvider, size: 32)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(agentName ?? "Your agent")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.colorTextPrimary)
+                    .lineLimit(1)
+                Text(agentSubtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step2x)
+        .padding(.vertical, DesignConstants.Spacing.stepX)
+        .glassEffect(.regular, in: .capsule)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(agentName ?? "Your agent"), \(agentSubtitle)")
+    }
+}
+
+private struct AgentChatComposer: View {
+    @Binding var draft: String
+    var isChatFocused: FocusState<Bool>.Binding
+    let agentName: String?
+    let agentProvider: ExternalAgentProvider?
+    let isAgentWorking: Bool
+    let switcherAgents: [ManageAgentsView.Agent]
+    let onAddContext: () -> Void
+    let onSubmit: () -> Void
+    let onSelectAgent: (String) -> Void
+    let onManage: () -> Void
+    let onAddAgent: () -> Void
+
+    private var placeholder: String {
+        "Chat with \(agentName ?? "your agent")"
+    }
+
+    private var sendEnabled: Bool {
+        !isAgentWorking && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        let sendColor: Color = sendEnabled ? .colorFillPrimary : .colorFillTertiary
+        return HStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
+            Menu {
+                switcherMenu
+            } label: {
+                AgentAvatarBadge(provider: agentProvider, size: 36)
+                    .padding(DesignConstants.Spacing.stepX)
+                    .glassEffect(.regular, in: .circle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Switch agent")
+            .accessibilityIdentifier("agent-chat-switcher")
+
+            HStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
+                Button(action: onAddContext) {
+                    Image(systemName: "plus")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextSecondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .disabled(isAgentWorking)
+                .accessibilityLabel("Add context")
+
+                TextField(placeholder, text: $draft, axis: .vertical)
+                    .focused(isChatFocused)
+                    .font(.body)
+                    .lineLimit(1 ... 5)
+                    .submitLabel(.send)
+                    .onSubmit(onSubmit)
+                    .disabled(isAgentWorking)
+                    .accessibilityIdentifier("your-space-chat-input")
+
+                Button(action: onSubmit) {
+                    Image(systemName: "arrow.up")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                        .frame(width: 32, height: 32)
+                        .background(sendColor, in: .circle)
+                }
+                .buttonStyle(.plain)
+                .disabled(!sendEnabled)
+                .accessibilityLabel("Ask your agent")
+            }
+            .padding(DesignConstants.Spacing.step2x)
+            .glassEffect(.regular, in: .rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+    }
+
+    @ViewBuilder
+    private var switcherMenu: some View {
+        ForEach(switcherAgents) { agent in
+            Button {
+                onSelectAgent(agent.id)
+            } label: {
+                Text(agent.name)
+                Text(agent.subtitle)
+            }
+        }
+
+        Divider()
+
+        Button("Manage", action: onManage)
+        Button("Add an agent", action: onAddAgent)
+    }
+}
+
 struct YourSpaceInputSheet: View {
     let mode: YourSpaceInputMode
     let briefing: YourSpaceBriefing
     let contextItems: [YourSpaceContextItem]
     let agentName: String?
+    let agentSubtitle: String
+    let agentProvider: ExternalAgentProvider?
+    let initialChatText: String
     let codexConfiguration: CodexConnectionConfiguration?
     let codexSnapshot: CodexYourSpaceSnapshot?
     let onAskAgent: ((String) async throws -> String)?
     let onSaveOutput: (String) throws -> YourSpaceContextItem
     let onSaveLink: (URL) throws -> YourSpaceContextItem
     let onShareOutput: (YourSpaceContextItem) -> Void
+    let manageAgents: [ManageAgentsView.Agent]
+    let onSelectAgent: (String) -> Void
+    let onAddAgent: () -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var draft: String = ""
+    @State private var presentingAddContext: Bool = false
+    @State private var presentingManageAgents: Bool = false
     @State private var submittedPrompt: String?
     @State private var response: String?
     @State private var savedOutput: YourSpaceContextItem?
@@ -486,54 +675,57 @@ struct YourSpaceInputSheet: View {
     private let transcriptionID: String = UUID().uuidString
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
-                    assistantMessage(initialAssistantMessage)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
+                assistantMessage(initialAssistantMessage)
 
-                    if let submittedPrompt {
-                        userMessage(submittedPrompt)
-                    }
-
-                    if isAgentWorking {
-                        agentWorkingMessage
-                    }
-
-                    if let response {
-                        agentOutput(response)
-                    }
-
-                    if submittedPrompt == nil, mode == .chat {
-                        promptSuggestions
-                    }
-
-                    Label(contextBoundaryCopy, systemImage: "lock.fill")
-                        .font(.caption)
-                        .foregroundStyle(.colorTextSecondary)
-                        .padding(.top, DesignConstants.Spacing.step3x)
+                if let submittedPrompt {
+                    userMessage(submittedPrompt)
                 }
-                .padding(.horizontal, DesignConstants.Spacing.step5x)
-                .padding(.vertical, DesignConstants.Spacing.step8x)
-                .frame(maxWidth: 720, alignment: .leading)
-                .frame(maxWidth: .infinity)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .background(.colorBackgroundSurfaceless)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                inputBar
-            }
-            .navigationTitle(agentName.map { "Ask \($0)" } ?? "Ask your agent")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+
+                if isAgentWorking {
+                    agentWorkingMessage
                 }
+
+                if let response {
+                    agentOutput(response)
+                }
+
+                if submittedPrompt == nil, mode == .chat {
+                    promptSuggestions
+                }
+
+                Label(contextBoundaryCopy, systemImage: "lock.fill")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                    .padding(.top, DesignConstants.Spacing.step3x)
             }
+            .padding(.horizontal, DesignConstants.Spacing.step5x)
+            .padding(.vertical, DesignConstants.Spacing.step6x)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(.colorBackgroundSurfaceless)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AgentChatTopBar(
+                agentName: agentName,
+                agentSubtitle: agentSubtitle,
+                agentProvider: agentProvider,
+                onBack: { dismiss() },
+                onManage: { presentingManageAgents = true }
+            )
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            inputBar
         }
         .task {
             if mode == .voice {
                 await startRecording()
             } else {
+                if draft.isEmpty, !initialChatText.isEmpty {
+                    draft = initialChatText
+                }
                 try? await Task.sleep(for: .milliseconds(300))
                 isChatFocused = true
             }
@@ -544,6 +736,18 @@ struct YourSpaceInputSheet: View {
             Task {
                 await transcriber.cancel(messageId: transcriptionID)
             }
+        }
+        .sheet(isPresented: $presentingAddContext) {
+            YourSpaceAddContextSheet { _ in }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $presentingManageAgents) {
+            NavigationStack {
+                ManageAgentsView(agents: manageAgents)
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .alert(item: $inputError) { error in
             Alert(
@@ -557,43 +761,22 @@ struct YourSpaceInputSheet: View {
     @ViewBuilder
     private var inputBar: some View {
         if mode == .chat {
-            chatComposer
+            AgentChatComposer(
+                draft: $draft,
+                isChatFocused: $isChatFocused,
+                agentName: agentName,
+                agentProvider: agentProvider,
+                isAgentWorking: isAgentWorking,
+                switcherAgents: manageAgents,
+                onAddContext: { presentingAddContext = true },
+                onSubmit: { submitQuestion() },
+                onSelectAgent: onSelectAgent,
+                onManage: { presentingManageAgents = true },
+                onAddAgent: onAddAgent
+            )
         } else {
             voiceComposer
         }
-    }
-
-    private var chatComposer: some View {
-        HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
-            TextField("Ask your agent to make, edit, or find anything", text: $draft, axis: .vertical)
-                .focused($isChatFocused)
-                .font(.body)
-                .lineLimit(1 ... 5)
-                .submitLabel(.send)
-                .onSubmit { submitQuestion() }
-                .disabled(isAgentWorking)
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-                .padding(.vertical, DesignConstants.Spacing.step3x)
-                .background(.colorFillMinimal, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
-                .accessibilityIdentifier("your-space-chat-input")
-
-            Button {
-                submitQuestion()
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.body.weight(.bold))
-                    .foregroundStyle(.colorTextPrimaryInverted)
-                    .frame(width: 44, height: 44)
-                    .background(.colorFillPrimary, in: .circle)
-            }
-            .buttonStyle(.plain)
-            .disabled(isAgentWorking || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .opacity(isAgentWorking || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
-            .accessibilityLabel("Ask your agent")
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
-        .background(.bar)
     }
 
     @ViewBuilder

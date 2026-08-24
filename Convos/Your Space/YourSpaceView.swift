@@ -10,6 +10,7 @@
 import Combine
 import ConvosComposer
 import ConvosCore
+import ConvosCoreiOS
 import SwiftUI
 
 private struct PersonalAgentHarness: Identifiable {
@@ -41,6 +42,12 @@ struct YourSpaceView: View {
     @State private var presentingPersonalAgentOnboarding: Bool = false
     @State private var onboardingInitialProvider: ExternalAgentProvider?
     @State private var personalAgentState: AgentChatPrototypeState = .init()
+    @State private var mockAgentProvider: ExternalAgentProvider?
+    @State private var dockRecorder: VoiceMemoRecorder = .init()
+    @State private var dockRecordingActive: Bool = false
+    @State private var dockInvertedTheme: Bool = false
+    @State private var dockTranscribing: Bool = false
+    @State private var pendingChatDraft: String = ""
     @State private var presentingFileImporter: Bool = false
     @State private var fileImportNotice: YourSpaceFileImportNotice?
     @State private var localContextFiles: [YourSpaceStoredFile] = YourSpaceFileStore.storedFiles()
@@ -50,6 +57,7 @@ struct YourSpaceView: View {
     @State private var presentingAddContext: Bool = false
     @State private var presentingPersonalCard: Bool = false
     @State private var presentingMeAndMyStuff: Bool = false
+    @State private var presentingManageAgents: Bool = false
     @State private var showsAllAgentsAcrossConvos: Bool = false
     @State private var sharingItem: YourSpaceContextItem?
     @State private var shareNotice: YourSpaceShareNotice?
@@ -65,6 +73,7 @@ struct YourSpaceView: View {
     @AppStorage("your-space-agents-widget") private var showsAgentsWidget: Bool = false
     @AppStorage("your-space-personal-agent-provider") private var personalAgentProviderRawValue: String = ""
     @AppStorage("your-space-grokbot-agent-id") private var personalGrokBotAgentId: String = ""
+    private let dockTranscriber: VoiceMemoTranscriber = .init()
 
     private var conversations: [Conversation] {
 #if DEBUG
@@ -123,8 +132,15 @@ struct YourSpaceView: View {
         .sorted { $0.date > $1.date }
     }
 
+    private var isMockAgentActive: Bool {
+        mockAgentProvider != nil
+    }
+
     private var activePersonalAgent: ExternalAgentProvider? {
-        ExternalAgentProvider(rawValue: personalAgentProviderRawValue)
+        if let mockAgentProvider {
+            return mockAgentProvider
+        }
+        return ExternalAgentProvider(rawValue: personalAgentProviderRawValue)
     }
 
     private var activeGrokBotAgent: GrokBotAgent? {
@@ -208,6 +224,9 @@ struct YourSpaceView: View {
             .navigationDestination(isPresented: $presentingMeAndMyStuff) {
                 meAndMyStuffDestination
             }
+            .navigationDestination(isPresented: $presentingManageAgents) {
+                ManageAgentsView(agents: manageAgents)
+            }
             .sheet(item: $toolDestination) { destination in
                 YourSpaceToolDestinationSheet(
                     destination: destination,
@@ -221,21 +240,26 @@ struct YourSpaceView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
-            .sheet(item: $inputMode) { mode in
+            .fullScreenCover(item: $inputMode) { mode in
                 YourSpaceInputSheet(
                     mode: mode,
                     briefing: briefing,
                     contextItems: allContextItems,
                     agentName: activePersonalAgentName,
+                    agentSubtitle: activePersonalAgent.map { $0.switcherSubtitle } ?? "Personal agent",
+                    agentProvider: activePersonalAgent,
+                    initialChatText: pendingChatDraft,
                     codexConfiguration: codexConnectionConfiguration,
                     codexSnapshot: codexYourSpaceSnapshot,
-                    onAskAgent: activeAgentRequest,
+                    onAskAgent: isMockAgentActive ? nil : activeAgentRequest,
                     onSaveOutput: saveAgentOutput,
                     onSaveLink: saveAgentLink,
-                    onShareOutput: shareAgentOutput
+                    onShareOutput: shareAgentOutput,
+                    manageAgents: manageAgents,
+                    onSelectAgent: selectPersonalAgent(id:),
+                    onAddAgent: addAgentFromChat
                 )
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+                .navigationTransition(.zoom(sourceID: Constant.agentDockTransitionId, in: transitionNamespace))
             }
             .fullScreenCover(isPresented: $presentingPersonalAgentOnboarding) {
                 ExternalAgentOnboardingView(
@@ -343,6 +367,7 @@ struct YourSpaceView: View {
                 }
             }
             .onDisappear {
+                cancelDockRecording()
                 if !usesVisualFixture { viewModel.onDisappear() }
             }
             .onChange(of: viewModel.staleDeviceObserver.isDeviceRemoved) { _, isRemoved in
@@ -521,6 +546,10 @@ private extension YourSpaceView {
             Button("Join a convo", systemImage: "qrcode.viewfinder") {
                 viewModel.onJoinConvo()
             }
+
+            Divider()
+
+            toolsMenuContent
         } label: {
             Image(systemName: "plus")
                 .font(.title3.weight(.semibold))
@@ -998,20 +1027,315 @@ private extension YourSpaceView {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
-            toolsMenu
+        agentDock
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.bottom, DesignConstants.Spacing.step2x)
+    }
 
-            agentCommandButton
-                .frame(maxWidth: .infinity)
+    private var agentDock: some View {
+        dockSurface(
+            dockContent
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .padding(.vertical, DesignConstants.Spacing.step3x)
+        )
+        .contentShape(.capsule)
+        .matchedTransitionSource(id: Constant.agentDockTransitionId, in: transitionNamespace)
+        .simultaneousGesture(TapGesture(count: 2).onEnded { toggleDockTheme() })
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("your-space-agent-dock")
+    }
 
-            chatButton
+    private func dockSurface(_ content: some View) -> some View {
+        let glass: Glass = dockInvertedTheme ? .regular.tint(Color(white: 0.078)) : .regular
+        return content.glassEffect(glass, in: .capsule)
+    }
+
+    private func toggleDockTheme() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            dockInvertedTheme.toggle()
         }
-        .foregroundStyle(.colorTextPrimary)
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
-        .background(.bar.opacity(0.96))
-        .overlay(alignment: .top) {
-            Divider()
+    }
+
+    private var dockPrimaryTextColor: Color {
+        dockInvertedTheme ? .white : .colorTextPrimary
+    }
+
+    private var dockSecondaryTextColor: Color {
+        dockInvertedTheme ? Color(white: 0.6) : .colorTextSecondary
+    }
+
+    private var dockNeutralButtonColor: Color {
+        dockInvertedTheme ? Color(white: 0.3) : .colorFillTertiary
+    }
+
+    private var dockNeutralButtonIconColor: Color {
+        dockInvertedTheme ? .white : .colorTextPrimaryInverted
+    }
+
+    private var dockOnPrimaryColor: Color {
+        dockInvertedTheme ? .black : .colorTextPrimaryInverted
+    }
+
+    @ViewBuilder
+    private var dockContent: some View {
+        if dockRecordingActive {
+            dockRecordingBar
+        } else {
+            dockIdleContent
+        }
+    }
+
+    private var dockIdleContent: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            agentDockIdentity
+
+            dockIdentityText
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            dockChatButton
+            dockVoiceButton
+        }
+    }
+
+    private var dockRecordingBar: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                Text(formattedRecordingDuration)
+                    .font(.system(size: 17))
+                    .monospacedDigit()
+                    .foregroundStyle(dockSecondaryTextColor)
+
+                dockWaveform
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(.leading, DesignConstants.Spacing.step2x)
+            .frame(maxWidth: .infinity)
+
+            Button {
+                finishDockRecording(openChat: true)
+            } label: {
+                Image(systemName: "stop.fill")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(dockNeutralButtonIconColor)
+                    .frame(width: 44, height: 44)
+                    .background(dockNeutralButtonColor, in: .circle)
+            }
+            .buttonStyle(.plain)
+            .disabled(dockTranscribing)
+            .accessibilityLabel("Stop and edit in chat")
+            .accessibilityIdentifier("your-space-recording-stop-button")
+
+            Button {
+                finishDockRecording(openChat: false)
+            } label: {
+                Image(systemName: "arrow.up")
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(dockOnPrimaryColor)
+                    .frame(width: 44, height: 44)
+                    .background(dockPrimaryTextColor, in: .circle)
+            }
+            .buttonStyle(.plain)
+            .disabled(dockTranscribing)
+            .accessibilityLabel("Send to your agent")
+            .accessibilityIdentifier("your-space-recording-send-button")
+        }
+    }
+
+    private var dockWaveform: some View {
+        let barColor: Color = dockPrimaryTextColor
+        return Canvas { context, size in
+            let barWidth: CGFloat = 2
+            let barSpacing: CGFloat = 1.5
+            let totalBarWidth: CGFloat = barWidth + barSpacing
+            let visibleBarCount: Int = max(Int(size.width / totalBarWidth), 1)
+            let levels: [Float] = dockRecorder.audioLevels
+            let placeholderHeight: CGFloat = 2
+            let recordedCount: Int = min(levels.count, visibleBarCount)
+            let startIndex: Int = max(levels.count - visibleBarCount, 0)
+
+            for i in 0 ..< visibleBarCount {
+                let x: CGFloat = CGFloat(i) * totalBarWidth
+                let barIndex: Int = i - (visibleBarCount - recordedCount)
+                if barIndex >= 0, barIndex + startIndex < levels.count {
+                    let level: CGFloat = CGFloat(levels[startIndex + barIndex])
+                    let height: CGFloat = max(size.height * level, placeholderHeight)
+                    let rect = CGRect(x: x, y: (size.height - height) / 2, width: barWidth, height: height)
+                    context.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(barColor))
+                } else {
+                    let rect = CGRect(x: x, y: (size.height - placeholderHeight) / 2, width: barWidth, height: placeholderHeight)
+                    context.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(barColor.opacity(0.3)))
+                }
+            }
+        }
+        .frame(height: 24)
+    }
+
+    private var formattedRecordingDuration: String {
+        let total: Int = Int(dockRecorder.duration)
+        return String(format: "%02d:%02d", total / 60, total % 60)
+    }
+
+    @ViewBuilder
+    private var agentDockIdentity: some View {
+        if activePersonalAgent != nil {
+            Menu {
+                agentSwitcherMenuContent
+            } label: {
+                agentDockAvatar
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Switch personal agent")
+            .accessibilityIdentifier("your-space-agent-switcher")
+        } else {
+            Button {
+                presentPersonalAgentOnboarding()
+            } label: {
+                agentDockAvatar
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Connect a personal agent")
+        }
+    }
+
+    private var dockIdentityText: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(dockTitle)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(dockPrimaryTextColor)
+                .lineLimit(1)
+            Text(dockSubtitle)
+                .font(.system(size: 13))
+                .foregroundStyle(dockSecondaryTextColor)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var agentDockAvatar: some View {
+        agentDockAvatarBadge
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                    toggleMockAgent()
+                }
+            )
+    }
+
+    @ViewBuilder
+    private var agentDockAvatarBadge: some View {
+        if let provider = activePersonalAgent {
+            personalAgentBadge(provider, size: 44)
+        } else {
+            Image(systemName: "powerplug.fill")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .frame(width: 44, height: 44)
+                .background(.colorTextPrimary, in: .circle)
+        }
+    }
+
+    private func toggleMockAgent() {
+        guard FeatureFlags.shared.isMockConnectedAgentEnabled else { return }
+        mockAgentProvider = isMockAgentActive ? nil : .town
+    }
+
+    private var dockChatButton: some View {
+        Button {
+            openPersonalAgent(mode: .chat)
+        } label: {
+            Image(systemName: "message.fill")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(dockNeutralButtonIconColor)
+                .frame(width: 44, height: 44)
+                .background(dockNeutralButtonColor, in: .circle)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Chat with \(activePersonalAgentName ?? "your agent")")
+        .accessibilityIdentifier("your-space-chat-button")
+    }
+
+    private var dockVoiceButton: some View {
+        Button {
+            startDockRecording()
+        } label: {
+            Image(systemName: "microphone.fill")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .frame(width: 44, height: 44)
+                .background(.colorLava, in: .circle)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Talk to \(activePersonalAgentName ?? "your agent")")
+        .accessibilityIdentifier("your-space-voice-button")
+    }
+
+    @ViewBuilder
+    private var agentSwitcherMenuContent: some View {
+        ForEach(personalAgentSelectorHarnesses) { harness in
+            Button {
+                selectPersonalAgent(harness)
+            } label: {
+                Text(harness.name)
+                Text(harness.provider.switcherSubtitle)
+            }
+        }
+
+        Divider()
+
+        Button("Manage") {
+            presentingManageAgents = true
+        }
+
+        Button("Add an agent") {
+            presentPersonalAgentOnboarding()
+        }
+    }
+
+    private var manageAgents: [ManageAgentsView.Agent] {
+        personalAgentSelectorHarnesses.map { harness in
+            ManageAgentsView.Agent(
+                id: harness.id,
+                name: harness.name,
+                subtitle: harness.provider.switcherSubtitle,
+                symbolName: harness.provider.symbolName,
+                tint: harness.provider.tint
+            )
+        }
+    }
+
+    private var dockTitle: String {
+        activePersonalAgentName ?? "Bring your agent"
+    }
+
+    private var dockSubtitle: String {
+        guard let activePersonalAgent else { return "Use the AI you choose" }
+        return activePersonalAgent.switcherSubtitle
+    }
+
+    private func selectPersonalAgent(_ harness: PersonalAgentHarness) {
+        if isMockAgentActive {
+            mockAgentProvider = harness.provider
+            return
+        }
+        personalAgentProviderRawValue = harness.provider.rawValue
+        if let grokBotAgent = harness.grokBotAgent {
+            personalGrokBotAgentId = grokBotAgent.id
+        }
+        if !harness.provider.hasStoredConnection || (harness.provider == .grokBot && harness.grokBotAgent == nil) {
+            presentPersonalAgentOnboarding(for: harness.provider)
+        }
+    }
+
+    private func selectPersonalAgent(id: String) {
+        guard let harness = personalAgentSelectorHarnesses.first(where: { $0.id == id }) else { return }
+        selectPersonalAgent(harness)
+    }
+
+    private func addAgentFromChat() {
+        inputMode = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            presentPersonalAgentOnboarding()
         }
     }
 
@@ -1063,20 +1387,6 @@ private extension YourSpaceView {
         .frame(maxWidth: 520)
     }
 
-    private var toolsMenu: some View {
-        Menu {
-            toolsMenuContent
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.headline)
-                .frame(width: 44, height: 44)
-                .contentShape(.circle)
-        }
-        .glassEffect(.regular.interactive(), in: .circle)
-        .accessibilityLabel("More in Your Space")
-        .accessibilityIdentifier("your-space-tools-menu")
-    }
-
     @ViewBuilder
     private var toolsMenuContent: some View {
         Button("Bring personal agents", systemImage: "sparkles") {
@@ -1103,87 +1413,6 @@ private extension YourSpaceView {
         Button("Connected convos", systemImage: "bubble.left.and.bubble.right.fill") {
             toolDestination = .connectedConvos
         }
-    }
-
-    private var agentCommandButton: some View {
-        HStack(spacing: DesignConstants.Spacing.stepX) {
-            Button {
-                openPersonalAgent(mode: .voice)
-            } label: {
-                HStack(spacing: DesignConstants.Spacing.step3x) {
-                    if let provider = activePersonalAgent {
-                        personalAgentBadge(provider, size: 40)
-                    } else {
-                        Image(systemName: "waveform")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.colorTextPrimaryInverted)
-                            .frame(width: 40, height: 40)
-                            .background(.colorLava, in: .circle)
-                    }
-
-                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                        Text(activePersonalAgentName.map { "Ask \($0)" } ?? "Ask your agent")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.colorTextPrimary)
-                            .lineLimit(1)
-                        Text(activePersonalAgent == nil
-                            ? "Make, edit, or find anything"
-                            : personalAgentConnectionSubtitle)
-                            .font(.caption)
-                            .foregroundStyle(.colorTextSecondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-
-            if activePersonalAgent != nil {
-                Menu {
-                    ForEach(personalAgentSelectorHarnesses) { harness in
-                        Button {
-                            personalAgentProviderRawValue = harness.provider.rawValue
-                            if let grokBotAgent = harness.grokBotAgent {
-                                personalGrokBotAgentId = grokBotAgent.id
-                            }
-                            if !harness.provider.hasStoredConnection || (harness.provider == .grokBot && harness.grokBotAgent == nil) {
-                                presentPersonalAgentOnboarding(for: harness.provider)
-                            }
-                        } label: {
-                            Label(
-                                harness.name,
-                                systemImage: harness.id == activePersonalHarnessId ? "checkmark" : harness.provider.symbolName
-                            )
-                        }
-                    }
-
-                    Divider()
-
-                    Button("Connect another agent", systemImage: "plus") {
-                        presentPersonalAgentOnboarding()
-                    }
-                } label: {
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.colorTextSecondary)
-                        .frame(width: 36, height: 44)
-                        .contentShape(.rect)
-                }
-                .accessibilityLabel("Change personal agent")
-            }
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step2x)
-        .frame(maxWidth: .infinity, minHeight: 56)
-        .background(
-            .colorBackgroundRaisedSecondary,
-            in: .rect(cornerRadius: DesignConstants.CornerRadius.medium)
-        )
-        .shadow(color: Color.black.opacity(0.10), radius: 12, x: 0, y: 4)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("your-space-agent-command-bar")
     }
 
     private func personalAgentBadge(_ provider: ExternalAgentProvider, size: CGFloat) -> some View {
@@ -1224,6 +1453,9 @@ private extension YourSpaceView {
     }
 
     private var personalAgentSelectorProviders: [ExternalAgentProvider] {
+        if isMockAgentActive {
+            return [.town, .tasklet, .claudeCode]
+        }
         var providers = personalAgentState.connectedExternalProviders
         for provider in AddedExternalAgentStore.providers() where !providers.contains(provider) {
             providers.append(provider)
@@ -1252,32 +1484,12 @@ private extension YourSpaceView {
         }
     }
 
-    private var activePersonalHarnessId: String? {
-        guard let activePersonalAgent else { return nil }
-        return PersonalAgentHarness(provider: activePersonalAgent, grokBotAgent: activeGrokBotAgent).id
-    }
-
     private var personalAgentSectionActionTitle: String {
         guard let activePersonalAgent else { return "Connect a personal agent" }
         let name = activePersonalAgentName ?? activePersonalAgent.displayName
         return activePersonalAgent.hasStoredConnection && (activePersonalAgent != .grokBot || activeGrokBotAgent != nil)
             ? "Talk to \(name) privately"
             : "Reconnect \(name)"
-    }
-
-    private var chatButton: some View {
-        Button {
-            openPersonalAgent(mode: .chat)
-        } label: {
-            Image(systemName: "message.fill")
-                .font(.body.weight(.semibold))
-                .frame(width: 44, height: 44)
-                .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .circle)
-        .accessibilityLabel("Chat with Your Space")
-        .accessibilityIdentifier("your-space-chat-button")
     }
 
     @ViewBuilder
@@ -1398,6 +1610,13 @@ private extension YourSpaceView {
     }
 
     private func openPersonalAgent(mode: YourSpaceInputMode) {
+        if mode == .chat {
+            pendingChatDraft = ""
+        }
+        if isMockAgentActive {
+            inputMode = mode
+            return
+        }
         guard let activePersonalAgent else {
             presentPersonalAgentOnboarding()
             return
@@ -1411,6 +1630,79 @@ private extension YourSpaceView {
             return
         }
         inputMode = mode
+    }
+
+    private var canUsePersonalAgent: Bool {
+        if isMockAgentActive { return true }
+        guard let activePersonalAgent, activePersonalAgent.hasStoredConnection else { return false }
+        if activePersonalAgent == .grokBot, activeGrokBotAgent == nil { return false }
+        return true
+    }
+
+    private func startDockRecording() {
+        guard canUsePersonalAgent else {
+            openPersonalAgent(mode: .voice)
+            return
+        }
+        guard case .idle = dockRecorder.state else { return }
+        Task {
+            guard await VoiceMemoRecorder.ensureRecordPermission() else {
+                shareNotice = YourSpaceShareNotice(
+                    title: "Microphone access needed",
+                    message: "Allow microphone access in Settings to talk to your agent. You can still use chat."
+                )
+                return
+            }
+            do {
+                try dockRecorder.startRecording()
+                dockRecordingActive = true
+            } catch {
+                shareNotice = YourSpaceShareNotice(title: "Couldn't start listening", message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func finishDockRecording(openChat: Bool) {
+        guard !dockTranscribing else { return }
+        dockRecorder.stopRecording()
+        guard case let .recorded(url, _) = dockRecorder.state else {
+            cancelDockRecording()
+            return
+        }
+        dockTranscribing = true
+        let messageId: String = UUID().uuidString
+        Task {
+            do {
+                let transcript: String = try await dockTranscriber.transcribe(messageId: messageId, fileURL: url)
+                dockRecorder.cancelRecording()
+                dockTranscribing = false
+                dockRecordingActive = false
+                handleDockTranscript(transcript, openChat: openChat)
+            } catch {
+                dockTranscribing = false
+                cancelDockRecording()
+                shareNotice = YourSpaceShareNotice(
+                    title: "Couldn't understand that",
+                    message: "Try recording again or use chat instead. \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    private func cancelDockRecording() {
+        dockRecorder.cancelRecording()
+        dockRecordingActive = false
+    }
+
+    private func handleDockTranscript(_ transcript: String, openChat: Bool) {
+        let trimmed: String = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if openChat {
+            pendingChatDraft = trimmed
+            inputMode = .chat
+        } else if let request = activeAgentRequest {
+            Task { _ = try? await request(trimmed) }
+        }
     }
 
     private func presentPersonalAgentOnboarding(for provider: ExternalAgentProvider? = nil) {
@@ -1561,15 +1853,25 @@ private extension YourSpaceView {
             }
         }
     }
+
+    private enum Constant {
+        static let agentDockTransitionId: String = "your-space-agent-dock"
+    }
 }
 
 private struct YourSpaceShareNotice: Identifiable {
     let id: UUID = UUID()
-    let title: String = "Couldn't prepare that share"
+    let title: String
     let message: String
 
     init(error: Error) {
+        title = "Couldn't prepare that share"
         message = error.localizedDescription
+    }
+
+    init(title: String, message: String) {
+        self.title = title
+        self.message = message
     }
 }
 
