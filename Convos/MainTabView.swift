@@ -308,11 +308,10 @@ struct MainTabView: View {
         .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: activeConvoVM != nil)
         .animation(.bouncy(duration: 0.4, extraBounce: 0.15), value: isContactDetailPushed)
         .ignoresSafeArea()
-        .allowsHitTesting(activeConvoVM == nil)
-        // The full-screen conversation owns Back, settings, and Invite inside
-        // its presented surface. Keep this transition source mounted behind it
-        // without exposing a second set of invisible controls to VoiceOver.
-        .accessibilityHidden(activeConvoVM != nil)
+        // This overlay owns the visible conversation header as well as the
+        // Your Space pill. Disabling it while a conversation is active leaves
+        // the header visible but makes Back and group settings inert.
+        .allowsHitTesting(true)
         .zIndex(1000)
         .onGeometryChange(for: CGSize.self, of: { $0.size }, action: { _ in
             updateTrafficLightWindowState()

@@ -2,16 +2,13 @@
 import ConvosCore
 import XCTest
 
-/// Regression coverage for the rule "no contact card for self." Tapping
-/// your own avatar in the messages view, or your own row in the members
-/// list, must route to "My info" via `presentingProfileSettings`, never
-/// to the member contact-card sheet via `presentingProfileForMember`.
-/// Showing the contact card for self exposes the Send-a-message and
-/// Block affordances against yourself, which would silently upsert
-/// `self` into the local contact table.
+/// Regression coverage for member-avatar routing. Every member, including
+/// the current user, opens the canonical contact card. The card's current-user
+/// mode is responsible for hiding unsafe self actions and showing the social
+/// connected-agent profile.
 @MainActor
 final class ConversationViewModelMemberTapTests: XCTestCase {
-    func testTapOwnAvatarOpensProfileSettings() {
+    func testTapOwnAvatarOpensCurrentUserContactCard() {
         let viewModel = makeViewModel()
         let selfMember = ConversationMember.mock(isCurrentUser: true)
 
@@ -20,10 +17,11 @@ final class ConversationViewModelMemberTapTests: XCTestCase {
 
         viewModel.onTapAvatar(selfMember)
 
-        XCTAssertTrue(viewModel.presentingProfileSettings,
-                      "Tapping your own avatar should open My info")
-        XCTAssertNil(viewModel.presentingProfileForMember,
-                     "The member contact-card sheet must not open for self")
+        XCTAssertEqual(viewModel.presentingProfileForMember?.profile.inboxId,
+                       selfMember.profile.inboxId,
+                       "Tapping your own avatar should open your social profile card")
+        XCTAssertFalse(viewModel.presentingProfileSettings,
+                       "The profile editor should only open after choosing to edit")
     }
 
     func testTapOtherMemberAvatarOpensContactCardSheet() {

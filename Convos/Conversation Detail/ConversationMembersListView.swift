@@ -104,30 +104,21 @@ struct ConversationMembersListView: View {
         }
     }
 
-    /// Routes a member-row tap based on whether the row is for the local
-    /// user. Tapping your own row opens "My info" via
-    /// `viewModel.onProfileSettings()`; tapping someone else's pushes the
-    /// contact card. Wrapping each branch as a separate view keeps the
-    /// `ForEach` body small enough to stay clear of the type-checker
-    /// timeout, and centralises the "no contact card for self" rule.
+    /// Routes every member-row tap to the canonical contact card. The current
+    /// user's row deliberately takes the same path as everyone else's:
+    /// current-user mode keeps self-only actions safe while showing the
+    /// connected-agent social profile and its visibility controls.
     @ViewBuilder
     private func memberRowDestination(for member: ConversationMember) -> some View {
         let row = MemberRow(
             member: member,
             displayName: member.displayName(memberNameOverride: contactNameOverride)
         )
-        if member.isCurrentUser {
-            Button(action: viewModel.onProfileSettings) {
-                row
-            }
-            .buttonStyle(.plain)
-        } else {
-            NavigationLink {
-                memberContactDetailDestination(for: member)
-                    .onAppear { reportMemberProfileTap(member) }
-            } label: {
-                row
-            }
+        NavigationLink {
+            memberContactDetailDestination(for: member)
+                .onAppear { reportMemberProfileTap(member) }
+        } label: {
+            row
         }
     }
 
