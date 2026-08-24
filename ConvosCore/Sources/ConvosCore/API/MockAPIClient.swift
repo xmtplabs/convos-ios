@@ -24,6 +24,13 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         return URLRequest(url: url)
     }
 
+    func authorizedRequest(for endpoint: String, method: String, queryParameters: [String: String]?) async throws -> URLRequest {
+        var request = try request(for: endpoint, method: method, queryParameters: queryParameters)
+        request.httpMethod = method
+        request.setValue(overrideJWTToken ?? "mock-jwt-token", forHTTPHeaderField: "X-Convos-AuthToken")
+        return request
+    }
+
     func registerDevice(deviceId: String, pushToken: String?) async throws {
         // Mock implementation - no-op
     }

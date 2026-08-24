@@ -11,6 +11,15 @@ import Foundation
 /// its own implementations and is unaffected. Tests that specifically exercise
 /// these methods should override them on their stub or use a dedicated fixture.
 extension ConvosAPIClientProtocol {
+    /// Default for the relay's `authorizedRequest` seam: a request with a
+    /// fake auth header, so fixtures that predate it keep compiling.
+    func authorizedRequest(for endpoint: String, method: String, queryParameters: [String: String]?) async throws -> URLRequest {
+        var request = try request(for: endpoint, method: method, queryParameters: queryParameters)
+        request.httpMethod = method
+        request.setValue("test-jwt-token", forHTTPHeaderField: "X-Convos-AuthToken")
+        return request
+    }
+
     func getCreditBalance() async throws -> CreditBalance {
         CreditBalance(
             balance: 0,
@@ -175,6 +184,12 @@ extension ConvosAPIClientProtocol {
 class TestStubAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
     func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
         URLRequest(url: URL(string: "https://example.com/\(path)") ?? URL(string: "https://example.com")!)
+    }
+    func authorizedRequest(for endpoint: String, method: String, queryParameters: [String: String]?) async throws -> URLRequest {
+        var request = try request(for: endpoint, method: method, queryParameters: queryParameters)
+        request.httpMethod = method
+        request.setValue("test-jwt-token", forHTTPHeaderField: "X-Convos-AuthToken")
+        return request
     }
     func registerDevice(deviceId: String, pushToken: String?) async throws {}
     func authenticate(appCheckToken: String, retryCount: Int) async throws -> String { "" }
