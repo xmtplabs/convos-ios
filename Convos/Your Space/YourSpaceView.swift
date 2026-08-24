@@ -221,21 +221,23 @@ struct YourSpaceView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
-            .sheet(item: $inputMode) { mode in
+            .fullScreenCover(item: $inputMode) { mode in
                 YourSpaceInputSheet(
                     mode: mode,
                     briefing: briefing,
                     contextItems: allContextItems,
                     agentName: activePersonalAgentName,
+                    agentSubtitle: activePersonalAgent.map { agentRoleLabel($0) } ?? "Personal agent",
+                    agentProvider: activePersonalAgent,
                     codexConfiguration: codexConnectionConfiguration,
                     codexSnapshot: codexYourSpaceSnapshot,
                     onAskAgent: activeAgentRequest,
                     onSaveOutput: saveAgentOutput,
                     onSaveLink: saveAgentLink,
-                    onShareOutput: shareAgentOutput
+                    onShareOutput: shareAgentOutput,
+                    onOpenSettings: onOpenSettings
                 )
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+                .navigationTransition(.zoom(sourceID: Constant.agentDockTransitionId, in: transitionNamespace))
             }
             .fullScreenCover(isPresented: $presentingPersonalAgentOnboarding) {
                 ExternalAgentOnboardingView(
@@ -1000,20 +1002,162 @@ private extension YourSpaceView {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
-            toolsMenu
+        agentDock
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.bottom, DesignConstants.Spacing.step2x)
+    }
 
-            agentCommandButton
-                .frame(maxWidth: .infinity)
+    private var agentDock: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            agentDockIdentity
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            chatButton
+            dockChatButton
+            dockVoiceButton
         }
-        .foregroundStyle(.colorTextPrimary)
         .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
-        .background(.bar.opacity(0.96))
-        .overlay(alignment: .top) {
-            Divider()
+        .padding(.vertical, DesignConstants.Spacing.step3x)
+        .glassEffect(.regular, in: .capsule)
+        .matchedTransitionSource(id: Constant.agentDockTransitionId, in: transitionNamespace)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("your-space-agent-dock")
+    }
+
+    @ViewBuilder
+    private var agentDockIdentity: some View {
+        if activePersonalAgent != nil {
+            Menu {
+                agentSwitcherMenuContent
+            } label: {
+                agentDockIdentityLabel
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Switch personal agent")
+            .accessibilityIdentifier("your-space-agent-switcher")
+        } else {
+            Button {
+                presentPersonalAgentOnboarding()
+            } label: {
+                agentDockIdentityLabel
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Connect a personal agent")
+        }
+    }
+
+    private var agentDockIdentityLabel: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            agentDockAvatar
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(dockTitle)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.colorTextPrimary)
+                    .lineLimit(1)
+                Text(dockSubtitle)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .contentShape(.rect)
+    }
+
+    @ViewBuilder
+    private var agentDockAvatar: some View {
+        if let provider = activePersonalAgent {
+            personalAgentBadge(provider, size: 44)
+        } else {
+            Image(systemName: "powerplug.fill")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .frame(width: 44, height: 44)
+                .background(.colorTextPrimary, in: .circle)
+        }
+    }
+
+    private var dockChatButton: some View {
+        Button {
+            openPersonalAgent(mode: .chat)
+        } label: {
+            Image(systemName: "message.fill")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .frame(width: 44, height: 44)
+                .background(.colorFillTertiary, in: .circle)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Chat with \(activePersonalAgentName ?? "your agent")")
+        .accessibilityIdentifier("your-space-chat-button")
+    }
+
+    private var dockVoiceButton: some View {
+        Button {
+            openPersonalAgent(mode: .voice)
+        } label: {
+            Image(systemName: "microphone.fill")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .frame(width: 44, height: 44)
+                .background(.colorLava, in: .circle)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Talk to \(activePersonalAgentName ?? "your agent")")
+        .accessibilityIdentifier("your-space-voice-button")
+    }
+
+    @ViewBuilder
+    private var agentSwitcherMenuContent: some View {
+        ForEach(personalAgentSelectorHarnesses) { harness in
+            Button {
+                selectPersonalAgent(harness)
+            } label: {
+                Text(harness.name)
+                Text(agentRoleLabel(harness.provider))
+                if harness.id == activePersonalHarnessId {
+                    Image(systemName: "checkmark")
+                }
+            }
+        }
+
+        Divider()
+
+        Button("Connect another agent") {
+            presentPersonalAgentOnboarding()
+        }
+    }
+
+    private var dockTitle: String {
+        activePersonalAgentName ?? "Bring your agent"
+    }
+
+    private var dockSubtitle: String {
+        guard let activePersonalAgent else { return "Use the AI you choose" }
+        return agentRoleLabel(activePersonalAgent)
+    }
+
+    private func agentRoleLabel(_ provider: ExternalAgentProvider) -> String {
+        switch provider {
+        case .town: "Town agent"
+        case .tasklet: "Tasklet agent"
+        case .codex: "OpenAI agent"
+        case .grokBot: "Grok Bot agent"
+        case .claudeCode: "Claude Code agent"
+        case .hermes: "Hermes agent"
+        case .openClaw: "OpenClaw agent"
+        case .connectMCP: "MCP agent"
+        }
+    }
+
+    private func selectPersonalAgent(_ harness: PersonalAgentHarness) {
+        personalAgentProviderRawValue = harness.provider.rawValue
+        if let grokBotAgent = harness.grokBotAgent {
+            personalGrokBotAgentId = grokBotAgent.id
+        }
+        if !harness.provider.hasStoredConnection || (harness.provider == .grokBot && harness.grokBotAgent == nil) {
+            presentPersonalAgentOnboarding(for: harness.provider)
         }
     }
 
@@ -1065,20 +1209,6 @@ private extension YourSpaceView {
         .frame(maxWidth: 520)
     }
 
-    private var toolsMenu: some View {
-        Menu {
-            toolsMenuContent
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.headline)
-                .frame(width: 44, height: 44)
-                .contentShape(.circle)
-        }
-        .glassEffect(.regular.interactive(), in: .circle)
-        .accessibilityLabel("More in Your Space")
-        .accessibilityIdentifier("your-space-tools-menu")
-    }
-
     @ViewBuilder
     private var toolsMenuContent: some View {
         Button("Bring personal agents", systemImage: "sparkles") {
@@ -1105,87 +1235,6 @@ private extension YourSpaceView {
         Button("Connected convos", systemImage: "bubble.left.and.bubble.right.fill") {
             toolDestination = .connectedConvos
         }
-    }
-
-    private var agentCommandButton: some View {
-        HStack(spacing: DesignConstants.Spacing.stepX) {
-            Button {
-                openPersonalAgent(mode: .voice)
-            } label: {
-                HStack(spacing: DesignConstants.Spacing.step3x) {
-                    if let provider = activePersonalAgent {
-                        personalAgentBadge(provider, size: 40)
-                    } else {
-                        Image(systemName: "waveform")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.colorTextPrimaryInverted)
-                            .frame(width: 40, height: 40)
-                            .background(.colorLava, in: .circle)
-                    }
-
-                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                        Text(activePersonalAgentName.map { "Ask \($0)" } ?? "Ask your agent")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.colorTextPrimary)
-                            .lineLimit(1)
-                        Text(activePersonalAgent == nil
-                            ? "Make, edit, or find anything"
-                            : personalAgentConnectionSubtitle)
-                            .font(.caption)
-                            .foregroundStyle(.colorTextSecondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.82)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-
-            if activePersonalAgent != nil {
-                Menu {
-                    ForEach(personalAgentSelectorHarnesses) { harness in
-                        Button {
-                            personalAgentProviderRawValue = harness.provider.rawValue
-                            if let grokBotAgent = harness.grokBotAgent {
-                                personalGrokBotAgentId = grokBotAgent.id
-                            }
-                            if !harness.provider.hasStoredConnection || (harness.provider == .grokBot && harness.grokBotAgent == nil) {
-                                presentPersonalAgentOnboarding(for: harness.provider)
-                            }
-                        } label: {
-                            Label(
-                                harness.name,
-                                systemImage: harness.id == activePersonalHarnessId ? "checkmark" : harness.provider.symbolName
-                            )
-                        }
-                    }
-
-                    Divider()
-
-                    Button("Connect another agent", systemImage: "plus") {
-                        presentPersonalAgentOnboarding()
-                    }
-                } label: {
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.colorTextSecondary)
-                        .frame(width: 36, height: 44)
-                        .contentShape(.rect)
-                }
-                .accessibilityLabel("Change personal agent")
-            }
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step2x)
-        .frame(maxWidth: .infinity, minHeight: 56)
-        .background(
-            .colorBackgroundRaisedSecondary,
-            in: .rect(cornerRadius: DesignConstants.CornerRadius.medium)
-        )
-        .shadow(color: Color.black.opacity(0.10), radius: 12, x: 0, y: 4)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("your-space-agent-command-bar")
     }
 
     private func personalAgentBadge(_ provider: ExternalAgentProvider, size: CGFloat) -> some View {
@@ -1266,21 +1315,6 @@ private extension YourSpaceView {
         return activePersonalAgent.hasStoredConnection && (activePersonalAgent != .grokBot || activeGrokBotAgent != nil)
             ? "Talk to \(name) privately"
             : "Reconnect \(name)"
-    }
-
-    private var chatButton: some View {
-        Button {
-            openPersonalAgent(mode: .chat)
-        } label: {
-            Image(systemName: "message.fill")
-                .font(.body.weight(.semibold))
-                .frame(width: 44, height: 44)
-                .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .circle)
-        .accessibilityLabel("Chat with Your Space")
-        .accessibilityIdentifier("your-space-chat-button")
     }
 
     @ViewBuilder
@@ -1563,6 +1597,10 @@ private extension YourSpaceView {
                 shareNotice = YourSpaceShareNotice(error: error)
             }
         }
+    }
+
+    private enum Constant {
+        static let agentDockTransitionId: String = "your-space-agent-dock"
     }
 }
 
