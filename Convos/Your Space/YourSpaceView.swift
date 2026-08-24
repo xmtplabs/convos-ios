@@ -1143,15 +1143,12 @@ private extension YourSpaceView {
             } label: {
                 Text(harness.name)
                 Text(harness.provider.switcherSubtitle)
-                if harness.id == activePersonalHarnessId {
-                    Image(systemName: "checkmark")
-                }
             }
         }
 
         Divider()
 
-        Button("Connect another agent") {
+        Button("Add an agent") {
             presentPersonalAgentOnboarding()
         }
     }
@@ -1323,11 +1320,6 @@ private extension YourSpaceView {
             }
             return agents.map { PersonalAgentHarness(provider: provider, grokBotAgent: $0) }
         }
-    }
-
-    private var activePersonalHarnessId: String? {
-        guard let activePersonalAgent else { return nil }
-        return PersonalAgentHarness(provider: activePersonalAgent, grokBotAgent: activeGrokBotAgent).id
     }
 
     private var personalAgentSectionActionTitle: String {
