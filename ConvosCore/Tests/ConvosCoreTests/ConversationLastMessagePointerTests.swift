@@ -97,7 +97,7 @@ struct ConversationLastMessagePointerTests {
         contentType: MessageContentType = .text,
         text: String? = "body"
     ) throws -> String {
-        try DBMessage(
+        let message = DBMessage(
             id: id,
             clientMessageId: id,
             conversationId: conversationId,
@@ -115,7 +115,25 @@ struct ConversationLastMessagePointerTests {
             sourceMessageId: nil,
             attachmentUrls: [],
             update: nil
-        ).insert(db)
+        )
+
+        // The backfill test intentionally seeds an older schema before all
+        // migrations have run. Keep the fixture compatible with that live
+        // schema when DBMessage gains columns in later migrations.
+        let liveColumns = Set(try db.columns(in: "message").map(\.name))
+        let encoded = try message.databaseDictionary
+        var columns: [String] = []
+        var values: [DatabaseValue] = []
+        for (column, value) in encoded where liveColumns.contains(column) {
+            columns.append(column)
+            values.append(value)
+        }
+        let columnList = columns.map { "\"\($0)\"" }.joined(separator: ", ")
+        let placeholders = Array(repeating: "?", count: columns.count).joined(separator: ", ")
+        try db.execute(
+            sql: "INSERT INTO message (\(columnList)) VALUES (\(placeholders))",
+            arguments: StatementArguments(values)
+        )
         return id
     }
 
