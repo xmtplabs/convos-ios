@@ -45,6 +45,7 @@ struct YourSpaceView: View {
     @State private var mockAgentProvider: ExternalAgentProvider?
     @State private var dockRecorder: VoiceMemoRecorder = .init()
     @State private var dockRecordingActive: Bool = false
+    @State private var dockInvertedTheme: Bool = false
     @State private var dockTranscribing: Bool = false
     @State private var pendingChatDraft: String = ""
     @State private var presentingFileImporter: Bool = false
@@ -1032,13 +1033,56 @@ private extension YourSpaceView {
     }
 
     private var agentDock: some View {
-        dockContent
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.vertical, DesignConstants.Spacing.step3x)
-            .glassEffect(.regular, in: .capsule)
-            .matchedTransitionSource(id: Constant.agentDockTransitionId, in: transitionNamespace)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("your-space-agent-dock")
+        dockSurface(
+            dockContent
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .padding(.vertical, DesignConstants.Spacing.step3x)
+        )
+        .contentShape(.capsule)
+        .matchedTransitionSource(id: Constant.agentDockTransitionId, in: transitionNamespace)
+        .simultaneousGesture(TapGesture(count: 2).onEnded { toggleDockTheme() })
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("your-space-agent-dock")
+    }
+
+    @ViewBuilder
+    private func dockSurface(_ content: some View) -> some View {
+        if dockInvertedTheme {
+            content
+                .background(Color(white: 0.078), in: .capsule)
+                .overlay {
+                    Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                }
+        } else {
+            content
+                .glassEffect(.regular, in: .capsule)
+        }
+    }
+
+    private func toggleDockTheme() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            dockInvertedTheme.toggle()
+        }
+    }
+
+    private var dockPrimaryTextColor: Color {
+        dockInvertedTheme ? .white : .colorTextPrimary
+    }
+
+    private var dockSecondaryTextColor: Color {
+        dockInvertedTheme ? Color(white: 0.6) : .colorTextSecondary
+    }
+
+    private var dockNeutralButtonColor: Color {
+        dockInvertedTheme ? Color(white: 0.3) : .colorFillTertiary
+    }
+
+    private var dockNeutralButtonIconColor: Color {
+        dockInvertedTheme ? .white : .colorTextPrimaryInverted
+    }
+
+    private var dockOnPrimaryColor: Color {
+        dockInvertedTheme ? .black : .colorTextPrimaryInverted
     }
 
     @ViewBuilder
@@ -1066,7 +1110,7 @@ private extension YourSpaceView {
                 Text(formattedRecordingDuration)
                     .font(.system(size: 17))
                     .monospacedDigit()
-                    .foregroundStyle(.colorTextSecondary)
+                    .foregroundStyle(dockSecondaryTextColor)
 
                 dockWaveform
                     .frame(maxWidth: .infinity)
@@ -1079,9 +1123,9 @@ private extension YourSpaceView {
             } label: {
                 Image(systemName: "stop.fill")
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .foregroundStyle(dockNeutralButtonIconColor)
                     .frame(width: 44, height: 44)
-                    .background(.colorFillTertiary, in: .circle)
+                    .background(dockNeutralButtonColor, in: .circle)
             }
             .buttonStyle(.plain)
             .disabled(dockTranscribing)
@@ -1093,9 +1137,9 @@ private extension YourSpaceView {
             } label: {
                 Image(systemName: "arrow.up")
                     .font(.body.weight(.bold))
-                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .foregroundStyle(dockOnPrimaryColor)
                     .frame(width: 44, height: 44)
-                    .background(.colorTextPrimary, in: .circle)
+                    .background(dockPrimaryTextColor, in: .circle)
             }
             .buttonStyle(.plain)
             .disabled(dockTranscribing)
@@ -1105,7 +1149,8 @@ private extension YourSpaceView {
     }
 
     private var dockWaveform: some View {
-        Canvas { context, size in
+        let barColor: Color = dockPrimaryTextColor
+        return Canvas { context, size in
             let barWidth: CGFloat = 2
             let barSpacing: CGFloat = 1.5
             let totalBarWidth: CGFloat = barWidth + barSpacing
@@ -1122,10 +1167,10 @@ private extension YourSpaceView {
                     let level: CGFloat = CGFloat(levels[startIndex + barIndex])
                     let height: CGFloat = max(size.height * level, placeholderHeight)
                     let rect = CGRect(x: x, y: (size.height - height) / 2, width: barWidth, height: height)
-                    context.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(.colorTextPrimary))
+                    context.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(barColor))
                 } else {
                     let rect = CGRect(x: x, y: (size.height - placeholderHeight) / 2, width: barWidth, height: placeholderHeight)
-                    context.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(Color.colorTextPrimary.opacity(0.3)))
+                    context.fill(Path(roundedRect: rect, cornerRadius: barWidth / 2), with: .color(barColor.opacity(0.3)))
                 }
             }
         }
@@ -1166,11 +1211,11 @@ private extension YourSpaceView {
             VStack(alignment: .leading, spacing: 0) {
                 Text(dockTitle)
                     .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.colorTextPrimary)
+                    .foregroundStyle(dockPrimaryTextColor)
                     .lineLimit(1)
                 Text(dockSubtitle)
                     .font(.system(size: 13))
-                    .foregroundStyle(.colorTextSecondary)
+                    .foregroundStyle(dockSecondaryTextColor)
                     .lineLimit(1)
             }
 
@@ -1213,9 +1258,9 @@ private extension YourSpaceView {
         } label: {
             Image(systemName: "message.fill")
                 .font(.body.weight(.semibold))
-                .foregroundStyle(.colorTextPrimaryInverted)
+                .foregroundStyle(dockNeutralButtonIconColor)
                 .frame(width: 44, height: 44)
-                .background(.colorFillTertiary, in: .circle)
+                .background(dockNeutralButtonColor, in: .circle)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Chat with \(activePersonalAgentName ?? "your agent")")
