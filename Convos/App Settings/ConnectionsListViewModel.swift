@@ -121,7 +121,7 @@ final class ConnectionsListViewModel {
         rebuildTask = Task { [connections, deviceConnectionAuthorizer, isConnecting] in
             var builtRows: [Row] = []
 
-            for service in CloudConnectionServiceCatalog.all where SupportedConnections.isSupported(cloudServiceId: service.id) {
+            for service in CloudConnectionServiceCatalog.all where SupportedConnections.isSupportedInV1(cloudServiceId: service.id) {
                 let active = connections.first(where: { $0.serviceId == service.id })
                 builtRows.append(
                     Row(

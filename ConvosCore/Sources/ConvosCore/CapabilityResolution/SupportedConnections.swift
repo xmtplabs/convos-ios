@@ -23,11 +23,25 @@ public enum SupportedConnections {
         "googledocs",
     ]
 
+    /// The subset that renders as connect/toggle rows in the V1 Connections
+    /// UI — the App Settings list and the Conversation Info section shown
+    /// when Abilities V2 is off. gmail and googledocs stay supported for
+    /// capability resolution (the picker's CONNECT_AND_APPROVE path and
+    /// inbound capability cards work in every mode) but surface as
+    /// standalone connection rows only in the V2 Abilities UI.
+    public static let v1CloudServiceIds: Set<String> = [
+        "googlecalendar",
+    ]
+
     public static func isSupported(_ kind: ConnectionKind) -> Bool {
         supportedDeviceKinds.contains(kind)
     }
 
     public static func isSupported(cloudServiceId: String) -> Bool {
         supportedCloudServiceIds.contains(cloudServiceId)
+    }
+
+    public static func isSupportedInV1(cloudServiceId: String) -> Bool {
+        v1CloudServiceIds.contains(cloudServiceId)
     }
 }

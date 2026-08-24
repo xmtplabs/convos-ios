@@ -235,7 +235,7 @@ final class ConversationConnectionsViewModel {
         let granted = grantedConnectionIds
 
         cloudRows = CloudConnectionServiceCatalog.all
-            .filter { SupportedConnections.isSupported(cloudServiceId: $0.id) }
+            .filter { SupportedConnections.isSupportedInV1(cloudServiceId: $0.id) }
             .map { service in
                 let active = activeByServiceId[service.id]
                 let isGranted = active.map { granted.contains($0.id) } ?? false
