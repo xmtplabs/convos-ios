@@ -173,14 +173,22 @@ struct ThinkingDetailView: View {
     private var stopButton: some View {
         let isEnabled: Bool = liveDescriptor.isActive
         let iconColor: Color = isEnabled ? .colorCaution : .colorTextTertiary
+        // The glass sits on the *button*, not inside its label, and the label
+        // declares an explicit circular hit area. Interactive glass installs
+        // its own gesture recognizer, so hosting it inside the label puts a
+        // second recognizer between the finger and the button's action — the
+        // control still lights up while the tap goes nowhere, which is exactly
+        // the failure this button was reported for. Wrapping the button keeps
+        // the visual and leaves one owner of the touch.
         return Button(action: onStop) {
             Image(systemName: "octagon.fill")
                 .font(.body.weight(.semibold))
                 .foregroundStyle(iconColor)
                 .frame(width: Constant.stopButtonSize, height: Constant.stopButtonSize)
-                .glassEffect(.regular.interactive(), in: .circle)
+                .contentShape(.circle)
         }
         .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
         .disabled(!isEnabled)
         .accessibilityLabel("Stop thinking")
     }

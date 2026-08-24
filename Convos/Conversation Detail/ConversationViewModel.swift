@@ -1643,21 +1643,47 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         }
     }
 
+    /// True while a stop is in flight. Drives the button's disabled state so a
+    /// second tap cannot fan out a second stop, and so the control visibly
+    /// acknowledges the press — previously a tap produced no feedback at all,
+    /// which is indistinguishable from a tap that never registered.
+    var isInterruptingAgent: Bool = false
+
     /// Stops the turn the conversation's agents are running right now — the stop
     /// button. A fire-once control-plane call that injects no message and
     /// persists nothing; the backend reports how many agents were actually
-    /// running, and stopping an idle one is a successful no-op. Quiet on
-    /// failure: the thinking indicator resolves on its own from the runtime.
+    /// running, and stopping an idle one is a successful no-op.
+    ///
+    /// Logged at every exit, entry included. A stop that does nothing is not
+    /// self-evident from the outside: the failure looks exactly like a button
+    /// that was never pressed, and without an entry line there is no way to
+    /// tell "the tap never reached this method" from "the call was made and
+    /// answered `interrupted: 0`". That ambiguity cost a full debugging
+    /// session, so every branch here says which one it was.
     func interruptAgent() async {
         let conversation = self.conversation
-        guard !conversation.isDraft else { return }
+        Log.info("agent interrupt requested for conversation \(conversation.id)")
+        guard !conversation.isDraft else {
+            Log.info("agent interrupt skipped: conversation is a draft")
+            return
+        }
+        guard !isInterruptingAgent else {
+            Log.info("agent interrupt skipped: one already in flight")
+            return
+        }
+        isInterruptingAgent = true
+        defer { isInterruptingAgent = false }
         do {
             let client = ConvosAPIClientFactory.client(
                 environment: ConfigManager.shared.currentEnvironment
             )
-            _ = try await client.interruptAgent(
+            let response = try await client.interruptAgent(
                 conversationId: conversation.id,
                 variantId: conversationAgentVariantSlug
+            )
+            Log.info(
+                "agent interrupt done: interrupted=\(response.interrupted ?? -1) "
+                    + "failed=\(response.failed ?? -1)"
             )
         } catch {
             Log.error("agent interrupt failed: \(error)")
