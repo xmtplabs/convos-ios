@@ -313,55 +313,14 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         case .noJoinRequest:
             mapped = .noJoinRequest
         }
-        // A fresh accept and a verified already-member result both re-publish
-        // the roster: the already-member path covers re-invites and dedup
-        // races where the accept that added the member ran in another pass, so
-        // the joiner still needs a complete snapshot. The persist above runs
-        // first so the snapshot build sees the joiner's own row.
-        if let conversationId = Self.profileSnapshotConversationId(for: outcome) {
-            await sendProfileSnapshotAfterJoin(conversationId: conversationId, client: client)
-        }
         return mapped
     }
-
-    /// The conversation whose roster should be (re)published for an outcome, or
-    /// nil when no snapshot is warranted. Verified already-member results carry
-    /// a conversation; the handled-request ledger pre-check does not, and a
-    /// snapshot there would have been sent on the original accept anyway.
-    static func profileSnapshotConversationId(for outcome: JoinRequestDMOutcome) -> String? {
-        switch outcome {
-        case let .accepted(result, dmConversationId: _):
-            return result.conversationId
-        case let .alreadyMember(_, _, verified):
-            return verified?.conversationId
-        case .benignFailure, .malicious, .noJoinRequest:
-            return nil
-        }
-    }
-
     private func logAccepted(_ result: JoinResult) {
         Log.info("Successfully added \(result.joinerInboxId) to conversation \(result.conversationId)")
         QAEvent.emit(.invite, "member_accepted", [
             "conversation": result.conversationId,
             "member": result.joinerInboxId,
         ])
-    }
-
-    private func sendProfileSnapshotAfterJoin(conversationId: String, client: AnyClientProvider) async {
-        do {
-            guard let conversation = try await client.conversationsProvider.findConversation(
-                conversationId: conversationId
-            ), case .group(let group) = conversation else {
-                return
-            }
-            try await ProfileSnapshotBuilder.sendSnapshot(
-                group: group,
-                databaseReader: databaseWriter
-            )
-            Log.debug("Sent ProfileSnapshot after join request for \(conversationId)")
-        } catch {
-            Log.warning("Failed to send ProfileSnapshot after join: \(error.localizedDescription)")
-        }
     }
 
     /// A nil or very old cursor (fresh install, restore, long-dormant

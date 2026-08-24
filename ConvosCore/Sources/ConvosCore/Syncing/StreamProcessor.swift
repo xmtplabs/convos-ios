@@ -243,10 +243,6 @@ actor StreamProcessor: StreamProcessorProtocol {
             return
         }
 
-        if creatorInboxId == params.client.inboxId {
-            await sendInitialProfileSnapshot(group: conversation)
-        }
-
         // Subscribe to push notifications
         await pushTopicSubscriptionManager.subscribeToGroupAndWelcome(
             conversationId: conversation.id,
@@ -578,18 +574,6 @@ actor StreamProcessor: StreamProcessorProtocol {
             Log.debug("Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
         } catch {
             Log.error("Failed to process ProfileSnapshot: \(error.localizedDescription)")
-        }
-    }
-
-    private func sendInitialProfileSnapshot(group: XMTPiOS.Group) async {
-        do {
-            try await ProfileSnapshotBuilder.sendSnapshot(
-                group: group,
-                databaseReader: databaseReader
-            )
-            Log.debug("Sent initial ProfileSnapshot for \(group.id)")
-        } catch {
-            Log.warning("Failed to send initial ProfileSnapshot: \(error.localizedDescription)")
         }
     }
 
