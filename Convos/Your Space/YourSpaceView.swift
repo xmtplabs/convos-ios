@@ -235,7 +235,7 @@ struct YourSpaceView: View {
                     briefing: briefing,
                     contextItems: allContextItems,
                     agentName: activePersonalAgentName,
-                    agentSubtitle: activePersonalAgent.map { agentRoleLabel($0) } ?? "Personal agent",
+                    agentSubtitle: activePersonalAgent.map { $0.switcherSubtitle } ?? "Personal agent",
                     agentProvider: activePersonalAgent,
                     codexConfiguration: codexConnectionConfiguration,
                     codexSnapshot: codexYourSpaceSnapshot,
@@ -1142,7 +1142,7 @@ private extension YourSpaceView {
                 selectPersonalAgent(harness)
             } label: {
                 Text(harness.name)
-                Text(agentRoleLabel(harness.provider))
+                Text(harness.provider.switcherSubtitle)
                 if harness.id == activePersonalHarnessId {
                     Image(systemName: "checkmark")
                 }
@@ -1162,20 +1162,7 @@ private extension YourSpaceView {
 
     private var dockSubtitle: String {
         guard let activePersonalAgent else { return "Use the AI you choose" }
-        return agentRoleLabel(activePersonalAgent)
-    }
-
-    private func agentRoleLabel(_ provider: ExternalAgentProvider) -> String {
-        switch provider {
-        case .town: "Town agent"
-        case .tasklet: "Tasklet agent"
-        case .codex: "OpenAI agent"
-        case .grokBot: "Grok Bot agent"
-        case .claudeCode: "Claude Code agent"
-        case .hermes: "Hermes agent"
-        case .openClaw: "OpenClaw agent"
-        case .connectMCP: "MCP agent"
-        }
+        return activePersonalAgent.switcherSubtitle
     }
 
     private func selectPersonalAgent(_ harness: PersonalAgentHarness) {
@@ -1307,7 +1294,7 @@ private extension YourSpaceView {
 
     private var personalAgentSelectorProviders: [ExternalAgentProvider] {
         if isMockAgentActive {
-            return [.town, .tasklet, .grokBot]
+            return [.town, .tasklet, .claudeCode]
         }
         var providers = personalAgentState.connectedExternalProviders
         for provider in AddedExternalAgentStore.providers(session: viewModel.session)
