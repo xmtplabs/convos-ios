@@ -51,6 +51,7 @@ struct YourSpaceView: View {
     @State private var presentingAddContext: Bool = false
     @State private var presentingPersonalCard: Bool = false
     @State private var presentingMeAndMyStuff: Bool = false
+    @State private var presentingManageAgents: Bool = false
     @State private var showsAllAgentsAcrossConvos: Bool = false
     @State private var sharingItem: YourSpaceContextItem?
     @State private var shareNotice: YourSpaceShareNotice?
@@ -215,6 +216,9 @@ struct YourSpaceView: View {
             }
             .navigationDestination(isPresented: $presentingMeAndMyStuff) {
                 meAndMyStuffDestination
+            }
+            .navigationDestination(isPresented: $presentingManageAgents) {
+                ManageAgentsView(agents: manageAgents)
             }
             .sheet(item: $toolDestination) { destination in
                 YourSpaceToolDestinationSheet(
@@ -1148,8 +1152,24 @@ private extension YourSpaceView {
 
         Divider()
 
+        Button("Manage") {
+            presentingManageAgents = true
+        }
+
         Button("Add an agent") {
             presentPersonalAgentOnboarding()
+        }
+    }
+
+    private var manageAgents: [ManageAgentsView.Agent] {
+        personalAgentSelectorHarnesses.map { harness in
+            ManageAgentsView.Agent(
+                id: harness.id,
+                name: harness.name,
+                subtitle: harness.provider.switcherSubtitle,
+                symbolName: harness.provider.symbolName,
+                tint: harness.provider.tint
+            )
         }
     }
 
