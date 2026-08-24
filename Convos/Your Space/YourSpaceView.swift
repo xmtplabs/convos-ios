@@ -1045,18 +1045,9 @@ private extension YourSpaceView {
         .accessibilityIdentifier("your-space-agent-dock")
     }
 
-    @ViewBuilder
     private func dockSurface(_ content: some View) -> some View {
-        if dockInvertedTheme {
-            content
-                .background(Color(white: 0.078), in: .capsule)
-                .overlay {
-                    Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-                }
-        } else {
-            content
-                .glassEffect(.regular, in: .capsule)
-        }
+        let glass: Glass = dockInvertedTheme ? .regular.tint(Color(white: 0.078)) : .regular
+        return content.glassEffect(glass, in: .capsule)
     }
 
     private func toggleDockTheme() {
@@ -1097,6 +1088,8 @@ private extension YourSpaceView {
     private var dockIdleContent: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
             agentDockIdentity
+
+            dockIdentityText
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             dockChatButton
@@ -1188,7 +1181,7 @@ private extension YourSpaceView {
             Menu {
                 agentSwitcherMenuContent
             } label: {
-                agentDockIdentityLabel
+                agentDockAvatar
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Switch personal agent")
@@ -1197,31 +1190,25 @@ private extension YourSpaceView {
             Button {
                 presentPersonalAgentOnboarding()
             } label: {
-                agentDockIdentityLabel
+                agentDockAvatar
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Connect a personal agent")
         }
     }
 
-    private var agentDockIdentityLabel: some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            agentDockAvatar
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text(dockTitle)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(dockPrimaryTextColor)
-                    .lineLimit(1)
-                Text(dockSubtitle)
-                    .font(.system(size: 13))
-                    .foregroundStyle(dockSecondaryTextColor)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 0)
+    private var dockIdentityText: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(dockTitle)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(dockPrimaryTextColor)
+                .lineLimit(1)
+            Text(dockSubtitle)
+                .font(.system(size: 13))
+                .foregroundStyle(dockSecondaryTextColor)
+                .lineLimit(1)
         }
-        .contentShape(.rect)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
