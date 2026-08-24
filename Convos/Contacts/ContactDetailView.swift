@@ -4,12 +4,14 @@ import ConvosMetrics
 import SwiftUI
 
 extension Conversation {
-    /// Verified group agent this person actually invited into the conversation.
-    /// The backend does not expose an abstract ownership field; the inviter is
-    /// the concrete, synchronized signal behind the profile's "set up by" copy.
+    /// Group agent this person actually invited into the conversation. This
+    /// intentionally uses the synchronized agent classification rather than
+    /// waiting for attestation verification: a newly connected or personal
+    /// agent can be visible on its owner's profile while verification metadata
+    /// is still arriving. The inviter remains the concrete ownership signal.
     func groupAgentSetUp(by inboxId: String) -> ConversationMember? {
         members.first { member in
-            member.isVerifiedAgent && member.invitedBy?.inboxId == inboxId
+            member.isAgent && member.invitedBy?.inboxId == inboxId
         }
     }
 }

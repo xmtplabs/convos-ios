@@ -90,3 +90,62 @@ final class ContactDetailModeTests: XCTestCase {
         XCTAssertTrue(resolved.isCurrentUser)
     }
 }
+
+final class ConversationGroupAgentOwnershipTests: XCTestCase {
+    func testFindsPersonalAgentBeforeVerificationMetadataArrives() {
+        let owner = Profile.mock(inboxId: "inbox-shane", name: "Shane")
+        let agent = ConversationMember(
+            profile: Profile.mock(inboxId: "agent-codex", name: "Codex"),
+            role: .member,
+            isCurrentUser: false,
+            isAgent: true,
+            agentVerification: .unverified,
+            invitedBy: owner
+        )
+        let conversation = Conversation.mock(members: [
+            ConversationMember(profile: owner, role: .admin, isCurrentUser: true),
+            agent,
+        ])
+
+        XCTAssertEqual(
+            conversation.groupAgentSetUp(by: owner.inboxId)?.profile.inboxId,
+            agent.profile.inboxId
+        )
+    }
+
+    func testDoesNotAttributeAnotherPersonsAgentToCurrentUser() {
+        let owner = Profile.mock(inboxId: "inbox-shane", name: "Shane")
+        let other = Profile.mock(inboxId: "inbox-alice", name: "Alice")
+        let agent = ConversationMember(
+            profile: Profile.mock(inboxId: "agent-town", name: "Town"),
+            role: .member,
+            isCurrentUser: false,
+            isAgent: true,
+            agentVerification: .verified(.userOAuth),
+            invitedBy: other
+        )
+        let conversation = Conversation.mock(members: [
+            ConversationMember(profile: owner, role: .admin, isCurrentUser: true),
+            ConversationMember(profile: other, role: .member, isCurrentUser: false),
+            agent,
+        ])
+
+        XCTAssertNil(conversation.groupAgentSetUp(by: owner.inboxId))
+    }
+
+    func testDoesNotTreatInvitedHumanAsGroupAgent() {
+        let owner = Profile.mock(inboxId: "inbox-shane", name: "Shane")
+        let invitedHuman = ConversationMember(
+            profile: Profile.mock(inboxId: "inbox-bob", name: "Bob"),
+            role: .member,
+            isCurrentUser: false,
+            invitedBy: owner
+        )
+        let conversation = Conversation.mock(members: [
+            ConversationMember(profile: owner, role: .admin, isCurrentUser: true),
+            invitedHuman,
+        ])
+
+        XCTAssertNil(conversation.groupAgentSetUp(by: owner.inboxId))
+    }
+}
