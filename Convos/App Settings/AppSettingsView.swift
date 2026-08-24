@@ -261,12 +261,12 @@ struct AppSettingsView: View {
                 NavigationLink {
                     AgentsHomeView(mode: .settingsPage, dependencies: agentRelayDependencies, session: session)
                 } label: {
-                    Label("Connect", systemImage: "sparkles")
+                    Label("Relay", systemImage: "sparkles")
                         .foregroundStyle(.colorTextPrimary)
                 }
                 .accessibilityIdentifier("agents-row")
             } else {
-                Label("Agents unavailable", systemImage: "sparkles")
+                Label("Relay unavailable", systemImage: "sparkles")
                     .foregroundStyle(.colorTextSecondary)
             }
         } footer: {

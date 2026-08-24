@@ -17,7 +17,7 @@ enum ConvosTab: Hashable, CaseIterable {
         switch self {
         case .chats: "Convos"
         case .contacts: "Contacts"
-        case .agents: "Connect"
+        case .agents: "Relay"
         }
     }
 
@@ -25,7 +25,7 @@ enum ConvosTab: Hashable, CaseIterable {
         switch self {
         case .chats: "message.fill"
         case .contacts: "person.crop.circle.fill"
-        case .agents: "point.3.filled.connected.trianglepath.dotted"
+        case .agents: "antenna.radiowaves.left.and.right"
         }
     }
 }

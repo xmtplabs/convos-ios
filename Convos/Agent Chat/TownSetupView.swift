@@ -32,7 +32,7 @@ struct TownSetupView: View {
             Button("Disconnect", role: .destructive, action: action)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Your agent transcript stays on this iPhone.")
+            Text("Your agent chats stay on this iPhone.")
         }
     }
 

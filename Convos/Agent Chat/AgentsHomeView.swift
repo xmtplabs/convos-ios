@@ -98,7 +98,7 @@ struct AgentsHomeContent: View {
     /// teaches while the list is empty and stays true once it is not.
     private var header: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-            Text("Connect")
+            Text("Relay")
                 .font(.convosTitle)
                 .tracking(Font.convosTitleTracking)
                 .foregroundStyle(.colorTextPrimary)

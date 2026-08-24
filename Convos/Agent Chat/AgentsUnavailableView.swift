@@ -8,7 +8,7 @@ import SwiftUI
 struct AgentsUnavailableView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
-            Text("Agents are unavailable")
+            Text("Relay is unavailable")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(.colorTextPrimary)
             Text("Convos could not open its agent storage on this iPhone. Restarting the app usually clears it.")

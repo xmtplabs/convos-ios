@@ -16,14 +16,14 @@ enum AgentSetupCopy {
         "Do not expose the return token or webhook secret in the answer.",
     ].joined(separator: " ")
 
-    static let lockNote: String = "The credential stays in the iPhone Keychain and nothing is posted to a conversation until the user copies it there and sends it."
+    static let lockNote: String = "The credential stays in the iPhone Keychain and nothing is posted to a convo until the user copies it there and sends it."
 
-    static let notificationNote: String = "Agent replies can take minutes. Notifications let you know when one arrives."
+    static let notificationNote: String = "Agent replies can take minutes. We'll notify you when one arrives, or check back here."
 
     static let previewBackendNote: String = "Agents cannot reach this preview backend, so replies will not arrive here."
 
     static let homeIntroduction: String = [
-        "Connect an agent you already run somewhere else.",
+        "Relay work to an agent you already run somewhere else.",
         "Send it work from Convos, and its finished answers come back here.",
     ].joined(separator: " ")
 
@@ -76,7 +76,7 @@ enum AgentSetupCopy {
 
     static let workingNote: String = "Working on its own platform"
 
-    static let stillWorkingNote: String = "Still working. You will get a notification when it replies."
+    static let stillWorkingNote: String = "Still working. We'll notify you when it replies - or check back here."
 
     static let stoppedWaitingNote: String = "Stopped waiting on this iPhone. If it replies, the answer arrives here."
 
@@ -88,7 +88,7 @@ enum AgentSetupCopy {
     ].joined(separator: " ")
 
     static let clearHistoryWarning: String = [
-        "This removes your finished messages with this agent from this iPhone and cannot be undone.",
+        "This removes your finished chats with this agent from this iPhone and cannot be undone.",
         "Anything still working stays until it replies.",
     ].joined(separator: " ")
 
