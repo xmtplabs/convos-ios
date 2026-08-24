@@ -69,7 +69,7 @@ struct ContactDetailView: View {
     /// Verified agent this human invited into the current conversation. The
     /// inviter relationship is the app's trustworthy "set up by" signal.
     let groupAgentSetUpByContact: ConversationMember?
-    let mode: ContactDetailMode
+    @State private var mode: ContactDetailMode
     /// True when the view should render its own X close button in the
     /// nav-bar's cancellation slot. Sheet entry points (where there is no
     /// system back button) keep this on; NavigationLink push entry points
@@ -171,7 +171,7 @@ struct ContactDetailView: View {
         self.variantStamp = variantStamp
         self.connectedAgentProviderIds = connectedAgentProviderIds
         self.groupAgentSetUpByContact = groupAgentSetUpByContact
-        self.mode = resolvedMode
+        self._mode = State(initialValue: resolvedMode)
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
         self.session = session
@@ -223,6 +223,7 @@ struct ContactDetailView: View {
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar { closeToolbarItem }
             .toolbar { agentShareToolbarItem }
+            .task(id: contact.inboxId) { await resolveCurrentUserAfterAuthorization() }
             .task(id: contact.inboxId) { await syncBlockedState() }
             .task(id: contact.agentTemplateId) { await observeAgentTemplateConversations() }
             .task(id: contact.agentTemplateId) { await loadAgentDescription() }
@@ -934,8 +935,12 @@ struct ContactDetailView: View {
         agentInfoConfirmed = false
         confirmChatWithAgentTemplate()
     }
+}
 
-    private func syncBlockedState() async {
+// MARK: - Social agent profile orchestration
+
+private extension ContactDetailView {
+    func syncBlockedState() async {
         do {
             guard let updated = try contactsRepository.fetchContact(inboxId: contact.inboxId) else {
                 return
@@ -945,11 +950,32 @@ struct ContactDetailView: View {
             Log.error("Failed to sync blocked state for \(contact.inboxId): \(error.localizedDescription)")
         }
     }
-}
 
-// MARK: - Social agent profile orchestration
+    /// A member snapshot and the inbox session can hydrate in either order.
+    /// If this card was constructed while authorization was still in flight,
+    /// wait for the canonical inbox id and repair the presentation in place.
+    /// This prevents a stale self member from ever retaining Chat / Block and
+    /// also loads the private connected-agent providers as soon as self is
+    /// known.
+    @MainActor
+    func resolveCurrentUserAfterAuthorization() async {
+        guard mode.isScopedToConversation, !mode.isCurrentUser, let session else { return }
+        let messagingService = session.messagingServiceSync()
+        guard let inboxReady = try? await messagingService.sessionStateManager.waitForInboxReadyResult() else {
+            return
+        }
 
-private extension ContactDetailView {
+        let resolvedMode = mode.resolvingCurrentUser(
+            contactInboxId: contact.inboxId,
+            authorizedInboxId: inboxReady.client.inboxId
+        )
+        guard resolvedMode.isCurrentUser else { return }
+
+        mode = resolvedMode
+        connectedAgentProviders = AddedExternalAgentStore.providers(session: session)
+        showsAgentsOnProfile = SocialAgentProfileSharing.isEnabled(session: session)
+    }
+
     var isVerifiedAgent: Bool {
         contact.isVerifiedAgent
     }
