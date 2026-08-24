@@ -487,11 +487,8 @@ private struct AgentChatTopBar: View {
     let agentName: String?
     let agentSubtitle: String
     let agentProvider: ExternalAgentProvider?
-    let switcherAgents: [ManageAgentsView.Agent]
     let onBack: () -> Void
     let onManage: () -> Void
-    let onSelectAgent: (String) -> Void
-    let onAddAgent: () -> Void
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
@@ -527,17 +524,6 @@ private struct AgentChatTopBar: View {
     }
 
     private var identityChip: some View {
-        Menu {
-            switcherMenu
-        } label: {
-            identityChipLabel
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Switch agent. \(agentName ?? "Your agent"), \(agentSubtitle)")
-        .accessibilityIdentifier("agent-chat-switcher")
-    }
-
-    private var identityChipLabel: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
             AgentAvatarBadge(provider: agentProvider, size: 32)
 
@@ -555,24 +541,8 @@ private struct AgentChatTopBar: View {
         .padding(.horizontal, DesignConstants.Spacing.step2x)
         .padding(.vertical, DesignConstants.Spacing.stepX)
         .glassEffect(.regular, in: .capsule)
-        .contentShape(.capsule)
-    }
-
-    @ViewBuilder
-    private var switcherMenu: some View {
-        ForEach(switcherAgents) { agent in
-            Button {
-                onSelectAgent(agent.id)
-            } label: {
-                Text(agent.name)
-                Text(agent.subtitle)
-            }
-        }
-
-        Divider()
-
-        Button("Manage", action: onManage)
-        Button("Add an agent", action: onAddAgent)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(agentName ?? "Your agent"), \(agentSubtitle)")
     }
 }
 
@@ -582,8 +552,12 @@ private struct AgentChatComposer: View {
     let agentName: String?
     let agentProvider: ExternalAgentProvider?
     let isAgentWorking: Bool
+    let switcherAgents: [ManageAgentsView.Agent]
     let onAddContext: () -> Void
     let onSubmit: () -> Void
+    let onSelectAgent: (String) -> Void
+    let onManage: () -> Void
+    let onAddAgent: () -> Void
 
     private var placeholder: String {
         "Chat with \(agentName ?? "your agent")"
@@ -596,9 +570,16 @@ private struct AgentChatComposer: View {
     var body: some View {
         let sendColor: Color = sendEnabled ? .colorFillPrimary : .colorFillTertiary
         return HStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
-            AgentAvatarBadge(provider: agentProvider, size: 36)
-                .padding(DesignConstants.Spacing.stepX)
-                .glassEffect(.regular, in: .circle)
+            Menu {
+                switcherMenu
+            } label: {
+                AgentAvatarBadge(provider: agentProvider, size: 36)
+                    .padding(DesignConstants.Spacing.stepX)
+                    .glassEffect(.regular, in: .circle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Switch agent")
+            .accessibilityIdentifier("agent-chat-switcher")
 
             HStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
                 Button(action: onAddContext) {
@@ -637,6 +618,23 @@ private struct AgentChatComposer: View {
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
+    }
+
+    @ViewBuilder
+    private var switcherMenu: some View {
+        ForEach(switcherAgents) { agent in
+            Button {
+                onSelectAgent(agent.id)
+            } label: {
+                Text(agent.name)
+                Text(agent.subtitle)
+            }
+        }
+
+        Divider()
+
+        Button("Manage", action: onManage)
+        Button("Add an agent", action: onAddAgent)
     }
 }
 
@@ -714,11 +712,8 @@ struct YourSpaceInputSheet: View {
                 agentName: agentName,
                 agentSubtitle: agentSubtitle,
                 agentProvider: agentProvider,
-                switcherAgents: manageAgents,
                 onBack: { dismiss() },
-                onManage: { presentingManageAgents = true },
-                onSelectAgent: onSelectAgent,
-                onAddAgent: onAddAgent
+                onManage: { presentingManageAgents = true }
             )
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -772,8 +767,12 @@ struct YourSpaceInputSheet: View {
                 agentName: agentName,
                 agentProvider: agentProvider,
                 isAgentWorking: isAgentWorking,
+                switcherAgents: manageAgents,
                 onAddContext: { presentingAddContext = true },
-                onSubmit: { submitQuestion() }
+                onSubmit: { submitQuestion() },
+                onSelectAgent: onSelectAgent,
+                onManage: { presentingManageAgents = true },
+                onAddAgent: onAddAgent
             )
         } else {
             voiceComposer
