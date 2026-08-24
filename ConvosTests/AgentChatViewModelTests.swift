@@ -1,7 +1,7 @@
+@testable import Convos
 import ConvosCore
 import Foundation
 import XCTest
-@testable import Convos
 
 @MainActor
 final class AgentChatViewModelTests: XCTestCase {
@@ -232,12 +232,6 @@ final class AgentChatViewModelTests: XCTestCase {
         XCTAssertEqual(fetchWaitMilliseconds, [0, 25_000])
         XCTAssertEqual(turn?.status, .completed)
         XCTAssertEqual(turn?.resultMessage, completedResult.message)
-    }
-
-    func testAgentRelayPreviewBuildUsesPRBundleSuffix() {
-        XCTAssertTrue(ConfigManager.isAgentRelayPreviewBundleIdentifier("org.convos.ios-preview.pr"))
-        XCTAssertFalse(ConfigManager.isAgentRelayPreviewBundleIdentifier("org.convos.ios-preview"))
-        XCTAssertFalse(ConfigManager.isAgentRelayPreviewBundleIdentifier("org.convos.ios-production"))
     }
 
     func testRetrySubmitsANewTurnWithTheFailedPrompt() async throws {

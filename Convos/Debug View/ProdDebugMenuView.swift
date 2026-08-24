@@ -187,9 +187,9 @@ struct ProdDebugMenuView: View {
             Toggle("Listen (agent participation)", isOn: Bindable(FeatureFlags.shared).isListenParticipationEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
             Toggle("Abilities v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
+            Toggle("Enable Connect (BYOA)", isOn: Bindable(FeatureFlags.shared).agentRelayEnabled)
             Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
             Toggle("Web inspector (space/browser web views)", isOn: Bindable(FeatureFlags.shared).isWebInspectorEnabled)
-            Toggle("Agent relay", isOn: Bindable(FeatureFlags.shared).agentRelayEnabled)
         }
     }
 

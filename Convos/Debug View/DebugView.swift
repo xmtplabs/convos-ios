@@ -83,8 +83,8 @@ struct DebugViewSection: View {
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
             Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
             Toggle("Web inspector (space/browser web views)", isOn: Bindable(FeatureFlags.shared).isWebInspectorEnabled)
-            Toggle("Agent relay", isOn: Bindable(FeatureFlags.shared).agentRelayEnabled)
             abilitiesFeatureToggles
+            Toggle("Enable Connect (BYOA)", isOn: Bindable(FeatureFlags.shared).agentRelayEnabled)
 
             let showInfoAction = { showingAgentsInfoSheet = true }
             Button(action: showInfoAction) {

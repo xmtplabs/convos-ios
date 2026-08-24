@@ -36,7 +36,7 @@ struct TaskletSetupView: View {
 
     @ViewBuilder
     private var previewBackendSection: some View {
-        if ConfigManager.shared.isAgentRelayPreviewBuild {
+        if ConfigManager.shared.isAgentRelayPreviewBackend {
             Section {
                 Text(AgentSetupCopy.previewBackendNote)
             }

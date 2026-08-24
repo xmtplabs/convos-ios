@@ -98,7 +98,7 @@ struct AgentsHomeContent: View {
     /// teaches while the list is empty and stays true once it is not.
     private var header: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-            Text("Agents")
+            Text("Connect")
                 .font(.convosTitle)
                 .tracking(Font.convosTitleTracking)
                 .foregroundStyle(.colorTextPrimary)
@@ -112,7 +112,7 @@ struct AgentsHomeContent: View {
 
     @ViewBuilder
     private var previewBackendNotice: some View {
-        if ConfigManager.shared.isAgentRelayPreviewBuild {
+        if ConfigManager.shared.isAgentRelayPreviewBackend {
             AgentComposerNotice(message: AgentSetupCopy.previewBackendNote, onDismiss: {})
                 .accessibilityIdentifier("agents-preview-backend-notice")
         }

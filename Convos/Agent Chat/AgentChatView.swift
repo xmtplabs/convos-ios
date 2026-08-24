@@ -188,9 +188,9 @@ struct AgentChatView: View {
     /// happening". The bubble owns its own clock so the rest of the transcript
     /// is not redrawn each second.
     private func pendingBubble(_ turn: AgentTurn) -> some View {
-        let isPreviewBuild: Bool = ConfigManager.shared.isAgentRelayPreviewBuild
-        let working: String = isPreviewBuild ? AgentSetupCopy.previewBackendNote : AgentSetupCopy.workingNote
-        let past: String = isPreviewBuild ? AgentSetupCopy.previewBackendNote : AgentSetupCopy.stillWorkingNote
+        let isPreviewBackend: Bool = ConfigManager.shared.isAgentRelayPreviewBackend
+        let working: String = isPreviewBackend ? AgentSetupCopy.previewBackendNote : AgentSetupCopy.workingNote
+        let past: String = isPreviewBackend ? AgentSetupCopy.previewBackendNote : AgentSetupCopy.stillWorkingNote
         let checkAction: () -> Void = { viewModel.checkAgain(turn: turn) }
         return AgentPendingBubble(
             startedAt: turn.createdAt,

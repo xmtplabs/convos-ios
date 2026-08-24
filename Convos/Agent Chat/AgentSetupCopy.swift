@@ -187,12 +187,16 @@ enum AgentSetupCopy {
 }
 
 extension ConfigManager {
-    var isAgentRelayPreviewBuild: Bool {
-        Self.isAgentRelayPreviewBundleIdentifier(bundleIdentifier)
+    var isAgentRelayPreviewBackend: Bool {
+        let apiBaseURL = SharedAppConfiguration(environment: ConfigManager.shared.currentEnvironment).apiBaseURL
+        let host: String? = URL(string: apiBaseURL)?.host
+        return Self.isPreviewBackendHost(host)
     }
 
-    static func isAgentRelayPreviewBundleIdentifier(_ bundleIdentifier: String) -> Bool {
-        bundleIdentifier.hasSuffix(".pr")
+    static func isPreviewBackendHost(_ host: String?) -> Bool {
+        guard let host, !host.isEmpty else { return false }
+        let firstLabel: String = host.split(separator: ".").first.map(String.init) ?? host
+        return firstLabel.lowercased().hasPrefix("pr-")
     }
 }
 

@@ -261,7 +261,7 @@ struct AppSettingsView: View {
                 NavigationLink {
                     AgentsHomeView(mode: .settingsPage, dependencies: agentRelayDependencies, session: session)
                 } label: {
-                    Label("Agents", systemImage: "sparkles")
+                    Label("Connect", systemImage: "sparkles")
                         .foregroundStyle(.colorTextPrimary)
                 }
                 .accessibilityIdentifier("agents-row")
