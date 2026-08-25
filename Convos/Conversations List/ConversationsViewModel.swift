@@ -126,6 +126,12 @@ final class ConversationsViewModel {
     private func updateSelectionState() {
         let conversation = selectedConversation
         let previousViewModelId = selectedConversationViewModel?.conversation.id
+        // An explicit Agent-DM or Things opening (selectedInitialTab set) must not
+        // clear the Group lane's unread - neither on open nor when the session ends.
+        // Only the Group tab actually showing marks the group read, via the detail
+        // view's read-lane machinery. The normal tap path leaves selectedInitialTab
+        // nil and keeps marking the group read here.
+        let opensGroupTab: Bool = selectedInitialTab == nil
 
         if let conversation = conversation {
             if selectedConversationViewModel?.conversation.id != conversation.id {
@@ -136,10 +142,12 @@ final class ConversationsViewModel {
                     coreActions: coreActions
                 )
                 selectedConversationViewModel = viewModel
-                markConversationAsRead(conversation)
+                if opensGroupTab {
+                    markConversationAsRead(conversation)
+                }
             }
         } else {
-            if let previousViewModel = selectedConversationViewModel {
+            if opensGroupTab, let previousViewModel = selectedConversationViewModel {
                 markConversationAsRead(previousViewModel.conversation)
             }
             updateSelectionTask?.cancel()
