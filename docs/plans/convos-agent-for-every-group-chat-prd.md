@@ -35,7 +35,7 @@ This PRD deliberately separates what the August 25 conversation settled from wha
 
 ### Confirmed direction from the conversation
 
-1. **One Agent model, not one Agent limit.** Convos gives every person one first-party Agent to start; they may create more Convos Agents and connect Codex, Grok, Town, Tasklet, or future Agents. All join the same roster instead of becoming separate product areas.
+1. **One Agent model, not one Agent limit.** Convos gives every person one first-party Agent to start; they may create more Convos Agents, connect Codex, Grok, Town, Tasklet, or future Agents, and use Agents shared by Hosts in their Places. All join the same access-aware roster instead of becoming separate product areas.
 2. **Creating value outside Convos matters as much as creating value inside Convos.** Existing group chats are a distribution surface, not merely competitors to replace.
 3. **Convos should not demand migration.** The product earns the right to become the main chat by being useful first.
 4. **Context is permissioned by place.** No context crosses between groups by default, even when one Agent can access several groups.
@@ -90,7 +90,7 @@ Your Space currently mixes personal profile, context library, conversation short
 
 Convos creates a private intelligence layer around group conversation.
 
-Every person receives one starter Convos Agent. They may create additional Convos Agents—much as people create group agents today—and connect agents such as Codex, Grok, Town, Tasklet, or future providers. They all appear in one **My Agents** roster, are managed by a person, and obey one interaction contract. An Agent can work with one or multiple **Places**—native Convos or outside group chats—but every Agent–Place relationship has its own context and permission boundary.
+Every person receives one starter Convos Agent. They may create additional Convos Agents—much as people create group agents today—and connect agents such as Codex, Grok, Town, Tasklet, or future providers. They may also use Agents that another Host makes available in a shared Place. Every available Agent appears in one **Agents** roster and obeys one interaction contract. An Agent can work with one or multiple **Places**—native Convos or outside group chats—but every person–Agent and Agent–Place relationship has its own explicit permission boundary.
 
 Calendars, documents, browsing, payments, and other accounts are **connections or capabilities**, not another type of agent and not a third top-level product category. They become available only to the Agent and Place scopes the person permits.
 
@@ -123,6 +123,7 @@ The conversations and context boundaries where an Agent may help. A Place can be
 
 Everything else describes a relationship or an output:
 
+- **Access** is the permission a person has to use an Agent and the permission an Agent has to use a Place.
 - **Context** is what a Place or person permits an Agent to use.
 - **Connections** are capabilities such as calendar, files, browsing, or payments available to a permitted Agent.
 - **Work** is what an Agent makes: plans, documents, links, maps, decisions, polls, schedules, and other useful artifacts.
@@ -171,7 +172,7 @@ The first viewport answers six questions:
 3. What should I do now?
 4. What is ready to review or share?
 5. What can the active Agent see for this task?
-6. What can I ask one of my Agents to do?
+6. Which Agents can I use, and what can each one do here?
 
 Recommended hierarchy:
 
@@ -182,7 +183,7 @@ Recommended hierarchy:
 5. **Recent work** — a small number of useful artifacts or outcomes, not recent messages.
 6. **Places** — where Agents work, with active Agent, mode, and privacy state. The full list opens separately.
 7. **Context** — what the active Agent knows or may use, including the private library inherited from Your Space.
-8. **My Agents** — the unified roster of owned Convos Agents and personally connected external Agents, with status and an **Add agent** action; this is not a separate promotional section for external providers.
+8. **Agents** — the unified roster of every Agent the person can use, with access and permission state plus an **Add agent** action; this is not a separate promotional section for external providers.
 
 The complete Convos list stays one gesture away in a dedicated Convos world. Agent Home does not lead with three, seven, or an unlimited number of recent chats.
 
@@ -240,27 +241,72 @@ The same Agent picker must appear consistently in:
 - the share sheet for sending context into Convos;
 - the result composer before sharing work back to a Place.
 
-Every picker row shows identity, provider, owner, connection state, and access to the current Place: **Full Place**, **Selected only**, **Ask for access**, or **Unavailable**. The picker may also include an Agent another Host makes available in that Place; that shared Agent does not become one of the person’s owned Agents.
+Every picker row shows identity, provider, Host or owner, connection state, and access to the current Place: **Full Place**, **Selected only**, **Ask for access**, or **Unavailable**. An Agent another Host makes available is a first-class selectable Agent, not a footnote or a copy added to the person’s account.
 
-### 7.4 My Agents
+### 7.4 Agents
 
-My Agents is the management list behind every picker. It has two ownership sections, not two product models:
+Agents is the access list behind every picker. It answers one question:
 
-1. **Convos Agents you manage** — the starter Agent and any additional Convos Agents the person creates.
-2. **External Agents you connected** — Codex, Grok, Town, Tasklet, and future providers authenticated by the person.
+> Which Agents can I use, where can I use them, and what is each one allowed to do?
 
-Selecting any Agent opens the same management shell:
+The default list is **All Agents available to you**, regardless of ownership:
+
+- Convos Agents the person owns or manages;
+- external Agents the person connected;
+- Agents a Host shares through a Place;
+- Agents available through an organization or future membership.
+
+Ownership is metadata and a permission level, not the information architecture. If the roster becomes long, optional filters may expose **All**, **Owned**, **Connected**, **Shared**, and the current Place. The default remains All, ranked by relevance to the current Place and recent use.
+
+#### Picker behavior
+
+The compact picker in a Place is ordered by usefulness, not ownership:
+
+1. **Available here** — selectable now with the current Place scope.
+2. **Available to you, not this Place** — usable privately only within its existing grant; current Place context stays excluded unless the person chooses **Share selected context** or receives expanded access.
+3. **Add an agent** — create a Convos Agent or connect another provider.
+
+Do not make people choose between “Yours” and “Others” before they can act. A shared Agent should feel as easy to select as an owned Agent while remaining unmistakably attributed.
+
+A typical shared row reads:
+
+> **Quarter’s Planner**
+>
+> Hosted by Quarter · Toronto Coworking
+>
+> Full convo context · Private replies · Quarter pays
+
+The picker row stays scannable; an adjacent info affordance opens the complete permission receipt. Tapping the row switches the private thread. **Agents & permissions** replaces a vague **Manage** action.
+
+Every row communicates:
+
+- Agent identity, provider, and purpose;
+- who owns or Hosts it;
+- where the person may use it;
+- what context it can currently read;
+- whether results stay private, can be shared with approval, or can respond on mention;
+- who pays and whether a limit applies;
+- online, working, paused, permission-needed, disconnected, or unavailable state.
+
+Selecting any Agent opens the same access detail shell:
 
 - name, image, provider, owner, and purpose;
 - private thread and recent work;
-- Places it can access and the permission level in each;
+- **Your access** — where the person may invoke it, who granted access, expiration, and cost responsibility;
+- **Its access** — Places and context it may read, Connections it may use, and actions it may take;
 - available Connections, approval rules, and cost limits;
 - profile visibility and Host impact;
-- pause and remove-from-Place actions;
-- transfer ownership where supported;
-- **Delete Agent** for owned Convos Agents or **Disconnect Agent** for external Agents, with explicit consequences and confirmation.
+- controls appropriate to the person’s role.
 
-Creating a group-specific Convos Agent remains valid. The difference is that the Agent belongs to and is managed by a person, appears in My Agents, and is assigned to the Place through an inspectable permission relationship. It is not a separate “group agent” species embedded inside that group.
+Role-appropriate controls are:
+
+- **Owner/manager:** edit identity and purpose, change Place permissions, manage Connections and budget, transfer, remove from a Place, or delete.
+- **Connector:** manage personally granted context and Connections, remove from a Place where authorized, or disconnect the external Agent.
+- **Member with shared access:** use within the granted scope, inspect the complete permission receipt, revoke personal context, hide it from their picker, leave the source Place, or request expanded access. They cannot edit the Agent or its group-wide permissions.
+
+The access detail must make two directions impossible to confuse: **what you can ask this Agent to do** and **what this Agent can see or do in return**.
+
+Creating a group-specific Convos Agent remains valid. The difference is that the Agent belongs to and is managed by a person, appears for everyone who has access in Agents, and is assigned to the Place through an inspectable permission relationship. It is not a separate “group agent” species embedded inside that group.
 
 ### 7.5 Place settings
 
@@ -350,6 +396,7 @@ The agent may contribute without a direct mention under a bounded policy. This i
 | Use context from another Place | Off | The person explicitly selects both scopes for private work |
 | Reveal one Place’s context to another Place | Off | A human stages and confirms the exact output or source material |
 | Use a connected Agent or capability | Off for the group | Credential owner grants a bounded capability and cost limit |
+| Use an Agent shared by a Host | Only inside the access grant | The person can see the Host, permitted Places, context scope, actions, payer, and expiration |
 | Post in a group | Mention-only | The agent is visibly identified and the triggering request is attributable |
 | Share a private result | Draft only | The person chooses the destination and reviews before send |
 | Resume after a group pause | Restricted | Host/admin confirms the Place’s listening state |
@@ -358,10 +405,11 @@ Non-negotiable rules:
 
 1. No context crosses between Places by default.
 2. A person’s private agent transcript is never visible to group members.
-3. Credentials, prompts, private tools, and unrelated agent activity are never exposed through social profiles or shared-agent access.
-4. Every answer or artifact preserves source provenance the viewer is allowed to inspect.
-5. Removing a Place, Agent, or Connection takes effect everywhere and has a visible completion state.
-6. The interface never calls continuous access “just listening” without naming retention, use, and pause behavior.
+3. A Host or Agent owner can see aggregate usage and cost needed to operate a shared Agent, but cannot read another person’s private prompts or results unless that person explicitly shares them.
+4. Credentials, prompts, private tools, and unrelated agent activity are never exposed through social profiles or shared-agent access.
+5. Every answer or artifact preserves source provenance the viewer is allowed to inspect.
+6. Removing a Place, Agent, Connection, or person–Agent access grant takes effect everywhere and has a visible completion state.
+7. The interface never calls continuous access “just listening” without naming retention, use, and pause behavior.
 
 ## 10. First-Run Experience
 
@@ -379,7 +427,7 @@ Primary actions:
 - Share messages from another chat
 - Connect an existing chat, when supported
 
-The person can ask the starter Convos Agent immediately. Additional owned or external Agents are introduced through the same picker after the first useful outcome or when a task requires one; the picker’s final row is simply **Add agent**.
+The person can ask the starter Convos Agent immediately. Additional owned, connected, or Host-shared Agents are introduced through the same picker after the first useful outcome or when a task requires one; the picker’s final row is simply **Add agent**.
 
 ### Activation moment
 
@@ -393,7 +441,7 @@ The product should then offer the next smallest expansion: keep listening, conne
 
 ## 11. Agents and Connections
 
-Person-managed Convos Agents, Codex, Grok, Town, Tasklet, and future providers are all **Agents**. Calendars, files, browsers, wallets, and future services are **Connections** that give an Agent a capability. Agents and Connections must not be mixed into one directory or described as equivalent objects.
+Person-managed Convos Agents, Host-shared Agents, Codex, Grok, Town, Tasklet, and future providers are all **Agents**. Calendars, files, browsers, wallets, and future services are **Connections** that give an Agent a capability. Agents and Connections must not be mixed into one directory or described as equivalent objects.
 
 Each Agent row answers:
 
@@ -470,7 +518,7 @@ Rewards must not pay for raw message volume, passive surveillance, invitations, 
 |---|---|
 | Your Space | Agent Home |
 | Me & My Stuff | Context: what an Agent may use and what it has saved |
-| Agents across your convos | My Agents: owned Convos Agents and connected external Agents, with Place access shown per Agent |
+| Agents across your convos | Agents you can use: owned, connected, and Host-shared, with permission state shown per Agent |
 | Bring personal agents to Convos | Add agent—the final row in every Agent picker |
 | Group-local agent | A person-managed Convos Agent assigned to this Place |
 | Group / Agent / Context tabs | Social conversation / private Agent thread / resulting work |
@@ -492,11 +540,12 @@ Rewards must not pay for raw message volume, passive surveillance, invitations, 
 
 ### FR1 — Unified Agent roster
 
-- Every person receives one starter Convos Agent and may create additional Convos Agents or connect external Agents.
+- Every person receives one starter Convos Agent and may create additional Convos Agents, connect external Agents, or receive access to Agents through a Place or organization.
 - All Agents use one roster and one picker component across Home, Convos, DMs, message handoff, and sharing.
-- Every Agent has a stable identity, provider, owner/manager, connection state, private thread, capability summary, ownership/cost state, and Place-access state.
+- Every Agent has a stable identity, provider, Host or owner, connection state, private thread, capability summary, access source, cost state, and Place-permission state.
 - Customer-facing UI does not create a different class of first-party Agent for every group.
-- The owner can edit permissions, remove an Agent from a Place, transfer a supported owned Agent, delete an owned Convos Agent, or disconnect an external Agent from My Agents.
+- The roster defaults to every Agent the person can use. Ownership filters are secondary.
+- Controls change by role: owners manage, connectors manage their connection, and members inspect or revoke their own access without receiving owner controls.
 
 ### FR2 — Place-scoped context
 
@@ -522,9 +571,10 @@ Rewards must not pay for raw message volume, passive surveillance, invitations, 
 
 ### FR6 — Agents and Connections
 
-- A person can add, scope, inspect, switch, and remove Agents through one consistent surface.
+- A person can add, receive, scope, inspect, switch, hide, and remove Agent access through one consistent surface.
 - A person can connect, scope, inspect, and revoke capabilities such as calendar, files, browsing, and payments separately from Agents.
 - A group cannot silently use a private Agent or Connection.
+- A shared Agent never implies access to its owner’s private Context, Connections, prompts, or unrelated Places.
 
 ### FR7 — Portable useful work
 
@@ -580,6 +630,20 @@ Every Agent integration should normalize to the same product-level contract:
 
 Provider-specific authentication, transport, models, and tool APIs sit behind adapters. They may change what an Agent can do; they must not change where the person goes to select it, talk to it, give it context, or share its work.
 
+### Common person–Agent access grant
+
+An Agent appears in a person’s roster because an explicit access grant exists. The grant records:
+
+- role: owner/manager, connector, or member;
+- source: created by the person, connected account, shared through a Place, or future organization membership;
+- where the person may invoke the Agent;
+- actions and Connections available to that person;
+- who pays, any personal limit, and whether approval is required;
+- start, expiration, revocation, and source-Place membership state;
+- what usage metadata the Host may see without exposing private prompts or results.
+
+Leaving the Place that granted access, a Host revocation, an expired grant, or an ownership transfer updates the roster immediately and explains what happened. A shared Agent is never copied into the person’s account.
+
 ### Common Agent–Place relationship
 
 An Agent is not copied into a group. It receives a permission relationship to a Place. That relationship records:
@@ -590,7 +654,7 @@ An Agent is not copied into a group. It receives a permission relationship to a 
 - owner, Host, payer, and spend limit;
 - retention, provenance, pause, and revocation state.
 
-This relationship is the source of truth for every picker and permission screen. A single normalized roster, context-handoff pipeline, private-thread presentation, and result/share-back pipeline should serve every person-managed Convos Agent and every connected provider.
+The person–Agent grant determines whether the person can use an Agent. The Agent–Place relationship determines what that Agent can do with a Place. The picker shows the intersection of both. A single normalized roster, context-handoff pipeline, private-thread presentation, and result/share-back pipeline should serve every person-managed, connected, and Host-shared Agent.
 
 ### Technical validation gate
 
@@ -602,6 +666,8 @@ Before selecting an architecture, prove that one connected external Agent can:
 4. return a result with provenance;
 5. share that result back through the same destination flow.
 
+The same slice must then work for an Agent shared by another Host, with the member seeing fewer controls but the same private thread, context scope, result, and share-back surfaces.
+
 If that vertical slice needs provider-specific screens or duplicate concepts, the contract is not yet simple enough.
 
 ## 16. States and Ranges
@@ -609,7 +675,7 @@ If that vertical slice needs provider-specific screens or duplicate concepts, th
 The design must handle:
 
 - zero Places, one Place, and dozens of Places;
-- one starter Agent, several owned Convos Agents, several external Agents, disconnected Agents, and revoked access;
+- one starter Agent, several owned Convos Agents, several external Agents, several Host-shared Agents, disconnected Agents, expired grants, and revoked access;
 - zero Connections, one active Connection, many Connections, expired credentials, and approval-required actions;
 - an empty private Context library, a typical personal library, and the existing bounded large-context index;
 - no work needing attention, one important decision, and several conflicting requests;
@@ -618,6 +684,7 @@ The design must handle:
 - a Place with no persistent connection, selected-message access, Listen, Mention, and future Participate;
 - a new participant who has no Convos account;
 - a Host leaving, transferring responsibility, losing payment capacity, or revoking a shared Agent or Connection;
+- access inherited from one Place, access inherited from several Places, and loss of the final Place that granted access;
 - offline and partially synchronized devices;
 - Dynamic Type, VoiceOver, reduced motion, and narrow screens without hiding permission state.
 
@@ -699,7 +766,8 @@ The prototype is successful when users experience value without first moving the
 | One Agent leaks context across groups | Critical | Place-scoped retrieval by default; explicit multi-Place task scopes; tests and audit trail for every disclosure |
 | The product still feels like several agent systems | High | Enforce the two-noun model; one roster, picker, private lane, handoff, permission relationship, and share-back contract |
 | Agents damage social conversation | High | No unprompted speech in the initial contract; Listen and Mention first; obvious pause state |
-| Host pays for uncontrolled group usage | High | Spend limits, approval-required capabilities, typed denial, usage visibility, and future rewards |
+| Host pays for uncontrolled shared-Agent usage | High | Access grants, per-person or per-Place spend limits, approval-required capabilities, typed denial, aggregate usage visibility, and future rewards |
+| Shared access exposes private prompts or context | Critical | Private threads remain requester-only; Hosts see bounded aggregate operations data; every context grant is explicit and revocable |
 | External platforms prevent continuous integration | High | Make selected-message handoff and artifacts useful on their own; treat persistent linking as an enhancement |
 | Agent Home becomes another crowded dashboard | High | Lead with one concise briefing and its few referenced actions; keep Places, context, Agent roster, and chat index progressively disclosed |
 | The briefing becomes noisy or manipulative | High | Rank human commitments and ready work first; require provenance; prohibit fabricated urgency and untethered setup promotion |
@@ -718,7 +786,7 @@ The prototype is successful when users experience value without first moving the
 ### Phase 1 — One Agent model across native Convos
 
 - Reframe each existing group-local agent as a person-managed Convos Agent connected to a Place.
-- Make the Convos Agent and one external Agent use the same Home, picker, private lane, context handoff, and share-back flow.
+- Make an owned Convos Agent, one external Agent, and one Host-shared Agent use the same Home, picker, private lane, context handoff, and share-back flow.
 - Make Agent Home, Places, context, Connections, and private threads coherent.
 - Keep agent speech Mention-only and Listen work private by default.
 
@@ -761,7 +829,7 @@ The prototype is successful when users experience value without first moving the
 4. Confirm the asymmetric outside-chat default: selected messages first, persistent access only after explicit connection.
 5. Confirm one active public responder per Place in the first release, with any number of private Agent threads beside it.
 6. Confirm **Agents** and **Places** as the two customer-facing nouns; keep Connections subordinate and retire Powers.
-7. Confirm My Agents as the management model: owned Convos Agents plus connected external Agents, all with editable Place permissions and explicit delete/disconnect semantics.
+7. Confirm Agents as the access model: every Agent a person can use, with ownership and source as permission attributes rather than top-level sections.
 8. Confirm the Home briefing as the hero: one narrative with tappable catch-up, decision, review, share, connect, and setup actions.
 9. Define the smallest free baseline worth promising.
 10. Decide what event qualifies a person as “empowered” for Host identity and rewards.
