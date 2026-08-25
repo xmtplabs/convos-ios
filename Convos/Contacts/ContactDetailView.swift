@@ -382,7 +382,14 @@ struct ContactDetailView: View {
                     contactDisplayName: contact.resolvedDisplayName,
                     agentEmail: contact.agentEmail,
                     agentInstanceId: contact.agentInstanceId,
-                    agentVariantId: FeatureFlags.shared.effectiveAgentVariantSlug,
+                    // The displayed agent's own variant first: an agent built
+                    // on a variant worker exists only there, so routing its
+                    // switch by whatever the global selector happens to hold
+                    // would send it to the wrong worker — or, with the selector
+                    // off, to the default one. The global pick is only the
+                    // fallback for an entry point that carries no stamp.
+                    agentVariantId: variantStamp?.slug
+                        ?? FeatureFlags.shared.effectiveAgentVariantSlug,
                     showsInstanceIdRow: showsInstanceIdRow,
                     agentAttestation: contact.agentAttestation,
                     agentVerification: contact.agentVerification,

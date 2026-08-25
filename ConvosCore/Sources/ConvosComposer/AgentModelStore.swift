@@ -188,7 +188,6 @@ public final class AgentModelStore {
         guard option.id != selectedId else { return }
         writeGeneration += 1
         let generation = writeGeneration
-        let previous = confirmedId
         selectedId = option.id
         errorMessage = nil
         writesInFlight += 1
@@ -196,16 +195,18 @@ public final class AgentModelStore {
         let previousWrite = writeChain
         writeChain = Task { [weak self] in
             await previousWrite?.value
-            await self?.write(option, generation: generation, rollbackTo: previous)
+            await self?.write(option, generation: generation)
         }
     }
 
-    private func write(
-        _ option: AgentModelOption,
-        generation: Int,
-        rollbackTo previous: String?
-    ) async {
+    private func write(_ option: AgentModelOption, generation: Int) async {
         defer { writesInFlight -= 1 }
+        // Read here, not when the tap was queued. A tap queued behind another
+        // is queued before that one is acknowledged, so `confirmedId` then is
+        // still the model from two taps ago — rolling back to it would name a
+        // model the server has since moved off. By the time this runs the write
+        // ahead of it has settled, and this is what the server actually holds.
+        let previous = confirmedId
         do {
             let snapshot = try await service.writeModel(
                 option.id,
