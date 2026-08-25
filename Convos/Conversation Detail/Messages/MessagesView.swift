@@ -45,6 +45,11 @@ struct MessagesView<BottomBarContent: View>: View {
     var isShowingAgentShareChip: Bool = false
     var onClearAgentShare: (() -> Void)?
     let sendButtonEnabled: Bool
+    /// When true the composer's send button shows the paused visual and every
+    /// send path is blocked; taps route to `onPausedSendTap`. Set by the agent
+    /// DM when the agent's participation is paused.
+    var sendButtonPaused: Bool = false
+    var onPausedSendTap: () -> Void = {}
     @Binding var profileImage: UIImage?
     let onboardingCoordinator: ConversationOnboardingCoordinator
     @FocusState.Binding var focusState: MessagesViewInputFocus?
@@ -318,6 +323,8 @@ struct MessagesView<BottomBarContent: View>: View {
                     onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
                     isShowingAgentShareChip: isShowingAgentShareChip,
                     sendButtonEnabled: sendButtonEnabled,
+                    sendButtonPaused: sendButtonPaused,
+                    onPausedSendTap: onPausedSendTap,
                     profileImage: $profileImage,
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     focusState: $focusState,

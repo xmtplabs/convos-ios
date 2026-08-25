@@ -1493,6 +1493,14 @@ private extension ConversationView {
                 connectionsEnabled: composerConnectionsEnabled,
                 onConnectionsTap: handleComposerConnectionsTap,
                 isReadOnly: effectiveReadOnly,
+                sendButtonPaused: participation?.level == .paused,
+                onUnpauseAgent: {
+                    // A removed or stale (read-only) device must not be able to
+                    // change participation, same gate as the composer's sends.
+                    guard !effectiveReadOnly, let participation else { return }
+                    // Unpause resumes into listen mode, not full speak-freely.
+                    Task { await participation.set(.mentionsOnly) }
+                },
                 isActiveTab: isActive,
                 contextMenuState: agentContextMenuState,
                 focusState: $agentFocus,

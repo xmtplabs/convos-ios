@@ -1,6 +1,7 @@
 import ConvosComposer
 import ConvosCore
 import SwiftUI
+import UIKit
 
 /// The Agent tab's backing view: the user's private DM with the
 /// conversation's agent, rendered behind the conversation sheet. The DM is a
@@ -28,6 +29,14 @@ struct AgentDmPageView: View {
     /// Mirrors ConversationView's effectiveReadOnly: a removed or stale
     /// device must not be able to send into agent DMs.
     let isReadOnly: Bool
+    /// True when the conversation's agent participation is paused. The DM's send
+    /// button then shows the paused visual, sends are blocked, and the composer
+    /// hint changes; a blocked attempt raises the paused alert.
+    var sendButtonPaused: Bool = false
+    /// Resumes the agent (participation -> speak freely) from the paused alert's
+    /// Unpause action. Owned by ConversationView, which holds the participation
+    /// store the DM page can't reach.
+    var onUnpauseAgent: () -> Void = {}
     /// True while the Agent tab is the selected tab. The backing views stay
     /// mounted across tab switches, so activation drives the read state and
     /// the active-DM push lane. (Composer focus transfers are owned by
@@ -61,6 +70,7 @@ struct AgentDmPageView: View {
     private var agentName: String { session.agentName }
 
     @State private var emptyStateSettled: Bool = false
+    @State private var showingPausedAgentAlert: Bool = false
 
     /// The stamp lives on the agent member's profile, written by the assistants
     /// worker at join. nil for a default agent, and nil off dev.
@@ -86,6 +96,19 @@ struct AgentDmPageView: View {
             emptyStateSettled = true
         }
         .environment(\.colorScheme, .dark)
+        // A SwiftUI .alert takes its button color from the presenting
+        // controller's tintColor, not the local `\.tint`, so on the agent tab -
+        // forced dark by ScreenAppearanceScope, where the app's colorTextPrimary
+        // tint resolves to white - the buttons read white on the light system
+        // alert. Present a UIKit alert we control instead, pinned to a light
+        // appearance so title, message, and buttons all read dark.
+        .background {
+            PausedAgentAlert(
+                isPresented: $showingPausedAgentAlert,
+                agentName: agentName,
+                onUnpause: onUnpauseAgent
+            )
+        }
         // The agent-participation ("listen") control governs how much agents
         // speak in the group room; it has no meaning in a 1:1 agent DM, so clear
         // the inherited participation context to hide the control here.
@@ -282,6 +305,9 @@ struct AgentDmPageView: View {
 
     private func dmMessagesView(_ dmVm: ConversationViewModel) -> some View {
         @Bindable var dmVm = dmVm
+        let messagePlaceholder: String = sendButtonPaused
+            ? "\(agentName) is paused"
+            : "Chat with \(agentName)"
         return MessagesView(
             contextMenuState: contextMenuState,
             conversation: dmVm.conversation,
@@ -295,7 +321,7 @@ struct AgentDmPageView: View {
             conversationImage: $dmVm.conversationImage,
             displayName: $dmVm.myProfileViewModel.editingDisplayName,
             messageText: $dmVm.messageText,
-            messagePlaceholder: "Chat with \(agentName)",
+            messagePlaceholder: messagePlaceholder,
             pendingMediaAttachments: dmVm.pendingMediaAttachments,
             composerLinkPreview: dmVm.pastedLinkPreview,
             pendingInviteURL: dmVm.pendingInvite?.fullURL,
@@ -307,6 +333,8 @@ struct AgentDmPageView: View {
             isShowingAgentShareChip: dmVm.pendingAgentShare != nil,
             onClearAgentShare: dmVm.clearPendingAgentShare,
             sendButtonEnabled: dmVm.sendButtonEnabled,
+            sendButtonPaused: sendButtonPaused,
+            onPausedSendTap: { showingPausedAgentAlert = true },
             profileImage: $dmVm.myProfileViewModel.profileImage,
             onboardingCoordinator: dmVm.onboardingCoordinator,
             focusState: $focusState,
@@ -545,5 +573,64 @@ struct AgentDmPageView: View {
         static let progressWidth: CGFloat = 120.0
         static let progressHeight: CGFloat = 8.0
         static let progressTrackOpacity: Double = 0.3
+    }
+}
+
+/// Presents the paused-agent alert as a UIKit `UIAlertController` we fully
+/// control. A SwiftUI `.alert` inherits its button color from the presenting
+/// controller's tintColor, which on the agent tab is forced dark
+/// (ScreenAppearanceScope) - the app's colorTextPrimary tint resolves to white,
+/// so the buttons read white on the light system alert. Pinning the alert to a
+/// light appearance and tinting it with colorTextPrimary keeps title, message,
+/// and buttons all dark. Embedded as a zero-size background so it never draws.
+private struct PausedAgentAlert: UIViewControllerRepresentable {
+    @Binding var isPresented: Bool
+    let agentName: String
+    let onUnpause: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        UIViewController()
+    }
+
+    func updateUIViewController(_ host: UIViewController, context: Context) {
+        let coordinator = context.coordinator
+        guard isPresented else {
+            if let alert = coordinator.alert {
+                coordinator.alert = nil
+                alert.dismiss(animated: true)
+            }
+            return
+        }
+        guard coordinator.alert == nil, host.presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: "\(agentName) is paused",
+            message: "Paused agents can't receive 1:1 messages nor see anything new in the groupchat",
+            preferredStyle: .alert
+        )
+        alert.overrideUserInterfaceStyle = .light
+        let okAction = UIAlertAction(title: "OK", style: .default) { _ in
+            coordinator.alert = nil
+            isPresented = false
+        }
+        alert.addAction(okAction)
+        alert.addAction(UIAlertAction(title: "Unpause", style: .default) { _ in
+            coordinator.alert = nil
+            isPresented = false
+            onUnpause()
+        })
+        // OK is the emphasized action: the preferred action renders filled with
+        // the tint (black here) and white text, leaving Unpause the plain button.
+        alert.preferredAction = okAction
+        coordinator.alert = alert
+        host.present(alert, animated: true)
+        alert.view.tintColor = UIColor(named: "colorTextPrimary") ?? .label
+    }
+
+    final class Coordinator {
+        weak var alert: UIAlertController?
     }
 }
