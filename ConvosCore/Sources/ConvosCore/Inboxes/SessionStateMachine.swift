@@ -1326,6 +1326,7 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
             codecs: [
                 TextCodec(),
                 ReplyCodec(),
+                ContextReplyCodec(),
                 ReactionV2Codec(),
                 ReactionCodec(),
                 AttachmentCodec(),

@@ -43,6 +43,7 @@ extension XMTPiOS.DecodedMessage {
         var attachmentUrls: [String]
         var text: String?
         var update: DBMessage.Update?
+        var contextReply: ContextReplyContext?
     }
 
     func dbRepresentation() throws -> DBMessage {
@@ -55,6 +56,8 @@ extension XMTPiOS.DecodedMessage {
             components = try handleTextContent()
         case ContentTypeReply:
             components = try handleReplyContent()
+        case ContentTypeContextReply:
+            components = try handleContextReplyContent()
         case ContentTypeReaction, ContentTypeReactionV2:
             components = try handleReactionContent()
         case ContentTypeAttachment:
@@ -116,7 +119,8 @@ extension XMTPiOS.DecodedMessage {
             linkPreview: components.linkPreview,
             sourceMessageId: components.sourceMessageId,
             attachmentUrls: components.attachmentUrls,
-            update: components.update
+            update: components.update,
+            contextReply: components.contextReply
         )
     }
 
@@ -280,6 +284,111 @@ extension XMTPiOS.DecodedMessage {
                 attachmentUrls: [],
                 text: nil,
                 update: nil
+            )
+        }
+    }
+
+    // A context reply wraps any content the user can send and associates it
+    // with a widget instead of a parent message. The stored row keeps its
+    // natural content type (text, attachments, ...) and carries the widget
+    // context in `contextReply`, so it renders like a reply without joining a
+    // parent. Nested-content handling mirrors handleReplyContent.
+    private func handleContextReplyContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let contextReply = content as? ContextReply else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let context = contextReply.context
+        switch contextReply.contentType {
+        case ContentTypeText:
+            guard let contentString = contextReply.content as? String else {
+                throw DecodedMessageDBRepresentationError.mismatchedContentType
+            }
+            let isContentEmoji = contentString.allCharactersEmoji
+            if !isContentEmoji, let invite = MessageInvite.from(text: contentString) {
+                return DBMessageComponents(
+                    messageType: .original,
+                    contentType: .invite,
+                    invite: invite,
+                    attachmentUrls: [],
+                    text: contentString,
+                    contextReply: context
+                )
+            }
+            if !isContentEmoji, MessageAgentShare.from(text: contentString) != nil {
+                return DBMessageComponents(
+                    messageType: .original,
+                    contentType: .agentShare,
+                    attachmentUrls: [],
+                    text: contentString,
+                    contextReply: context
+                )
+            }
+            if !isContentEmoji, let preview = LinkPreview.from(text: contentString) {
+                return DBMessageComponents(
+                    messageType: .original,
+                    contentType: .linkPreview,
+                    linkPreview: preview,
+                    attachmentUrls: [],
+                    text: contentString,
+                    contextReply: context
+                )
+            }
+            let trimmedContent = contentString.trimmingCharacters(in: .whitespacesAndNewlines)
+            return DBMessageComponents(
+                messageType: .original,
+                contentType: isContentEmoji ? .emoji : .text,
+                emoji: isContentEmoji ? trimmedContent : nil,
+                attachmentUrls: [],
+                text: isContentEmoji ? nil : contentString,
+                contextReply: context
+            )
+        case ContentTypeAttachment:
+            guard let attachment = contextReply.content as? Attachment else {
+                throw DecodedMessageDBRepresentationError.mismatchedContentType
+            }
+            let fileURL = try Self.saveInlineAttachment(data: attachment.data, messageId: id, filename: attachment.filename)
+            return DBMessageComponents(
+                messageType: .original,
+                contentType: .attachments,
+                attachmentUrls: [fileURL.absoluteString],
+                text: nil,
+                contextReply: context
+            )
+        case ContentTypeRemoteAttachment:
+            guard let remoteAttachment = contextReply.content as? RemoteAttachment else {
+                throw DecodedMessageDBRepresentationError.mismatchedContentType
+            }
+            let inferredMimeType: String? = remoteAttachment.filename.flatMap { filename in
+                let ext = (filename as NSString).pathExtension.lowercased()
+                guard !ext.isEmpty else { return nil }
+                return UTType(filenameExtension: ext)?.preferredMIMEType
+            }
+            let stored = StoredRemoteAttachment(
+                url: remoteAttachment.url,
+                contentDigest: remoteAttachment.contentDigest,
+                secret: remoteAttachment.secret,
+                salt: remoteAttachment.salt,
+                nonce: remoteAttachment.nonce,
+                filename: remoteAttachment.filename,
+                mimeType: inferredMimeType
+            )
+            let json = (try? stored.toJSON()) ?? remoteAttachment.url
+            return DBMessageComponents(
+                messageType: .original,
+                contentType: .attachments,
+                attachmentUrls: [json],
+                text: nil,
+                contextReply: context
+            )
+        default:
+            Log.error("Unhandled context reply contentType \(contextReply.contentType)")
+            return DBMessageComponents(
+                messageType: .original,
+                contentType: .text,
+                attachmentUrls: [],
+                text: nil,
+                contextReply: context
             )
         }
     }

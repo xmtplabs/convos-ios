@@ -223,6 +223,17 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConversationParticipationMode", migrate: Self.addConversationParticipationMode)
         migrator.registerMigration("clearCutListenParticipationMode", migrate: Self.clearCutListenParticipationMode)
         migrator.registerMigration("addConversationSpaceURLString", migrate: Self.addConversationSpaceURLString)
+        migrator.registerMigration("addMessageContextReply", migrate: Self.addMessageContextReply)
+    }
+
+    /// The widget a message replies to (window.convos.replyToWidget). Nullable
+    /// with no default: a null column is an ordinary message not associated
+    /// with any widget. Stored as JSON text because it holds a Codable
+    /// ContextReplyContext struct (see DBMessage.contextReply / ContextReplyCodec).
+    static func addMessageContextReply(_ db: Database) throws {
+        try db.alter(table: "message") { t in
+            t.add(column: "contextReply", .jsonText)
+        }
     }
 
     /// The deployed Space web URL for the conversation, mirrored from the

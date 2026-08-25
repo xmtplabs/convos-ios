@@ -358,6 +358,10 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         try await stateMachine.sendReply(text: text, afterPhoto: trackingKey, toMessageWithClientId: parentClientMessageId)
     }
 
+    public func sendContextReply(text: String, context: ContextReplyContext) async throws {
+        try await stateMachine.sendContextReply(text: text, context: context)
+    }
+
     public func retryFailedMessage(id: String) async throws {
         try await stateMachine.retryFailedMessage(id: id)
     }

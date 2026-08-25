@@ -353,6 +353,10 @@ class TestableMockMessageSender: MessageSender {
         ""
     }
 
+    func prepare(contextReply: ContextReply) async throws -> String {
+        ""
+    }
+
     func prepare(builderBundleManifest: BuilderBundleManifest) async throws -> String {
         ""
     }

@@ -12,6 +12,12 @@ public struct Message: Hashable, Codable, Sendable {
 
     public let reactions: [MessageReaction]
 
+    /// Set when this message is a reply to a widget (window.convos.replyToWidget).
+    /// The transcript renders a reference card for the widget above the message,
+    /// mirroring how a `MessageReply` renders its parent. Nil for ordinary
+    /// messages. See ContextReplyCodec.
+    public let widgetContext: ContextReplyContext?
+
     public init(
         id: String,
         sender: ConversationMember,
@@ -19,7 +25,8 @@ public struct Message: Hashable, Codable, Sendable {
         status: MessageStatus,
         content: MessageContent,
         date: Date,
-        reactions: [MessageReaction]
+        reactions: [MessageReaction],
+        widgetContext: ContextReplyContext? = nil
     ) {
         self.id = id
         self.sender = sender
@@ -28,5 +35,6 @@ public struct Message: Hashable, Codable, Sendable {
         self.content = content
         self.date = date
         self.reactions = reactions
+        self.widgetContext = widgetContext
     }
 }

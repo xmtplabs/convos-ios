@@ -83,6 +83,8 @@ struct MessagesView<BottomBarContent: View>: View {
     let replyingToMessage: AnyMessage?
     var replyingToAudioTranscriptText: String?
     let onCancelReply: () -> Void
+    var pendingWidgetReplyContext: ContextReplyContext?
+    var onCancelWidgetReply: () -> Void = {}
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
     let onLoadPreviousMessages: () -> Void
@@ -365,6 +367,11 @@ struct MessagesView<BottomBarContent: View>: View {
                             // own tree, so inject the resolver directly on the
                             // bar (same reason the context-menu overlay does).
                             .environment(\.agentShareResolver, agentShareResolver)
+                        } else if let pendingWidgetReplyContext {
+                            WidgetReplyComposerBar(
+                                context: pendingWidgetReplyContext,
+                                onDismiss: onCancelWidgetReply
+                            )
                         }
                     },
                     quickEditView: { placeholderText, isImagePickerPresented in

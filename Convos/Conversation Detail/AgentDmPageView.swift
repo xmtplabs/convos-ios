@@ -377,6 +377,8 @@ struct AgentDmPageView: View {
             replyingToMessage: dmVm.replyingToMessage,
             replyingToAudioTranscriptText: dmVm.replyingToAudioTranscriptText,
             onCancelReply: dmVm.cancelReply,
+            pendingWidgetReplyContext: dmVm.pendingWidgetReplyContext,
+            onCancelWidgetReply: dmVm.cancelWidgetReply,
             onDisplayNameEndedEditing: {
                 dmVm.onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .quickEditor)
             },
