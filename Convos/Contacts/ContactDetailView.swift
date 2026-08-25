@@ -433,7 +433,10 @@ struct ContactDetailView: View {
             // VStack spacing would still reserve space around that empty
             // view, inflating the gap between subtitle and actions.
             VStack(spacing: 0.0) {
-                ContactDetailHeader(contact: contact)
+                ContactDetailHeader(
+                    contact: contact,
+                    isHost: !contact.isAgent && groupAgentSetUpByContact != nil
+                )
                 if let agentDescription, !agentDescription.isEmpty {
                     Text(agentDescription)
                         .font(.body)
@@ -1109,16 +1112,61 @@ private extension ContactDetailView {
 
 private struct ContactDetailHeader: View {
     let contact: Contact
+    let isHost: Bool
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
             ContactAvatarView(contact: contact)
                 .frame(width: 160.0, height: 160.0)
 
-            Text(contact.resolvedDisplayName)
+            ProfileNameWithHostBadge(
+                name: contact.resolvedDisplayName,
+                isHost: isHost
+            )
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+        }
+    }
+}
+
+/// Keeps the Host signal attached to the person's identity without turning it
+/// into a second status row. The label is one accessibility element so VoiceOver
+/// announces the role immediately after the person's name.
+private struct ProfileNameWithHostBadge: View {
+    let name: String
+    let isHost: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
+            Text(name)
                 .font(.largeTitle.weight(.bold))
                 .foregroundStyle(.colorTextPrimary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.78)
+
+            if isHost {
+                ConvosHostBadge()
+                    .fixedSize()
+                    .layoutPriority(1)
+            }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(isHost ? "\(name), Convos Host" : name)
+        .accessibilityIdentifier(isHost ? "profile-name-convos-host" : "profile-name")
+    }
+}
+
+/// The Convos Host beacon. Lava intentionally matches the existing agent-
+/// sharing toggle, while the radiating point distinguishes hosting from a
+/// verified-account checkmark.
+private struct ConvosHostBadge: View {
+    var body: some View {
+        Image(systemName: "dot.radiowaves.left.and.right")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 22, height: 22)
+            .background(.colorLava, in: .circle)
+            .accessibilityHidden(true)
     }
 }
 
@@ -1176,12 +1224,10 @@ private struct PublishedAgentProfileView: View {
             currentProfileAvatar
                 .frame(width: 132, height: 132)
 
-            Text(displayName)
-                .font(.largeTitle.weight(.bold))
-                .foregroundStyle(.colorTextPrimary)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.78)
+            ProfileNameWithHostBadge(
+                name: displayName,
+                isHost: !contact.isAgent && groupAgent != nil
+            )
                 .padding(.top, DesignConstants.Spacing.step2x)
 
             RoleLabelPill(
