@@ -69,7 +69,7 @@ struct ContactDetailView: View {
     /// Verified agent this human invited into the current conversation. The
     /// inviter relationship is the app's trustworthy "set up by" signal.
     let groupAgentSetUpByContact: ConversationMember?
-    /// Human-facing convo title used by the self profile preview. Member
+    /// Human-facing convo title used by the current user's profile. Member
     /// profile entry points pass the live conversation display name; other
     /// contact-card contexts leave it nil.
     let conversationDisplayName: String?
@@ -145,7 +145,6 @@ struct ContactDetailView: View {
     @State private var navState: ContactCardNavigatorImpl = .init()
     @State private var navigator: ContactCardCollector?
     @State private var showsAgentsOnProfile: Bool
-    @State private var isPreviewingPublishedProfile: Bool = false
     @State private var presentingProfileSetup: Bool = false
 
     private func ensureNavigator() {
@@ -382,18 +381,7 @@ struct ContactDetailView: View {
 
     @ToolbarContentBuilder
     private var closeToolbarItem: some ToolbarContent {
-        if isPreviewingPublishedProfile {
-            ToolbarItem(placement: .cancellationAction) {
-                let action = {
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        isPreviewingPublishedProfile = false
-                    }
-                }
-                Button(role: .cancel, action: action)
-                    .accessibilityLabel("Close profile preview")
-                    .accessibilityIdentifier("published-profile-preview-close")
-            }
-        } else if showsCloseButton {
+        if showsCloseButton {
             ToolbarItem(placement: .cancellationAction) {
                 let action = { dismiss() }
                 Button(role: .cancel, action: action)
@@ -473,11 +461,6 @@ struct ContactDetailView: View {
                     .padding(.top, DesignConstants.Spacing.step2x)
                 }
                 headerBadge
-                if mode.isCurrentUser {
-                    publishedProfilePreviewControl
-                        .padding(.top, DesignConstants.Spacing.step4x)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
-                }
                 if showsAgentSocialProfileSection {
                     AgentSocialProfileSection(
                         ownerName: contact.resolvedDisplayName,
@@ -946,8 +929,8 @@ struct ContactDetailView: View {
 private extension ContactDetailView {
     @ViewBuilder
     var activeBodyContent: some View {
-        if mode.isCurrentUser, isPreviewingPublishedProfile {
-            PublishedAgentProfilePreviewView(
+        if mode.isCurrentUser {
+            PublishedAgentProfileView(
                 contact: contact,
                 conversationDisplayName: conversationDisplayName,
                 profileSettingsViewModel: profileSettingsViewModel,
@@ -962,7 +945,6 @@ private extension ContactDetailView {
                 onSetUpAgents: presentExternalAgentDirectory,
                 onOpenGroupAgent: handleStartWithGroupAgent
             )
-            .transition(.opacity)
         } else {
             bodyContent
         }
@@ -1049,41 +1031,6 @@ private extension ContactDetailView {
             )
             .padding(.top, DesignConstants.Spacing.step2x)
         }
-    }
-
-    var publishedProfilePreviewControl: some View {
-        Button {
-            withAnimation(.easeOut(duration: 0.18)) {
-                isPreviewingPublishedProfile = true
-            }
-        } label: {
-            HStack(spacing: DesignConstants.Spacing.step3x) {
-                Image(systemName: "eye")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.colorTextPrimary)
-                    .frame(width: 44, height: 44)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                    Text("Preview profile as others")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.colorTextPrimary)
-                    Text("Open the profile people see inside this convo")
-                        .font(.footnote)
-                        .foregroundStyle(.colorTextSecondary)
-                        .multilineTextAlignment(.leading)
-                }
-                Spacer(minLength: 0)
-                Text("Preview")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.colorTextPrimary)
-            }
-            .padding(.horizontal, DesignConstants.Spacing.step3x)
-            .frame(minHeight: 64)
-            .background(.colorBackgroundRaised, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("contact-detail-preview-published-profile")
     }
 
     var canStartWithGroupAgent: Bool {
@@ -1175,13 +1122,12 @@ private struct ContactDetailHeader: View {
     }
 }
 
-// MARK: - Published profile preview
+// MARK: - Published profile
 
 /// The current user's conversation-scoped public profile. This is a real
-/// destination rather than an inline filter on the contact card: Preview
-/// opens the same hierarchy the user is choosing to publish, while keeping
-/// the visibility toggle and edit actions available on one phone.
-private struct PublishedAgentProfilePreviewView: View {
+/// destination that uses the same hierarchy other members see, while keeping
+/// the visibility toggle and edit actions available to its owner.
+private struct PublishedAgentProfileView: View {
     let contact: Contact
     let conversationDisplayName: String?
     let profileSettingsViewModel: ProfileSettingsViewModel
@@ -1222,7 +1168,7 @@ private struct PublishedAgentProfilePreviewView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(.colorBackgroundRaisedSecondary)
-        .accessibilityIdentifier("published-agent-profile-preview")
+        .accessibilityIdentifier("published-agent-profile")
     }
 
     private var identityHeader: some View {
