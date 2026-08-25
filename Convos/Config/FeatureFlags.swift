@@ -65,33 +65,6 @@ final class FeatureFlags {
         }
     }
 
-    /// Gates the per-conversation agent participation control ("Listen"):
-    /// Speak freely / Listen mode / Paused. Toggle from App Settings -> Debug
-    /// in non-production builds, or from the curated prod debug menu in
-    /// production. Deliberately not prod-locked like the flags above: the
-    /// control is reachable everywhere so Listen can be dogfooded in TestFlight.
-    ///
-    /// On by default in every build, production included, so the control is
-    /// there without anyone having to find a debug menu first. An explicit
-    /// toggle in either direction is remembered and wins over the default, so
-    /// turning it off from the prod debug menu still sticks.
-    var isListenParticipationEnabled: Bool {
-        get {
-            access(keyPath: \.isListenParticipationEnabled)
-            guard let stored = UserDefaults.standard.object(forKey: Constant.listenParticipationEnabledKey) as? Bool else {
-                return Self.listenParticipationDefault
-            }
-            return stored
-        }
-        set {
-            withMutation(keyPath: \.isListenParticipationEnabled) {
-                UserDefaults.standard.set(newValue, forKey: Constant.listenParticipationEnabledKey)
-            }
-        }
-    }
-
-    private static let listenParticipationDefault: Bool = true
-
     /// Off by default -- opts libxmtp streams onto the shared bidi wire by
     /// exporting `XMTP_BIDI_STREAMS_ENABLED` at launch (see `ConvosApp.init`;
     /// flips take effect on the next launch). Deliberately not prod-locked
@@ -118,7 +91,7 @@ final class FeatureFlags {
     /// non-production builds, or from the curated prod debug menu in
     /// production. Deliberately not prod-locked like most flags above: the
     /// control is reachable everywhere so V2 can be dogfooded in production,
-    /// same posture as `isListenParticipationEnabled`. Default stays off in
+    /// same posture as `isXMTPBidiStreamsEnabled`. Default stays off in
     /// every environment -- enabling it in production points the client at
     /// whatever the production abilities backend currently serves, which may
     /// lag what dev has.
@@ -262,7 +235,6 @@ final class FeatureFlags {
         static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"
         static let selectedAgentVariantKey: String = "featureFlags.selectedAgentVariant"
         static let agentVariantSelectorEnabledKey: String = "featureFlags.agentVariantSelectorEnabled"
-        static let listenParticipationEnabledKey: String = "featureFlags.listenParticipationEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
         static let abilitiesV2EnabledKey: String = "featureFlags.abilitiesV2Enabled"
         static let spaceShareEnabledKey: String = "featureFlags.spaceShareEnabled"
