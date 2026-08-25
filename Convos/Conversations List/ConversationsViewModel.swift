@@ -70,6 +70,20 @@ final class ConversationsViewModel {
         selectedConversationId = conversation.id
     }
 
+    /// Selects a conversation from the list and forces the pushed view onto the
+    /// agent-DM page (double-tap shortcut), independent of unread state. Falls
+    /// back to the group when the conversation has no verified agent.
+    func selectOpeningAgentDm(_ conversation: Conversation) {
+        selectedInitialAgentDmInboxId = primaryAgentInboxId(in: conversation)
+        selectedConversationId = conversation.id
+    }
+
+    /// Mirrors `ConversationView.primaryAgentInboxId` so the seeded tab matches.
+    private func primaryAgentInboxId(in conversation: Conversation) -> String? {
+        guard !conversation.isAgentDm else { return nil }
+        return conversation.members.first { $0.isVerifiedAgent }?.profile.inboxId
+    }
+
     /// Returns the agent inbox id to open the DM page for, when the DM holds the
     /// most-recent unread message; nil to open the group page.
     private func agentDmInboxIdForMostRecentUnread(in conversation: Conversation) -> String? {

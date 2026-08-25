@@ -103,6 +103,8 @@ final class ConversationsViewController: UIViewController {
     // MARK: - Callbacks
 
     var onSelectConversation: ((Conversation) -> Void)?
+    /// Fired on a double tap - opens the conversation directly on the agent DM page.
+    var onSelectConversationAgentDm: ((Conversation) -> Void)?
     var onConfirmedDeleteConversation: ((Conversation) -> Void)?
     var onExplodeConversation: ((Conversation) -> Void)?
     var onToggleMute: ((Conversation) -> Void)?
@@ -241,6 +243,44 @@ final class ConversationsViewController: UIViewController {
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
+        setupTapRecognizers()
+    }
+
+    /// A single tap opens the conversation (smart default tab); a double tap
+    /// opens it directly on the agent DM page. Navigation is driven from these
+    /// recognizers rather than `didSelectItemAt` so the single tap can defer to
+    /// the double tap; `didSelectItemAt` is kept only for the tap-highlight.
+    private func setupTapRecognizers() {
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.delegate = self
+        doubleTap.cancelsTouchesInView = false
+        collectionView.addGestureRecognizer(doubleTap)
+
+        let singleTap = UITapGestureRecognizer(target: self, action: #selector(handleSingleTap(_:)))
+        singleTap.numberOfTapsRequired = 1
+        singleTap.delegate = self
+        singleTap.cancelsTouchesInView = false
+        singleTap.require(toFail: doubleTap)
+        collectionView.addGestureRecognizer(singleTap)
+    }
+
+    @objc
+    private func handleSingleTap(_ recognizer: UITapGestureRecognizer) {
+        guard let conversation = conversation(atPointIn: recognizer) else { return }
+        onSelectConversation?(conversation)
+    }
+
+    @objc
+    private func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
+        guard let conversation = conversation(atPointIn: recognizer) else { return }
+        onSelectConversationAgentDm?(conversation)
+    }
+
+    private func conversation(atPointIn recognizer: UITapGestureRecognizer) -> Conversation? {
+        let location = recognizer.location(in: collectionView)
+        guard let indexPath = collectionView.indexPathForItem(at: location) else { return nil }
+        return conversation(for: indexPath)
     }
 
     private func createLayout() -> UICollectionViewLayout {
@@ -686,6 +726,17 @@ final class ConversationsViewController: UIViewController {
     }
 }
 
+// MARK: - UIGestureRecognizerDelegate
+
+extension ConversationsViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        true
+    }
+}
+
 // MARK: - UICollectionViewDelegate
 
 extension ConversationsViewController: UICollectionViewDelegate {
@@ -700,10 +751,10 @@ extension ConversationsViewController: UICollectionViewDelegate {
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        // Navigation is driven by the tap recognizers (see setupTapRecognizers)
+        // so a single tap can defer to a double tap; this only clears the
+        // momentary selection highlight.
         collectionView.deselectItem(at: indexPath, animated: true)
-
-        guard let conversation = conversation(for: indexPath) else { return }
-        onSelectConversation?(conversation)
     }
 
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {

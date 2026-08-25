@@ -236,6 +236,9 @@ struct ConversationsView: View {
             onSelectConversation: { conversation in
                 viewModel.select(conversation)
             },
+            onSelectConversationAgentDm: { conversation in
+                viewModel.selectOpeningAgentDm(conversation)
+            },
             onConfirmedDeleteConversation: { conversation in
                 viewModel.leave(conversation: conversation)
             },
