@@ -597,7 +597,7 @@ private extension YourSpaceView {
     private var recentConversations: [Conversation] {
         Array(conversations
             .sorted { ($0.lastMessage?.createdAt ?? $0.createdAt) > ($1.lastMessage?.createdAt ?? $1.createdAt) }
-            .prefix(3))
+            .prefix(7))
     }
 
     private var recentConvosSection: some View {

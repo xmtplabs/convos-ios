@@ -128,6 +128,46 @@ final class ContactDetailModeTests: XCTestCase {
     }
 }
 
+final class ContactResolutionTests: XCTestCase {
+    func testResolvedHumanDoesNotCarryUnverifiedAgentMarker() {
+        let member = ConversationMember(
+            profile: Profile.mock(inboxId: "inbox-shane", name: "Shane"),
+            role: .admin,
+            isCurrentUser: true,
+            isAgent: false,
+            agentVerification: .unverified
+        )
+
+        let contact = Contact.resolved(
+            member: member,
+            in: "convo-1",
+            contactsRepository: MockContactsRepository()
+        )
+
+        XCTAssertNil(contact.agentVerification)
+        XCTAssertFalse(contact.isAgent)
+    }
+
+    func testResolvedAgentKeepsVerificationMarker() {
+        let member = ConversationMember(
+            profile: Profile.mock(inboxId: "agent-maple", name: "Maple"),
+            role: .member,
+            isCurrentUser: false,
+            isAgent: true,
+            agentVerification: .verified(.convos)
+        )
+
+        let contact = Contact.resolved(
+            member: member,
+            in: "convo-1",
+            contactsRepository: MockContactsRepository()
+        )
+
+        XCTAssertEqual(contact.agentVerification, .verified(.convos))
+        XCTAssertTrue(contact.isAgent)
+    }
+}
+
 final class ConversationGroupAgentOwnershipTests: XCTestCase {
     func testFindsPersonalAgentBeforeVerificationMetadataArrives() {
         let owner = Profile.mock(inboxId: "inbox-shane", name: "Shane")

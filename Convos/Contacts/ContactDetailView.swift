@@ -2266,6 +2266,13 @@ extension Contact {
         let instanceId: String? = member.profile.agentInstanceId
         let email: String? = member.profile.agentEmail
         let attestation: String? = member.profile.agentAttestation
+        // `ConversationMember.agentVerification` is `.unverified` for ordinary
+        // humans too. Carrying that value onto a Contact makes `Contact.isAgent`
+        // true and suppresses human-only profile chrome such as the Host badge.
+        // The member's explicit kind is the authoritative agent signal here.
+        let agentVerification: AgentVerification? = member.isAgent
+            ? member.agentVerification
+            : nil
         if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
             let resolvedPublishedURL: String? = templatePublishedURL ?? stored.agentTemplatePublishedURL
             return stored
@@ -2273,7 +2280,7 @@ extension Contact {
                 .with(agentTemplatePublishedURL: resolvedPublishedURL)
                 .with(profileEmoji: emoji)
                 .with(agentInstanceId: instanceId)
-                .with(agentVerification: member.agentVerification)
+                .with(agentVerification: agentVerification)
                 .with(agentEmail: email)
                 .with(agentAttestation: attestation)
         }
@@ -2285,7 +2292,7 @@ extension Contact {
             avatarNonce: member.profile.avatarNonce,
             avatarKey: member.profile.avatarKey,
             addedViaConversationId: conversationId,
-            agentVerification: member.agentVerification,
+            agentVerification: agentVerification,
             agentTemplateId: templateId,
             agentTemplatePublishedURL: templatePublishedURL,
             profileEmoji: emoji,
