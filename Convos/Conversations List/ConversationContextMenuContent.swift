@@ -11,6 +11,22 @@ func conversationContextMenuContent(
 ) -> some View {
     let isPending = conversation.isPendingInvite
 
+    if !isPending && conversation.hasHadVerifiedAgent {
+        ControlGroup {
+            let openAgentDmAction = { viewModel.selectAgentDm(conversation) }
+            Button(action: openAgentDmAction) {
+                Label("Agent", systemImage: "a.circle.fill")
+            }
+            .accessibilityIdentifier("context-menu-open-agent-dm")
+
+            let openThingsAction = { viewModel.selectThings(conversation) }
+            Button(action: openThingsAction) {
+                Label("Things", systemImage: "square.grid.2x2.fill")
+            }
+            .accessibilityIdentifier("context-menu-open-things")
+        }
+    }
+
     if !isPending {
         ControlGroup {
             let togglePinAction = { viewModel.togglePin(conversation: conversation) }
@@ -38,20 +54,6 @@ func conversationContextMenuContent(
             }
         }
         .accessibilityIdentifier("context-menu-pin")
-    }
-
-    if !isPending && conversation.hasHadVerifiedAgent {
-        let openAgentDmAction = { viewModel.selectAgentDm(conversation) }
-        Button(action: openAgentDmAction) {
-            Label("Open Agent DM", systemImage: "person.bubble")
-        }
-        .accessibilityIdentifier("context-menu-open-agent-dm")
-
-        let openThingsAction = { viewModel.selectThings(conversation) }
-        Button(action: openThingsAction) {
-            Label("Open Things", systemImage: "square.grid.2x2")
-        }
-        .accessibilityIdentifier("context-menu-open-things")
     }
 
     if !isPending && conversation.creator.isCurrentUser {

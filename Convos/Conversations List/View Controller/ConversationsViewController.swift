@@ -831,29 +831,33 @@ extension ConversationsViewController: UICollectionViewDelegate {
             quickActions.append(muteAction)
         }
 
-        let quickMenu = UIMenu(title: "", options: .displayInline, children: quickActions)
-        actions.append(quickMenu)
-
-        // Open a specific tab (only for conversations that have an agent).
-        // Gated on the sticky `hasHadVerifiedAgent` flag rather than the volatile
-        // folded-in `agentDm` summary, which comes and goes as member sync
-        // rewrites the group's roster.
+        // Open a specific tab, rendered as the menu's top row: two icon-over-label
+        // tiles side by side. Only for conversations that have an agent. Gated on
+        // the sticky `hasHadVerifiedAgent` flag rather than the volatile folded-in
+        // `agentDm` summary, which comes and goes as member sync rewrites the
+        // group's roster.
         if !conversation.isPendingInvite && conversation.hasHadVerifiedAgent {
             let openAgentDmAction = UIAction(
-                title: "Open Agent DM",
-                image: UIImage(systemName: "person.bubble")
+                title: "Agent",
+                image: UIImage(systemName: "a.circle.fill")
             ) { [weak self] _ in
                 self?.onOpenAgentDm?(conversation)
             }
             let openThingsAction = UIAction(
-                title: "Open Things",
-                image: UIImage(systemName: "square.grid.2x2")
+                title: "Things",
+                image: UIImage(systemName: "square.grid.2x2.fill")
             ) { [weak self] _ in
                 self?.onOpenThings?(conversation)
             }
             let openMenu = UIMenu(title: "", options: .displayInline, children: [openAgentDmAction, openThingsAction])
+            // Lays the two out as a row of icon-over-label tiles rather than
+            // full-width rows.
+            openMenu.preferredElementSize = .medium
             actions.append(openMenu)
         }
+
+        let quickMenu = UIMenu(title: "", options: .displayInline, children: quickActions)
+        actions.append(quickMenu)
 
         // Explode (only for creators of non-pending conversations)
         if !conversation.isPendingInvite && conversation.creator.isCurrentUser {
