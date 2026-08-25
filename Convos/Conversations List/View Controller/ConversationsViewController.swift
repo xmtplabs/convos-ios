@@ -103,6 +103,8 @@ final class ConversationsViewController: UIViewController {
     // MARK: - Callbacks
 
     var onSelectConversation: ((Conversation) -> Void)?
+    var onOpenAgentDm: ((Conversation) -> Void)?
+    var onOpenThings: ((Conversation) -> Void)?
     var onConfirmedDeleteConversation: ((Conversation) -> Void)?
     var onExplodeConversation: ((Conversation) -> Void)?
     var onToggleMute: ((Conversation) -> Void)?
@@ -831,6 +833,27 @@ extension ConversationsViewController: UICollectionViewDelegate {
 
         let quickMenu = UIMenu(title: "", options: .displayInline, children: quickActions)
         actions.append(quickMenu)
+
+        // Open a specific tab (only for conversations that have an agent).
+        // Gated on the sticky `hasHadVerifiedAgent` flag rather than the volatile
+        // folded-in `agentDm` summary, which comes and goes as member sync
+        // rewrites the group's roster.
+        if !conversation.isPendingInvite && conversation.hasHadVerifiedAgent {
+            let openAgentDmAction = UIAction(
+                title: "Open Agent DM",
+                image: UIImage(systemName: "person.bubble")
+            ) { [weak self] _ in
+                self?.onOpenAgentDm?(conversation)
+            }
+            let openThingsAction = UIAction(
+                title: "Open Things",
+                image: UIImage(systemName: "square.grid.2x2")
+            ) { [weak self] _ in
+                self?.onOpenThings?(conversation)
+            }
+            let openMenu = UIMenu(title: "", options: .displayInline, children: [openAgentDmAction, openThingsAction])
+            actions.append(openMenu)
+        }
 
         // Explode (only for creators of non-pending conversations)
         if !conversation.isPendingInvite && conversation.creator.isCurrentUser {

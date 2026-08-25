@@ -59,6 +59,12 @@ final class ConversationsViewModel {
     /// the destination builder; nil means open on the group page.
     private(set) var selectedInitialAgentDmInboxId: String?
 
+    /// An explicit page to open the pushed conversation on, set when a
+    /// context-menu action ("Open Agent DM" / "Open Things") picks the page
+    /// directly instead of letting the unread heuristic choose. Read by the
+    /// destination builder; nil for a normal tap, where the heuristic decides.
+    private(set) var selectedInitialTab: ConversationTab?
+
     @ObservationIgnored
     private var updateSelectionTask: Task<Void, Never>?
 
@@ -66,7 +72,27 @@ final class ConversationsViewModel {
     /// agent-DM page when the most-recent unread message lives in the DM (and to
     /// the group otherwise).
     func select(_ conversation: Conversation) {
+        selectedInitialTab = nil
         selectedInitialAgentDmInboxId = agentDmInboxIdForMostRecentUnread(in: conversation)
+        selectedConversationId = conversation.id
+    }
+
+    /// Selects a conversation and opens it on the agent's DM page, regardless of
+    /// which lane holds the most-recent unread. Backs the "Open Agent DM"
+    /// context-menu action. The `.agent` tab override drives the open on its own,
+    /// so this does not depend on the volatile folded-in `agentDm` summary; the
+    /// Agent tab resolves its DM from the conversation's own members.
+    func selectAgentDm(_ conversation: Conversation) {
+        selectedInitialTab = .agent
+        selectedInitialAgentDmInboxId = nil
+        selectedConversationId = conversation.id
+    }
+
+    /// Selects a conversation and opens it on the Things (Space) page. Backs the
+    /// "Open Things" context-menu action.
+    func selectThings(_ conversation: Conversation) {
+        selectedInitialTab = .context
+        selectedInitialAgentDmInboxId = nil
         selectedConversationId = conversation.id
     }
 
@@ -780,6 +806,7 @@ final class ConversationsViewModel {
         if conversationInPage(id: id) == nil {
             outOfWindowSelectedConversation = conversation
         }
+        selectedInitialTab = nil
         selectedInitialAgentDmInboxId = nil
         selectedConversationId = id
         return true
@@ -1677,6 +1704,7 @@ extension ConversationsViewModel {
             }
             // Seeds the DM page when the parent opens fresh (or from a different
             // conversation)...
+            selectedInitialTab = nil
             selectedInitialAgentDmInboxId = routing.agentInboxId
             selectedConversationId = routing.originConversationId
             // ...and switches the page when the parent is already on screen (where

@@ -36,6 +36,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// DM page instead of the group. Used when a conversations-list row is
     /// tapped whose most-recent unread is in the DM.
     var initialAgentDmInboxId: String?
+    /// An explicit page to open on, overriding the unread heuristic. Set by the
+    /// list's "Open Agent DM" / "Open Things" context-menu actions so the open
+    /// lands on the chosen tab regardless of which lane holds the unread. Nil
+    /// leaves the heuristic in charge.
+    var initialTabOverride: ConversationTab?
     /// Controls the messages list's leading empty-state view (QR invite +
     /// identity, or the `ConversationInfoPreview`). Defaults to `.standard`
     /// in normal chat. The Agent Builder passes `.hidden` so the
@@ -366,13 +371,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private func seedInitialTabIfNeeded() {
         guard !didSeedInitialTab else { return }
         didSeedInitialTab = true
-        let agentDmRequested: Bool = initialAgentDmInboxId != nil
-            && initialAgentDmInboxId == primaryAgentInboxId
-        let tab: ConversationTab = ConversationTab.initial(
-            available: availableTabs,
-            agentDmRequested: agentDmRequested,
-            agentDmHoldsTheUnread: agentDmHoldsTheUnread
-        )
+        let tab: ConversationTab
+        if let override = initialTabOverride, availableTabs.contains(override) {
+            tab = override
+        } else {
+            let agentDmRequested: Bool = initialAgentDmInboxId != nil
+                && initialAgentDmInboxId == primaryAgentInboxId
+            tab = ConversationTab.initial(
+                available: availableTabs,
+                agentDmRequested: agentDmRequested,
+                agentDmHoldsTheUnread: agentDmHoldsTheUnread
+            )
+        }
         guard tab != selectedTab else { return }
         selectTab(tab)
     }
@@ -1401,29 +1411,66 @@ private extension ConversationView {
     /// so a Space page is not reloaded every time the user looks away.
     @ViewBuilder
     var pageHost: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(availableTabs) { tab in
-                    page(for: tab)
-                        // Sized against the scroll view's container rather than
-                        // a `GeometryReader`: the reader measures zero on the
-                        // first layout pass, which left every page zero-width
-                        // and the pager resting on the last one instead of the
-                        // tab the conversation opened on.
-                        .containerRelativeFrame(.horizontal)
-                        .id(tab)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(availableTabs) { tab in
+                        page(for: tab)
+                            // Sized against the scroll view's container rather than
+                            // a `GeometryReader`: the reader measures zero on the
+                            // first layout pass, which left every page zero-width
+                            // and the pager resting on the last one instead of the
+                            // tab the conversation opened on.
+                            .containerRelativeFrame(.horizontal)
+                            .id(tab)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: pagerSelection)
+            // A long-press menu owns the screen while it is up, and a drag that
+            // paged out from under it would leave the menu pointing at a message
+            // on another tab.
+            .scrollDisabled(isPagingDisabled)
+            .introspect(.scrollView, on: .iOS(.v26)) { (scrollView: UIScrollView) in
+                scrollView.bounces = false
+            }
+            .onChange(of: didSeedInitialTab, initial: false) { _, seeded in
+                guard seeded else { return }
+                realignPagerAfterSeeding(using: proxy)
+            }
+        }
+    }
+
+    /// Snaps the pager onto the seeded tab once the scroll view has laid out.
+    ///
+    /// Seeding sets `selectedTab` in `onAppear`, before the pager finishes its
+    /// first layout, so `scrollPosition` scrolls toward the target while paging
+    /// is still settling. A tab two pages from the default (Things sits past
+    /// Agent) can settle the pager on the page in between while the state still
+    /// reads the target - the segmented control shows the seeded tab but the
+    /// wrong page is on screen. Re-driving the offset once through the scroll
+    /// proxy, after this layout pass, lands the page the state already points at.
+    private func realignPagerAfterSeeding(using proxy: ScrollViewProxy) {
+        let target: ConversationTab = selectedTab
+        guard target != .group else { return }
+        // The pager's container measures zero on its first layout pass, so the
+        // seed's `scrollPosition` can settle on an intermediate page (Things sits
+        // past Agent), and the Space page finishes laying out a beat later still.
+        // Re-assert the offset across the next few frames until the late layout
+        // has caught up; once the pager is on the target the scroll is a no-op,
+        // and the guard leaves a user who swiped away in that window alone.
+        let delays: [Double] = [0, 0.1, 0.2, 0.35, 0.5, 0.75]
+        for delay in delays {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard selectedTab == target else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    proxy.scrollTo(target, anchor: .leading)
                 }
             }
-            .scrollTargetLayout()
-        }
-        .scrollTargetBehavior(.paging)
-        .scrollPosition(id: pagerSelection)
-        // A long-press menu owns the screen while it is up, and a drag that
-        // paged out from under it would leave the menu pointing at a message
-        // on another tab.
-        .scrollDisabled(isPagingDisabled)
-        .introspect(.scrollView, on: .iOS(.v26)) { (scrollView: UIScrollView) in
-            scrollView.bounces = false
         }
     }
 
