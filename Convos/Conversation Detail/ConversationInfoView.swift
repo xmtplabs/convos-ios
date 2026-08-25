@@ -109,6 +109,18 @@ struct ConversationInfoView: View {
         guard !invite.isEmpty else { return [] }
         return [invite.inviteURLString]
     }
+
+    private var handleInviteShareCompletion: (UIActivity.ActivityType?, Bool, Error?) -> Void {
+        { activityType, completed, _ in
+            ConversationShareReporter.report(
+                activityType: activityType,
+                completed: completed,
+                invite: viewModel.invite,
+                conversation: viewModel.conversation,
+                coreActions: viewModel.coreActions
+            )
+        }
+    }
     @State private var presentingAddFromContactsPicker: Bool = false
     @State private var exportedLogsURL: URL?
     @State private var metadataDebugText: String = "Loading…"
@@ -395,7 +407,8 @@ struct ConversationInfoView: View {
             )
             .shareSheet(
                 isPresented: $presentingInviteShareSheet,
-                items: inviteShareItems
+                items: inviteShareItems,
+                onCompletion: handleInviteShareCompletion
             )
             .onAppear {
                 ensureNavigator()

@@ -1237,7 +1237,14 @@ private extension ConversationView {
     /// link is out in the world, so the empty-convo teardown must not
     /// reclaim it (see `onInviteShared`).
     private var handleInviteShareCompletion: (UIActivity.ActivityType?, Bool, Error?) -> Void {
-        { _, completed, _ in
+        { activityType, completed, _ in
+            ConversationShareReporter.report(
+                activityType: activityType,
+                completed: completed,
+                invite: viewModel.invite,
+                conversation: viewModel.conversation,
+                coreActions: viewModel.coreActions
+            )
             guard completed else { return }
             onInviteShared?()
         }
@@ -1613,7 +1620,14 @@ private extension ConversationView {
                 }
                 presentingAddFromContactsPicker = true
             },
-            showMembersList: { viewModel.presentingConversationSettings = true }
+            showMembersList: { viewModel.presentingConversationSettings = true },
+            // Same destination the member card's agent action opens, so the
+            // web surface and the native one agree on what "the agent DM" is.
+            showAgentDm: {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    selectTab(.agent)
+                }
+            }
         )
     }
 

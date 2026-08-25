@@ -342,6 +342,27 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// state. Cancelled on success, failure, and teardown.
     @ObservationIgnored
     private var joinTimeoutTask: Task<Void, Never>?
+    /// Armed when an invite arrives before the messaging inbox is ready, so
+    /// the code parks in `pendingInviteCode` with no join in flight. That
+    /// wait is the one stuck-"Verifying" shape that reported nothing at all:
+    /// `joinConversation` returns before `armJoinTimeout()` on that path.
+    @ObservationIgnored
+    private var inboxReadinessTimeoutTask: Task<Void, Never>?
+    /// An attempt reports at most one failed `joined_conversation`, however
+    /// many terminal callbacks it produces: an approval timeout at the wait
+    /// window followed by a `.joinFailed` from the creator's device is one
+    /// failed join, not two. A late approval can still report success after a
+    /// timeout - that pairing is deliberate - so this latches failures only.
+    /// Reset when a new attempt starts.
+    @ObservationIgnored
+    private var joinFailureReported: Bool = false
+    /// The 1-based attempt number of the join in flight, captured when the
+    /// attempt starts. It cannot be derived at outcome time:
+    /// `consecutiveFailureCount` is reset by `.ready` before the join task
+    /// reaches `handleJoinSuccess`, so a join that succeeded on the third try
+    /// would report itself as the first.
+    @ObservationIgnored
+    private var currentJoinAttemptNumber: Int = 1
     @ObservationIgnored
     private var resetTask: Task<Void, Never>?
     @ObservationIgnored
@@ -497,6 +518,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
         joinTimeoutTask?.cancel()
+        inboxReadinessTimeoutTask?.cancel()
         resetTask?.cancel()
         stateObservationTask?.cancel()
         optimisticAgentResolveTask?.cancel()
@@ -670,7 +692,7 @@ class NewConversationViewModel: Identifiable, Hashable {
 
         if let pendingCode = pendingInviteCode {
             pendingInviteCode = nil
-            joinConversation(inviteCode: pendingCode)
+            joinConversation(inviteCode: pendingCode, isReplay: true)
         }
 
         if pendingAgentTemplateCreate {
@@ -779,15 +801,38 @@ class NewConversationViewModel: Identifiable, Hashable {
         }
     }
 
-    func joinConversation(inviteCode: String) {
+    /// `isReplay` marks the resumption of an attempt that parked in
+    /// `pendingInviteCode` waiting for the inbox. While that attempt is still
+    /// open it is the same attempt the user started, so the replay neither
+    /// reports a second `join_attempt_started` nor restarts the clock - the
+    /// time spent parked is part of the wait the user sat through.
+    ///
+    /// A replay landing *after* the parked attempt already reported an outcome
+    /// (its inbox-readiness window elapsed) is a fresh attempt and is started
+    /// and counted as one. Treating it as a continuation would report an
+    /// outcome with no matching start, and a duration measured from the replay
+    /// rather than from anything the user experienced.
+    func joinConversation(inviteCode: String, isReplay: Bool = false) {
         cachedInviteCode = inviteCode
-        verificationStartedAt = CFAbsoluteTimeGetCurrent()
+
+        let continuesParkedAttempt: Bool = isReplay && verificationStartedAt != nil
+        if !continuesParkedAttempt {
+            verificationStartedAt = CFAbsoluteTimeGetCurrent()
+            joinFailureReported = false
+            currentJoinAttemptNumber = consecutiveFailureCount + 1
+            let startActions: any CoreActions = coreActions
+            let startSource: ConversationSource = joinSource
+            Task { await startActions.joinAttemptStarted(source: startSource) }
+        }
 
         guard let conversationStateManager else {
             pendingInviteCode = inviteCode
+            armInboxReadinessTimeout()
             return
         }
 
+        inboxReadinessTimeoutTask?.cancel()
+        inboxReadinessTimeoutTask = nil
         joinConversationTask?.cancel()
         armJoinTimeout()
         joinConversationTask = Task { [weak self, conversationStateManager] in
@@ -873,6 +918,20 @@ class NewConversationViewModel: Identifiable, Hashable {
         }
     }
 
+    /// The invite landed before the messaging inbox finished coming up, so it
+    /// is parked in `pendingInviteCode` until `configureWithMessagingService`
+    /// replays it. When that replay never happens the user watches
+    /// "Verifying" indefinitely with no request in flight, so this window is
+    /// armed separately from `armJoinTimeout` - which that path never reaches.
+    private func armInboxReadinessTimeout() {
+        inboxReadinessTimeoutTask?.cancel()
+        inboxReadinessTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Constant.joinWaitWindow))
+            guard !Task.isCancelled, let self else { return }
+            self.emitJoinFailure(reason: .inboxNeverReady)
+        }
+    }
+
     /// The join request is still unapproved after the wait window: the user
     /// has watched the "Verifying" state the whole time. Emits the
     /// stuck-wait sample as a failed `joined_conversation` outcome;
@@ -880,11 +939,24 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// reports its true duration via the success outcome.
     @MainActor
     private func emitConversationJoinTimedOut() {
-        guard let startedAt = verificationStartedAt else { return }
+        guard !joinFailureReported, let startedAt = verificationStartedAt else { return }
+        joinFailureReported = true
         let waitDuration = Float(CFAbsoluteTimeGetCurrent() - startedAt)
         let source: ConversationSource = joinSource
+        let attempt: Int = currentJoinAttemptNumber
         let actions: any CoreActions = coreActions
-        Task { await actions.joinedConversation(verificationDuration: waitDuration, memberCount: nil, hasAssistant: nil, source: source, isSuccess: false) }
+        Task {
+            await actions.joinedConversation(
+                verificationDuration: waitDuration,
+                memberCount: nil,
+                hasAssistant: nil,
+                source: source,
+                isSuccess: false,
+                failureReason: .approvalTimedOut,
+                creatorReason: nil,
+                attemptNumber: attempt
+            )
+        }
     }
 }
 
@@ -900,6 +972,8 @@ extension NewConversationViewModel {
     private func handleJoinSuccess() {
         joinTimeoutTask?.cancel()
         joinTimeoutTask = nil
+        inboxReadinessTimeoutTask?.cancel()
+        inboxReadinessTimeoutTask = nil
         presentingJoinConversationSheet = false
         displayError = nil
 
@@ -907,15 +981,62 @@ extension NewConversationViewModel {
         let source: ConversationSource = joinSource
         let duration: Float = verificationStartedAt.map { Float(CFAbsoluteTimeGetCurrent() - $0) } ?? 0
         verificationStartedAt = nil
+        joinFailureReported = false
         let memberCount: Int = conversationViewModel?.conversation.members.count ?? 0
         let hasAssistant: Bool = conversationViewModel?.conversation.members.contains { $0.isAgent } ?? false
+        let attempt: Int = currentJoinAttemptNumber
         Task {
             await actions.joinedConversation(
                 verificationDuration: duration,
                 memberCount: memberCount,
                 hasAssistant: hasAssistant,
                 source: source,
-                isSuccess: true
+                isSuccess: true,
+                failureReason: nil,
+                creatorReason: nil,
+                attemptNumber: attempt
+            )
+        }
+    }
+
+    /// Records a conclusive join failure and closes out the attempt.
+    ///
+    /// Both wait windows are cancelled unconditionally - the user is on a
+    /// failure surface now, not the verifying state - while the emit is gated
+    /// on two things. `joinFailureReported` keeps an attempt to a single
+    /// failure: a wait window that already elapsed and then a terminal
+    /// callback for the same join is one failed outcome, not two.
+    ///
+    /// `verificationStartedAt` keeps conversation *creation* failures out of
+    /// the join funnel entirely - `handleErrorState` serves both paths and
+    /// only a join sets the stamp.
+    @MainActor
+    private func emitJoinFailure(
+        reason: JoinFailureReason,
+        creatorReason: String? = nil
+    ) {
+        joinTimeoutTask?.cancel()
+        joinTimeoutTask = nil
+        inboxReadinessTimeoutTask?.cancel()
+        inboxReadinessTimeoutTask = nil
+
+        guard !joinFailureReported, let startedAt = verificationStartedAt else { return }
+        joinFailureReported = true
+        verificationStartedAt = nil
+
+        let duration = Float(CFAbsoluteTimeGetCurrent() - startedAt)
+        let source: ConversationSource = joinSource
+        let actions: any CoreActions = coreActions
+        Task {
+            await actions.joinedConversation(
+                verificationDuration: duration,
+                memberCount: nil,
+                hasAssistant: nil,
+                source: source,
+                isSuccess: false,
+                failureReason: reason,
+                creatorReason: creatorReason,
+                attemptNumber: currentJoinAttemptNumber
             )
         }
     }
@@ -923,8 +1044,9 @@ extension NewConversationViewModel {
     @MainActor
     private func handleJoinError(_ error: Error) {
         // The user is watching the failure UI now, not the verifying state.
-        joinTimeoutTask?.cancel()
-        joinTimeoutTask = nil
+        // This path threw out of the join task, so no failure has been
+        // counted for it yet.
+        emitJoinFailure(reason: .from(joinError: error))
         withAnimation {
             qrScannerViewModel.resetScanning()
 
@@ -1004,8 +1126,10 @@ extension NewConversationViewModel {
         static let retryDelayMedium: TimeInterval = 4
         static let retryDelayMax: TimeInterval = 8
         /// How long an invite join may sit in the "Verifying" state before
-        /// `conversation_join_timed_out` is emitted. Matches the assistant
-        /// join wait window so the two stuck-wait metrics are comparable.
+        /// it reports a failed `joined_conversation` outcome. Matches the
+        /// assistant join wait window so the two stuck-wait metrics stay
+        /// comparable. Applies to both the approval wait and the
+        /// inbox-readiness wait that precedes it.
         static let joinWaitWindow: TimeInterval = 150
     }
 }
@@ -1193,6 +1317,7 @@ extension NewConversationViewModel {
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
         joinTimeoutTask?.cancel()
+        inboxReadinessTimeoutTask?.cancel()
         pendingVisibilityCommit = false
     }
 
@@ -1463,6 +1588,12 @@ extension NewConversationViewModel {
 
     @MainActor
     private func handleJoinFailedState(_ error: InviteJoinError) {
+        // `consecutiveFailureCount` was incremented by the state dispatch
+        // before this ran, so it is already this attempt's number.
+        emitJoinFailure(
+            reason: .from(inviteJoinErrorType: error.errorType),
+            creatorReason: error.reason
+        )
         cleanUpUIForError()
 
         let inviteCode = extractInviteCode(from: conversationState)
@@ -1488,6 +1619,9 @@ extension NewConversationViewModel {
 
     @MainActor
     private func handleErrorState(_ error: Error) {
+        // No-ops for a creation failure: only a join sets the stamp
+        // `emitJoinFailure` gates on.
+        emitJoinFailure(reason: .from(joinError: error))
         cleanUpUIForError()
         currentError = error
 
