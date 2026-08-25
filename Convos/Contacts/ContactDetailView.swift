@@ -379,6 +379,7 @@ struct ContactDetailView: View {
                     showBlock: !mode.isCurrentUser && !contact.isAgentSharePlaceholder,
                     contactDisplayName: contact.resolvedDisplayName,
                     agentEmail: contact.agentEmail,
+                    agentPhone: contact.agentPhone,
                     agentInstanceId: contact.agentInstanceId,
                     showsInstanceIdRow: showsInstanceIdRow,
                     agentAttestation: contact.agentAttestation,
@@ -861,6 +862,11 @@ private struct ContactDetailActions: View {
     /// "Contact Info" section under Share when present; nil (humans and
     /// older agents created before addresses were assigned) hides it.
     let agentEmail: String?
+    /// Agent's SMS number from its profile metadata, stamped by the
+    /// assistants worker when it provisions one. Renders the Text row of
+    /// the "Contact Info" section; nil for humans and for agents without
+    /// SMS provisioned. The section appears when either channel exists.
+    let agentPhone: String?
     /// Always plumbed through when the contact has one. Display gate
     /// is `showsInstanceIdRow`, not nullability of this field.
     let agentInstanceId: String?
@@ -900,9 +906,10 @@ private struct ContactDetailActions: View {
             if showShare {
                 shareRow
             }
-            if let agentEmail {
-                ContactDetailEmailSection(
+            if agentEmail != nil || agentPhone != nil {
+                ContactDetailContactInfoSection(
                     email: agentEmail,
+                    phone: agentPhone,
                     contactDisplayName: contactDisplayName
                 )
             }
@@ -1151,26 +1158,67 @@ private struct ContactDetailModelRow: View {
 /// only when the agent's profile metadata carries an email - older agents
 /// created before the runtime assigned addresses don't have one. Header +
 /// rounded-card shape mirrors `AgentTemplateConversationsSection`.
-private struct ContactDetailEmailSection: View {
-    let email: String
+/// Which reachable address a Contact Info row is showing. Mirrors the
+/// pattern `ContactCardMode` uses: one view parameterized by the surface it
+/// is drawing, rather than a near-copy per channel.
+private enum ContactChannel {
+    case email
+    case text
+
+    /// The caption under the value.
+    var caption: String {
+        switch self {
+        case .email: return "Email"
+        case .text: return "Text"
+        }
+    }
+
+    /// The scheme that reaches this channel from the value.
+    var urlScheme: String {
+        switch self {
+        case .email: return "mailto:"
+        case .text: return "sms:"
+        }
+    }
+
+    /// Identifier stem for the row's controls, so UI tests address a row by
+    /// channel rather than by position in the section.
+    var identifierStem: String {
+        switch self {
+        case .email: return "contact-detail-email"
+        case .text: return "contact-detail-phone"
+        }
+    }
+
+    var copyAccessibilityLabel: String {
+        switch self {
+        case .email: return "Copy email address"
+        case .text: return "Copy phone number"
+        }
+    }
+
+    func openAccessibilityLabel(displayName: String, value: String) -> String {
+        switch self {
+        case .email: return "Email \(displayName) at \(value)"
+        case .text: return "Text \(displayName) at \(value)"
+        }
+    }
+}
+
+/// One reachable address on the contact card: the value, the kind of address
+/// it is, and a copy control. Tapping the value hands it to the app that owns
+/// the channel -- Mail for an address, Messages for a number.
+private struct ContactDetailChannelCard: View {
+    let channel: ContactChannel
+    let value: String
     let contactDisplayName: String
 
     @Environment(\.openURL) private var openURL: OpenURLAction
     @State private var didCopy: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            Text("Contact Info")
-                .font(.footnote)
-                .foregroundStyle(.colorTextSecondary)
-                .padding(.leading, DesignConstants.Spacing.step2x)
-            emailCard
-        }
-    }
-
-    private var emailCard: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            emailButton
+            valueButton
             copyButton
         }
         .padding(.vertical, DesignConstants.Spacing.step4x)
@@ -1181,16 +1229,20 @@ private struct ContactDetailEmailSection: View {
         )
     }
 
-    private var emailButton: some View {
-        let action = { openMailComposer() }
+    private var valueButton: some View {
+        let openLabel: String = channel.openAccessibilityLabel(
+            displayName: contactDisplayName,
+            value: value
+        )
+        let action = { open() }
         return Button(action: action) {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                Text(email)
+                Text(value)
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.colorTextPrimary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("Email")
+                Text(channel.caption)
                     .font(.footnote)
                     .foregroundStyle(.colorTextSecondary)
             }
@@ -1198,14 +1250,15 @@ private struct ContactDetailEmailSection: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Email \(contactDisplayName) at \(email)")
-        .accessibilityIdentifier("contact-detail-email")
+        .accessibilityLabel(openLabel)
+        .accessibilityIdentifier(channel.identifierStem)
     }
 
     private var copyButton: some View {
         let iconName: String = didCopy ? "checkmark" : "square.on.square"
         let iconColor: Color = didCopy ? .colorTextPrimary : .colorTextSecondary
-        let label: String = didCopy ? "Copied" : "Copy email address"
+        let label: String = didCopy ? "Copied" : channel.copyAccessibilityLabel
+        let identifier: String = "\(channel.identifierStem)-copy"
         let action = { copyToClipboard() }
         return Button(action: action) {
             Image(systemName: iconName)
@@ -1216,23 +1269,74 @@ private struct ContactDetailEmailSection: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
-        .accessibilityIdentifier("contact-detail-email-copy")
+        .accessibilityIdentifier(identifier)
     }
 
-    private func openMailComposer() {
-        guard let url = URL(string: "mailto:\(email)") else { return }
+    /// `sms:` rejects the spaces and punctuation a number is displayed with,
+    /// so the scheme gets the dialable form while the row keeps showing the
+    /// readable one. A value the initializer still rejects opens nothing,
+    /// which is what a non-tappable row did before.
+    private var schemeValue: String {
+        switch channel {
+        case .email:
+            return value
+        case .text:
+            return value.filter { $0.isNumber || $0 == "+" }
+        }
+    }
+
+    private func open() {
+        guard let url = URL(string: "\(channel.urlScheme)\(schemeValue)") else { return }
         openURL(url)
     }
 
     private func copyToClipboard() {
-        UIPasteboard.general.string = email
+        UIPasteboard.general.string = value
         didCopy = true
         Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: Constant.copyFeedbackNanoseconds)
             didCopy = false
         }
     }
+
+    private enum Constant {
+        static let copyFeedbackNanoseconds: UInt64 = 1_500_000_000
+    }
 }
+
+/// The contact card's Contact Info section: every way to reach this agent
+/// from outside Convos. A channel the runtime has not provisioned is absent
+/// rather than drawn empty; the call site omits the section when neither
+/// exists, so the header never stands alone.
+private struct ContactDetailContactInfoSection: View {
+    let email: String?
+    let phone: String?
+    let contactDisplayName: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            Text("Contact Info")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.leading, DesignConstants.Spacing.step2x)
+            if let email {
+                ContactDetailChannelCard(
+                    channel: .email,
+                    value: email,
+                    contactDisplayName: contactDisplayName
+                )
+            }
+            if let phone {
+                ContactDetailChannelCard(
+                    channel: .text,
+                    value: phone,
+                    contactDisplayName: contactDisplayName
+                )
+            }
+        }
+    }
+}
+
 
 // MARK: - Debug instance id row (internal builds only)
 
@@ -1478,6 +1582,7 @@ extension Contact {
         let emoji: String? = member.profile.profileEmoji
         let instanceId: String? = member.profile.agentInstanceId
         let email: String? = member.profile.agentEmail
+        let phone: String? = member.profile.agentPhone
         let attestation: String? = member.profile.agentAttestation
         if let stored = try? contactsRepository.fetchContact(inboxId: member.profile.inboxId) {
             let resolvedPublishedURL: String? = templatePublishedURL ?? stored.agentTemplatePublishedURL
@@ -1488,6 +1593,7 @@ extension Contact {
                 .with(agentInstanceId: instanceId)
                 .with(agentVerification: member.agentVerification)
                 .with(agentEmail: email)
+                .with(agentPhone: phone)
                 .with(agentAttestation: attestation)
         }
         return .synthetic(
@@ -1505,6 +1611,7 @@ extension Contact {
             agentInstanceId: instanceId,
             agentEmail: email
         )
+        .with(agentPhone: phone)
         .with(agentAttestation: attestation)
     }
 }
@@ -1560,14 +1667,15 @@ extension Contact {
     }
 }
 
-#Preview("Agent template with email") {
+#Preview("Agent template with email and number") {
     NavigationStack {
         ContactDetailView(
             contact: .mock(
                 displayName: "Tifoso",
                 agentVerification: .verified(.convos),
                 agentTemplatePublishedURL: "https://agents-dev.convos.org/tifoso.pnw1o",
-                agentEmail: "tifoso.123456@ai.convos.org"
+                agentEmail: "tifoso.123456@ai.convos.org",
+                agentPhone: "+1 (615) 555-0142"
             ),
             contactsWriter: MockContactsWriter(),
             contactsRepository: MockContactsRepository(),
