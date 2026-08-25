@@ -356,6 +356,13 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// Reset when a new attempt starts.
     @ObservationIgnored
     private var joinFailureReported: Bool = false
+    /// The 1-based attempt number of the join in flight, captured when the
+    /// attempt starts. It cannot be derived at outcome time:
+    /// `consecutiveFailureCount` is reset by `.ready` before the join task
+    /// reaches `handleJoinSuccess`, so a join that succeeded on the third try
+    /// would report itself as the first.
+    @ObservationIgnored
+    private var currentJoinAttemptNumber: Int = 1
     @ObservationIgnored
     private var resetTask: Task<Void, Never>?
     @ObservationIgnored
@@ -812,6 +819,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         if !continuesParkedAttempt {
             verificationStartedAt = CFAbsoluteTimeGetCurrent()
             joinFailureReported = false
+            currentJoinAttemptNumber = consecutiveFailureCount + 1
             let startActions: any CoreActions = coreActions
             let startSource: ConversationSource = joinSource
             Task { await startActions.joinAttemptStarted(source: startSource) }
@@ -920,10 +928,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         inboxReadinessTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(Constant.joinWaitWindow))
             guard !Task.isCancelled, let self else { return }
-            self.emitJoinFailure(
-                reason: .inboxNeverReady,
-                attemptNumber: self.consecutiveFailureCount + 1
-            )
+            self.emitJoinFailure(reason: .inboxNeverReady)
         }
     }
 
@@ -938,7 +943,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         joinFailureReported = true
         let waitDuration = Float(CFAbsoluteTimeGetCurrent() - startedAt)
         let source: ConversationSource = joinSource
-        let attempt: Int = consecutiveFailureCount + 1
+        let attempt: Int = currentJoinAttemptNumber
         let actions: any CoreActions = coreActions
         Task {
             await actions.joinedConversation(
@@ -979,7 +984,7 @@ extension NewConversationViewModel {
         joinFailureReported = false
         let memberCount: Int = conversationViewModel?.conversation.members.count ?? 0
         let hasAssistant: Bool = conversationViewModel?.conversation.members.contains { $0.isAgent } ?? false
-        let attempt: Int = consecutiveFailureCount + 1
+        let attempt: Int = currentJoinAttemptNumber
         Task {
             await actions.joinedConversation(
                 verificationDuration: duration,
@@ -1008,7 +1013,6 @@ extension NewConversationViewModel {
     @MainActor
     private func emitJoinFailure(
         reason: JoinFailureReason,
-        attemptNumber: Int,
         creatorReason: String? = nil
     ) {
         joinTimeoutTask?.cancel()
@@ -1032,7 +1036,7 @@ extension NewConversationViewModel {
                 isSuccess: false,
                 failureReason: reason,
                 creatorReason: creatorReason,
-                attemptNumber: attemptNumber
+                attemptNumber: currentJoinAttemptNumber
             )
         }
     }
@@ -1042,10 +1046,7 @@ extension NewConversationViewModel {
         // The user is watching the failure UI now, not the verifying state.
         // This path threw out of the join task, so no failure has been
         // counted for it yet.
-        emitJoinFailure(
-            reason: .from(joinError: error),
-            attemptNumber: consecutiveFailureCount + 1
-        )
+        emitJoinFailure(reason: .from(joinError: error))
         withAnimation {
             qrScannerViewModel.resetScanning()
 
@@ -1591,7 +1592,6 @@ extension NewConversationViewModel {
         // before this ran, so it is already this attempt's number.
         emitJoinFailure(
             reason: .from(inviteJoinErrorType: error.errorType),
-            attemptNumber: consecutiveFailureCount,
             creatorReason: error.reason
         )
         cleanUpUIForError()
@@ -1621,10 +1621,7 @@ extension NewConversationViewModel {
     private func handleErrorState(_ error: Error) {
         // No-ops for a creation failure: only a join sets the stamp
         // `emitJoinFailure` gates on.
-        emitJoinFailure(
-            reason: .from(joinError: error),
-            attemptNumber: consecutiveFailureCount
-        )
+        emitJoinFailure(reason: .from(joinError: error))
         cleanUpUIForError()
         currentError = error
 

@@ -62,6 +62,32 @@ final class NewConversationViewModelJoinTelemetryTests: XCTestCase {
         XCTAssertEqual(fixtures.actions.startCount, 0)
     }
 
+    /// A join that succeeds on a retry must report the attempt it actually
+    /// was. `.ready` resets `consecutiveFailureCount` before the join task
+    /// reaches `handleJoinSuccess`, so deriving the number at outcome time
+    /// reported every successful retry as the first attempt.
+    func testSuccessfulRetryReportsItsRealAttemptNumber() async {
+        let fixtures = makeFixtures()
+
+        fixtures.viewModel.joinConversation(inviteCode: Constant.inviteCode)
+        fixtures.stateManager.setState(
+            .joinFailed(inviteTag: "tag", error: Self.expiredJoinError)
+        )
+        await waitFor { !fixtures.actions.joinOutcomes.isEmpty }
+        XCTAssertEqual(fixtures.actions.joinOutcomes.first?.attemptNumber, 1)
+
+        // The mock now carries the retry through to `.ready(origin: .joined)`,
+        // which is what resets the failure counter mid-flight.
+        fixtures.stateManager.autoCompletesActions = true
+        fixtures.viewModel.joinConversation(inviteCode: Constant.inviteCode)
+        await waitFor { fixtures.actions.joinOutcomes.contains { $0.isSuccess } }
+
+        let success = fixtures.actions.joinOutcomes.first { $0.isSuccess }
+        XCTAssertNotNil(success, "The retry must report a successful join")
+        XCTAssertEqual(success?.attemptNumber, 2,
+                       "A join that succeeded on the second try reports attempt 2, not 1")
+    }
+
     /// The funnel's denominator counts attempts, not calls into the join path.
     func testJoinAttemptIsReportedOncePerAttempt() async {
         let fixtures = makeFixtures()
