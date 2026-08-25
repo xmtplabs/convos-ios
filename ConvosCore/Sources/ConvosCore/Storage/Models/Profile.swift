@@ -210,6 +210,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         static let publishedURLKey: String = "publishedUrl"
         static let instanceIdKey: String = "instanceId"
         static let emailKey: String = "email"
+        static let phoneKey: String = "phone"
         static let variantKey: String = "variant"
     }
 }
@@ -324,6 +325,19 @@ extension Profile {
     /// `agentTemplateId` above.
     public var agentEmail: String? {
         metadata?[Constant.emailKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// The agent's SMS number in E.164, read from the agent's per-conversation
+    /// profile metadata. The assistants worker stamps `phone` onto the profile
+    /// when it provisions a number, so an agent that has never provisioned SMS
+    /// reads as nil, as do human members. Drives the Text row in the contact
+    /// card's Contact Info section. Empty / whitespace-only values are coerced
+    /// to nil, mirroring `agentEmail` above.
+    public var agentPhone: String? {
+        metadata?[Constant.phoneKey]?.stringValue.flatMap { value in
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
