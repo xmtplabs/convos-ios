@@ -609,32 +609,20 @@ enum YourSpaceBriefingBuilder {
 
     private static func headline(sourceCount: Int, attentionUpdates: [YourSpaceUpdate]) -> String {
         guard sourceCount > 0 else {
-            return "Your private space is ready. Start a convo and the context will grow with you."
+            return "Your private space is ready. Add a convo or connect an agent, and it will start keeping up with you."
         }
 
         guard let first = attentionUpdates.first else {
             let noun = sourceCount == 1 ? "convo" : "convos"
-            return "Nothing needs you right now. Your Space is quietly keeping up with \(sourceCount) \(noun)."
+            return "You’re caught up. Your agents are quietly keeping up with \(sourceCount) \(noun)."
         }
 
-        guard let second = attentionUpdates.dropFirst().first else {
-            return headlineClause(for: first)
+        if attentionUpdates.count == 1 {
+            return "\(first.conversationTitle) has something new for you."
         }
 
-        let remaining = attentionUpdates.count - 2
-        let ending = remaining > 0
-            ? " \(remaining) more \(remaining == 1 ? "convo has" : "convos have") new context."
-            : ""
-        return headlineClause(for: first) + " "
-            + headlineClause(for: second)
-            + ending
-    }
-
-    private static func headlineClause(for update: YourSpaceUpdate) -> String {
-        if let personName = update.personName {
-            return "\(personName) shared something new in \(update.conversationTitle)."
-        }
-        return "\(update.conversationTitle) has new context."
+        let updateWord = attentionUpdates.count == 1 ? "update" : "updates"
+        return "You have \(attentionUpdates.count) \(updateWord) to catch up on. Start with \(first.conversationTitle)."
     }
 
     private static func peopleCount(in conversations: [Conversation]) -> Int {

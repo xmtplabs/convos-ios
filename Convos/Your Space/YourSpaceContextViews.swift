@@ -113,10 +113,10 @@ struct YourSpaceContextSection: View {
     private var sectionHeader: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                Text("Me & My Stuff")
+                Text("Context across your life")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.colorTextPrimary)
-                Text("Photos, links, files, connections, and useful details—all private until you share them.")
+                Text("Everything from your Convos and anything you share in from other apps—private until you use it.")
                     .font(.subheadline)
                     .foregroundStyle(.colorTextSecondary)
             }
@@ -379,11 +379,14 @@ struct YourSpaceMeSummaryCard: View {
                     }
 
                     VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                        Text("Me & My Stuff")
+                        Text("Your context")
                             .font(.title2.weight(.bold))
                             .foregroundStyle(.colorTextPrimary)
+                        Text("Across your life")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.colorTextSecondary)
                         Text(profile.displayName)
-                            .font(.subheadline)
+                            .font(.caption)
                             .foregroundStyle(.colorTextSecondary)
                             .lineLimit(1)
                     }
@@ -398,7 +401,7 @@ struct YourSpaceMeSummaryCard: View {
                         .accessibilityHidden(true)
                 }
 
-                Text("Your photos, links, files, connections, and the useful details Convos helps you keep close.")
+                Text("Everything from your Convos and anything you share in from other apps, ready to find, make with, or use anywhere.")
                     .font(.body)
                     .foregroundStyle(.colorTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -441,9 +444,9 @@ struct YourSpaceMeSummaryCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Me & My Stuff, \(accessibilitySummary), \(usefulDetailCount) useful details")
-        .accessibilityHint("Opens your private personal library")
-        .accessibilityIdentifier("your-space-me-and-my-stuff")
+        .accessibilityLabel("Context across your life, \(accessibilitySummary), \(usefulDetailCount) useful details")
+        .accessibilityHint("Opens your private context library")
+        .accessibilityIdentifier("your-space-life-context")
     }
 
     private var fileCount: Int {
@@ -1461,6 +1464,10 @@ struct YourSpaceShareDestinationSheet: View {
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var query: String = ""
+    @State private var systemShareItems: [Any] = []
+    @State private var isPreparingSystemShare: Bool = false
+    @State private var presentingSystemShare: Bool = false
+    @State private var systemShareError: String?
 
     private var filteredConversations: [Conversation] {
         conversations
@@ -1474,42 +1481,148 @@ struct YourSpaceShareDestinationSheet: View {
 
     var body: some View {
         NavigationStack {
-            List(filteredConversations) { conversation in
-                Button {
-                    onSelect(conversation)
-                } label: {
-                    HStack(spacing: DesignConstants.Spacing.step3x) {
-                        ConversationAvatarView(
-                            conversation: conversation,
-                            conversationImage: nil,
-                            size: 44
-                        )
-                        .frame(width: 44, height: 44)
-                        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                            Text(conversation.computedDisplayName(memberNameOverride: memberNameOverride))
-                                .font(.body.weight(.medium))
-                                .foregroundStyle(.colorTextPrimary)
-                            Text("Review in the composer before sending")
-                                .font(.caption)
-                                .foregroundStyle(.colorTextSecondary)
+            List {
+                Section("Use anywhere") {
+                    Button {
+                        prepareSystemShare()
+                    } label: {
+                        HStack(spacing: DesignConstants.Spacing.step3x) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.colorTextPrimaryInverted)
+                                .frame(width: 44, height: 44)
+                                .background(.colorBackgroundInverted, in: .circle)
+
+                            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                                Text("Any chat app")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.colorTextPrimary)
+                                Text("Send the actual file, link, or detail with iOS")
+                                    .font(.caption)
+                                    .foregroundStyle(.colorTextSecondary)
+                            }
+
+                            Spacer(minLength: 0)
+
+                            if isPreparingSystemShare {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.colorTextTertiary)
+                            }
                         }
                     }
+                    .buttonStyle(.plain)
+                    .disabled(isPreparingSystemShare)
+                    .accessibilityIdentifier("your-space-share-anywhere")
                 }
-                .buttonStyle(.plain)
-            }
-            .overlay {
-                if filteredConversations.isEmpty {
-                    ContentUnavailableView.search(text: query)
+
+                Section("Convos") {
+                    ForEach(filteredConversations) { conversation in
+                        Button {
+                            onSelect(conversation)
+                        } label: {
+                            HStack(spacing: DesignConstants.Spacing.step3x) {
+                                ConversationAvatarView(
+                                    conversation: conversation,
+                                    conversationImage: nil,
+                                    size: 44
+                                )
+                                .frame(width: 44, height: 44)
+                                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                                    Text(conversation.computedDisplayName(memberNameOverride: memberNameOverride))
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.colorTextPrimary)
+                                    Text("Review in the composer before sending")
+                                        .font(.caption)
+                                        .foregroundStyle(.colorTextSecondary)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if filteredConversations.isEmpty {
+                        ContentUnavailableView.search(text: query)
+                            .listRowBackground(Color.clear)
+                    }
                 }
             }
             .navigationTitle("Share \(item.title)")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $query, prompt: "Choose a convo")
+            .shareSheet(isPresented: $presentingSystemShare, items: systemShareItems)
+            .alert("Couldn’t share that item", isPresented: Binding(
+                get: { systemShareError != nil },
+                set: { if !$0 { systemShareError = nil } }
+            )) {
+                Button("OK", role: .cancel) { systemShareError = nil }
+            } message: {
+                Text(systemShareError ?? "Try again in a moment.")
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
             }
         }
+    }
+
+    private func prepareSystemShare() {
+        guard !isPreparingSystemShare else { return }
+        isPreparingSystemShare = true
+        Task { @MainActor in
+            do {
+                systemShareItems = try await nativeShareItems()
+                presentingSystemShare = true
+            } catch {
+                systemShareError = error.localizedDescription
+            }
+            isPreparingSystemShare = false
+        }
+    }
+
+    @MainActor
+    private func nativeShareItems() async throws -> [Any] {
+        switch item.source {
+        case let .local(file):
+            if item.kind == .note || item.kind == .link,
+               let text = try? String(contentsOf: file.url, encoding: .utf8),
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if item.kind == .link, let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    return [url]
+                }
+                return [text]
+            }
+            return [file.url]
+
+        case let .conversation(context):
+            if let destination = context.destinationURLString,
+               let url = URL(string: destination) {
+                return [url]
+            }
+            if [.address, .phone, .email].contains(item.kind) {
+                return [textShareFallback]
+            }
+            if let key = context.attachmentKey {
+                let filename = context.filename ?? context.title
+                let url = try await FileAttachmentPreviewLoader.loadPreviewURL(key: key, filename: filename)
+                return [url]
+            }
+            return [textShareFallback]
+
+        case let .rememberedField(field):
+            return [field.shareText]
+        }
+    }
+
+    private var textShareFallback: String {
+        guard let detail = item.detail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !detail.isEmpty,
+              detail != item.title else {
+            return item.title
+        }
+        return "\(item.title)\n\(detail)"
     }
 }

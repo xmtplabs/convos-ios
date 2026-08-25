@@ -1,8 +1,8 @@
 /*
- THESIS: Your Space is a private context home with three fast routes back into recent Convos, a personal library, and personal agents that remain separate from every group.
+ THESIS: Your Space is the private agent layer across a person’s whole life: it says what changed, shows which human-owned agents are listening, and lets any useful result travel anywhere.
  OWN-WORLD: Native Convos neutrals, circular identity, glass reserved for persistent controls, and open editorial spacing between flat lists and one expressive Me card.
- STORY: On launch the user learns what changed, jumps into a recent Convo, sees what they own, and works privately with an agent before choosing what to save or share.
- FIRST VIEWPORT: Profile, anchored Your Space switcher, and the add control sit above the briefing, three recent Convos, and the beginning of Me & My Stuff.
+ STORY: On launch the user understands what was missed, acts on it, inspects continuous agent access, and can use their context or agent work in any chat app.
+ FIRST VIEWPORT: Profile, anchored Your Space switcher, and add sit above one narrative briefing and three actions: catch up, inspect listening agents, and Use Anywhere.
  FORM: A living cross-conversation digest using the pinned shell recorded as YS-SHELL-2026-08-18; no generated concept seed was used.
  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
  */
@@ -58,7 +58,6 @@ struct YourSpaceView: View {
     @State private var presentingPersonalCard: Bool = false
     @State private var presentingMeAndMyStuff: Bool = false
     @State private var presentingManageAgents: Bool = false
-    @State private var showsAllAgentsAcrossConvos: Bool = false
     @State private var sharingItem: YourSpaceContextItem?
     @State private var shareNotice: YourSpaceShareNotice?
     @State private var sidebarWidth: CGFloat = 0.0
@@ -397,15 +396,19 @@ private extension YourSpaceView {
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step10x) {
+                    briefingHero
+
+                    homeActions
+
+                    agentsWidget
+
+                    contextSection
+
                     recentConvosSection
 
                     if conversations.isEmpty {
                         emptyActions
                     }
-
-                    contextSection
-
-                    bringYourOwnAgentCallout
 
                     if dynamicTypeSize.isAccessibilitySize {
                         accessibilityActions
@@ -415,17 +418,12 @@ private extension YourSpaceView {
                         peopleWidget
                     }
 
-                    if !agentsAcrossConvos.isEmpty {
-                        agentsWidget
-                    }
-
                     contextPromise
 
                     if showsFootprintWidget, briefing.sourceCount > 0 {
                         footprintWidget
                     }
 
-                    briefingHero
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step6x)
                 .padding(.top, DesignConstants.Spacing.step8x)
@@ -507,7 +505,7 @@ private extension YourSpaceView {
         .buttonStyle(.plain)
         .frame(width: 44, height: 44)
         .contentShape(.circle)
-        .accessibilityLabel("Open Me & My Stuff")
+        .accessibilityLabel("Open context across your life")
         .accessibilityIdentifier("your-space-profile-button")
     }
 
@@ -591,7 +589,96 @@ private extension YourSpaceView {
     private var sourceSummary: String {
         let convoWord = briefing.sourceCount == 1 ? "convo" : "convos"
         let peopleWord = briefing.peopleCount == 1 ? "person" : "people"
-        return "Private briefing across \(briefing.sourceCount) \(convoWord) and \(briefing.peopleCount) \(peopleWord)."
+        let contextWord = allContextItems.count == 1 ? "thing" : "things"
+        return "Private across \(briefing.sourceCount) \(convoWord), \(briefing.peopleCount) \(peopleWord), and \(allContextItems.count) saved \(contextWord)."
+    }
+
+    @ViewBuilder
+    private var homeActions: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(spacing: DesignConstants.Spacing.step3x) {
+                if briefing.attentionCount > 0 {
+                    catchUpAction
+                }
+                agentsAction
+                useAnywhereAction
+            }
+        } else {
+            VStack(spacing: DesignConstants.Spacing.step3x) {
+                if briefing.attentionCount > 0 {
+                    catchUpAction
+                }
+                HStack(spacing: DesignConstants.Spacing.step3x) {
+                    agentsAction
+                    useAnywhereAction
+                }
+            }
+        }
+    }
+
+    private var catchUpAction: some View {
+        homeAction(
+            title: "Catch up on \(briefing.attentionCount)",
+            systemImage: "sparkles",
+            isPrimary: true,
+            isEnabled: true
+        ) {
+            guard let update = briefing.attentionUpdates.first else { return }
+            selectConversation(update.conversation)
+        }
+    }
+
+    private var agentsAction: some View {
+        homeAction(
+            title: "Agents",
+            systemImage: "ear.fill",
+            isPrimary: false,
+            isEnabled: true
+        ) {
+            presentingManageAgents = true
+        }
+    }
+
+    private var useAnywhereAction: some View {
+        homeAction(
+            title: "Use anywhere",
+            systemImage: "square.and.arrow.up",
+            isPrimary: false,
+            isEnabled: true
+        ) {
+            browsingContextKind = .all
+        }
+    }
+
+    private func homeAction(
+        title: String,
+        systemImage: String,
+        isPrimary: Bool,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Image(systemName: systemImage)
+                    .font(.caption.weight(.bold))
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(isPrimary ? Color.colorTextPrimaryInverted : Color.colorTextPrimary)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(
+                isPrimary ? Color.colorBackgroundInverted : Color.colorBackgroundRaisedSecondary,
+                in: .rect(cornerRadius: DesignConstants.CornerRadius.medium)
+            )
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1 : 0.62)
+        .accessibilityIdentifier("your-space-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))-action")
     }
 
     private var recentConversations: [Conversation] {
@@ -726,7 +813,7 @@ private extension YourSpaceView {
             .frame(maxWidth: .infinity)
         }
         .background(.colorBackgroundSurfaceless)
-        .navigationTitle("Me & My Stuff")
+        .navigationTitle("Your context")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
@@ -821,81 +908,77 @@ private extension YourSpaceView {
         return Array(entries)
     }
 
-    private var visibleAgentsAcrossConvos: [YourSpaceAgentConvoEntry] {
-        showsAllAgentsAcrossConvos ? agentsAcrossConvos : Array(agentsAcrossConvos.prefix(3))
-    }
-
     private var agentsWidget: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                    Text("Agents across your convos")
+                    Text("Agents you can use")
                         .font(.title2.weight(.bold))
                         .foregroundStyle(.colorTextPrimary)
-                    Text("Jump straight into a private DM with an agent already in that group.")
+                    Text("Yours and others’, with continuous access and permissions visible.")
                         .font(.subheadline)
                         .foregroundStyle(.colorTextSecondary)
                 }
 
                 Spacer(minLength: DesignConstants.Spacing.step3x)
 
-                if agentsAcrossConvos.count > 3 {
-                    Button(showsAllAgentsAcrossConvos ? "Show less" : "See all") {
-                        withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) {
-                            showsAllAgentsAcrossConvos.toggle()
-                        }
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.colorTextPrimary)
-                    .accessibilityIdentifier("your-space-agents-see-all")
+                Button("See all") {
+                    presentingManageAgents = true
                 }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.colorTextPrimary)
+                .accessibilityIdentifier("your-space-agents-see-all")
             }
 
             VStack(spacing: 0) {
-                ForEach(Array(visibleAgentsAcrossConvos.enumerated()), id: \.element.id) { index, entry in
+                ForEach(Array(Array(manageAgents.prefix(3)).enumerated()), id: \.element.id) { index, agent in
                     Button {
-                        viewModel.selectAgentDm(
-                            in: entry.conversation,
-                            agentInboxId: entry.agent.profile.inboxId
-                        )
+                        openAgent(agent)
                     } label: {
                         HStack(spacing: DesignConstants.Spacing.step3x) {
-                            ProfileAvatarView(
-                                profile: entry.agent.profile,
-                                profileImage: nil,
-                                useSystemPlaceholder: false,
-                                agentVerification: entry.agent.agentVerification,
-                                size: 44
-                            )
-                            .frame(width: 44, height: 44)
+                            Image(systemName: agent.symbolName)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Color.white)
+                                .frame(width: 44, height: 44)
+                                .background(agent.tint, in: .circle)
 
                             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                                Text(entry.agent.displayName(contactNameFallback: contactNameOverride))
+                                Text(agent.name)
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.colorTextPrimary)
                                     .lineLimit(1)
-                                Text("in \(entry.conversation.computedDisplayName(memberNameOverride: contactNameOverride))")
+                                Text(agent.relationship)
                                     .font(.caption)
                                     .foregroundStyle(.colorTextSecondary)
                                     .lineLimit(1)
+                                HStack(spacing: DesignConstants.Spacing.stepX) {
+                                    Circle()
+                                        .fill(agent.isListening ? Color.green : Color.colorTextTertiary)
+                                        .frame(width: 6, height: 6)
+                                    Text(agent.status)
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.colorTextSecondary)
+                                        .lineLimit(1)
+                                }
                             }
 
                             Spacer(minLength: DesignConstants.Spacing.step2x)
 
-                            Image(systemName: "message.fill")
+                            Image(systemName: agent.primaryConversationId == nil ? "chevron.right" : "message.fill")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.colorTextPrimary)
                                 .frame(width: 32, height: 32)
                                 .background(.colorFillMinimal, in: .circle)
                         }
                         .padding(.horizontal, DesignConstants.Spacing.step3x)
-                        .frame(minHeight: 68)
+                        .frame(minHeight: 76)
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Message \(entry.agent.displayName) in \(entry.conversation.computedDisplayName(memberNameOverride: contactNameOverride))")
+                    .accessibilityLabel("\(agent.name), \(agent.relationship)")
+                    .accessibilityValue("\(agent.status). \(agent.permissionSummary)")
 
-                    if index < visibleAgentsAcrossConvos.count - 1 {
+                    if index < min(manageAgents.count, 3) - 1 {
                         Divider().padding(.leading, 68)
                     }
                 }
@@ -904,6 +987,24 @@ private extension YourSpaceView {
             .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.medium))
         }
         .accessibilityIdentifier("your-space-agents-widget")
+    }
+
+    private func openAgent(_ agent: ManageAgentsView.Agent) {
+        if let conversationId = agent.primaryConversationId,
+           let inboxId = agent.agentInboxId,
+           let conversation = conversations.first(where: { $0.id == conversationId }) {
+            viewModel.selectAgentDm(in: conversation, agentInboxId: inboxId)
+            return
+        }
+
+        if let providerRawValue = agent.providerRawValue,
+           let harness = personalAgentSelectorHarnesses.first(where: { $0.provider.rawValue == providerRawValue }) {
+            selectPersonalAgent(harness)
+            openPersonalAgent(mode: .chat)
+            return
+        }
+
+        presentingManageAgents = true
     }
 
     private var bringYourOwnAgentCallout: some View {
@@ -1294,15 +1395,159 @@ private extension YourSpaceView {
     }
 
     private var manageAgents: [ManageAgentsView.Agent] {
+        [starterConvosAgent] + groupOwnedAgents + connectedExternalAgents
+    }
+
+    private var starterConvosAgent: ManageAgentsView.Agent {
+        let placeWord = briefing.sourceCount == 1 ? "Place" : "Places"
+        let places: [ManageAgentsView.Agent.Place] = conversations
+            .sorted { ($0.lastMessage?.createdAt ?? $0.createdAt) > ($1.lastMessage?.createdAt ?? $1.createdAt) }
+            .prefix(8)
+            .map { conversation in
+                ManageAgentsView.Agent.Place(
+                    id: conversation.id,
+                    name: conversation.computedDisplayName(memberNameOverride: contactNameOverride),
+                    access: "Private Home context",
+                    replyBehavior: "Private replies",
+                    isListening: true
+                )
+            }
+        return ManageAgentsView.Agent(
+            id: "convos-starter-agent",
+            name: "Convos Agent",
+            subtitle: "Your private agent across Convos",
+            symbolName: "sparkles",
+            tint: .colorLava,
+            relationship: "Owned by you",
+            owner: "you",
+            accessSummary: briefing.sourceCount > 0
+                ? "Keeping up across \(briefing.sourceCount) \(placeWord)"
+                : "Ready when you add a Place",
+            permissionSummary: "Private context across your Convos and anything you share in",
+            billingSummary: "Included by Convos",
+            status: briefing.sourceCount > 0
+                ? "Listening across \(briefing.sourceCount) \(placeWord)"
+                : "Ready to listen",
+            isListening: briefing.sourceCount > 0,
+            places: places,
+            shareText: "I use my Convos Agent to keep up across conversations and make useful things I can share anywhere."
+        )
+    }
+
+    private var groupOwnedAgents: [ManageAgentsView.Agent] {
+        let grouped = Dictionary(grouping: agentsAcrossConvos, by: { $0.agent.profile.inboxId })
+        return grouped.values.compactMap { entries in
+            guard let first = entries.first else { return nil }
+            let sortedEntries = entries.sorted {
+                ($0.conversation.lastMessage?.createdAt ?? $0.conversation.createdAt)
+                    > ($1.conversation.lastMessage?.createdAt ?? $1.conversation.createdAt)
+            }
+            let agentName = first.agent.displayName(contactNameFallback: contactNameOverride)
+            let owner = ownerIdentity(for: first)
+            let places = sortedEntries.map { entry in
+                let mode = entry.conversation.participationMode
+                return ManageAgentsView.Agent.Place(
+                    id: entry.conversation.id,
+                    name: entry.conversation.computedDisplayName(memberNameOverride: contactNameOverride),
+                    access: mode == .paused ? "No new context" : "Continuous Convo context",
+                    replyBehavior: replyBehavior(for: mode),
+                    isListening: mode != .paused
+                )
+            }
+            let listeningCount = places.filter(\.isListening).count
+            let placeWord = listeningCount == 1 ? "Place" : "Places"
+            let shareText: String = {
+                guard let shareEntry = sortedEntries.first(where: { $0.conversation.invite?.isEmpty == false }),
+                      let invite = shareEntry.conversation.invite else {
+                    return "Use \(agentName) with me in Convos. It is owned by \(owner.name) and only uses the Places we allow."
+                }
+                let placeName = shareEntry.conversation.computedDisplayName(memberNameOverride: contactNameOverride)
+                return "Use \(agentName) with me in \(placeName) on Convos: \(invite.inviteURLString)"
+            }()
+
+            return ManageAgentsView.Agent(
+                id: "convos-agent:\(first.agent.profile.inboxId)",
+                name: agentName,
+                subtitle: "Convos Agent",
+                symbolName: "sparkles",
+                tint: .colorLava,
+                relationship: owner.isCurrentUser ? "Owned by you" : "Shared by \(owner.name)",
+                owner: owner.isCurrentUser ? "you" : owner.name,
+                accessSummary: listeningCount > 0
+                    ? "Listening continuously in \(listeningCount) \(placeWord)"
+                    : "Paused in every Place",
+                permissionSummary: permissionSummary(for: places),
+                billingSummary: owner.isCurrentUser ? "You control usage" : "\(owner.name) controls usage",
+                status: listeningCount > 0
+                    ? "Listening in \(listeningCount) \(placeWord)"
+                    : "Paused",
+                isListening: listeningCount > 0,
+                places: places,
+                shareText: shareText,
+                primaryConversationId: sortedEntries.first?.conversation.id,
+                agentInboxId: first.agent.profile.inboxId
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.isListening != rhs.isListening { return lhs.isListening }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private var connectedExternalAgents: [ManageAgentsView.Agent] {
         personalAgentSelectorHarnesses.map { harness in
             ManageAgentsView.Agent(
-                id: harness.id,
+                id: "external:\(harness.id)",
                 name: harness.name,
                 subtitle: harness.provider.switcherSubtitle,
                 symbolName: harness.provider.symbolName,
-                tint: harness.provider.tint
+                tint: harness.provider.tint,
+                relationship: "Connected by you",
+                owner: "you",
+                accessSummary: "Available privately from Home and any Convo",
+                permissionSummary: "Uses only the Place or context you explicitly allow",
+                billingSummary: "Your \(harness.provider.displayName) connection",
+                status: "Connected · choose a Place",
+                isListening: false,
+                shareText: "I use \(harness.name) alongside my Convos Agent. Add your own agent in Convos and use its work in any chat app.",
+                providerRawValue: harness.provider.rawValue
             )
         }
+    }
+
+    private func ownerIdentity(for entry: YourSpaceAgentConvoEntry) -> (name: String, isCurrentUser: Bool) {
+        let currentInboxId = entry.conversation.members.first(where: \.isCurrentUser)?.profile.inboxId
+        if let inviter = entry.agent.invitedBy {
+            let isCurrentUser = inviter.inboxId == currentInboxId
+            let name = isCurrentUser
+                ? "you"
+                : contactNameOverride(inviter.inboxId) ?? inviter.displayName
+            return (name, isCurrentUser)
+        }
+
+        let creator = entry.conversation.creator
+        let name = creator.isCurrentUser
+            ? "you"
+            : creator.displayName(contactNameFallback: contactNameOverride)
+        return (name, creator.isCurrentUser)
+    }
+
+    private func replyBehavior(for mode: ConversationParticipationMode) -> String {
+        switch mode {
+        case .speakFreely: "Can chime in"
+        case .mentionsOnly: "Replies on mention"
+        case .paused: "Offline"
+        }
+    }
+
+    private func permissionSummary(for places: [ManageAgentsView.Agent.Place]) -> String {
+        guard !places.isEmpty else { return "No Place access" }
+        let listening = places.filter(\.isListening)
+        if listening.isEmpty { return "No new messages · private history stays scoped" }
+        if listening.allSatisfy({ $0.replyBehavior == "Replies on mention" }) {
+            return "Continuous context · private replies · responds on mention"
+        }
+        return "Continuous context · speech follows each Place’s permission"
     }
 
     private var dockTitle: String {

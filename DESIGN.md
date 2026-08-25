@@ -120,7 +120,7 @@ Convos is a quiet personal briefing room, not an inbox dashboard. Its visual wor
 
 The briefing voice is expressive, while every control around it remains unmistakably native iOS. System components, semantic colors, Dynamic Type, and familiar sheet and list behavior keep the interface calm and trustworthy; privacy is communicated through visible provenance and deliberate boundaries rather than decorative security theater.
 
-The authenticated shell evolves `YS-SHELL-2026-08-18`: profile at top left opens Me & My Stuff, the centered space switcher remains anchored, add sits at top right, and a More–agent command–chat tray remains at the bottom. Settings is nested inside Me & My Stuff. The switcher expands downward from the header rather than rising from the bottom.
+The authenticated shell evolves `YS-SHELL-2026-08-18`: profile at top left opens Your context, the centered space switcher remains anchored, add sits at top right, and a More–agent command–chat tray remains at the bottom. Settings is nested inside Your context. The switcher expands downward from the header rather than rising from the bottom.
 
 **Key Characteristics:**
 
@@ -177,15 +177,15 @@ The palette is an adaptive black-to-white neutral system whose meaning survives 
 
 ## Layout
 
-The shell is based on `YS-SHELL-2026-08-18`. Its top safe-area bar places circular profile identity, a flexible centered switcher, and a circular add control on one line. Settings lives inside Me & My Stuff so the home chrome stays focused. The main briefing scrolls independently beneath it, and a fixed More–agent command–chat tray occupies the bottom safe area when reading size permits. The flexible command bar names its purpose in text instead of relying on an isolated waveform symbol.
+The shell is based on `YS-SHELL-2026-08-18`. Its top safe-area bar places circular profile identity, a flexible centered switcher, and a circular add control on one line. Settings lives inside Your context so the home chrome stays focused. The main briefing scrolls independently beneath it, and a fixed More–agent command–chat tray occupies the bottom safe area when reading size permits. The flexible command bar names its purpose in text instead of relying on an isolated waveform symbol.
 
-The home scroll view owns the visible viewport. Temporary chrome such as the anchored convo switcher is an overlay on that viewport and must never wrap, expand, or replace the scroll container's layout bounds. Its reading order begins with Recent Convos and the high-frequency personal destinations; the serif private briefing closes the scroll, directly after Your Space footprint when present, as supporting context rather than launch-page hero copy.
+The home scroll view owns the visible viewport. Temporary chrome such as the anchored convo switcher is an overlay on that viewport and must never wrap, expand, or replace the scroll container's layout bounds. Its reading order is narrative → catch-up/Agents/Use anywhere actions → access-aware Agents → Your context → seven Recent Convos → optional supporting widgets. The narrative is the launch hero; the conversation index remains one gesture away in the header rather than taking over Home.
 
 Content follows the existing `DesignConstants.Spacing` four-point rhythm. The main column uses a `24pt` horizontal inset, `32pt` top inset, `40pt` section rhythm, and `64pt` bottom breathing room, with a maximum readable width of `720pt`. Full-width empty-state and accessibility actions stop at `520pt`.
 
 At accessibility Dynamic Type sizes, the bottom controls leave the safe-area overlay and reappear as full-width, `52pt`-minimum actions inside the scrolling content. The compact top chrome caps at the largest standard Dynamic Type size so profile, switcher, and add remain one usable row while the briefing continues to scale through the accessibility sizes. Text wraps vertically, update details retain conversation provenance, and controls preserve at least a `44pt` target without squeezing the briefing.
 
-**The Pinned Shell Rule.** Preserve the profile–switcher–add top line and More–agent command–chat bottom line. Keep settings inside the profile section. The complete conversation index belongs in the anchored searchable panel; Home may show exactly three recent shortcuts, never an unbounded replacement inbox.
+**The Pinned Shell Rule.** Preserve the profile–switcher–add top line and More–agent command–chat bottom line. Keep settings inside the profile section. The complete conversation index belongs in the anchored searchable panel; Home may show at most seven recent shortcuts below the private agent and context layers, never an unbounded replacement inbox.
 
 **The Accessibility Reflow Rule.** When text reaches an accessibility size, move persistent bottom actions into the content flow rather than forcing them to compete with enlarged text.
 
@@ -207,9 +207,9 @@ Identity is circular: profile and conversation avatars, people, unread dots, and
 
 ### Persistent Shell Controls
 
-- **Profile:** A circular `40pt` avatar inside a `44pt` target with a subtle semantic border; it opens Me & My Stuff and does not use glass.
+- **Profile:** A circular `40pt` avatar inside a `44pt` target with a subtle semantic border; it opens Your context and does not use glass.
 - **Switcher:** A flexible `44pt`-minimum capsule with a semibold body label and secondary chevron. It opens a right-aligned panel directly below the header, approximately 74% of the available content height. The panel keeps Your Space first, then search, then the complete recency-sorted convo list with unread state in `68pt`-minimum rows.
-- **Settings:** A gear inside Me & My Stuff opens the existing app settings surface without adding another Home control.
+- **Settings:** A gear inside Your context opens the existing app settings surface without adding another Home control.
 - **Add:** A circular interactive-glass control exposing exactly start and QR-join actions.
 - **More:** A circular interactive-glass `Menu` whose native popup opens Bring your own agent, Connections, Upload files, Files, Add a widget, and Connected convos directly—without an intermediate tools sheet.
 - **Voice:** A centered `56pt` Lava circle with a waveform symbol; it opens on-device recording and transcription into the private briefing assistant.
@@ -221,17 +221,17 @@ The large system-serif sentence is the signature component. It describes what ne
 
 ### Recent Convos
 
-Exactly the three most recent real conversations lead the Home content when at least three exist. Rows stay flat on the canvas, use `48pt` circular avatars inside `72pt`-minimum targets, one-line previews, native dividers, explicit unread language, and a small Lava signal. Tapping pushes directly into the full-height Group surface; no Context or group-home screen sits between Home and chat.
+Up to seven recent real conversations remain available below Agents and Your context. Rows stay flat on the canvas, use `48pt` circular avatars inside `72pt`-minimum targets, one-line previews, native dividers, explicit unread language, and a small Lava signal. Tapping pushes directly into the full-height Group surface; no Context or group-home screen sits between Home and chat.
 
 ### Convo Surface Switcher
 
 Every Convo is one full-screen shell with a compact **Group / Agent / Context** control floating beneath the group identity. Regular Convo entry always selects Group. Back stays in the top-left `44pt` target; the centered identity opens group settings, and Invite remains at top right wherever group actions apply. Group is the normal conversation, Agent is the user's private lane with the group agent first and connected personal agents available from its selector, and Context is the group's Space. The shell never exposes a half-height chat state, resize grabber, or persistent bottom navigation. Group and Agent own their respective bottom composers, while Context devotes the viewport to the Space. Switching surfaces preserves the Context browser stack, transcript positions, selected personal agent, and composer drafts.
 
-### Me & My Stuff
+### Your Context
 
 Home carries one generous navigational summary card with profile identity, counts for photos, links, files, and connections, a useful-details count, and a View all affordance. It never opens directly into edit mode. Its pushed destination begins with the personal card, followed by search, the category grid, compact Useful details filters, recent assets, and See all context. A distinct Edit toolbar action opens the contact-card editor, including bounded remembered fields and neutral recent-context suggestions. Every item preserves source-convo and sender provenance when available; private local items are labeled as such.
 
-Agents across your convos uses native rows with agent identity, source convo, and a direct private-lane affordance. It renders three rows initially and See all expands the existing bounded list inline.
+Agents you can use appears before context as one access-aware roster. Convos agents owned by the user, human-owned agents shared through a Place, and connected external agents use the same identity pattern. Rows expose ownership relationship and continuous Listen state; detail pages show context scope, speech behavior, cost ownership, and every Place where the agent is available.
 
 Bring personal agents to Convos is a permanent raised-neutral section immediately after Me. Its boundary copy states that the lane belongs only to the user, is not connected to a group, and cannot be messaged by group members. The same connection flow is reachable from More. Codex uses Mac pairing and a revocable capability token; Town uses its MCP connection; Tasklet appears directly below Town and combines the one-use MCP return bridge with a Tasklet webhook automation. Grok Bot appears directly below Tasklet and uses one outbound-only computer session: its waiting state exposes a clearly labeled Copy pairing token action with password-level handling guidance, its native multi-select list turns each enabled machine agent into a separately named `Grok Bot · Name` harness, and Check for new Grokbots lets the user add more later. Sensitive connection fields stay in Keychain. The persistent command bar names the active harness and offers a native switcher. Added provider identities persist independently of credentials; a disconnected row routes into provider-specific reconnect. Agent results render returned web links as explicit actions; the whole result or an individual link may be saved privately and staged for sharing. Talk to always starts with and defaults to the single group-local Convos agent—the verified live lane when available, or its orange fallback while syncing—then lists external agents the user has added, every enabled Grok Bot harness, and Ghost. Claude Code, Hermes, and OpenClaw remain previews; Connect MCP is Coming soon.
 
@@ -261,9 +261,9 @@ Context browsing, More menu destinations, sources, stored files, widget controls
 
 ### Private Input and Share Boundary
 
-Voice transcription, grounded chat answers, imported files, personal-card notes, and saved personal-agent text outputs remain on-device in Your Space. Any library item may expose an explicit Share action. Sharing first asks for a destination convo, then opens that convo with the item staged in its composer for review; it never sends automatically. The existing group-composer Share context flow remains available in PR and Dev prototype builds and is not yet enabled in Production.
+Voice transcription, grounded chat answers, imported files, personal-card notes, and saved personal-agent text outputs remain on-device in Your Space. Any library item or agent may expose an explicit Share action. The first destination is **Any chat app**, which prepares the real file, URL, or text and invokes the native iOS share sheet; Convos destinations follow and stage the item in a composer for review. Neither path sends automatically. The existing group-composer Share context flow remains available in PR and Dev prototype builds and is not yet enabled in Production.
 
-**The Open Boundary Rule.** Private context may cross into a convo only after the user explicitly chooses both the item and destination, and the destination composer visibly stages it for review. Creating, editing, browsing, or searching home context remains private.
+**The Open Boundary Rule.** Private context crosses an app boundary only after the user explicitly chooses the item and destination. Convos destinations visibly stage it for review; external destinations use the system share sheet. Creating, editing, browsing, or searching home context remains private.
 
 ## Do's and Don'ts
 

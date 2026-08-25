@@ -34,9 +34,9 @@ public enum AgentParticipationLevel: String, CaseIterable, Identifiable, Sendabl
 
     public var caption: String {
         switch self {
-        case .speakFreely: "Chime in any time"
-        case .mentionsOnly: "Only speaks if you @mention or say name"
-        case .paused: "Go offline, use no credits"
+        case .speakFreely: "Listens continuously · can chime in"
+        case .mentionsOnly: "Listens continuously · replies on mention"
+        case .paused: "No new context · uses no credits"
         }
     }
 

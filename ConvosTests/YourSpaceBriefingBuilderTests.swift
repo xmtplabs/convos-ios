@@ -27,9 +27,8 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
 
         XCTAssertEqual(briefing.sourceCount, 3)
         XCTAssertEqual(briefing.attentionCount, 3)
+        XCTAssertTrue(briefing.headline.contains("3 updates"))
         XCTAssertTrue(briefing.headline.contains("New York Trip"))
-        XCTAssertTrue(briefing.headline.contains("Nash"))
-        XCTAssertTrue(briefing.headline.contains("1 more convo has new context"))
         XCTAssertFalse(briefing.headline.contains("Saul"))
         XCTAssertFalse(briefing.headline.contains("Nick"))
     }
@@ -43,7 +42,7 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
         XCTAssertEqual(briefing.attentionCount, 0)
         XCTAssertEqual(
             briefing.headline,
-            "Nothing needs you right now. Your Space is quietly keeping up with 2 convos."
+            "You’re caught up. Your agents are quietly keeping up with 2 convos."
         )
     }
 

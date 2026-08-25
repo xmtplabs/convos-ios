@@ -600,7 +600,9 @@ Rewards must not pay for raw message volume, passive surveillance, invitations, 
 
 - **Send to agent** always opens the same Agent picker, regardless of provider or source Place.
 - The user can review the selected messages, files, or context scope before an Agent receives them.
-- Every Agent result can be saved privately, edited where supported, and shared into an authorized Place through the same destination picker.
+- **Use anywhere** is a permanent Home action, not a provider-specific utility or a secondary More-menu item.
+- Every Agent result, artifact, saved file, and link can be saved privately, edited where supported, and shared through the same destination flow.
+- The destination flow offers the native system share sheet for any installed chat app as well as authorized Convos Places. Convos destinations stage a draft for review; external destinations receive the real file, URL, or text through the operating system. Neither path auto-sends.
 - Provider limitations appear as capabilities or typed unavailable states, not as a different navigation model.
 
 ### FR12 — Actionable Home briefing
@@ -831,10 +833,11 @@ The prototype is successful when users experience value without first moving the
 6. Confirm **Agents** and **Places** as the two customer-facing nouns; keep Connections subordinate and retire Powers.
 7. Confirm Agents as the access model: every Agent a person can use, with ownership and source as permission attributes rather than top-level sections.
 8. Confirm the Home briefing as the hero: one narrative with tappable catch-up, decision, review, share, connect, and setup actions.
-9. Define the smallest free baseline worth promising.
-10. Decide what event qualifies a person as “empowered” for Host identity and rewards.
-11. Decide which single outside-chat path should be prototyped first: iOS share extension, phone-number bridge, or one platform-specific connection.
-12. Decide whether Convos Pages are part of the first validation prototype or the next loop.
+9. Confirm **Use anywhere** as a permanent Home primitive for every Agent result, artifact, file, and link.
+10. Define the smallest free baseline worth promising.
+11. Decide what event qualifies a person as “empowered” for Host identity and rewards.
+12. Decide which continuous outside-chat ingestion path should follow the explicit iOS share/import prototype: phone-number bridge or one platform-specific connection.
+13. Decide whether Convos Pages are part of the first validation prototype or the next loop.
 
 ## 23. Approval Request
 
