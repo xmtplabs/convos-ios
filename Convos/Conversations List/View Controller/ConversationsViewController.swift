@@ -807,7 +807,7 @@ extension ConversationsViewController: UICollectionViewDelegate {
 
         // Pin/Unpin
         let pinTitle = conversation.isPinned ? "Unfav" : "Fav"
-        let pinImage = UIImage(systemName: conversation.isPinned ? "star.slash.fill" : "star.fill")
+        let pinImage = UIImage(systemName: conversation.isPinned ? "star.slash" : "star")
         let pinAction = UIAction(title: pinTitle, image: pinImage) { [weak self] _ in
             self?.onTogglePin?(conversation)
         }
@@ -824,7 +824,7 @@ extension ConversationsViewController: UICollectionViewDelegate {
 
             // Mute/Unmute
             let muteTitle = conversation.isMuted ? "Unmute" : "Mute"
-            let muteImage = UIImage(systemName: conversation.isMuted ? "bell.fill" : "bell.slash.fill")
+            let muteImage = UIImage(systemName: conversation.isMuted ? "bell" : "bell.slash")
             let muteAction = UIAction(title: muteTitle, image: muteImage) { [weak self] _ in
                 self?.onToggleMute?(conversation)
             }
@@ -839,13 +839,13 @@ extension ConversationsViewController: UICollectionViewDelegate {
         if !conversation.isPendingInvite && conversation.hasHadVerifiedAgent {
             let openAgentDmAction = UIAction(
                 title: "Agent",
-                image: UIImage(systemName: "a.circle.fill")
+                image: UIImage(systemName: "a.circle")
             ) { [weak self] _ in
                 self?.onOpenAgentDm?(conversation)
             }
             let openThingsAction = UIAction(
                 title: "Things",
-                image: UIImage(systemName: "square.grid.2x2.fill")
+                image: UIImage(systemName: "square.grid.2x2")
             ) { [weak self] _ in
                 self?.onOpenThings?(conversation)
             }
