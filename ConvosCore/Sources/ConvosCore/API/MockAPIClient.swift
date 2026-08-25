@@ -162,6 +162,21 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         .init(success: true, conversationId: conversationId, interrupted: 0)
     }
 
+    func setAgentModel(
+        instanceId: String,
+        model: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse {
+        .init(success: true, instanceId: instanceId, model: model, available: [])
+    }
+
+    func getAgentModel(
+        instanceId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse {
+        .init(success: true, instanceId: instanceId, model: nil, available: [])
+    }
+
     func shareSpace(
         conversationId: String,
         variantId: String?

@@ -370,7 +370,9 @@ struct ContactDetailView: View {
                     // way to interact.
                     canSendMessage: session != nil && (!isVerifiedAgent || isAgentTemplate || canStartAgentDm),
                     showChat: !mode.isCurrentUser,
-                    showModelPicker: !mode.isCurrentUser && (isVerifiedAgent || isAgentTemplate),
+                    showModelPicker: FeatureFlags.shared.isAgentModelPickerEnabled
+                        && !mode.isCurrentUser
+                        && (isVerifiedAgent || isAgentTemplate),
                     isAgent: isVerifiedAgent || isAgentTemplate,
                     showShare: agentTemplateShareURL != nil,
                     showRemove: mode.isScopedToConversation
@@ -380,6 +382,14 @@ struct ContactDetailView: View {
                     contactDisplayName: contact.resolvedDisplayName,
                     agentEmail: contact.agentEmail,
                     agentInstanceId: contact.agentInstanceId,
+                    // The displayed agent's own variant first: an agent built
+                    // on a variant worker exists only there, so routing its
+                    // switch by whatever the global selector happens to hold
+                    // would send it to the wrong worker — or, with the selector
+                    // off, to the default one. The global pick is only the
+                    // fallback for an entry point that carries no stamp.
+                    agentVariantId: variantStamp?.slug
+                        ?? FeatureFlags.shared.effectiveAgentVariantSlug,
                     showsInstanceIdRow: showsInstanceIdRow,
                     agentAttestation: contact.agentAttestation,
                     agentVerification: contact.agentVerification,
@@ -847,7 +857,9 @@ private struct ContactDetailActions: View {
     let canSendMessage: Bool
     let showChat: Bool
     /// Shows the model dropdown under Chat. Agents only - a human contact
-    /// doesn't run on a model.
+    /// doesn't run on a model - and behind `isAgentModelPickerEnabled`, which
+    /// is read at the call site so the row and its catalogue fetch never build
+    /// while the feature is off.
     let showModelPicker: Bool
     /// Drives the chat CTA copy: "New chat" for agents (tapping spawns a
     /// fresh conversation), "Chat" for human members (tapping routes to a
@@ -864,6 +876,11 @@ private struct ContactDetailActions: View {
     /// Always plumbed through when the contact has one. Display gate
     /// is `showsInstanceIdRow`, not nullability of this field.
     let agentInstanceId: String?
+    /// Dev-only variant routing key for the model picker. An agent built on a
+    /// variant worker only exists there, so a switch that omits this lands on
+    /// the default worker and changes nothing. Nil (and stripped in
+    /// production) for a normal agent.
+    let agentVariantId: String?
     /// True on Dev/Local builds. Hides the row on production.
     let showsInstanceIdRow: Bool
     /// Agent's published attestation signature (`nil` when it joined without
@@ -894,8 +911,12 @@ private struct ContactDetailActions: View {
             if showChat {
                 chatButton
             }
-            if showModelPicker {
-                ContactDetailModelRow(contactDisplayName: contactDisplayName)
+            if showModelPicker, let agentInstanceId {
+                ContactDetailModelRow(
+                    contactDisplayName: contactDisplayName,
+                    instanceId: agentInstanceId,
+                    variantId: agentVariantId
+                )
             }
             if showShare {
                 shareRow
@@ -1031,54 +1052,28 @@ private struct ContactDetailActionRow: View {
 
 // MARK: - Agent model picker
 
-/// The model an agent runs on. Only `claudeSonnet` is live; the rest are
-/// placeholders the design calls for so the menu reads as a roadmap instead
-/// of a one-item list. They render disabled with a "Soon" subtitle until
-/// their backends land.
-private enum ContactDetailAgentModel: String, CaseIterable, Identifiable {
-    case claudeSonnet
-    case claudeFable
-    case gptSol
-    case grok
-    case geminiPro
-    case openSource
-
-    var id: String {
-        return rawValue
-    }
-
-    var title: String {
-        switch self {
-        case .claudeSonnet: return "Claude Sonnet"
-        case .claudeFable: return "Claude Fable 5"
-        case .gptSol: return "GPT-5.6 Sol"
-        case .grok: return "Grok 4.6"
-        case .geminiPro: return "Gemini 3.1 Pro"
-        case .openSource: return "Open source models"
-        }
-    }
-
-    /// Second line of the menu item: what you get today on the live model,
-    /// "Soon" on the ones that aren't wired up.
-    var subtitle: String {
-        return isAvailable ? "Included" : "Soon"
-    }
-
-    var isAvailable: Bool {
-        return self == .claudeSonnet
-    }
-}
-
 /// The model dropdown under an agent's Chat button: the canonical action-row
 /// shape (rounded fill on top, small grey caption below) wrapping a native
-/// menu instead of a button. Nothing is selectable yet - the agent's model is
-/// fixed and every alternative is disabled - so the row is display-only and
-/// carries no selection state.
+/// menu instead of a button.
+///
+/// The models come from `AgentModelOption`; the runtime validates every switch
+/// against the agent's own list, so one this agent cannot run is refused
+/// upstream rather than silently mis-applied.
 private struct ContactDetailModelRow: View {
     let contactDisplayName: String
+    let instanceId: String
+    let variantId: String?
 
-    /// Fixed for now. Becomes real state when the other models land.
-    private let selectedModel: ContactDetailAgentModel = .claudeSonnet
+    @State private var store: AgentModelStore
+
+    init(contactDisplayName: String, instanceId: String, variantId: String?) {
+        self.contactDisplayName = contactDisplayName
+        self.instanceId = instanceId
+        self.variantId = variantId
+        _store = State(
+            wrappedValue: AgentModelStore(instanceId: instanceId, variantId: variantId)
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
@@ -1094,40 +1089,66 @@ private struct ContactDetailModelRow: View {
                 .foregroundStyle(.colorTextSecondary)
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
         }
+        .task { await store.load() }
+        .alert(
+            "Model unchanged",
+            isPresented: Binding(
+                get: { store.errorMessage != nil },
+                set: { if !$0 { store.dismissError() } }
+            )
+        ) {
+            Button("OK", role: .cancel) { store.dismissError() }
+        } message: {
+            Text(store.errorMessage ?? "")
+        }
     }
 
+    @ViewBuilder
     private var menuContent: some View {
-        return Section("Agent Model") {
-            ForEach(ContactDetailAgentModel.allCases) { model in
-                menuItem(for: model)
+        Section("Agent Model") {
+            if store.options.isEmpty {
+                // Nothing invented: the catalogue is the agent's own, and an
+                // option it cannot run would be refused upstream and read as
+                // the picker being broken.
+                Text(store.hasLoaded ? "No models available" : "Loading…")
+            } else {
+                ForEach(store.options) { option in
+                    menuItem(for: option)
+                }
             }
         }
     }
 
-    /// The live model gets the selected checkmark and an empty action - it's
-    /// already what the agent runs on, so tapping it is intentionally inert.
-    /// Everything else is disabled.
+    /// The selected model carries the checkmark. SwiftUI hoists a
+    /// `checkmark` image in a menu-item label into the `UIMenu` state gutter,
+    /// which is where the design draws it.
     @ViewBuilder
-    private func menuItem(for model: ContactDetailAgentModel) -> some View {
-        let noop = {}
-        if model == selectedModel {
-            Button(action: noop) {
-                Text(model.title)
-                Text(model.subtitle)
+    private func menuItem(for option: AgentModelOption) -> some View {
+        let select = { store.select(option) }
+        if option.id == store.selectedId {
+            Button(action: select) {
+                Text(option.name)
                 Image(systemName: "checkmark")
             }
         } else {
-            Button(action: noop) {
-                Text(model.title)
-                Text(model.subtitle)
+            Button(action: select) {
+                Text(option.name)
             }
-            .disabled(true)
         }
     }
 
+    /// Names what the agent is actually on.
+    ///
+    /// Nobody having switched it is not the same as no model: the agent runs
+    /// what its template shipped, which the control plane cannot name without
+    /// waking it, so the row says "Default" rather than guessing an id.
+    private var currentTitle: String {
+        store.selectedTitle ?? "Default"
+    }
+
     private var rowLabel: some View {
-        return HStack(spacing: DesignConstants.Spacing.step2x) {
-            Text(selectedModel.title)
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Text(currentTitle)
                 .font(.body)
                 .foregroundStyle(.colorTextPrimary)
             Spacer(minLength: 0.0)

@@ -99,6 +99,32 @@ extension ConvosAPIClientProtocol {
         )
     }
 
+    /// Defaults for the model picker so pre-existing stubs don't re-stub it.
+    /// Reports "nobody has switched this agent". Tests that exercise the
+    /// switch flow should override these on their fixture.
+    func setAgentModel(
+        instanceId: String,
+        model: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse {
+        ConvosAPI.AgentModelResponse(
+            success: true,
+            instanceId: instanceId,
+            model: model
+        )
+    }
+
+    func getAgentModel(
+        instanceId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse {
+        ConvosAPI.AgentModelResponse(
+            success: true,
+            instanceId: instanceId,
+            model: nil
+        )
+    }
+
     /// Default for the Space share mint so pre-existing stubs don't re-stub
     /// it. Tests that exercise the share flow should override on their
     /// fixture.

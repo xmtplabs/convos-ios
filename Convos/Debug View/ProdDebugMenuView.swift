@@ -186,6 +186,7 @@ struct ProdDebugMenuView: View {
             Toggle("Enable Relay (BYOA)", isOn: Bindable(FeatureFlags.shared).agentRelayEnabled)
             Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
             Toggle("Web inspector (space/browser web views)", isOn: Bindable(FeatureFlags.shared).isWebInspectorEnabled)
+            Toggle("Agent model picker", isOn: Bindable(FeatureFlags.shared).isAgentModelPickerEnabled)
         }
     }
 

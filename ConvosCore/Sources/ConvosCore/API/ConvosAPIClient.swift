@@ -139,6 +139,25 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
         variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse
 
+    /// Sets the model one agent runs on. Same control-plane hop and variant
+    /// routing as participation, but keyed by agent instance: the model
+    /// belongs to the assistant, not to the room it sits in.
+    ///
+    /// Succeeds even when the agent is asleep — the choice is recorded and
+    /// applied at its next start. Throws when the agent cannot run the model.
+    func setAgentModel(
+        instanceId: String,
+        model: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse
+
+    /// The model an agent is set to run on, or nil when nobody has switched it.
+    /// Answered upstream from a stored row without waking the agent.
+    func getAgentModel(
+        instanceId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse
+
     /// Stops the turn the conversation's agents are running right now, without
     /// injecting a chat message — the stop button, not a message the user
     /// sends. Same control-plane hop and variant routing as participation.
@@ -1632,5 +1651,52 @@ extension TimeInterval {
         let exponentialDelay = baseDelay * pow(2.0, Double(retryCount))
         let jitter = Double.random(in: 0...0.1) * exponentialDelay
         return min(exponentialDelay + jitter, 30.0) // Cap at 30 seconds
+    }
+}
+
+// The model surface lives in its own extension rather than in the class body:
+// `ConvosAPIClient` is at the type-length ceiling, and these two calls are one
+// self-contained feature. Same file, so the file-private request helpers above
+// stay reachable.
+extension ConvosAPIClient {
+    func setAgentModel(
+        instanceId: String,
+        model: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse {
+        // Same worker-routing constraint as participation: an agent
+        // provisioned on a variant worker only exists there, so a write that
+        // omits the variantId lands on the default worker and switches nothing.
+        var request = try authenticatedRequest(
+            for: "v2/agents/\(participationPathComponent(instanceId))/model",
+            method: "PATCH",
+            queryParameters: prodSafeVariantId(variantId).map { ["variantId": $0] }
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // The write reaches a container only when one is already awake; a
+        // sleeping agent is recorded and told later. Bounded either way so a
+        // stuck call cannot leave the menu waiting.
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(
+            ConvosAPI.AgentModelRequest(model: model)
+        )
+        return try await performRequest(request)
+    }
+
+    func getAgentModel(
+        instanceId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse {
+        // Read and write must resolve to the same worker (see setAgentModel),
+        // or the picker renders a model that isn't the agent's.
+        var request = try authenticatedRequest(
+            for: "v2/agents/\(participationPathComponent(instanceId))/model",
+            method: "GET",
+            queryParameters: prodSafeVariantId(variantId).map { ["variantId": $0] }
+        )
+        // Read on open; the picker holds its place rather than the view, so
+        // this must not block rendering.
+        request.timeoutInterval = 10
+        return try await performRequest(request)
     }
 }
