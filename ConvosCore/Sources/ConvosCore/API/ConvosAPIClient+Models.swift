@@ -437,6 +437,58 @@ public enum ConvosAPI {
         }
     }
 
+    /// The model one agent runs on.
+    ///
+    /// Keyed by agent instance, not by conversation: an agent belongs to one
+    /// conversation, but a conversation can hold several agents and the picker
+    /// sits on one agent's profile.
+    public struct AgentModelResponse: Codable {
+        public let success: Bool
+        public let instanceId: String
+        /// Null until someone switches it: the agent is running whatever its
+        /// template shipped, and the control plane does not know that value
+        /// without asking the container. Render it as "no explicit choice",
+        /// never as "no model".
+        public let model: String?
+        /// The models THIS agent can switch to, from its own config. The list
+        /// is per agent, so it cannot be hardcoded here and stay correct.
+        /// Optional (and empty) on a control plane that predates it, or before
+        /// the agent has ever run — the picker shows what it has rather than a
+        /// list the app invented.
+        public let available: [AgentModelOptionPayload]?
+
+        public init(
+            success: Bool,
+            instanceId: String,
+            model: String?,
+            available: [AgentModelOptionPayload]? = nil
+        ) {
+            self.success = success
+            self.instanceId = instanceId
+            self.model = model
+            self.available = available
+        }
+    }
+
+    /// One switchable model as the agent's own config lists it.
+    public struct AgentModelOptionPayload: Codable, Hashable, Sendable {
+        public let id: String
+        public let name: String
+
+        public init(id: String, name: String) {
+            self.id = id
+            self.name = name
+        }
+    }
+
+    public struct AgentModelRequest: Codable {
+        public let model: String
+
+        public init(model: String) {
+            self.model = model
+        }
+    }
+
     /// Result of a stop: the conversation's agents were asked to interrupt the
     /// turn they are running now, without a chat message being sent. Nothing is
     /// persisted — a stop is a transient signal to whatever is running.
