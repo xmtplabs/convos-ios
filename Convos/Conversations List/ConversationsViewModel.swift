@@ -86,6 +86,7 @@ final class ConversationsViewModel {
         selectedInitialTab = .agent
         selectedInitialAgentDmInboxId = nil
         selectedConversationId = conversation.id
+        requestTab(.agent, for: conversation.id)
     }
 
     /// Selects a conversation and opens it on the Things (Space) page. Backs the
@@ -94,6 +95,22 @@ final class ConversationsViewModel {
         selectedInitialTab = .context
         selectedInitialAgentDmInboxId = nil
         selectedConversationId = conversation.id
+        requestTab(.context, for: conversation.id)
+    }
+
+    /// Switches an already-open conversation's pager to `tab`. A fresh open seeds
+    /// the tab from `selectedInitialTab`, but reselecting the conversation already
+    /// showing in a side-by-side layout is a no-op (the id setter's equality guard
+    /// suppresses it and the mounted view has latched its initial tab), so that
+    /// case is routed through the notification the detail view listens for. Posted
+    /// unconditionally: when nothing is on screen for this id yet, no one is
+    /// listening and the fresh-open seed takes over.
+    private func requestTab(_ tab: ConversationTab, for conversationId: String) {
+        NotificationCenter.default.post(
+            name: .selectConversationTabRequested,
+            object: nil,
+            userInfo: ["conversationId": conversationId, "tab": tab.rawValue]
+        )
     }
 
     /// Returns the agent inbox id to open the DM page for, when the DM holds the

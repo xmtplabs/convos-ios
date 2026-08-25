@@ -420,6 +420,22 @@ struct ConversationView<MessagesBottomBar: View>: View {
         selectTab(.agent)
     }
 
+    /// Switches to a requested tab when the list's "Open Agent DM" / "Open Things"
+    /// action targets this conversation while it is already on screen (a fresh
+    /// open seeds the tab from `initialTabOverride`, but reselecting the same
+    /// conversation is a no-op, so a mounted view has to be told directly).
+    /// Ignores requests for another conversation or a tab this one doesn't offer.
+    private func handleSelectConversationTabRequest(_ note: Notification) {
+        guard let conversationId = note.userInfo?["conversationId"] as? String,
+              conversationId == viewModel.conversation.id,
+              let rawTab = note.userInfo?["tab"] as? String,
+              let tab = ConversationTab(rawValue: rawTab),
+              availableTabs.contains(tab) else {
+            return
+        }
+        selectTab(tab)
+    }
+
     /// Programmatic tab selection. Every page is mounted, so this is only the
     /// write - `onChange(of: selectedTab)` does the rest for taps and swipes
     /// alike.
@@ -593,6 +609,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
             handleSelectAgentDmPageRequest(note)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .selectConversationTabRequested)) { note in
+            handleSelectConversationTabRequest(note)
         }
         .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { notification in
             let conversationId: String? = notification.userInfo?["conversationId"] as? String
