@@ -447,11 +447,22 @@ public enum ConvosAPI {
         /// stop. Zero is a successful no-op — stopping an idle agent stops
         /// nothing. Optional so a control plane that predates the field decodes.
         public let interrupted: Int?
+        /// How many agents could not be reached at all. Distinct from a zero
+        /// `interrupted`: that means nothing was running, this means the stop
+        /// never happened. Optional for the same reason as `interrupted` — a
+        /// control plane that predates the field must still decode.
+        public let failed: Int?
 
-        public init(success: Bool, conversationId: String, interrupted: Int? = nil) {
+        public init(
+            success: Bool,
+            conversationId: String,
+            interrupted: Int? = nil,
+            failed: Int? = nil
+        ) {
             self.success = success
             self.conversationId = conversationId
             self.interrupted = interrupted
+            self.failed = failed
         }
     }
 }
