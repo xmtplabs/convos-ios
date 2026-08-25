@@ -17,6 +17,18 @@ struct ConversationMembersListView: View {
         guard !invite.isEmpty else { return [] }
         return [invite.inviteURLString]
     }
+
+    private var handleInviteShareCompletion: (UIActivity.ActivityType?, Bool, Error?) -> Void {
+        { activityType, completed, _ in
+            ConversationShareReporter.report(
+                activityType: activityType,
+                completed: completed,
+                invite: viewModel.invite,
+                conversation: viewModel.conversation,
+                coreActions: viewModel.coreActions
+            )
+        }
+    }
     @State private var navState: MembersListNavigatorImpl = .init()
     @State private var navigator: MembersListCollector?
 
@@ -55,7 +67,8 @@ struct ConversationMembersListView: View {
             )
             .shareSheet(
                 isPresented: $presentingInviteShareSheet,
-                items: inviteShareItems
+                items: inviteShareItems,
+                onCompletion: handleInviteShareCompletion
             )
             .onAppear {
                 ensureNavigator()

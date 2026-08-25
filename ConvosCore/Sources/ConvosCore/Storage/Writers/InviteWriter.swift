@@ -100,12 +100,24 @@ class InviteWriter: InviteWriterProtocol {
             Task {
                 await actions.invitedToConversation(
                     memberCount: memberCount,
-                    hasAssistant: hasAssistant
+                    hasAssistant: hasAssistant,
+                    isSuccess: true
                 )
             }
             return dbInvite.hydrateInvite()
         } catch {
             Log.warning("Failed to create invite for conversation \(conversation.id), will retry on next sync: \(error)")
+            // A conversation with no invite cannot be joined at all, so a
+            // mint that throws is the earliest point the invite funnel can
+            // break. It previously reached nothing but this local warning.
+            let actions: any CoreActions = coreActions
+            Task {
+                await actions.invitedToConversation(
+                    memberCount: 0,
+                    hasAssistant: false,
+                    isSuccess: false
+                )
+            }
             throw error
         }
     }

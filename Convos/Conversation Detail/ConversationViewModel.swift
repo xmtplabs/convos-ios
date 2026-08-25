@@ -1120,6 +1120,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var assistantJoinTimeoutTask: Task<Void, Never>?
 
+    /// Telemetry anchors for the invite-acceptance wait behind the drawer's
+    /// "Verifying" state. Set only when this view model opens a conversation
+    /// whose invite is already pending - a live join starts from a draft
+    /// conversation and is measured by `NewConversationViewModel`, so the two
+    /// surfaces cannot report the same wait twice.
+    @ObservationIgnored
+    private var inviteAcceptanceWaitStartedAt: Date?
+    @ObservationIgnored
+    private var inviteAcceptanceTimeoutTask: Task<Void, Never>?
+
     var sendReadReceipts: Bool = true
     var isViewingConversation: Bool = false
 
@@ -1187,6 +1197,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         // tying it to the view lifecycle was cancelling joins mid-request, so
         // the backend never provisioned the agent.
         explodeDurationTask?.cancel()
+        inviteAcceptanceTimeoutTask?.cancel()
         agentBuilderPlaceholderExpiryTask?.cancel()
         pendingSyntheticAgentExpiryTask?.cancel()
         assistantJoinTimeoutTask?.cancel()
@@ -1305,6 +1316,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
         if conversation.isPendingInvite {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
+            beginInviteAcceptanceWait()
         }
         startOnboarding()
         registerInlineAttachmentRecovery()
@@ -2117,6 +2129,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
 
     func inviteWasAccepted() {
+        clearInviteAcceptanceWait()
         Task { @MainActor in
             await onboardingCoordinator.inviteWasAccepted(for: conversation.id)
         }
@@ -3249,6 +3262,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         /// window in SyncingManager, which itself covers the assistant
         /// backend's roughly two-minute give-up with margin.
         static let assistantJoinWaitWindow: TimeInterval = 150
+        /// How long the drawer's "Verifying" state is measured before it
+        /// reports a failed `joined_conversation`. Matches the invite-join
+        /// wait window in `NewConversationViewModel` so the two stuck-wait
+        /// samples stay comparable.
+        static let inviteAcceptanceWaitWindow: TimeInterval = 150
         /// Shown in the approval sheet when an approval could not be
         /// completed (backend grant confirmation or result send failed).
         static let capabilityApprovalFailedMessage: String =
@@ -4486,6 +4504,60 @@ extension ConversationViewModel {
             assistantJoinWaitSource = source
         }
         armAssistantJoinTimeout()
+    }
+
+    /// Starts measuring the drawer's "Verifying" wait. This surface
+    /// previously had neither a timer nor any telemetry: a pending invite the
+    /// creator never approved spun here indefinitely and reported nothing.
+    private func beginInviteAcceptanceWait() {
+        inviteAcceptanceWaitStartedAt = Date()
+        armInviteAcceptanceTimeout()
+    }
+
+    private func armInviteAcceptanceTimeout() {
+        inviteAcceptanceTimeoutTask?.cancel()
+        guard let startedAt = inviteAcceptanceWaitStartedAt else { return }
+        let elapsed = Date().timeIntervalSince(startedAt)
+        let remaining: TimeInterval = max(0, Constant.inviteAcceptanceWaitWindow - elapsed)
+        inviteAcceptanceTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled else { return }
+            self?.emitInviteAcceptanceTimedOut()
+        }
+    }
+
+    /// The invite was still unapproved when the wait window elapsed.
+    ///
+    /// `source` reports `.url` because the original entry point is not
+    /// persisted on the conversation: this surface is reached by opening an
+    /// already-pending convo, often in a later session, by which point the
+    /// scan / paste / url distinction is gone. `failure_reason` is the
+    /// load-bearing dimension here, not `source`.
+    private func emitInviteAcceptanceTimedOut() {
+        guard let startedAt = inviteAcceptanceWaitStartedAt else { return }
+        inviteAcceptanceWaitStartedAt = nil
+        guard conversation.isPendingInvite else { return }
+
+        let waitDuration = Float(Date().timeIntervalSince(startedAt))
+        let actions: any CoreActions = coreActions
+        Task {
+            await actions.joinedConversation(
+                verificationDuration: waitDuration,
+                memberCount: nil,
+                hasAssistant: nil,
+                source: .url,
+                isSuccess: false,
+                failureReason: .approvalTimedOut,
+                creatorReason: nil,
+                attemptNumber: 1
+            )
+        }
+    }
+
+    private func clearInviteAcceptanceWait() {
+        inviteAcceptanceWaitStartedAt = nil
+        inviteAcceptanceTimeoutTask?.cancel()
+        inviteAcceptanceTimeoutTask = nil
     }
 
     private func armAssistantJoinTimeout() {

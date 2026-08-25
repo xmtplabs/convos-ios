@@ -1237,7 +1237,14 @@ private extension ConversationView {
     /// link is out in the world, so the empty-convo teardown must not
     /// reclaim it (see `onInviteShared`).
     private var handleInviteShareCompletion: (UIActivity.ActivityType?, Bool, Error?) -> Void {
-        { _, completed, _ in
+        { activityType, completed, _ in
+            ConversationShareReporter.report(
+                activityType: activityType,
+                completed: completed,
+                invite: viewModel.invite,
+                conversation: viewModel.conversation,
+                coreActions: viewModel.coreActions
+            )
             guard completed else { return }
             onInviteShared?()
         }

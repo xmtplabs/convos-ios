@@ -54,15 +54,52 @@ final class PostHogCollector: CollectorDelegate {
     }
 
     /// Engineering diagnostics that should alert through Sentry rather than
-    /// only landing in product analytics: a poll-rescued assistant join is
-    /// direct evidence of a silently dead message stream. No-op when the
-    /// SDK isn't started (local/test builds) and carries no PII - only the
-    /// stream-staleness numbers from the metric.
+    /// only landing in product analytics. No-op when the SDK isn't started
+    /// (local/test builds).
     private func captureDiagnosticEventInSentry(name: String, properties: [String: Any?]) {
-        guard name == MetricsCoreActions.eventAssistantJoinRescuedByPolling else { return }
+        guard let message = diagnosticMessage(for: name, properties: properties) else { return }
         let event = Event(level: .warning)
-        event.message = SentryMessage(formatted: "assistant join rescued by polling - message stream likely dead")
+        event.message = SentryMessage(formatted: message)
         event.extra = properties.compactMapValues { $0 }
         SentrySDK.capture(event: event)
     }
+
+    /// The message doubles as the Sentry grouping key, so each failure cause
+    /// gets its own issue rather than one bucket of every failed join.
+    ///
+    /// Carries no PII: the join properties are the classified failure reason,
+    /// timing numbers, and the creator device's own diagnostic string, which
+    /// is hand-authored at each rejection site and bounded to 500 characters.
+    private func diagnosticMessage(for name: String, properties: [String: Any?]) -> String? {
+        switch name {
+        case MetricsCoreActions.eventAssistantJoinRescuedByPolling:
+            return "assistant join rescued by polling - message stream likely dead"
+        case MetricsCoreActions.eventJoinedConversation:
+            return failedJoinMessage(properties: properties)
+        default:
+            return nil
+        }
+    }
+
+    /// Only the causes that mean something is broken on our side reach Sentry.
+    /// An unapproved invite, an expired convo, or a dropped connection are
+    /// expected outcomes with real volume - they belong in the funnel, not in
+    /// an issue tracker, and routing them here would bury the rest.
+    private func failedJoinMessage(properties: [String: Any?]) -> String? {
+        let isSuccess: Bool? = properties[MetricsCoreActions.paramIsSuccess].flatMap { $0 } as? Bool
+        guard isSuccess == false else { return nil }
+
+        let rawReason: String? = properties[MetricsCoreActions.paramFailureReason].flatMap { $0 } as? String
+        let reason: String = rawReason ?? JoinFailureReason.unknown.metricsString
+        guard Self.sentryReportedJoinFailures.contains(reason) else { return nil }
+
+        return "invite join failed - \(reason)"
+    }
+
+    private static let sentryReportedJoinFailures: Set<String> = [
+        JoinFailureReason.inboxNeverReady.metricsString,
+        JoinFailureReason.signatureVerificationFailed.metricsString,
+        JoinFailureReason.internalStorageError.metricsString,
+        JoinFailureReason.unknown.metricsString,
+    ]
 }
