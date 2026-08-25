@@ -1485,7 +1485,9 @@ private extension YourSpaceView {
                 places: places,
                 shareText: shareText,
                 primaryConversationId: sortedEntries.first?.conversation.id,
-                agentInboxId: first.agent.profile.inboxId
+                agentInboxId: first.agent.profile.inboxId,
+                phone: first.agent.profile.agentPhone,
+                email: first.agent.profile.agentEmail
             )
         }
         .sorted { lhs, rhs in

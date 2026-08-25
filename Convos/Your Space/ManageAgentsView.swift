@@ -33,6 +33,12 @@ struct ManageAgentsView: View {
         let primaryConversationId: String?
         let agentInboxId: String?
         let providerRawValue: String?
+        /// The agent's SMS number, from its per-conversation profile metadata.
+        /// nil when the runtime has not provisioned one, which hides the Text row.
+        let phone: String?
+        /// The agent's email address, from the same metadata. nil hides the
+        /// Email row. An agent with neither has no Reach section at all.
+        let email: String?
 
         init(
             id: String,
@@ -51,7 +57,9 @@ struct ManageAgentsView: View {
             shareText: String = "Try this agent with me in Convos.",
             primaryConversationId: String? = nil,
             agentInboxId: String? = nil,
-            providerRawValue: String? = nil
+            providerRawValue: String? = nil,
+            phone: String? = nil,
+            email: String? = nil
         ) {
             self.id = id
             self.name = name
@@ -70,6 +78,8 @@ struct ManageAgentsView: View {
             self.primaryConversationId = primaryConversationId
             self.agentInboxId = agentInboxId
             self.providerRawValue = providerRawValue
+            self.phone = phone
+            self.email = email
         }
     }
 
@@ -181,6 +191,7 @@ private struct AgentAccessDetailView: View {
                 listeningReceipt
                 permissionReceipt
                 places
+                reachAnywhere
                 useAnywhere
             }
             .padding(.horizontal, DesignConstants.Spacing.step6x)
@@ -283,6 +294,21 @@ private struct AgentAccessDetailView: View {
         }
     }
 
+    /// How to reach this agent from outside Convos. Drawn only when the
+    /// runtime has provisioned at least one channel; an agent with neither
+    /// shows nothing rather than an empty heading.
+    @ViewBuilder
+    private var reachAnywhere: some View {
+        let section = AgentReachSection(
+            agentName: agent.name,
+            phone: agent.phone,
+            email: agent.email
+        )
+        if section.hasAnyChannel {
+            section
+        }
+    }
+
     private var useAnywhere: some View {
         ShareLink(item: agent.shareText) {
             Label("Share this agent anywhere", systemImage: "square.and.arrow.up")
@@ -339,7 +365,9 @@ private struct AgentAccessDetailView: View {
                         replyBehavior: "Responds on mention",
                         isListening: true
                     ),
-                ]
+                ],
+                phone: "+1 (615) 555-0142",
+                email: "quarters-planner.9f3ab2@ai.convos.org"
             ),
             .init(
                 id: "codex",
