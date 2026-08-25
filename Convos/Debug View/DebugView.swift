@@ -104,16 +104,14 @@ struct DebugViewSection: View {
         }
     }
 
-    /// The agent-variant flag with its picker. The dropdown only renders while
-    /// the flag is on, mirroring the abilities sub-toggles below. The pick is
-    /// stored globally (`FeatureFlags.selectedAgentVariant`) and read at agent-
-    /// join time, so it applies to conversations created after it is set.
+    /// The agent-variant flag. The toggle gates where variants are actually
+    /// picked: the sheet at conversation creation and the dropdown in the
+    /// make-an-agent composer. There is deliberately no picker here — a
+    /// variant belongs to one conversation, chosen as that conversation is
+    /// made, not set globally from Settings for whatever comes next.
     @ViewBuilder
     private var agentVariantToggles: some View {
         Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
-        if FeatureFlags.shared.isAgentVariantSelectorEnabled {
-            AgentVariantDebugPicker()
-        }
     }
 
     /// The Abilities V2 flag with its sub-toggles: the V1 awareness shim
