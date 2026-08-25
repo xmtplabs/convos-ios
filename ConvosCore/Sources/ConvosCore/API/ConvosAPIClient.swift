@@ -164,19 +164,11 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// published templates to anonymous callers, but drafts are only returned to authenticated owners.
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate
 
-    /// Lists featured (curated) published agent templates, cursor-paginated.
-    /// Backs the contacts picker's "Suggested agents" section. Pass `nil`
-    /// `cursor` for the first page, then thread `AgentTemplatesPage.nextCursor`
-    /// back for each following page until `hasMore` is `false`.
-    /// Unauthenticated: featured templates are published, so the backend
-    /// serves them to anonymous callers (mirrors `getAgentTemplate`).
-    func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage
-
     /// Lists curated agent prompt hints (`GET /v2/agent-prompt-hints`) -- a flat
     /// array of short prompt strings used to seed the agent builder's composer
     /// via the dice control. Unauthenticated: the hints are public, so
     /// `request(for:)` builds a bare GET (no auth header), mirroring
-    /// `getFeaturedAgentTemplates`.
+    /// `getAgentTemplate`.
     func getAgentPromptHints() async throws -> [String]
 
     /// Lists registered dev-only agent variants (`GET /v2/agent-variants`).
@@ -1066,21 +1058,6 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // no-op for published templates fetched via share links.
         let encoded = idOrUrlSlug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? idOrUrlSlug
         let request = try authenticatedRequest(for: "v2/agent-templates/\(encoded)")
-        return try await performRequest(request)
-    }
-
-    func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage {
-        // Public, unauthenticated GET -- featured templates are published, so
-        // the list endpoint serves them to anonymous callers. `request(for:)`
-        // builds a bare GET (no auth header).
-        var queryParameters: [String: String] = [
-            "featured": "true",
-            "limit": String(limit),
-        ]
-        if let cursor, !cursor.isEmpty {
-            queryParameters["cursor"] = cursor
-        }
-        let request = try request(for: "v2/agent-templates", queryParameters: queryParameters)
         return try await performRequest(request)
     }
 

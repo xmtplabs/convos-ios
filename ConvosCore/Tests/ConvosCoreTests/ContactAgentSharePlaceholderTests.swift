@@ -34,7 +34,7 @@ struct ContactAgentSharePlaceholderTests {
         #expect(contact.isVerifiedAgent)
     }
 
-    @Test("placeholder gating distinguishes share placeholders from suggested and saved contacts")
+    @Test("placeholder gating distinguishes share placeholders from saved contacts")
     func placeholderGating() {
         let sharePlaceholder = Contact.agentSharePlaceholder(
             templateId: templateId,
@@ -42,20 +42,6 @@ struct ContactAgentSharePlaceholderTests {
             info: resolvedInfo
         )
         #expect(sharePlaceholder.isAgentSharePlaceholder)
-        #expect(sharePlaceholder.isUnsavedAgentPlaceholder)
-        #expect(!sharePlaceholder.isSuggestedAgentPlaceholder)
-
-        let suggested = Contact.suggestedAgent(
-            SuggestedAgent(
-                templateId: templateId,
-                name: "Tifoso",
-                description: nil,
-                emoji: nil,
-                avatarURL: nil
-            )
-        )
-        #expect(suggested.isUnsavedAgentPlaceholder)
-        #expect(!suggested.isAgentSharePlaceholder)
 
         let saved = Contact(
             inboxId: "a-real-inbox-id",
@@ -64,7 +50,7 @@ struct ContactAgentSharePlaceholderTests {
             addedAt: Date(),
             addedViaConversationId: nil
         )
-        #expect(!saved.isUnsavedAgentPlaceholder)
+        #expect(!saved.isAgentSharePlaceholder)
     }
 
     @Test("a failed resolve still yields a chat-capable agent placeholder")

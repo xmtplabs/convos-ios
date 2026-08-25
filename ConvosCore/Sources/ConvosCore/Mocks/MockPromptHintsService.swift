@@ -2,7 +2,7 @@ import Foundation
 
 /// Test/preview double for `PromptHintsServiceProtocol`. Serves a fixed list
 /// of hints (or throws a supplied error) and records the call count so tests
-/// can assert fetch + retry behavior. Mirrors `MockSuggestedAgentsService`.
+/// can assert fetch + retry behavior.
 public final class MockPromptHintsService: PromptHintsServiceProtocol, @unchecked Sendable {
     public private(set) var fetchCount: Int = 0
 

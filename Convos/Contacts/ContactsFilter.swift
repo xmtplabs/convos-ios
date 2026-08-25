@@ -32,7 +32,7 @@ enum ContactsFilter: String, CaseIterable, Identifiable, Hashable {
     }
 
     /// Whether the agents audience is part of the current filter. Used to hide
-    /// agent-only sections (e.g. "Suggested agents") under the People filter.
+    /// agent-only sections under the People filter.
     var includesAgents: Bool {
         self != .people
     }

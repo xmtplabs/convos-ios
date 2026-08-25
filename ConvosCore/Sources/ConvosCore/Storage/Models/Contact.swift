@@ -66,9 +66,10 @@ public struct Contact: Hashable, Identifiable, Sendable {
     /// `with(agentAttestation:)`, applied last in `resolved(member:...)`.
     public let agentAttestation: String?
     /// The agent template's description (tagline). Carried on the synthetic
-    /// "Suggested agents" contacts so the contact card renders it immediately
-    /// without a network round-trip. `nil` for humans and for saved agent
-    /// contacts (which don't persist it); those resolve it on demand.
+    /// agent-share placeholder contacts so the contact card renders it
+    /// immediately without a network round-trip. `nil` for humans and for
+    /// saved agent contacts (which don't persist it); those resolve it on
+    /// demand.
     public let agentDescription: String?
 
     public init(
