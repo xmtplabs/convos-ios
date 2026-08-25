@@ -146,6 +146,8 @@ struct ContactDetailView: View {
     @State private var navigator: ContactCardCollector?
     @State private var showsAgentsOnProfile: Bool
     @State private var presentingProfileSetup: Bool = false
+    @State private var presentingHostInfo: Bool = false
+    @State private var hostEmpoweredPeopleCount: Int?
 
     private func ensureNavigator() {
         guard navigator == nil else { return }
@@ -295,6 +297,14 @@ struct ContactDetailView: View {
             .sheet(isPresented: $presentingProfileSetup) {
                 ProfileSetupSheet(mode: .edit, session: session)
             }
+            .sheet(isPresented: $presentingHostInfo) {
+                ConvosHostInfoView(
+                    ownerName: contact.resolvedDisplayName,
+                    isCurrentUser: mode.isCurrentUser,
+                    conversationName: conversationDisplayName,
+                    empoweredPeopleCount: hostEmpoweredPeopleCount
+                )
+            }
             .fullScreenCover(isPresented: $presentingExternalAgentOnboarding) {
                 ExternalAgentOnboardingView(
                     prototypeState: personalAgentPrototypeState,
@@ -435,7 +445,8 @@ struct ContactDetailView: View {
             VStack(spacing: 0.0) {
                 ContactDetailHeader(
                     contact: contact,
-                    isHost: !contact.isAgent && groupAgentSetUpByContact != nil
+                    isHost: !contact.isAgent && groupAgentSetUpByContact != nil,
+                    onHostTap: presentHostInfo
                 )
                 if let agentDescription, !agentDescription.isEmpty {
                     Text(agentDescription)
@@ -946,7 +957,8 @@ private extension ContactDetailView {
                 onVisibilityChange: handleAgentProfileVisibilityChange,
                 onSelectProvider: presentExternalAgentProvider,
                 onSetUpAgents: presentExternalAgentDirectory,
-                onOpenGroupAgent: handleStartWithGroupAgent
+                onOpenGroupAgent: handleStartWithGroupAgent,
+                onHostTap: presentHostInfo
             )
         } else {
             bodyContent
@@ -1106,6 +1118,38 @@ private extension ContactDetailView {
         }
         onStartAgentDm?(groupAgentSetUpByContact.profile.inboxId)
     }
+
+    func presentHostInfo() {
+        presentingHostInfo = true
+        guard mode.isCurrentUser else { return }
+        Task { await loadHostImpact() }
+    }
+
+    /// Counts unique people across every accepted conversation where the
+    /// current user invited an agent. This is the concrete Host impact loop:
+    /// people are counted once even when they share several hosted convos.
+    @MainActor
+    func loadHostImpact() async {
+        guard let session else { return }
+        do {
+            let conversations = try await session
+                .conversationsRepository(for: .allowed)
+                .fetchAll()
+            let empoweredInboxIds = Set(conversations.flatMap { conversation -> [String] in
+                guard let currentMember = conversation.members.first(where: \.isCurrentUser),
+                      conversation.groupAgentSetUp(by: currentMember.profile.inboxId) != nil else {
+                    return []
+                }
+                return conversation.members.compactMap { member in
+                    guard !member.isCurrentUser, !member.isAgent else { return nil }
+                    return member.profile.inboxId
+                }
+            })
+            hostEmpoweredPeopleCount = empoweredInboxIds.count
+        } catch {
+            Log.error("Failed to calculate Host impact: \(error.localizedDescription)")
+        }
+    }
 }
 
 // MARK: - Header
@@ -1113,6 +1157,7 @@ private extension ContactDetailView {
 private struct ContactDetailHeader: View {
     let contact: Contact
     let isHost: Bool
+    let onHostTap: () -> Void
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
@@ -1121,7 +1166,8 @@ private struct ContactDetailHeader: View {
 
             ProfileNameWithHostBadge(
                 name: contact.resolvedDisplayName,
-                isHost: isHost
+                isHost: isHost,
+                onHostTap: onHostTap
             )
             .padding(.horizontal, DesignConstants.Spacing.step4x)
         }
@@ -1129,11 +1175,12 @@ private struct ContactDetailHeader: View {
 }
 
 /// Keeps the Host signal attached to the person's identity without turning it
-/// into a second status row. The label is one accessibility element so VoiceOver
-/// announces the role immediately after the person's name.
+/// into a second status row. The name remains a heading while the badge is a
+/// separate, full-size accessible button that explains the role.
 private struct ProfileNameWithHostBadge: View {
     let name: String
     let isHost: Bool
+    let onHostTap: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
@@ -1143,15 +1190,22 @@ private struct ProfileNameWithHostBadge: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .minimumScaleFactor(0.78)
+                .accessibilityAddTraits(.isHeader)
 
             if isHost {
-                ConvosHostBadge()
-                    .fixedSize()
-                    .layoutPriority(1)
+                Button(action: onHostTap) {
+                    ConvosHostBadge()
+                        .fixedSize()
+                        .frame(width: 44, height: 44, alignment: .leading)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .layoutPriority(1)
+                .accessibilityLabel("Convos Host")
+                .accessibilityHint("Explains the Host badge and your impact")
+                .accessibilityIdentifier("convos-host-badge")
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(isHost ? "\(name), Convos Host" : name)
         .accessibilityIdentifier(isHost ? "profile-name-convos-host" : "profile-name")
     }
 }
@@ -1160,13 +1214,198 @@ private struct ProfileNameWithHostBadge: View {
 /// sharing toggle, while the radiating point distinguishes hosting from a
 /// verified-account checkmark.
 private struct ConvosHostBadge: View {
+    var diameter: CGFloat = 22
+    var iconSize: CGFloat = 10
+    var foregroundColor: Color = .white
+    var backgroundColor: Color = .colorLava
+
     var body: some View {
         Image(systemName: "dot.radiowaves.left.and.right")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(width: 22, height: 22)
-            .background(.colorLava, in: .circle)
+            .font(.system(size: iconSize, weight: .bold))
+            .foregroundStyle(foregroundColor)
+            .frame(width: diameter, height: diameter)
+            .background(backgroundColor, in: .circle)
             .accessibilityHidden(true)
+    }
+}
+
+/// The Host badge is a doorway into the incentive loop, not a static status
+/// mark. The sheet explains the role without claiming rewards are live before
+/// the credit program ships.
+private struct ConvosHostInfoView: View {
+    let ownerName: String
+    let isCurrentUser: Bool
+    let conversationName: String?
+    let empoweredPeopleCount: Int?
+
+    @Environment(\.dismiss) private var dismiss: DismissAction
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step8x) {
+                closeButton
+                hero
+                hostLoop
+                rewardsCallout
+                privacyBoundary
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.top, DesignConstants.Spacing.step3x)
+            .padding(.bottom, DesignConstants.Spacing.step10x)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .background(.colorBackgroundRaisedSecondary)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)
+        .presentationBackground(.colorBackgroundRaisedSecondary)
+        .accessibilityIdentifier("convos-host-info")
+    }
+
+    private var closeButton: some View {
+        HStack {
+            Spacer()
+            Button(action: { dismiss() }) {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(width: 44, height: 44)
+                    .background(.colorFillMinimal, in: .circle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+            .accessibilityIdentifier("convos-host-info-close")
+        }
+    }
+
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+            ConvosHostBadge(
+                diameter: 64,
+                iconSize: 26,
+                foregroundColor: .colorLava,
+                backgroundColor: .white
+            )
+
+            Text(isCurrentUser ? "You’re a Host." : "\(ownerName) is a Host.")
+                .font(.system(size: 38, weight: .bold))
+                .tracking(-1.1)
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(impactLine)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+
+            Text(hostOriginLine)
+                .font(.body)
+                .foregroundStyle(.white.opacity(0.84))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(DesignConstants.Spacing.step6x)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.colorLava, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
+    }
+
+    private var hostLoop: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
+            Text("How hosting works")
+                .font(.title2.weight(.bold))
+                .foregroundStyle(.colorTextPrimary)
+
+            HostLoopRow(
+                icon: "sparkles",
+                title: "Bring an agent",
+                detail: "Start a convo and set up an agent everyone there can use."
+            )
+            HostLoopRow(
+                icon: "person.2.fill",
+                title: "Help people use it",
+                detail: "The useful things your agent makes can move through the convo and help the whole group."
+            )
+            HostLoopRow(
+                icon: "bolt.fill",
+                title: "Grow your power",
+                detail: "As more people use agents you host, your impact grows—and that impact can unlock more agent power."
+            )
+        }
+    }
+
+    private var rewardsCallout: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+            Image(systemName: "bolt.fill")
+                .font(.title2.weight(.bold))
+                .foregroundStyle(.colorLava)
+
+            Text("More reach. More power.")
+                .font(.title2.weight(.bold))
+                .foregroundStyle(.colorTextPrimaryInverted)
+
+            Text("Host rewards are coming. Credits will let Hosts run more agents, use better models, power more convos, and make more useful things.")
+                .font(.body)
+                .foregroundStyle(.colorTextPrimaryInverted.opacity(0.74))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(DesignConstants.Spacing.step6x)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.colorBackgroundInverted, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
+    }
+
+    private var privacyBoundary: some View {
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step3x) {
+            Image(systemName: "lock.fill")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.colorTextSecondary)
+                .frame(width: 20)
+            Text("The badge shows that someone hosts an agent. It never exposes agent conversations, prompts, private context, tools, or activity.")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var impactLine: String {
+        if isCurrentUser, let empoweredPeopleCount {
+            let noun = empoweredPeopleCount == 1 ? "person" : "people"
+            return "Empowering \(empoweredPeopleCount) \(noun)"
+        }
+        if let conversationName, !conversationName.isEmpty {
+            return "Hosting \(conversationName)"
+        }
+        return "Bringing people and agents together"
+    }
+
+    private var hostOriginLine: String {
+        if isCurrentUser {
+            return "You became a Host when you started a convo and set up its agent."
+        }
+        return "Hosts start convos and bring an agent everyone in the group can use."
+    }
+}
+
+private struct HostLoopRow: View {
+    let icon: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step4x) {
+            Image(systemName: icon)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 40, height: 40)
+                .background(.colorLava, in: .circle)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                Text(title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                Text(detail)
+                    .font(.body)
+                    .foregroundStyle(.colorTextSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
@@ -1189,6 +1428,7 @@ private struct PublishedAgentProfileView: View {
     let onSelectProvider: (ExternalAgentProvider) -> Void
     let onSetUpAgents: () -> Void
     let onOpenGroupAgent: () -> Void
+    let onHostTap: () -> Void
 
     var body: some View {
         ScrollView {
@@ -1226,7 +1466,8 @@ private struct PublishedAgentProfileView: View {
 
             ProfileNameWithHostBadge(
                 name: displayName,
-                isHost: !contact.isAgent && groupAgent != nil
+                isHost: !contact.isAgent && groupAgent != nil,
+                onHostTap: onHostTap
             )
                 .padding(.top, DesignConstants.Spacing.step2x)
 
