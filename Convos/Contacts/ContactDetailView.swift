@@ -370,7 +370,9 @@ struct ContactDetailView: View {
                     // way to interact.
                     canSendMessage: session != nil && (!isVerifiedAgent || isAgentTemplate || canStartAgentDm),
                     showChat: !mode.isCurrentUser,
-                    showModelPicker: !mode.isCurrentUser && (isVerifiedAgent || isAgentTemplate),
+                    showModelPicker: FeatureFlags.shared.isAgentModelPickerEnabled
+                        && !mode.isCurrentUser
+                        && (isVerifiedAgent || isAgentTemplate),
                     isAgent: isVerifiedAgent || isAgentTemplate,
                     showShare: agentTemplateShareURL != nil,
                     showRemove: mode.isScopedToConversation
@@ -849,7 +851,9 @@ private struct ContactDetailActions: View {
     let canSendMessage: Bool
     let showChat: Bool
     /// Shows the model dropdown under Chat. Agents only - a human contact
-    /// doesn't run on a model.
+    /// doesn't run on a model - and behind `isAgentModelPickerEnabled`, which
+    /// is read at the call site so the row and its catalogue fetch never build
+    /// while the feature is off.
     let showModelPicker: Bool
     /// Drives the chat CTA copy: "New chat" for agents (tapping spawns a
     /// fresh conversation), "Chat" for human members (tapping routes to a

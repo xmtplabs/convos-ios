@@ -154,6 +154,24 @@ final class FeatureFlags {
         }
     }
 
+    /// Off by default -- gates the model picker on an agent's contact card.
+    /// Reachable in every environment, same posture as the flags above: the
+    /// switch is a real product control meant to be dogfooded on a production
+    /// build, not a dev affordance. Default-off keeps the row absent, and with
+    /// it the catalogue read, so an agent nobody is switching is never asked
+    /// what it can run.
+    var isAgentModelPickerEnabled: Bool {
+        get {
+            access(keyPath: \.isAgentModelPickerEnabled)
+            return UserDefaults.standard.bool(forKey: Constant.agentModelPickerEnabledKey)
+        }
+        set {
+            withMutation(keyPath: \.isAgentModelPickerEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.agentModelPickerEnabledKey)
+            }
+        }
+    }
+
     /// Off by default -- gates the on-device relay UI for connecting an
     /// external agent. Reachable from both debug menus in every environment.
     var agentRelayEnabled: Bool {
@@ -240,5 +258,6 @@ final class FeatureFlags {
         static let spaceShareEnabledKey: String = "featureFlags.spaceShareEnabled"
         static let webInspectorEnabledKey: String = "featureFlags.webInspectorEnabled"
         static let agentRelayEnabledKey: String = "featureFlags.agentRelayEnabled"
+        static let agentModelPickerEnabledKey: String = "featureFlags.agentModelPickerEnabled"
     }
 }
