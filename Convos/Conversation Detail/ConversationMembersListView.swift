@@ -141,6 +141,9 @@ struct ConversationMembersListView: View {
             in: viewModel.conversation.id,
             contactsRepository: contactsRepository
         )
+        // No dismissal here: `ContactDetailView` pops itself off this stack
+        // once the removal is confirmed. A `dismiss` captured in this closure
+        // would belong to the members list, not to the card pushed from it.
         let onRemove: () -> Void = { viewModel.remove(member: member) }
         ContactDetailView(
             contact: resolvedContact,

@@ -1832,7 +1832,6 @@ struct MemberContactDetailSheetContent: View {
     let member: ConversationMember
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     var onStartAgentDm: ((String) -> Void)?
-    @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {
         let messagingService = viewModel.messagingService
@@ -1843,10 +1842,9 @@ struct MemberContactDetailSheetContent: View {
             in: viewModel.conversation.id,
             contactsRepository: contactsRepository
         )
-        let onRemove: () -> Void = {
-            viewModel.remove(member: member)
-            dismiss()
-        }
+        // Closing the sheet is `ContactDetailView`'s job - it dismisses itself
+        // once the removal is confirmed, so every entry point behaves the same.
+        let onRemove: () -> Void = { viewModel.remove(member: member) }
         NavigationStack {
             ContactDetailView(
                 contact: resolvedContact,

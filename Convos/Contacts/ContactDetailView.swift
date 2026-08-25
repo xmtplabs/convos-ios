@@ -201,7 +201,7 @@ struct ContactDetailView: View {
                 "Remove \(contact.resolvedDisplayName)?",
                 isPresented: $presentingRemoveConfirmation
             ) {
-                Button("Remove", role: .destructive) { onRemove?() }
+                Button("Remove", role: .destructive) { handleRemoveConfirmed() }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text(
@@ -638,6 +638,18 @@ struct ContactDetailView: View {
     private func handleRemoveTap() {
         // Removing the agent is destructive, so confirm natively before firing.
         presentingRemoveConfirmation = true
+    }
+
+    /// Confirming the removal always closes this card - the profile it shows
+    /// describes someone who is no longer in the conversation, so leaving it up
+    /// strands the user on a stale view. Owned here rather than by the callers
+    /// because every entry point routes through this same confirmation, and
+    /// `dismiss` resolves correctly for both presentation styles: it pops the
+    /// card pushed from the members list, and closes the sheet opened by a
+    /// member tap in a chat (same action the X button already uses).
+    private func handleRemoveConfirmed() {
+        onRemove?()
+        dismiss()
     }
 
     private func applyBlockChange(block: Bool) {
