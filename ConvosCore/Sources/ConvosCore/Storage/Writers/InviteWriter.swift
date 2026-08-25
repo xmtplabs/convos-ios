@@ -33,25 +33,25 @@ class InviteWriter: InviteWriterProtocol {
         expiresAt: Date? = nil,
         expiresAfterUse: Bool = false
     ) async throws -> Invite {
-        guard let identity = try await identityStore.load() else {
-            throw KeychainIdentityStoreError.identityNotFound("No identity available to sign invite for conversation \(conversation.id)")
-        }
-        let currentInboxId = identity.inboxId
-
-        if let existingInvite = try? await self.databaseWriter.read({ db in
-            try? DBInvite
-                .filter(DBInvite.Columns.conversationId == conversation.id)
-                .filter(DBInvite.Columns.creatorInboxId == currentInboxId)
-                .fetchOne(db)
-        }) {
-            if inviteTagMatches(slug: existingInvite.urlSlug, tag: conversation.inviteTag) {
-                return existingInvite.hydrateInvite()
-            }
-            try await delete(for: conversation.id)
-            Log.info("Invite tag changed for conversation \(conversation.id), re-creating invite")
-        }
-
         do {
+            guard let identity = try await identityStore.load() else {
+                throw KeychainIdentityStoreError.identityNotFound("No identity available to sign invite for conversation \(conversation.id)")
+            }
+            let currentInboxId = identity.inboxId
+
+            if let existingInvite = try? await self.databaseWriter.read({ db in
+                try? DBInvite
+                    .filter(DBInvite.Columns.conversationId == conversation.id)
+                    .filter(DBInvite.Columns.creatorInboxId == currentInboxId)
+                    .fetchOne(db)
+            }) {
+                if inviteTagMatches(slug: existingInvite.urlSlug, tag: conversation.inviteTag) {
+                    return existingInvite.hydrateInvite()
+                }
+                try await delete(for: conversation.id)
+                Log.info("Invite tag changed for conversation \(conversation.id), re-creating invite")
+            }
+
             let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
             let urlSlug = try SignedInvite.slug(
                 for: conversation,
@@ -107,18 +107,28 @@ class InviteWriter: InviteWriterProtocol {
             return dbInvite.hydrateInvite()
         } catch {
             Log.warning("Failed to create invite for conversation \(conversation.id), will retry on next sync: \(error)")
-            // A conversation with no invite cannot be joined at all, so a
-            // mint that throws is the earliest point the invite funnel can
-            // break. It previously reached nothing but this local warning.
-            let actions: any CoreActions = coreActions
-            Task {
-                await actions.invitedToConversation(
-                    memberCount: 0,
-                    hasAssistant: false,
-                    isSuccess: false
-                )
-            }
+            reportInviteCreationFailed()
             throw error
+        }
+    }
+
+    /// A conversation with no invite cannot be joined at all, so a mint that
+    /// fails is the earliest point the invite funnel can break. Every throwing
+    /// exit from `generate` reports here - the identity load and the preflight
+    /// delete included, which is why they sit inside the instrumented `do`.
+    /// All of it previously reached nothing but a local warning.
+    ///
+    /// `memberCount` / `hasAssistant` report 0 / false because the counts are
+    /// read from the write that failed; `isSuccess` is what separates these
+    /// from real samples.
+    private func reportInviteCreationFailed() {
+        let actions: any CoreActions = coreActions
+        Task {
+            await actions.invitedToConversation(
+                memberCount: 0,
+                hasAssistant: false,
+                isSuccess: false
+            )
         }
     }
 
