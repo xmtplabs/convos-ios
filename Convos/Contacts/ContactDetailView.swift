@@ -1337,7 +1337,6 @@ private struct ContactDetailContactInfoSection: View {
     }
 }
 
-
 // MARK: - Debug instance id row (internal builds only)
 
 /// Internal-build-only row surfacing the agent runtime's `instanceId`
