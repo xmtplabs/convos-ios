@@ -164,26 +164,53 @@ The person who brings an agent into a shared place and controls its funding and 
 
 Agent Home replaces “Your Space” as the conceptual home of the app. It is not an inbox, dashboard, generic personal profile, or special home for only the Convos Agent. It is the common private workspace for every Agent a person can use.
 
-The first viewport answers five questions:
+The first viewport answers six questions:
 
 1. Which Agent am I working with?
-2. What can it see for this task?
-3. What needs me now?
-4. Where are my Agents working?
-5. What can I ask one of them to do?
+2. What did I miss across my Places?
+3. What should I do now?
+4. What is ready to review or share?
+5. What can the active Agent see for this task?
+6. What can I ask one of my Agents to do?
 
 Recommended hierarchy:
 
-1. **Active Agent and command entry** — one compact Agent picker plus one obvious text/voice action: “Ask an agent to find, make, plan, or remember anything.” The starter Convos Agent is selected by default.
-2. **Needs you** — only decisions, permissions, failures, or ready-to-share work requiring action. This is not a general activity feed.
-3. **Recent work** — a small number of useful artifacts or outcomes, not recent messages.
-4. **Places** — where Agents work, with active Agent, mode, and privacy state. The full list opens separately.
-5. **Context** — what the active Agent knows or may use, including the private library inherited from Your Space.
-6. **My Agents** — the unified roster of owned Convos Agents and personally connected external Agents, with status and an **Add agent** action; this is not a separate promotional section for external providers.
+1. **Active Agent** — one compact Agent picker. The starter Convos Agent is selected by default.
+2. **Your briefing** — one prominent, conversational narrative that says what changed, what needs the person, and what useful next action is available.
+3. **Suggested actions** — only the small number of decisions, connection/setup steps, or ready-to-share work referenced in the narrative. This is not a general activity feed.
+4. **Command entry** — one obvious text/voice action: “Ask an agent to find, make, plan, or remember anything.”
+5. **Recent work** — a small number of useful artifacts or outcomes, not recent messages.
+6. **Places** — where Agents work, with active Agent, mode, and privacy state. The full list opens separately.
+7. **Context** — what the active Agent knows or may use, including the private library inherited from Your Space.
+8. **My Agents** — the unified roster of owned Convos Agents and personally connected external Agents, with status and an **Add agent** action; this is not a separate promotional section for external providers.
 
 The complete Convos list stays one gesture away in a dedicated Convos world. Agent Home does not lead with three, seven, or an unlimited number of recent chats.
 
 Changing Agents must not move the person into a different product area. It changes the active private thread and available capabilities while preserving the selected Place and explicitly showing any scope difference.
+
+#### Your briefing
+
+The briefing restores the narrative quality of the original Your Space concept. It should feel like a trusted person has read everything the user permitted and distilled the morning into one sentence—not like unread counts, a notification center, or an AI-generated essay.
+
+Example states:
+
+- **Catch up:** “Morning, Shane. You have **2 decisions** waiting and **3 updates worth catching up on**.”
+- **Ready to share:** “Your Nashville plan is ready. **Review it** or **share it with Nashville Boys**.”
+- **Set up:** “You are caught up. **Connect your calendar** so an Agent can find a time for Toronto Coworking Days.”
+- **Add an Agent:** “Codex could finish the site Quarter shared. **Connect Codex** to work on it privately.”
+- **Quiet state:** “You are caught up. Ask an Agent to make, find, plan, or remember something.”
+
+Highlighted phrases are tappable and open the exact filtered updates, pending decisions, Agent work, setup flow, or share composer they describe. The briefing may contain one primary sentence and, only when necessary, one supporting sentence.
+
+The ranking order is:
+
+1. a human waiting on the person or a decision blocking a Place;
+2. completed Agent work ready to review or share;
+3. an important update the person missed;
+4. a failed permission, disconnected Agent, or setup step needed for an explicit task;
+5. a contextual suggestion when nothing requires attention.
+
+The briefing must name people, Places, or work when useful, preserve provenance behind every claim, and use only context the person has permission to access. It must not fabricate urgency, turn all unread messages into work, or promote a Connection without tying it to a clear user benefit.
 
 ### 7.2 Convos
 
@@ -526,6 +553,14 @@ Rewards must not pay for raw message volume, passive surveillance, invitations, 
 - Every Agent result can be saved privately, edited where supported, and shared into an authorized Place through the same destination picker.
 - Provider limitations appear as capabilities or typed unavailable states, not as a different navigation model.
 
+### FR12 — Actionable Home briefing
+
+- Home synthesizes permitted activity across Places and Agents into one concise narrative.
+- Every highlighted claim or count opens the exact supporting items with provenance.
+- The briefing can recommend catch-up, decision, review, share, connect, set up, retry, or create actions.
+- Ranking favors human commitments and ready work over generic engagement or unread volume.
+- Empty, offline, stale, partially indexed, permission-limited, and all-caught-up states use honest typed language.
+
 ## 15. Unified Product and Technical Contract
 
 This PRD does not approve a backend rewrite. It does require the prototype and eventual implementation to behave as one system instead of several provider-specific products.
@@ -578,6 +613,7 @@ The design must handle:
 - zero Connections, one active Connection, many Connections, expired credentials, and approval-required actions;
 - an empty private Context library, a typical personal library, and the existing bounded large-context index;
 - no work needing attention, one important decision, and several conflicting requests;
+- no briefing data, a single clear action, several competing updates, stale indexing, and an all-caught-up state;
 - agent online, working, waiting for approval, paused, out of credits, disconnected, and removed;
 - a Place with no persistent connection, selected-message access, Listen, Mention, and future Participate;
 - a new participant who has no Convos account;
@@ -598,6 +634,7 @@ This measures value delivered through the social graph, not messages sent by age
 - Time from install to first useful private result
 - Percentage of new users who understand what the agent can see and where it can speak
 - Percentage who share the first result or intentionally keep it private
+- Percentage who open or complete a briefing action and judge it relevant
 
 ### Value and retention
 
@@ -618,6 +655,7 @@ This measures value delivered through the social graph, not messages sent by age
 - Unprompted-post complaints
 - Permission reversals immediately after grant
 - Reports of wrong-Place context or unexplained provenance
+- Briefing dismissals, irrelevant-action reports, and false-urgency reports
 - Shared-Agent or Connection cost disputes
 
 No growth metric may override a trust guardrail.
@@ -635,6 +673,7 @@ Within 30 seconds, a new person should be able to answer:
 5. Does it know things from another group?
 6. Who pays when it uses a connected Agent or capability?
 7. Can I switch Agents without leaving this Place or learning a new interface?
+8. Why did Home tell me this, and can I reach the supporting conversation or work?
 
 ### Dogfood scenarios
 
@@ -662,7 +701,8 @@ The prototype is successful when users experience value without first moving the
 | Agents damage social conversation | High | No unprompted speech in the initial contract; Listen and Mention first; obvious pause state |
 | Host pays for uncontrolled group usage | High | Spend limits, approval-required capabilities, typed denial, usage visibility, and future rewards |
 | External platforms prevent continuous integration | High | Make selected-message handoff and artifacts useful on their own; treat persistent linking as an enhancement |
-| Agent Home becomes another crowded dashboard | High | Show only active Agent, needs, outcomes, Places, context, and Agent roster; keep the chat index separate |
+| Agent Home becomes another crowded dashboard | High | Lead with one concise briefing and its few referenced actions; keep Places, context, Agent roster, and chat index progressively disclosed |
+| The briefing becomes noisy or manipulative | High | Rank human commitments and ready work first; require provenance; prohibit fabricated urgency and untethered setup promotion |
 | Convos neglects native chat quality | Medium | Preserve the Convos world as a first-class destination and migration target |
 | The market is early for personal agents | High | Prove immediate group jobs with the starter Agent; additional Agents remain optional |
 | Technical rearchitecture dictates the UX | High | Validate the mental model and behavior with prototypes before committing to transport changes |
@@ -673,7 +713,7 @@ The prototype is successful when users experience value without first moving the
 
 - Approve positioning, nouns, privacy contract, and initial mode behavior.
 - Prototype Agent Home, the unified Agent picker, and Place settings using existing local data.
-- Validate the seven comprehension questions and three dogfood scenarios.
+- Validate the eight comprehension questions and three dogfood scenarios.
 
 ### Phase 1 — One Agent model across native Convos
 
@@ -722,10 +762,11 @@ The prototype is successful when users experience value without first moving the
 5. Confirm one active public responder per Place in the first release, with any number of private Agent threads beside it.
 6. Confirm **Agents** and **Places** as the two customer-facing nouns; keep Connections subordinate and retire Powers.
 7. Confirm My Agents as the management model: owned Convos Agents plus connected external Agents, all with editable Place permissions and explicit delete/disconnect semantics.
-8. Define the smallest free baseline worth promising.
-9. Decide what event qualifies a person as “empowered” for Host identity and rewards.
-10. Decide which single outside-chat path should be prototyped first: iOS share extension, phone-number bridge, or one platform-specific connection.
-11. Decide whether Convos Pages are part of the first validation prototype or the next loop.
+8. Confirm the Home briefing as the hero: one narrative with tappable catch-up, decision, review, share, connect, and setup actions.
+9. Define the smallest free baseline worth promising.
+10. Decide what event qualifies a person as “empowered” for Host identity and rewards.
+11. Decide which single outside-chat path should be prototyped first: iOS share extension, phone-number bridge, or one platform-specific connection.
+12. Decide whether Convos Pages are part of the first validation prototype or the next loop.
 
 ## 23. Approval Request
 
