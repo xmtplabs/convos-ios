@@ -42,6 +42,14 @@ final class ConversationListItemCell: UICollectionViewListCell {
             : "conversation-list-item-\(conversation.id)"
     }
 
+    /// Holds the pressed ("down") appearance independently of the cell's
+    /// touch-driven `isHighlighted`, so the row can stay visibly pressed from
+    /// touch-down through the tap-recognizer's single/double disambiguation
+    /// window instead of clearing the instant the finger lifts.
+    func setPressedHeld(_ held: Bool) {
+        hostingWrapper?.isPressedHeld = held
+    }
+
     override func updateConfiguration(using state: UICellConfigurationState) {
         super.updateConfiguration(using: state)
         hostingWrapper?.isSwiped = state.isSwiped
@@ -69,6 +77,7 @@ final class ConversationListItemWrapper {
     var isSelected: Bool
     var isSwiped: Bool = false
     var isHighlighted: Bool = false
+    var isPressedHeld: Bool = false
     // Held on the wrapper (not injected once at build time) so a recycled cell
     // applies the latest resolver: `configure(with:)` reuses this wrapper via
     // `update(...)`, and the view controller reassigns its
@@ -104,9 +113,15 @@ struct ConversationListItemWrapperView: View {
         UIDevice.current.userInterfaceIdiom == .phone
     }
 
+    /// True while the row is pressed - either the live touch-driven highlight or
+    /// the held pressed state that spans the tap disambiguation window.
+    private var isPressedDown: Bool {
+        wrapper.isHighlighted || wrapper.isPressedHeld
+    }
+
     private var shouldHighlight: Bool {
         if isPhone {
-            return wrapper.isSwiped || wrapper.isHighlighted
+            return wrapper.isSwiped || isPressedDown
         }
         return wrapper.isSwiped || wrapper.isSelected
     }
@@ -115,7 +130,7 @@ struct ConversationListItemWrapperView: View {
         ConversationsListItem(conversation: wrapper.conversation)
             .background {
                 if shouldHighlight {
-                    if isPhone, wrapper.isHighlighted, !wrapper.isSwiped {
+                    if isPhone, isPressedDown, !wrapper.isSwiped {
                         Rectangle()
                             .fill(Color.colorFillMinimal)
                     } else {

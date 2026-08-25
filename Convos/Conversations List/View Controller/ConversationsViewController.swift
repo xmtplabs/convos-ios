@@ -283,6 +283,36 @@ final class ConversationsViewController: UIViewController {
         return conversation(for: indexPath)
     }
 
+    /// The list row currently showing the held pressed state, and the safety
+    /// timer that clears it if no tap/scroll/menu resolves the press.
+    private weak var pressedHeldCell: ConversationListItemCell?
+    private var clearPressedHeldWorkItem: DispatchWorkItem?
+
+    /// Latches the pressed appearance on the touched row from touch-down so the
+    /// user gets immediate feedback that spans the single/double tap
+    /// disambiguation window, instead of it clearing the instant the finger
+    /// lifts. A safety timeout guards against gesture paths that never resolve
+    /// (system-cancelled touches).
+    private func holdPressedState(at indexPath: IndexPath) {
+        clearPressedState()
+        guard let cell = collectionView.cellForItem(at: indexPath) as? ConversationListItemCell else { return }
+        cell.setPressedHeld(true)
+        pressedHeldCell = cell
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.clearPressedState()
+        }
+        clearPressedHeldWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + Constant.pressedStateMaxHold, execute: workItem)
+    }
+
+    private func clearPressedState() {
+        clearPressedHeldWorkItem?.cancel()
+        clearPressedHeldWorkItem = nil
+        pressedHeldCell?.setPressedHeld(false)
+        pressedHeldCell = nil
+    }
+
     private func createLayout() -> UICollectionViewLayout {
         let layout = ConversationsCompositionalLayout { [weak self] sectionIndex, environment in
             guard let self = self else { return nil }
@@ -757,12 +787,21 @@ extension ConversationsViewController: UICollectionViewDelegate {
         collectionView.deselectItem(at: indexPath, animated: true)
     }
 
+    func collectionView(_ collectionView: UICollectionView, didHighlightItemAt indexPath: IndexPath) {
+        holdPressedState(at: indexPath)
+    }
+
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         guard currentState.hasMoreConversations else { return }
         guard let item = dataSource.itemIdentifier(for: indexPath), case .conversation = item else { return }
         let listCount = currentState.unpinnedConversations.count
         guard listCount > 0, indexPath.item >= listCount - Constant.loadMoreThreshold else { return }
         onLoadMoreConversations?()
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // The touch became a scroll, not a tap - drop the held pressed state.
+        clearPressedState()
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -780,6 +819,10 @@ extension ConversationsViewController: UICollectionViewDelegate {
         contextMenuConfigurationForItemAt indexPath: IndexPath,
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
+        // A long press opened the menu, so the touch is not a tap - drop the
+        // held pressed state rather than leaving the row latched behind it.
+        clearPressedState()
+
         guard let item = dataSource.itemIdentifier(for: indexPath),
               let conversation = conversation(for: indexPath) else {
             return nil
@@ -915,4 +958,8 @@ extension ConversationsViewController: UICollectionViewDelegate {
 private enum Constant {
     /// How many rows before the end of the list the next page is requested.
     static let loadMoreThreshold: Int = 10
+    /// Safety cap on the held pressed state, in case no tap, scroll, or menu
+    /// resolves the press (e.g. a system-cancelled touch). Longer than the tap
+    /// disambiguation window so a normal single tap is never cut short.
+    static let pressedStateMaxHold: TimeInterval = 0.7
 }
