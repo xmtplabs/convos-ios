@@ -1988,9 +1988,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .filter { !existingInboxIds.contains($0.profile.inboxId) }
         // Agent contacts are canonical rows keyed by agentTemplateId, so
         // picked templates resolve back through the same contacts
-        // repository. A templateId with no contact row (e.g. a suggested
-        // agent the user never chatted with) is skipped - that selection
-        // just keeps the non-optimistic behavior.
+        // repository. A templateId with no contact row (e.g. an agent
+        // reached through a share link the user never chatted with) is
+        // skipped - that selection just keeps the non-optimistic behavior.
         let agentContacts: [Contact] = (try? contactsRepository.fetchContacts(templateIds: agentTemplateIds)) ?? []
         let agentMembers: [ConversationMember] = agentContacts
             .compactMap(\.agentShareInfo)

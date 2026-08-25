@@ -85,7 +85,7 @@ struct ContactAvatarView: View {
             fallbackName: contact.resolvedDisplayName,
             placeholderEmoji: contact.profileEmoji,
             agentVerification: contact.agentVerification ?? .unverified,
-            // Synthetic contacts (suggested agents, agent-share placeholders)
+            // Synthetic contacts (agent-share placeholders)
             // carry their own avatar but have no canonical profile row; keep
             // rendering that image instead of only reading the repository.
             fallbackCacheable: contact

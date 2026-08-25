@@ -1612,9 +1612,9 @@ private extension NewConversationViewModel {
         let seededContacts: [Contact] = seededMemberInboxIds.compactMap { contactsRepository.contact(for: $0) }
         // Agent contacts are canonical rows keyed by agentTemplateId (one
         // per template), so picked templates resolve back through the same
-        // contacts repository. A templateId with no contact row (e.g. a
-        // suggested agent the user never chatted with) is skipped - that
-        // selection just keeps the non-optimistic behavior.
+        // contacts repository. A templateId with no contact row (e.g. an
+        // agent reached through a share link the user never chatted with) is
+        // skipped - that selection just keeps the non-optimistic behavior.
         let agentContacts: [Contact] = (try? contactsRepository.fetchContacts(templateIds: seededAgentTemplateIds)) ?? []
         let seededAgentInfos: [AgentShareInfo] = agentContacts.compactMap(\.agentShareInfo)
         guard !seededContacts.isEmpty || !seededAgentInfos.isEmpty else {

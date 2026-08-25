@@ -205,9 +205,6 @@ struct ContactsView: View {
             rowContent: { (row: ContactsViewModel.Row) in
                 contactRow(for: row)
             },
-            sectionHeader: { (section: ContactsListSection<ContactsViewModel.Row>) in
-                contactsSectionHeader(for: section)
-            },
             leadingContent: inviteActionsContent,
             listBackground: { Color.colorBackgroundRaisedSecondary }
         )
@@ -248,11 +245,6 @@ struct ContactsView: View {
         NavigationLink(value: row.contact) {
             ContactRowView(contact: row.contact, subtitle: row.subtitle)
         }
-    }
-
-    @ViewBuilder
-    private func contactsSectionHeader(for section: ContactsListSection<ContactsViewModel.Row>) -> some View {
-        ContactsListSectionHeader(title: section.title)
     }
 
     /// Detail pushed when a contact row is tapped. Built here (rather than
@@ -296,7 +288,6 @@ struct ContactsView: View {
         ContactsPickerView(
             mode: .newConversation,
             contactsRepository: contactsRepository,
-            suggestedAgentsService: SuggestedAgentsService.live(),
             onConfirm: handlePickerConfirm
         )
     }

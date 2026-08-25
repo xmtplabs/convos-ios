@@ -142,7 +142,7 @@ struct ContactDetailView: View {
         self.onRemove = onRemove
         self.onStartAgentDm = onStartAgentDm
         _isBlocked = State(initialValue: contact.isBlocked)
-        // Suggested-agent contacts carry the description, so it renders
+        // Agent-share placeholder contacts carry the description, so it renders
         // immediately; saved agent contacts seed nil and resolve it on appear.
         _agentDescription = State(initialValue: contact.agentDescription)
     }
@@ -253,8 +253,9 @@ struct ContactDetailView: View {
     /// Resolves the agent template's description (id or slug) so the card can
     /// show it under the name. `nil` for humans and when resolution fails.
     private func loadAgentDescription() async {
-        // Suggested-agent contacts already carry the description (seeded in
-        // init), so skip the round-trip; only saved agent contacts resolve it.
+        // Agent-share placeholder contacts already carry the description
+        // (seeded in init), so skip the round-trip; only saved agent contacts
+        // resolve it.
         guard agentDescription == nil, let session, let templateId = contact.agentTemplateId else { return }
         let info = await session.agentShareResolver().resolve(identifier: templateId)
         agentDescription = info?.descriptionText
@@ -340,10 +341,9 @@ struct ContactDetailView: View {
                         .padding(.top, DesignConstants.Spacing.step2x)
                         .padding(.horizontal, DesignConstants.Spacing.step6x)
                 }
-                // Suggested-agent and agent-share placeholders aren't saved
-                // contacts, so the "Added X ago" line (and Block, below)
-                // don't apply.
-                if !contact.isUnsavedAgentPlaceholder {
+                // Agent-share placeholders aren't saved contacts, so the
+                // "Added X ago" line (and Block, below) don't apply.
+                if !contact.isAgentSharePlaceholder {
                     ContactDetailSubtitle(
                         contact: contact,
                         invitedBy: mode.invitedBy,
@@ -376,7 +376,7 @@ struct ContactDetailView: View {
                     showRemove: mode.isScopedToConversation
                         && !mode.isCurrentUser
                         && mode.canRemoveMembers,
-                    showBlock: !mode.isCurrentUser && !contact.isUnsavedAgentPlaceholder,
+                    showBlock: !mode.isCurrentUser && !contact.isAgentSharePlaceholder,
                     contactDisplayName: contact.resolvedDisplayName,
                     agentEmail: contact.agentEmail,
                     agentInstanceId: contact.agentInstanceId,
@@ -468,7 +468,6 @@ struct ContactDetailView: View {
             mode: .newConversation,
             contactsRepository: contactsRepository,
             preselectedInboxIds: [contact.inboxId],
-            suggestedAgentsService: SuggestedAgentsService.live(),
             onConfirm: handlePickerConfirm
         )
     }

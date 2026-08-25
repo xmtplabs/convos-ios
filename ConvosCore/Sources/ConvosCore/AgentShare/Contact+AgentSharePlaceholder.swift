@@ -5,7 +5,7 @@ public extension Contact {
     /// message card when no agent running the template is a member of the
     /// conversation. The card uses it purely for display: "New chat" spawns
     /// a fresh instance by `agentTemplateId`, and Share re-shares the link
-    /// the message carried. Mirrors `Contact.suggestedAgent(_:)`.
+    /// the message carried.
     ///
     /// The share link itself carries no verification signal, but the resolve
     /// goes through the backend's template endpoint, so the card renders
@@ -32,19 +32,14 @@ public extension Contact {
 
     /// Prefix stamped onto an agent-share placeholder's synthetic `inboxId`.
     /// Distinct from any real inbox so the placeholder never aliases a
-    /// stored contact. Mirrors `suggestedAgentInboxIdPrefix`.
+    /// stored contact.
     static let agentSharePlaceholderInboxIdPrefix: String = "agent-share:"
 
-    /// True for the synthetic contact backing a tapped agent-share card.
+    /// True for the synthetic contact backing a tapped agent-share card -- an
+    /// agent reached through a shared link rather than a saved contact. Lets
+    /// surfaces suppress contact-only affordances (the "Added X ago" line,
+    /// Block) for these placeholder rows.
     var isAgentSharePlaceholder: Bool {
         inboxId.hasPrefix(Self.agentSharePlaceholderInboxIdPrefix)
-    }
-
-    /// True for any synthetic agent contact that is not a saved contact -- a
-    /// suggested agent or a shared agent link. Lets surfaces suppress
-    /// contact-only affordances (the "Added X ago" line, Block) for these
-    /// placeholder rows.
-    var isUnsavedAgentPlaceholder: Bool {
-        isSuggestedAgentPlaceholder || isAgentSharePlaceholder
     }
 }
