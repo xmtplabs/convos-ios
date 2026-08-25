@@ -1620,7 +1620,14 @@ private extension ConversationView {
                 }
                 presentingAddFromContactsPicker = true
             },
-            showMembersList: { viewModel.presentingConversationSettings = true }
+            showMembersList: { viewModel.presentingConversationSettings = true },
+            // Same destination the member card's agent action opens, so the
+            // web surface and the native one agree on what "the agent DM" is.
+            showAgentDm: {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    selectTab(.agent)
+                }
+            }
         )
     }
 

@@ -15,6 +15,7 @@ struct HomeBridgeNavigation {
     }
     var showInvitePicker: @MainActor @Sendable () -> Void = {}
     var showMembersList: @MainActor @Sendable () -> Void = {}
+    var showAgentDm: @MainActor @Sendable () -> Void = {}
 }
 
 /// Main-actor state shared between the hosting web view (which refreshes the
@@ -130,6 +131,11 @@ private final class HomeChatPlugin: ChatPlugin, Sendable {
     func showMembersList() {
         let host = host
         Task { @MainActor in host.navigation.showMembersList() }
+    }
+
+    func showAgentDm() {
+        let host = host
+        Task { @MainActor in host.navigation.showAgentDm() }
     }
 
     func getAgentStatus() async throws -> AgentStatus {

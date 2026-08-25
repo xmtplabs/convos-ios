@@ -39,13 +39,7 @@ let package = Package(
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.1"),
-        // Temporary pin: JoinFailureReason and the extended joinedConversation
-        // signature land in convos-shared#10. That branch is cut from
-        // mpr/web-plugins rather than main deliberately - main's ChatPlugin
-        // gained showAgentDm(), which HomeChatPlugin has not adopted, so
-        // pinning main fails to build for reasons unrelated to this change.
-        // Revert to branch: "main" once #10 merges and showAgentDm is wired.
-        .package(url: "https://github.com/xmtplabs/convos-shared.git", branch: "jarod/join-failure-telemetry"),
+        .package(url: "https://github.com/xmtplabs/convos-shared.git", branch: "main"),
         .package(path: "../ConvosLogging"),
         .package(path: "../ConvosInvites"),
         .package(path: "../ConvosAppData"),

@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtplabs/convos-shared.git",
       "state" : {
-        "branch" : "jarod/join-failure-telemetry",
-        "revision" : "3197e82eb449be04efab6826d9e3e744cea85884"
+        "branch" : "main",
+        "revision" : "e48ac84172bc268709c9c23b18445e85088d8b1b"
       }
     },
     {
