@@ -118,11 +118,11 @@ extension SessionManager {
         }
     }
 
-    /// Ensures the conversation has its default agent: no-op when the
-    /// conversation already has a second member, otherwise provisions a bare
-    /// agent (join with no template, greeting deferred) and adds it. Safe to
-    /// call repeatedly - concurrent callers share one provision task, and a
-    /// failed provision is retryable on the next call.
+    /// Ensures the conversation has its default agent: no-op when an agent is
+    /// already in it, otherwise provisions a bare agent (join with no
+    /// template, greeting deferred) and adds it. Safe to call repeatedly -
+    /// concurrent callers share one provision task, and a failed provision is
+    /// retryable on the next call.
     func ensureDefaultAgentInConversation(id conversationId: String) async {
         guard Self.defaultAgentProvisioningEnabled(environment) else { return }
         let task = await defaultAgentCoordinator.provisionTask(for: conversationId) { [weak self] in
@@ -147,8 +147,12 @@ extension SessionManager {
 
     private func runDefaultAgentProvision(conversationId: String) async {
         do {
-            guard try await conversationLacksSecondMember(conversationId) else {
-                Log.debug("Default agent: conversation \(conversationId) already has a second member, skipping provision")
+            guard try await conversationLacksAgent(conversationId) else {
+                Log.debug("Default agent: conversation \(conversationId) already has an agent, skipping provision")
+                // Nothing is in flight, so nothing should read as in flight.
+                // Leaving the task cached is what pinned the Agent tab in its
+                // "preparing" state until the app relaunched.
+                await defaultAgentCoordinator.clearProvisionTask(for: conversationId)
                 return
             }
             let variantId = await Self.defaultAgentVariantIdProvider?(conversationId)
@@ -229,14 +233,38 @@ extension SessionManager {
         }
     }
 
-    /// Cache-prepared conversations start with the creator as sole member, so
-    /// a second member row means the default agent (or someone else) is
-    /// already in.
-    private func conversationLacksSecondMember(_ conversationId: String) async throws -> Bool {
+    /// Whether the conversation still needs a default agent: nobody in it is
+    /// an agent, and nobody in it ever verified as one.
+    ///
+    /// Deliberately not "lacks a second member". Cache-prepared conversations
+    /// start with the creator as sole member, so a bare member count answered
+    /// this question for the provisioner's first caller - but it reads as "an
+    /// agent is already here" for any conversation that has people in it,
+    /// which silently dropped every user-initiated "Add an agent" tap (a
+    /// conversation created before agents joined by default, or whose silent
+    /// provision never landed - the two cases this path exists to serve).
+    ///
+    /// `hasHadVerifiedAgent` is the sticky historical answer; the member join
+    /// is the live one, and settles first because it needs no key-package
+    /// verification. Every `DBMemberKind` is an agent kind, so a member whose
+    /// profile carries one is an agent. The current user has no `profile` row
+    /// (self identity lives in `myProfile`), so the creator never matches.
+    /// Internal rather than private so the unit suite can pin its semantics.
+    func conversationLacksAgent(_ conversationId: String) async throws -> Bool {
         try await databaseReader.read { db in
-            try DBConversationMember
+            let hasHadVerifiedAgent = try DBConversation
+                .filter(DBConversation.Columns.id == conversationId)
+                .fetchOne(db)?
+                .hasHadVerifiedAgent ?? false
+            guard !hasHadVerifiedAgent else { return false }
+            let agentMemberCount = try DBConversationMember
                 .filter(DBConversationMember.Columns.conversationId == conversationId)
-                .fetchCount(db) <= 1
+                .joining(
+                    required: DBConversationMember.profile
+                        .filter(DBProfile.Columns.memberKind != nil)
+                )
+                .fetchCount(db)
+            return agentMemberCount == 0
         }
     }
 }
