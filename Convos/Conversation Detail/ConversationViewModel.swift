@@ -4399,12 +4399,6 @@ extension ConversationViewModel {
         }
     }
 
-    /// Bare-join convenience for the in-conversation "add an agent"
-    /// affordances. Kept so their call sites don't change.
-    func requestAgentJoin() {
-        requestAgentJoin(templateId: nil)
-    }
-
     /// Sequential batched variant of `requestAgentJoin(templateId:)`. Used
     /// when the picker confirmed multiple agent templates at once. Awaits
     /// each call to completion before firing the next, with a short
