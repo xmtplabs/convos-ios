@@ -62,7 +62,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var showingAgentsInfo: Bool = false
-    /// Agent participation for this conversation, behind the Listen debug flag.
+    /// Agent participation for this conversation.
     /// It lives here rather than in the composer because the level belongs to
     /// the conversation; the composer only draws the control.
     @State private var participation: AgentParticipationStore?
@@ -2029,8 +2029,7 @@ private extension ConversationView {
     /// conversation already carries. Skipped where the control would be
     /// meaningless, so a conversation without agents never draws it.
     func prepareParticipation() async {
-        guard FeatureFlags.shared.isListenParticipationEnabled,
-              viewModel.conversation.members.contains(where: \.isAgent) else {
+        guard viewModel.conversation.members.contains(where: \.isAgent) else {
             participation = nil
             return
         }

@@ -20,14 +20,11 @@ import UserNotifications
 //
 // Hard rules enforced here:
 // - No mutating controls (no "Request Now", no "Register Device Again", no
-//   purchase / change-plan CTAs, no mock-credit toggles). Four deliberate
+//   purchase / change-plan CTAs, no mock-credit toggles). Three deliberate
 //   exceptions, each flipping only a local default so a tester can opt this
 //   install into a feature we are dogfooding in production:
 //   - the XMTP bidi streaming opt-in, which selects the stream transport at
 //     next launch -- nothing account- or network-mutating.
-//   - the Listen opt-in, which only decides whether the participation control
-//     is built. Turning it on mutates nothing by itself; the writes happen
-//     later, in the control, when a member actually picks a level.
 //   - the Abilities v2 opt-in, which swaps the abilities catalog list and
 //     per-conversation section from the V1 connections UI to the V2 one and
 //     points them at the live abilities backend. Off by default; nothing
@@ -184,7 +181,6 @@ struct ProdDebugMenuView: View {
             labeledRow("Debug injector", injectorEnabled ? "On" : "Off")
             // The interactive controls in this curated menu; see the
             // module overview for why they are allowed here.
-            Toggle("Listen (agent participation)", isOn: Bindable(FeatureFlags.shared).isListenParticipationEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
             Toggle("Abilities v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
             Toggle("Enable Relay (BYOA)", isOn: Bindable(FeatureFlags.shared).agentRelayEnabled)
