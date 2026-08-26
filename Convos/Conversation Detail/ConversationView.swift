@@ -1572,15 +1572,35 @@ private extension ConversationView {
                 .ignoresSafeArea()
             }
             .accessibilityIdentifier("context-no-agent")
-        } else {
-            HomeLayoutView(
-                webURL: viewModel.conversation.spaceURL,
-                onNavigationRequest: { url in
+        } else if FeatureFlags.shared.isNativeSpaceEnabled,
+                  let spaceURL = viewModel.conversation.spaceURL {
+            // The document carries the same page the web surface would draw, so
+            // a tapped tile still opens the real page in the browsing chain
+            // rather than a second native screen that does not exist yet. A
+            // Space whose deployment predates the document route falls back to
+            // that page wholesale.
+            NativeSpaceView(
+                spaceURL: spaceURL,
+                onOpen: { url in
                     pushHomeBrowserPage(for: url)
                 },
-                bridgeNavigation: homeBridgeNavigation
+                webFallback: AnyView(spaceWebSurface)
             )
+        } else {
+            spaceWebSurface
         }
+    }
+
+    /// The Context tab's Space page, drawn in the web view.
+    @ViewBuilder
+    private var spaceWebSurface: some View {
+        HomeLayoutView(
+            webURL: viewModel.conversation.spaceURL,
+            onNavigationRequest: { url in
+                pushHomeBrowserPage(for: url)
+            },
+            bridgeNavigation: homeBridgeNavigation
+        )
     }
 
     /// Native destinations for the home page's `window.convos` invite/chat
