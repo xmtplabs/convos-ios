@@ -14,8 +14,15 @@ enum SpaceDay {
         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
     ]
 
+    /// A calendar date, read literally out of what the document wrote.
+    struct Parts: Equatable {
+        let year: Int
+        let month: Int
+        let day: Int
+    }
+
     /// `yyyy-MM-dd` read literally, or nothing when the value is not one.
-    static func parts(of value: String) -> (year: Int, month: Int, day: Int)? {
+    static func parts(of value: String) -> Parts? {
         let date = String(value.prefix(10))
         let pieces = date.split(separator: "-")
         guard pieces.count == 3,
@@ -24,7 +31,7 @@ enum SpaceDay {
               let day = Int(pieces[2]), (1...31).contains(day) else {
             return nil
         }
-        return (year, month, day)
+        return Parts(year: year, month: month, day: day)
     }
 
     /// "Today", "Tomorrow", "Yesterday" — or nothing for a day far enough away
@@ -76,7 +83,7 @@ enum SpaceDay {
             return nil
         }
         let half = hour < 12 ? "AM" : "PM"
-        let twelve = hour % 12 == 0 ? 12 : hour % 12
+        let twelve = hour.isMultiple(of: 12) ? 12 : hour % 12
         return "\(twelve):\(String(format: "%02d", minute)) \(half)"
     }
 }

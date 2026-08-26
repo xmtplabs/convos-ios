@@ -27,7 +27,7 @@ struct NativeSpaceView: View {
     @State private var state: LoadState
     @State private var events: SpaceEventsState = .empty
     @State private var follower: SpaceEventsFollower = SpaceEventsFollower()
-    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.scenePhase) private var scenePhase: ScenePhase
 
     @MainActor
     init(
