@@ -49,7 +49,6 @@ struct DebugViewSection: View {
     @State private var creditsPresetSelection: CreditsStatePreset = FeatureFlags.shared.mockCreditsPreset
     @State private var useRealStoreKit: Bool = SubscriptionServices.useRealStoreKit
     @State private var useRealCredits: Bool = CreditsServices.useRealBackend
-    @State private var abilitiesV1ShimEnabled: Bool = AbilitiesServices.isV1AwarenessShimEnabled
     @State private var abilitiesEscalationMockEnabled: Bool = AbilitiesServices.isEscalationMockEnabled
     @State private var identity: DeviceIdentitySnapshot?
 
@@ -115,15 +114,10 @@ struct DebugViewSection: View {
         Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
     }
 
-    /// Connections debug sub-toggles: the V1 awareness shim (default off)
-    /// and the mock consent flow (default off). Both take effect on the
-    /// next read (no relaunch needed).
+    /// Connections mock consent flow toggle (default off). Takes effect on
+    /// the next read (no relaunch needed).
     @ViewBuilder
     private var abilitiesFeatureToggles: some View {
-        Toggle("Connections: v1 awareness shim", isOn: $abilitiesV1ShimEnabled)
-            .onChange(of: abilitiesV1ShimEnabled) { _, newValue in
-                AbilitiesServices.setV1AwarenessShimEnabled(newValue)
-            }
         Toggle("Connections: consent flow (mock)", isOn: $abilitiesEscalationMockEnabled)
             .onChange(of: abilitiesEscalationMockEnabled) { _, newValue in
                 AbilitiesServices.setEscalationMockEnabled(newValue)

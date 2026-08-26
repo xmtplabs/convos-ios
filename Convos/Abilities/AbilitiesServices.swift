@@ -89,17 +89,9 @@ enum AbilitiesServices {
 
     /// Wires the live service to the backend and the session's messaging
     /// stack. Called once from `ConvosApp.init`; built eagerly so flipping
-    /// the mock/live toggle later picks it up without a relaunch. The V1
-    /// awareness shim gate is read at mutation time, so its toggle is live
-    /// immediately too.
+    /// the mock/live toggle later picks it up without a relaunch.
     static func configure(session: any SessionManagerProtocol, environment: AppEnvironment) {
         let messaging: AnyMessagingService = session.messagingService()
-        let shimWriter = AbilityV1AwarenessShimWriter(
-            profileMetadataWriter: messaging.profileMetadataWriter(),
-            myInboxIdProvider: {
-                try await messaging.sessionStateManager.waitForInboxReadyResult().client.inboxId
-            }
-        )
         let cache = AbilitiesCatalogDiskCache(environmentName: environment.name)
         catalogCache = cache
         conversationsProvider = {
@@ -112,9 +104,7 @@ enum AbilitiesServices {
             cache: cache,
             myInboxIdProvider: {
                 try? await messaging.sessionStateManager.waitForInboxReadyResult().client.inboxId
-            },
-            shimWriter: shimWriter,
-            isShimEnabled: { isV1AwarenessShimEnabled }
+            }
         )
     }
 
@@ -158,19 +148,6 @@ enum AbilitiesServices {
         }
     }
 
-    /// Debug sub-toggle for the V1 awareness shim (ProfileUpdate metadata
-    /// side-writes on extend/withdraw, for A/B testing agent awareness
-    /// during the MCP transition). Default off; never on in production.
-    static var isV1AwarenessShimEnabled: Bool {
-        guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
-        return UserDefaults.standard.bool(forKey: Constant.v1AwarenessShimEnabledKey)
-    }
-
-    static func setV1AwarenessShimEnabled(_ value: Bool) {
-        guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
-        UserDefaults.standard.set(value, forKey: Constant.v1AwarenessShimEnabledKey)
-    }
-
     /// Debug sub-toggle for the mock consent flow (agent ability-use
     /// requests and delegations). Default off; a dev flips this sub-toggle to
     /// demo the full consent flow so enabling the abilities flag alone does
@@ -189,7 +166,6 @@ enum AbilitiesServices {
     }
 
     private enum Constant {
-        static let v1AwarenessShimEnabledKey: String = "abilitiesServices.v1AwarenessShimEnabled"
         static let escalationMockEnabledKey: String = "abilitiesServices.escalationMockEnabled"
     }
 }
