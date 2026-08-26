@@ -345,6 +345,11 @@ private final class RecordingMetadataWriter: ConversationMetadataWriterProtocol,
     }
 
     func updateParticipationMode(_ mode: ConversationParticipationMode, for conversationId: String) async throws {}
+    func updateAgentModel(
+        _ model: String?,
+        forAgent agentInboxId: String,
+        in conversationId: String
+    ) async throws {}
     func updateSpaceURL(_ urlString: String?, for conversationId: String) async throws {}
     func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws {}
     func lockConversation(for conversationId: String) async throws {}

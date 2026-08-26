@@ -99,6 +99,79 @@ struct AgentModelSyncTests {
         #expect(decoded.profiles.first?.hasModel == false)
     }
 
+    // MARK: - Writing a pick into appData
+
+    /// The pick is written from the picking member's device, which is what puts
+    /// their name on the transcript row instead of the agent's.
+    @Test("writing a model leaves every other agent's entry alone")
+    func writingModelLeavesOtherAgentsAlone() throws {
+        var mine = ConversationProfile()
+        mine.inboxID = Data(repeating: 0xAA, count: 32)
+        mine.model = "anthropic/claude-haiku-4-5"
+        var other = ConversationProfile()
+        other.inboxID = Data(repeating: 0xBB, count: 32)
+        other.model = "openai/gpt-5.5"
+        var metadata = ConversationCustomMetadata()
+        metadata.tag = "tag"
+        metadata.profiles = [mine, other]
+
+        applyAgentModel("anthropic/claude-sonnet-5", to: &metadata, forAgent: Self.agentInboxId)
+
+        #expect(metadata.profiles[0].model == "anthropic/claude-sonnet-5")
+        #expect(metadata.profiles[1].model == "openai/gpt-5.5")
+    }
+
+    /// Profiles travel as ProfileUpdate messages and appData holds one only for
+    /// a member with an avatar, so there is usually nothing to hang a model on.
+    @Test("writing a model authors the agent's profile when there is none")
+    func writingModelAuthorsProfile() throws {
+        var metadata = ConversationCustomMetadata()
+        metadata.tag = "tag"
+
+        applyAgentModel(
+            "anthropic/claude-sonnet-5",
+            to: &metadata,
+            forAgent: Self.agentInboxId,
+            name: "picker-test"
+        )
+
+        #expect(metadata.profiles.count == 1)
+        #expect(metadata.profiles[0].model == "anthropic/claude-sonnet-5")
+        #expect(metadata.profiles[0].name == "picker-test")
+    }
+
+    /// Nothing to take back, so nothing is worth a commit.
+    @Test("clearing a model the room never carried authors nothing")
+    func clearingUnknownModelAuthorsNothing() throws {
+        var metadata = ConversationCustomMetadata()
+        metadata.tag = "tag"
+
+        applyAgentModel(nil, to: &metadata, forAgent: Self.agentInboxId)
+
+        #expect(metadata.profiles.isEmpty)
+    }
+
+    // MARK: - Model name rendering
+
+    /// The transcript has only the id to work from, and a raw
+    /// `openai/gpt-5.6-luna` is not something to show a member.
+    @Test("a model id renders as a name, without its provider")
+    func modelIdRendersAsName() {
+        #expect(displayNameForModelId("openai/gpt-5.6-luna") == "GPT 5.6 Luna")
+        #expect(displayNameForModelId("anthropic/claude-sonnet-5") == "Claude Sonnet 5")
+        #expect(displayNameForModelId("x-ai/grok-4.6") == "Grok 4.6")
+        #expect(displayNameForModelId("z-ai/glm-5.2") == "GLM 5.2")
+        #expect(displayNameForModelId("moonshotai/kimi-k3") == "Kimi K3")
+    }
+
+    /// The `~` prefix marks an auxiliary entry in the agent's catalogue. It is
+    /// bookkeeping, and a member reading the transcript should never see it.
+    @Test("an auxiliary marker and a bare id both render")
+    func markerAndBareIdRender() {
+        #expect(displayNameForModelId("~google/gemini-flash-latest") == "Gemini Flash Latest")
+        #expect(displayNameForModelId("grok-4.6") == "Grok 4.6")
+    }
+
     // MARK: - Transcript rendering
 
     @Test("a model change decodes into an agent-model update row")

@@ -82,9 +82,12 @@ message ConversationProfile {
     // choice belongs to one agent, which is exactly what participationMode is
     // not: a room holding several agents carries one entry each.
     //
-    // The Assistant Worker is the sole authority. An agent only runs what its
-    // own catalogue lists, so a choice is validated and applied before it is
-    // published here; clients read this copy to see what every member's agent
-    // was switched to, and never write it.
+    // Written by the member who picks it, the way participationMode is, so the
+    // commit carries that member's name into the transcript rather than the
+    // agent's. The Assistant Worker remains the value's authority: an agent
+    // only runs what its own catalogue lists, so a choice is validated and
+    // applied on its side, and the Worker republishes here whenever its row
+    // moves — a refused model rolled back, one dropped from the catalogue, or
+    // one chosen before the agent had a conversation to publish into.
     optional string model = 6;
 }

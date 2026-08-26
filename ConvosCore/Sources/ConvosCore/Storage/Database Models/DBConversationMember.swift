@@ -28,9 +28,9 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
     /// for an agent nobody has switched — which is not a model the client can
     /// name, since an unswitched agent runs whatever its own template shipped.
     ///
-    /// Read-only here: the Assistant Worker validates a choice against that
-    /// agent's own catalogue and publishes it, so this column mirrors a value
-    /// rather than authoring one.
+    /// Mirrored, never authored here: a pick is written into the group's
+    /// appData and this column follows the sync, so the value a device shows is
+    /// the one the room agreed on.
     var agentModel: String?
 
     static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMember.Columns.inboxId])

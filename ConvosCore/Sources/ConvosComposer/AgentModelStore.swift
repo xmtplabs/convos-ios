@@ -89,6 +89,70 @@ public struct ControlPlaneAgentModelService: AgentModelServing {
     }
 }
 
+/// Writes the pick into the group's appData from the picking member's device,
+/// then mirrors it to the control plane.
+///
+/// The order and the split both matter. The Assistant Worker signs its own
+/// commits, so a model it publishes reads in the transcript as the agent having
+/// switched itself; written from here, the row carries the name of the member
+/// who actually chose it — the same reason the participation mode is written
+/// client-side. The control plane still owns the value: it validates the choice
+/// against the agent's own catalogue, applies it to the runtime, and
+/// republishes into appData whenever its row moves, so a refused model is
+/// rolled back for everyone rather than left standing here.
+///
+/// The appData write is best-effort. A member whose commit fails still gets the
+/// switch, because the control-plane call is the one that changes what the
+/// agent runs; the Worker's own publish is what carries it to the room.
+public struct ConversationAppDataAgentModelService: AgentModelServing {
+    private let metadataWriter: any ConversationMetadataWriterProtocol
+    private let conversationId: String
+    private let agentInboxId: String
+    private let controlPlane: any AgentModelServing
+
+    public init(
+        metadataWriter: any ConversationMetadataWriterProtocol,
+        conversationId: String,
+        agentInboxId: String,
+        controlPlane: any AgentModelServing = ControlPlaneAgentModelService()
+    ) {
+        self.metadataWriter = metadataWriter
+        self.conversationId = conversationId
+        self.agentInboxId = agentInboxId
+        self.controlPlane = controlPlane
+    }
+
+    public func readModel(
+        instanceId: String,
+        variantId: String?
+    ) async throws -> AgentModelSnapshot {
+        // Read from the control plane, not from appData: the picker needs the
+        // catalogue too, and only the agent can name what it can run.
+        try await controlPlane.readModel(instanceId: instanceId, variantId: variantId)
+    }
+
+    public func writeModel(
+        _ model: String,
+        instanceId: String,
+        variantId: String?
+    ) async throws -> AgentModelSnapshot {
+        do {
+            try await metadataWriter.updateAgentModel(
+                model,
+                forAgent: agentInboxId,
+                in: conversationId
+            )
+        } catch {
+            Log.warning("agent model appData write failed: \(error)")
+        }
+        return try await controlPlane.writeModel(
+            model,
+            instanceId: instanceId,
+            variantId: variantId
+        )
+    }
+}
+
 /// Owns one agent's model for the picker that renders it.
 ///
 /// Same shape as `AgentParticipationStore`, and for the same reasons: a tap has
