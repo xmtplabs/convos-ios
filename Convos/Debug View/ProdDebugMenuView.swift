@@ -25,10 +25,6 @@ import UserNotifications
 //   install into a feature we are dogfooding in production:
 //   - the XMTP bidi streaming opt-in, which selects the stream transport at
 //     next launch -- nothing account- or network-mutating.
-//   - the Abilities v2 opt-in, which swaps the abilities catalog list and
-//     per-conversation section from the V1 connections UI to the V2 one and
-//     points them at the live abilities backend. Off by default; nothing
-//     mutates until a tester connects an ability from that surface.
 //   - the Web inspector opt-in, which only decides whether the space/browser
 //     web views set `isInspectable`. Off by default; it mutates nothing and
 //     merely lets Safari Web Inspector attach to debug the window.convos bridge.
@@ -178,7 +174,6 @@ struct ProdDebugMenuView: View {
             // The interactive controls in this curated menu; see the
             // module overview for why they are allowed here.
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
-            Toggle("Abilities v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
             Toggle("Enable Relay (BYOA)", isOn: Bindable(FeatureFlags.shared).agentRelayEnabled)
             Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
             Toggle("Web inspector (space/browser web views)", isOn: Bindable(FeatureFlags.shared).isWebInspectorEnabled)

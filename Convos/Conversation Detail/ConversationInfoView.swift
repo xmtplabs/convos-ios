@@ -73,8 +73,9 @@ struct FeatureRowItem<AccessoryView: View>: View {
 
 struct ConversationInfoView: View {
     /// Which agent-access section this view renders, latched once per view
-    /// lifetime from the Abilities V2 flag so a flag flip while the view
-    /// survives cannot switch rendering mid-flight.
+    /// lifetime so rendering cannot switch mid-flight. New presentations
+    /// always latch `abilitiesV2`; `connectionsV1` remains only for the
+    /// not-yet-deleted v1 surfaces.
     private enum AgentAccessMode {
         case abilitiesV2
         case connectionsV1
@@ -476,20 +477,12 @@ struct ConversationInfoView: View {
         }
     }
 
-    /// Latches the agent access mode from the Abilities V2 flag on first
-    /// run and creates that mode's view model. Rendering always follows
-    /// the latched mode, so a flag flip while this view identity survives
-    /// changes nothing until the next presentation.
+    /// Latches the agent access mode on first run and creates that mode's
+    /// view model. Rendering always follows the latched mode, so nothing
+    /// changes while this view identity survives.
     private func prepareAgentAccessViewModels() {
         guard viewModel.conversation.hasAgent else { return }
-        let mode: AgentAccessMode
-        if let agentAccessMode {
-            mode = agentAccessMode
-        } else if FeatureFlags.shared.isAbilitiesV2Enabled {
-            mode = .abilitiesV2
-        } else {
-            mode = .connectionsV1
-        }
+        let mode: AgentAccessMode = agentAccessMode ?? .abilitiesV2
         agentAccessMode = mode
         switch mode {
         case .abilitiesV2:
