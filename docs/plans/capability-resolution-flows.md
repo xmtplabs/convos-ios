@@ -163,7 +163,7 @@ just "available to add." Two pieces of state cooperate:
   unlink, status flip from `refreshConnections`).
 
 The conventional time to register is on session bootstrap and after every
-mutation in the connections-list UI. The unified `connections` metadata key on
+mutation in the connections UI. The unified `connections` metadata key on
 each `ConversationProfile` is what the agent's runtime reads to know which
 cloud grants apply per-conversation.
 
@@ -179,15 +179,19 @@ model hands off to a cloud-side handler analogous to
 device side ships first because Apple Health is the v1 federating example).
 
 **B. Pre-emptively, from app settings.**
-`Convos/App Settings/ConnectionsListView.swift` lets a user link any service
-in `CloudConnectionServiceCatalog` from settings, before any agent asks. The
-service rows live under `ConnectionsListViewModel.connect(serviceId:)`.
+The Abilities list (`AbilitiesListScreen` in
+`Convos/Abilities/AbilitiesListView.swift`) lets a user link a service from
+settings before any agent asks; its connect actions run through
+`AbilitiesListViewModel.connect(_:)` and the abilities service's
+`AbilityOAuthAuthorizer`. (The earlier v1 settings list,
+`ConnectionsListView`, called `CloudConnectionManager.connect(serviceId:)`
+directly; it has been deleted.)
 
-Both routes funnel into the same `CloudConnectionManager.connect(serviceId:)`.
+Route A funnels into `CloudConnectionManager.connect(serviceId:)`.
 
 ### What the user sees and taps (Connect path)
 
-1. **Tap Connect (or "Add" in settings).**
+1. **Tap Connect in the picker.**
    `CloudConnectionManager.connect(serviceId:)` runs.
 2. **Backend initiates.**
    `apiClient.initiateCloudConnection(serviceId:redirectUri:)` returns a

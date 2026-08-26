@@ -146,45 +146,6 @@ struct AbilityNeutralBadge: View {
     }
 }
 
-/// Capsule chip for a delegation's derived lifecycle state. Sibling of
-/// `AbilityStatusBadge`: delegation states are client-vocabulary, so they
-/// never borrow the entitlement badge's server-owned labels.
-struct AbilityDelegationStateChip: View {
-    let state: AbilityDelegationState
-
-    var body: some View {
-        Text(label)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(labelColor)
-            // A one-word status must never hyphenate: at accessibility text
-            // sizes the capsule wrapped "Active" into "Ac-tive". The row's
-            // title column is the flexible one, not this.
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .padding(.vertical, DesignConstants.Spacing.stepHalf)
-            .background(Capsule().fill(Color.colorFillMinimal))
-            .accessibilityLabel("Status: \(label)")
-    }
-
-    private var label: String {
-        switch state {
-        case .active: "Active"
-        case .consumed: "Used"
-        case .expired: "Expired"
-        case .revoked: "Revoked"
-        }
-    }
-
-    private var labelColor: Color {
-        switch state {
-        case .active: .colorGreen
-        case .consumed: .colorTextSecondary
-        case .expired, .revoked: .colorCaution
-        }
-    }
-}
-
 #Preview("Badges") {
     VStack(spacing: DesignConstants.Spacing.step2x) {
         AbilityStatusBadge(status: .active)
@@ -193,10 +154,6 @@ struct AbilityDelegationStateChip: View {
         AbilityStatusBadge(status: .expired)
         AbilityStatusBadge(status: .revoked)
         AbilityNeutralBadge(label: "Not connected")
-        AbilityDelegationStateChip(state: .active)
-        AbilityDelegationStateChip(state: .consumed)
-        AbilityDelegationStateChip(state: .expired)
-        AbilityDelegationStateChip(state: .revoked)
     }
     .padding(DesignConstants.Spacing.step4x)
 }

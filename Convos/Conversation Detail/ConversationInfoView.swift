@@ -72,20 +72,9 @@ struct FeatureRowItem<AccessoryView: View>: View {
 }
 
 struct ConversationInfoView: View {
-    /// Which agent-access section this view renders, latched once per view
-    /// lifetime so rendering cannot switch mid-flight. New presentations
-    /// always latch `abilitiesV2`; `connectionsV1` remains only for the
-    /// not-yet-deleted v1 surfaces.
-    private enum AgentAccessMode {
-        case abilitiesV2
-        case connectionsV1
-    }
-
     @Bindable var viewModel: ConversationViewModel
     let focusCoordinator: FocusCoordinator
 
-    @State private var agentAccessMode: AgentAccessMode?
-    @State private var connectionsViewModel: ConversationConnectionsViewModel?
     @State private var abilitiesViewModel: ConversationAbilitiesViewModel?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -455,52 +444,25 @@ struct ConversationInfoView: View {
         }
     }
 
-    /// The per-conversation agent access rows: the V2 abilities section or
-    /// the V1 connections section, chosen by the mode latched in
-    /// `prepareAgentAccessViewModels` -- never by which optional view model
-    /// happens to exist.
+    /// The per-conversation abilities section shown for conversations with an agent.
     @ViewBuilder
     private var agentAccessSection: some View {
-        if viewModel.conversation.hasAgent {
-            switch agentAccessMode {
-            case .abilitiesV2:
-                if let abilitiesViewModel {
-                    ConversationAbilitiesSection(viewModel: abilitiesViewModel)
-                }
-            case .connectionsV1:
-                if let connectionsViewModel {
-                    ConversationConnectionsSection(viewModel: connectionsViewModel)
-                }
-            case nil:
-                EmptyView()
-            }
+        if viewModel.conversation.hasAgent, let abilitiesViewModel {
+            ConversationAbilitiesSection(viewModel: abilitiesViewModel)
         }
     }
 
-    /// Latches the agent access mode on first run and creates that mode's
-    /// view model. Rendering always follows the latched mode, so nothing
-    /// changes while this view identity survives.
-    private func prepareAgentAccessViewModels() {
+    /// Creates the abilities view model once for a conversation with an agent.
+    private func prepareAbilitiesViewModel() {
         guard viewModel.conversation.hasAgent else { return }
-        let mode: AgentAccessMode = agentAccessMode ?? .abilitiesV2
-        agentAccessMode = mode
-        switch mode {
-        case .abilitiesV2:
-            connectionsViewModel = nil
-            if abilitiesViewModel == nil {
-                abilitiesViewModel = makeConversationAbilitiesViewModel()
-            }
-        case .connectionsV1:
-            abilitiesViewModel = nil
-            if connectionsViewModel == nil {
-                connectionsViewModel = viewModel.makeConversationConnectionsViewModel()
-            }
+        if abilitiesViewModel == nil {
+            abilitiesViewModel = makeConversationAbilitiesViewModel()
         }
     }
 
-    /// Snapshot of the conversation's agents at construction, mirroring
-    /// `makeConversationConnectionsViewModel`; the section is recreated per
-    /// conversation-info presentation, so membership changes pick up then.
+    /// Snapshot of the conversation's agents at construction. The section is
+    /// recreated per conversation-info presentation, so membership changes
+    /// pick up then.
     private func makeConversationAbilitiesViewModel() -> ConversationAbilitiesViewModel {
         let agents: [ConversationAgentDescriptor] = viewModel.conversation.members
             .filter { $0.isAgent }
@@ -572,7 +534,7 @@ struct ConversationInfoView: View {
         NavigationStack {
             infoList
                 .task {
-                    prepareAgentAccessViewModels()
+                    prepareAbilitiesViewModel()
                 }
                 // Hosted here rather than on the abilities Section: a sheet
                 // modifier attached to the Section resolves the wrong
