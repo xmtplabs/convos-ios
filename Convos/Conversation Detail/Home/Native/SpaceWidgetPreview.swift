@@ -410,32 +410,18 @@ private struct DayHeader: View {
         .padding(.vertical, isFirst ? 11.0 : 8.0)
     }
 
-    /// "Today"/"Tomorrow" where the date has a name, the weekday otherwise —
-    /// the rule `SpaceDate` follows, so a document never writes a day itself.
-    private static func label(for day: String) -> String {
-        guard let date = parsed(day) else { return day }
-        let calendar = Calendar.current
-        if calendar.isDateInToday(date) { return "Today" }
-        if calendar.isDateInTomorrow(date) { return "Tomorrow" }
-        return date.formatted(.dateTime.weekday(.wide))
+    /// What a reader would call this day, when they would call it anything —
+    /// and its calendar date when they would not. A far-off Saturday is "Aug 29",
+    /// not "Saturday", because two different Saturdays read the same otherwise.
+    static func label(for day: String) -> String {
+        SpaceDay.name(of: day) ?? SpaceDay.dateLabel(of: day) ?? day
     }
 
-    /// Only a named day carries its date beside it; otherwise the label is the
-    /// date already and printing both says the same thing twice.
-    private static func date(for day: String) -> String? {
-        guard let date = parsed(day) else { return nil }
-        let calendar = Calendar.current
-        guard calendar.isDateInToday(date) || calendar.isDateInTomorrow(date) else {
-            return nil
-        }
-        return date.formatted(.dateTime.month(.abbreviated).day())
-    }
-
-    private static func parsed(_ day: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.timeZone = .current
-        return formatter.date(from: String(day.prefix(10)))
+    /// Only a named day carries its date beside it. Where the label is already
+    /// the date, printing it twice says the same thing twice.
+    static func date(for day: String) -> String? {
+        guard SpaceDay.name(of: day) != nil else { return nil }
+        return SpaceDay.dateLabel(of: day)
     }
 }
 
@@ -479,13 +465,7 @@ private struct EventSlot: View {
     }
 
     private static func time(from start: String) -> String? {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
-        formatter.timeZone = .current
-        guard let date = formatter.date(from: String(start.prefix(16))) else {
-            return nil
-        }
-        return date.formatted(.dateTime.hour().minute())
+        SpaceDay.timeLabel(of: start)
     }
 }
 

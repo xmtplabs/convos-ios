@@ -25,6 +25,9 @@ struct NativeSpaceView: View {
     let webFallback: AnyView
 
     @State private var state: LoadState
+    @State private var events: SpaceEventsState = .empty
+    @State private var follower: SpaceEventsFollower = SpaceEventsFollower()
+    @Environment(\.scenePhase) private var scenePhase
 
     @MainActor
     init(
@@ -77,6 +80,12 @@ struct NativeSpaceView: View {
             .task(id: spaceURL) {
                 await load()
             }
+            // Following costs a held request, so it runs only while the reader
+            // is actually looking at it.
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                if phase == .active { follow() } else { follower.stop() }
+            }
+            .onDisappear { follower.stop() }
             .accessibilityIdentifier("native-space")
     }
 
@@ -104,6 +113,13 @@ struct NativeSpaceView: View {
     private func loaded(_ document: SpaceDocument) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                // Work the host could not tie to one route — an edited asset
+                // rather than a page, which is what most content edits are —
+                // belongs to the page rather than to any one tile.
+                if let site = events.siteWideWork {
+                    SiteWideWorkBanner(message: site.message)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
                 if let root = document.rootNode {
                     ForEach(Array(root.children.enumerated()), id: \.offset) { _, child in
                         SpacePageContent(
@@ -130,6 +146,29 @@ struct NativeSpaceView: View {
         }
     }
 
+    /// Follows the Space, applying each new state as an animated change.
+    ///
+    /// Two things arrive on one snapshot: which routes an agent is editing, and
+    /// which deployment is serving. The first decorates tiles in place. The
+    /// second is what says the page itself changed, and it refetches rather
+    /// than reloading, so the tab crossfades to the new document instead of
+    /// emptying and drawing itself again.
+    private func follow() {
+        follower.start(base: spaceURL) { next in
+            let replaced = next.activeDeploymentId != nil
+                && next.activeDeploymentId != currentDeploymentId
+            withAnimation(.easeInOut(duration: 0.2)) { events = next }
+            if replaced {
+                Task { await load() }
+            }
+        }
+    }
+
+    private var currentDeploymentId: String? {
+        if case let .loaded(document) = state { return document.deploymentId }
+        return nil
+    }
+
     /// Where a committed asset path resolves against for this document.
     private func fileBase(_ document: SpaceDocument) -> URL? {
         guard let path = document.fileBasePath else { return nil }
@@ -147,7 +186,7 @@ struct NativeSpaceView: View {
             ForEach(Self.rows(widgets)) { row in
                 HStack(spacing: Constant.gutter) {
                     ForEach(row.widgets) { widget in
-                        tile(widget, fileBase: fileBase)
+                        tile(widget, fileBase: fileBase, work: events.work(at: widget.route))
                     }
                     // A row holding one small tile keeps it in the left column
                     // instead of stretching it across both.
@@ -161,11 +200,16 @@ struct NativeSpaceView: View {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    private func tile(_ widget: SpaceWidget, fileBase: URL?) -> some View {
+    private func tile(_ widget: SpaceWidget, fileBase: URL?, work: PendingChange?) -> some View {
         Button {
             open(widget)
         } label: {
-            WidgetTile(widget: widget, fileBase: fileBase, onInvite: onInvite)
+            WidgetTile(
+                widget: widget,
+                fileBase: fileBase,
+                work: work,
+                onInvite: onInvite
+            )
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-space-widget-\(widget.route)")
@@ -241,7 +285,10 @@ struct NativeSpaceView: View {
         do {
             let document = try await SpaceDocumentLoader.load(base: spaceURL)
             SpaceDocumentStore.shared.record(.loaded(document), for: spaceURL)
-            state = .loaded(document)
+            // Animated, so a promotion arriving under the reader crossfades
+            // rather than snapping — and a redelivery of the same document is
+            // not an animation at all, because the state does not change.
+            withAnimation(.easeInOut(duration: 0.25)) { state = .loaded(document) }
         } catch let error as SpaceDocumentLoader.LoadError {
             // A deployment that predates the document route serves its page as
             // HTML whatever the query string says, so an undecodable body means
@@ -292,6 +339,37 @@ struct NativeSpaceView: View {
     }
 }
 
+/// What the page says while an agent is working somewhere it cannot name.
+///
+/// A quiet line rather than a progress bar: the page underneath is still the
+/// page, and nothing here is finished enough to replace it with a wait.
+private struct SiteWideWorkBanner: View {
+    let message: String?
+
+    @State private var pulsing: Bool = false
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Circle()
+                .fill(SpaceTileStyle.lava)
+                .frame(width: 6.0, height: 6.0)
+                .opacity(pulsing ? 0.3 : 1.0)
+            Text(message ?? "Your agent is updating this space")
+                .font(SpaceTileStyle.noteFont)
+                .foregroundStyle(SpaceTileStyle.lava)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, SpaceTileStyle.extraSmall)
+        .task {
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                pulsing = true
+            }
+        }
+    }
+}
+
 /// One tile in the native grid.
 ///
 /// The card is a placeholder for the typed preview that will draw here: it
@@ -300,7 +378,11 @@ struct NativeSpaceView: View {
 private struct WidgetTile: View {
     let widget: SpaceWidget
     let fileBase: URL?
+    /// The edit an agent has announced at this tile's route, if any.
+    let work: PendingChange?
     let onInvite: () -> Void
+
+    @State private var pulsing: Bool = false
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step2x) {
@@ -321,13 +403,36 @@ private struct WidgetTile: View {
                     RoundedRectangle(cornerRadius: SpaceTileStyle.radius)
                         .strokeBorder(SpaceTileStyle.surface)
                 }
+                // A tile being edited breathes, rather than blinking: the border
+                // is the signal and the content underneath is left alone, so
+                // nothing a reader is looking at is replaced or hidden.
+                .overlay {
+                    if work != nil {
+                        RoundedRectangle(cornerRadius: SpaceTileStyle.radius)
+                            .strokeBorder(SpaceTileStyle.lava, lineWidth: 2.0)
+                            .opacity(pulsing ? 0.25 : 0.9)
+                    }
+                }
                 .aspectRatio(widget.aspectRatio, contentMode: .fit)
+            // While an agent is working the caption says what it is doing, in
+            // the agent's own words, and returns to the tile's name after.
             // `.space-index-caption`
-            Text(widget.title)
+            Text(work?.message ?? widget.title)
                 .font(.system(size: 12))
                 .foregroundStyle(.colorTextPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .foregroundStyle(work == nil ? SpaceTileStyle.textPrimary : SpaceTileStyle.lava)
+                .contentTransition(.opacity)
+        }
+        .task(id: work != nil) {
+            guard work != nil else {
+                pulsing = false
+                return
+            }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                pulsing = true
+            }
         }
     }
 }
