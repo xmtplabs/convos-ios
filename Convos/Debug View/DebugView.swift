@@ -49,7 +49,6 @@ struct DebugViewSection: View {
     @State private var creditsPresetSelection: CreditsStatePreset = FeatureFlags.shared.mockCreditsPreset
     @State private var useRealStoreKit: Bool = SubscriptionServices.useRealStoreKit
     @State private var useRealCredits: Bool = CreditsServices.useRealBackend
-    @State private var abilitiesEscalationMockEnabled: Bool = AbilitiesServices.isEscalationMockEnabled
     @State private var identity: DeviceIdentitySnapshot?
 
     var body: some View {
@@ -81,7 +80,6 @@ struct DebugViewSection: View {
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
             Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
             Toggle("Web inspector (space/browser web views)", isOn: Bindable(FeatureFlags.shared).isWebInspectorEnabled)
-            abilitiesFeatureToggles
             Toggle("Enable Relay (BYOA)", isOn: Bindable(FeatureFlags.shared).agentRelayEnabled)
             Toggle("Agent model picker", isOn: Bindable(FeatureFlags.shared).isAgentModelPickerEnabled)
 
@@ -112,16 +110,6 @@ struct DebugViewSection: View {
     @ViewBuilder
     private var agentVariantToggles: some View {
         Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
-    }
-
-    /// Connections mock consent flow toggle (default off). Takes effect on
-    /// the next read (no relaunch needed).
-    @ViewBuilder
-    private var abilitiesFeatureToggles: some View {
-        Toggle("Connections: consent flow (mock)", isOn: $abilitiesEscalationMockEnabled)
-            .onChange(of: abilitiesEscalationMockEnabled) { _, newValue in
-                AbilitiesServices.setEscalationMockEnabled(newValue)
-            }
     }
 
     @ViewBuilder

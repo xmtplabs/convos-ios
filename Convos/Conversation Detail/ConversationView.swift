@@ -117,11 +117,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var groupEmptyStateSettled: Bool = false
     @State private var homeBrowserEntries: [HomeBrowserEntry] = []
     @State private var showingDebugInjector: Bool = false
-    /// Consent surface for agent ability-use asks, managed by
-    /// `prepareEscalationIfNeeded` keyed on `escalationTaskKey` (nil while
-    /// the abilities flag is off or the conversation has no agent; rebuilt
-    /// when the shown conversation changes).
-    @State private var escalationViewModel: ConversationEscalationViewModel?
     @State private var presentingAddFromContactsPicker: Bool = false
     /// Non-nil presents the Connections browser modal, carrying the
     /// launching agent DM's context (see `ConnectionsBrowserMode`).
@@ -335,7 +330,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         // flag is on. Absent, the composer draws no bubble at all.
         .environment(\.agentParticipation, participationContext)
         .task(id: participationTaskKey) { await prepareParticipation() }
-        .task(id: escalationTaskKey) { prepareEscalationIfNeeded() }
         // The mode rides the group's appData, so another member's change lands
         // as a change to this conversation's synced row and the bubble follows
         // it - nothing here polls.
@@ -598,7 +592,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // too covers the conversation that binds a DM and never shows it.
             agentDmSession?.updateDmOnScreen(isOnScreen: false)
             navigator?.closed(context: navState.closeContext())
-            escalationViewModel?.stopObserving()
         }
         // Keep the edge-swipe back gesture, drop the content-area one while
         // this screen is up (see ContentPopGestureDisabler).
@@ -2067,20 +2060,16 @@ private extension ConversationView {
 /// on one Equatable instead of stacking per-branch `.animation` modifiers.
 private enum ConversationBottomBarSlot: Equatable {
     case capabilityApprovedToast
-    case escalationPrompt(requestId: String)
     case onboarding
 }
 
 // MARK: - Bottom bar status slot
 
 private extension ConversationView {
-    /// Toast wins, then a pending agent ability-use ask, then onboarding.
+    /// Toast wins, then onboarding.
     var bottomBarSlot: ConversationBottomBarSlot {
         if viewModel.showsCapabilityApprovedToast {
             return .capabilityApprovedToast
-        }
-        if let request = escalationViewModel?.pendingRequest {
-            return .escalationPrompt(requestId: request.id)
         }
         return .onboarding
     }
@@ -2088,8 +2077,7 @@ private extension ConversationView {
     /// The status slot under the composer. Capability requests no longer
     /// auto-present a card here: the transcript's connect pill is the
     /// single entry point for those and opens the approval sheet. The slot
-    /// keeps the post-approval toast, the agent ability-use consent card,
-    /// and the onboarding view.
+    /// keeps the post-approval toast and the onboarding view.
     var bottomBarStatusSlot: some View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
         return Group {
@@ -2097,11 +2085,6 @@ private extension ConversationView {
             case .capabilityApprovedToast:
                 CapabilityApprovedToastView()
                     .transition(.blurReplace)
-            case .escalationPrompt:
-                if let escalationViewModel {
-                    AbilityEscalationPromptSurface(viewModel: escalationViewModel)
-                        .transition(.blurReplace)
-                }
             case .onboarding:
                 ConversationOnboardingView(
                     coordinator: onboardingCoordinator,
@@ -2112,38 +2095,5 @@ private extension ConversationView {
             }
         }
         .animation(.spring(duration: 0.4, bounce: 0.2), value: bottomBarSlot)
-    }
-
-    /// Keys the escalation `.task` on the conversation AND on whether it
-    /// has an agent, mirroring `participationTaskKey`: a view instance that
-    /// pages to another conversation rebuilds the model for the new stream,
-    /// and an agent that joins an already-open conversation starts
-    /// observation without needing a re-appear.
-    var escalationTaskKey: String {
-        "\(viewModel.conversation.id)-\(viewModel.conversation.hasAgent)"
-    }
-
-    /// Builds the escalation view model when the conversation has an agent.
-    /// Runs from a `.task` keyed on `escalationTaskKey`, so re-appearance
-    /// restarts stream observation and a conversation change rebuilds the
-    /// model.
-    func prepareEscalationIfNeeded() {
-        if let escalationViewModel, escalationViewModel.conversationId != viewModel.conversation.id {
-            escalationViewModel.stopObserving()
-            self.escalationViewModel = nil
-        }
-        if let escalationViewModel {
-            escalationViewModel.startObserving()
-            return
-        }
-        guard viewModel.conversation.hasAgent else {
-            return
-        }
-        let escalation = ConversationEscalationViewModel(
-            conversationId: viewModel.conversation.id,
-            selection: AbilitiesServices.selection
-        )
-        escalation.startObserving()
-        escalationViewModel = escalation
     }
 }
