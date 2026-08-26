@@ -133,10 +133,8 @@ extension [String: SpaceValue] {
 
 /// One home-screen tile, as the app needs it to draw a cell.
 ///
-/// The tile's own preview subtree is deliberately ignored for now: this pass
-/// draws a caption and opens the route, and the typed previews
-/// (`NotesPreview`, `EventsPreview`, …) become native cells later. The client
-/// already receives them, so that is a client-only change.
+/// The tile's frame comes from these fields; what it draws inside comes from
+/// `preview`, whose own component name is the tile's type.
 struct SpaceWidget: Identifiable, Equatable {
     let title: String
     let route: String
@@ -198,6 +196,9 @@ struct SpaceDocument: Decodable, Equatable {
     let deploymentId: String
     let commitSha: String
     let route: String
+    /// The base a committed asset path resolves against, absent on a deployment
+    /// that predates the field.
+    let fileBasePath: String?
     let metadata: Metadata
     private let root: SpaceValue
 

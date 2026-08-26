@@ -47,6 +47,12 @@ enum SpaceTileStyle {
     static var textSecondary: Color { Color(light: 0x66_66_66, dark: 0xAE_AE_B2) }
     /// `--color-on-accent`
     static var onAccent: Color { .white }
+    /// `--color-lava`, the day label on the events tile.
+    static var lava: Color { Color(light: 0xFC_4F_37, dark: 0xFF_6B_55) }
+    /// `--color-border-secondary`, a reminder's unchecked circle.
+    static var borderSecondary: Color { Color(light: 0xB2_B2_B2, dark: 0x8E_8E_93) }
+    /// `--radius-event`
+    static let eventRadius: CGFloat = 12.0
     /// `--color-bg-surface`, the hairline that separates a tile from the page.
     static var surface: Color { Color(light: 0xFF_FF_FF, dark: 0x1C_1C_1E) }
 

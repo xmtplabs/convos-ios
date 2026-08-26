@@ -108,7 +108,9 @@ struct NativeSpaceView: View {
                     ForEach(Array(root.children.enumerated()), id: \.offset) { _, child in
                         SpacePageContent(
                             node: child,
-                            widgetGrid: { widgets in AnyView(grid(widgets)) },
+                            widgetGrid: { widgets in
+                                AnyView(grid(widgets, fileBase: fileBase(document)))
+                            },
                             onAsk: onAsk
                         )
                     }
@@ -128,18 +130,24 @@ struct NativeSpaceView: View {
         }
     }
 
+    /// Where a committed asset path resolves against for this document.
+    private func fileBase(_ document: SpaceDocument) -> URL? {
+        guard let path = document.fileBasePath else { return nil }
+        return URL(string: path, relativeTo: spaceURL)
+    }
+
     /// The same two-column geometry the web grid uses, so a tile lands where a
     /// reader who has seen the web page expects it: two columns of at most
     /// 165pt, 24pt gutters, and a full-width row for anything wider than 1x1.
     ///
     /// Rows are laid out by hand rather than with `LazyVGrid`, because a lazy
     /// grid has no way to let one cell span both columns.
-    private func grid(_ widgets: [SpaceWidget]) -> some View {
+    private func grid(_ widgets: [SpaceWidget], fileBase: URL?) -> some View {
         VStack(spacing: Constant.gutter) {
             ForEach(Self.rows(widgets)) { row in
                 HStack(spacing: Constant.gutter) {
                     ForEach(row.widgets) { widget in
-                        tile(widget)
+                        tile(widget, fileBase: fileBase)
                     }
                     // A row holding one small tile keeps it in the left column
                     // instead of stretching it across both.
@@ -153,11 +161,11 @@ struct NativeSpaceView: View {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    private func tile(_ widget: SpaceWidget) -> some View {
+    private func tile(_ widget: SpaceWidget, fileBase: URL?) -> some View {
         Button {
             open(widget)
         } label: {
-            WidgetTile(widget: widget, onInvite: onInvite)
+            WidgetTile(widget: widget, fileBase: fileBase, onInvite: onInvite)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-space-widget-\(widget.route)")
@@ -291,6 +299,7 @@ struct NativeSpaceView: View {
 /// caption underneath, which is where the web puts it too.
 private struct WidgetTile: View {
     let widget: SpaceWidget
+    let fileBase: URL?
     let onInvite: () -> Void
 
     var body: some View {
@@ -303,6 +312,7 @@ private struct WidgetTile: View {
                     SpaceWidgetPreview(
                         widget: widget,
                         preview: widget.preview,
+                        fileBase: fileBase,
                         onInvite: onInvite
                     )
                 }

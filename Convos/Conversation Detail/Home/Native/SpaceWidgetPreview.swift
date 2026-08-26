@@ -19,6 +19,8 @@ import SwiftUI
 struct SpaceWidgetPreview: View {
     let widget: SpaceWidget
     let preview: SpaceNode?
+    /// Where a committed asset path resolves against, for tiles that draw one.
+    let fileBase: URL?
     let onInvite: () -> Void
 
     var body: some View {
@@ -28,6 +30,7 @@ struct SpaceWidgetPreview: View {
         case "RemindersPreview": reminders
         case "ChecklistPreview": checklist
         case "EventsPreview": events
+        case "PhotosPreview": photos
         case "WidgetList": list
         case "WidgetMetric": metric
         case "WidgetText": text
@@ -88,57 +91,117 @@ struct SpaceWidgetPreview: View {
         .padding(SpaceTileStyle.small)
     }
 
+    /// Mirrors `RemindersPreview`. A finished reminder is neither shown nor
+    /// counted — the tile is about what is still open — so the whole collection
+    /// arrives and the filtering happens here, exactly as the component does it.
     @ViewBuilder
     private var reminders: some View {
-        checkRows(preview?.rows("reminders") ?? [], empty: "Nothing due")
+        let open = (preview?.rows("reminders") ?? []).filter { ($0.bool("done") ?? false) == false }
+        TileColumn {
+            TileHeaderBar(
+                icon: nil,
+                name: "Reminders",
+                count: "\(open.count)",
+                background: SpaceTileStyle.fillPrimary
+            )
+            ForEach(Array(open.prefix(Constant.rowLimit).enumerated()), id: \.offset) { _, row in
+                CheckRow(label: row.string("label") ?? "")
+            }
+        }
     }
 
+    /// Mirrors `ChecklistPreview`, which keeps its done rows and shows the
+    /// checkbox filled — the point of a checklist is the progress through it.
     @ViewBuilder
     private var checklist: some View {
-        checkRows(preview?.rows("items") ?? [], empty: "Nothing to do")
-    }
-
-    @ViewBuilder
-    private func checkRows(_ rows: [[String: SpaceValue]], empty: String) -> some View {
-        let shown = Array(rows.prefix(Constant.rowLimit))
+        let items = preview?.rows("items") ?? []
         TileColumn {
-            if shown.isEmpty {
-                TileHintRow(empty)
-            } else {
-                ForEach(Array(shown.enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: DesignConstants.Spacing.step2x) {
-                        Image(systemName: (row.bool("done") ?? false) ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 13))
-                            .foregroundStyle(SpaceTileStyle.textTertiary)
-                        Text(row.string("label") ?? "")
-                            .font(SpaceTileStyle.bodyFont)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(height: SpaceTileStyle.rowHeight)
-                    .padding(.horizontal, SpaceTileStyle.small)
-                }
+            TileHeaderBar(
+                icon: nil,
+                name: preview?.string("name") ?? "Checklist",
+                count: "\(items.count)",
+                background: SpaceTileStyle.fillPrimary
+            )
+            ForEach(Array(items.prefix(Constant.rowLimit).enumerated()), id: \.offset) { _, row in
+                CheckRow(label: row.string("label") ?? "", done: row.bool("done") ?? false)
             }
         }
     }
 
+    /// Mirrors `EventsPreview`: no header bar, events grouped under the day
+    /// they fall on, consecutive events on one day sharing a heading.
     @ViewBuilder
     private var events: some View {
-        let items = preview?.nodes("events") ?? []
-        let shown = Array(items.prefix(Constant.rowLimit))
-        TileColumn {
-            if let day = preview?.strings("days").first {
-                TileHeaderBar(icon: "calendar", name: day, count: nil, background: SpaceTileStyle.fillPrimary)
-            }
-            if shown.isEmpty {
-                TileHintRow("Nothing planned")
-            } else {
-                ForEach(Array(shown.enumerated()), id: \.offset) { _, event in
-                    TileTextRow(event.string("title") ?? "")
+        let items = Array((preview?.nodes("events") ?? []).prefix(Constant.rowLimit))
+        let days = Array((preview?.strings("days") ?? []).prefix(Constant.rowLimit))
+        if items.isEmpty {
+            TileColumn { TileHintRow("Agents add events for the group") }
+        } else {
+            TileColumn {
+                ForEach(Array(Self.dayGroups(days: days, count: items.count).enumerated()), id: \.offset) { index, group in
+                    if !group.day.isEmpty {
+                        DayHeader(day: group.day, isFirst: index == 0)
+                    }
+                    ForEach(group.positions, id: \.self) { position in
+                        EventSlot(event: items[position])
+                    }
                 }
             }
+            .padding(.top, 3.0)
         }
+    }
+
+    /// Groups consecutive positions that share a day, by the date part alone so
+    /// two times on one day sit under one heading.
+    private static func dayGroups(days: [String], count: Int) -> [(day: String, positions: [Int])] {
+        var groups: [(day: String, positions: [Int])] = []
+        for position in 0..<count {
+            let day = String((days.indices.contains(position) ? days[position] : "").prefix(10))
+            if var last = groups.last, last.day == day {
+                last.positions.append(position)
+                groups[groups.count - 1] = last
+            } else {
+                groups.append((day: day, positions: [position]))
+            }
+        }
+        return groups
+    }
+
+    /// Mirrors `PhotosPreview`: the album's newest photo bled to the edges with
+    /// its name and count floating over it.
+    @ViewBuilder
+    private var photos: some View {
+        let album = preview?.string("album") ?? ""
+        if album.isEmpty {
+            TileColumn { TileHintRow("Photos the group shares land here") }
+        } else {
+            ZStack(alignment: .bottom) {
+                if let cover = assetURL(preview?.string("cover")) {
+                    AsyncImage(url: cover) { image in
+                        image.resizable().aspectRatio(contentMode: .fill)
+                    } placeholder: {
+                        SpaceTileStyle.fillMinimal
+                    }
+                    .clipped()
+                }
+                // The `over` header variant: no bar, just the text on the media.
+                TileHeaderBar(
+                    icon: nil,
+                    name: album,
+                    count: preview?.int("count").map { "\($0)" },
+                    background: .clear
+                )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// Resolves a committed asset path against the deployment's file base.
+    private func assetURL(_ path: String?) -> URL? {
+        guard let path, !path.isEmpty else { return nil }
+        if let absolute = URL(string: path), absolute.scheme != nil { return absolute }
+        guard let base = fileBase else { return nil }
+        return URL(string: path, relativeTo: base)
     }
 
     // MARK: - Tier 2
@@ -223,15 +286,17 @@ private struct TileColumn<Content: View>: View {
 
 /// Mirrors `.space-tile-header`.
 private struct TileHeaderBar: View {
-    let icon: String
+    let icon: String?
     let name: String
     let count: String?
     let background: Color
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            Image(systemName: icon)
-                .font(.system(size: 13))
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+            }
             Text(name)
                 .font(SpaceTileStyle.headerNameFont)
                 .lineLimit(1)
@@ -289,6 +354,138 @@ private struct TileHintRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, SpaceTileStyle.small)
             .padding(.vertical, SpaceTileStyle.extraSmall)
+    }
+}
+
+/// Mirrors `.space-tile-reminder` / `.space-tile-checklist-row`: a 22pt circle
+/// and a label on a 41pt row.
+private struct CheckRow: View {
+    let label: String
+    var done: Bool = false
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Circle()
+                .strokeBorder(SpaceTileStyle.borderSecondary, lineWidth: 1.5)
+                .overlay {
+                    if done {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(SpaceTileStyle.borderSecondary)
+                    }
+                }
+                .frame(width: 22.0, height: 22.0)
+            Text(label)
+                .font(SpaceTileStyle.bodyFont)
+                .foregroundStyle(SpaceTileStyle.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .frame(height: SpaceTileStyle.rowHeight)
+        .padding(.horizontal, SpaceTileStyle.small)
+    }
+}
+
+/// Mirrors `.space-tile-day-header`: the day in lava, its date beside it, and
+/// a tighter second heading when another day follows.
+private struct DayHeader: View {
+    let day: String
+    let isFirst: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
+            Text(Self.label(for: day))
+                .foregroundStyle(SpaceTileStyle.lava)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if isFirst, let date = Self.date(for: day) {
+                Text(date)
+                    .foregroundStyle(SpaceTileStyle.textSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .font(.system(size: isFirst ? 13 : 12))
+        .padding(.horizontal, SpaceTileStyle.small)
+        .padding(.vertical, isFirst ? 11.0 : 8.0)
+    }
+
+    /// "Today"/"Tomorrow" where the date has a name, the weekday otherwise —
+    /// the rule `SpaceDate` follows, so a document never writes a day itself.
+    private static func label(for day: String) -> String {
+        guard let date = parsed(day) else { return day }
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "Today" }
+        if calendar.isDateInTomorrow(date) { return "Tomorrow" }
+        return date.formatted(.dateTime.weekday(.wide))
+    }
+
+    /// Only a named day carries its date beside it; otherwise the label is the
+    /// date already and printing both says the same thing twice.
+    private static func date(for day: String) -> String? {
+        guard let date = parsed(day) else { return nil }
+        let calendar = Calendar.current
+        guard calendar.isDateInToday(date) || calendar.isDateInTomorrow(date) else {
+            return nil
+        }
+        return date.formatted(.dateTime.month(.abbreviated).day())
+    }
+
+    private static func parsed(_ day: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = .current
+        return formatter.date(from: String(day.prefix(10)))
+    }
+}
+
+/// Mirrors `.space-tile-event`: a tinted card carrying the title and its time.
+private struct EventSlot: View {
+    let event: SpaceNode
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(event.string("title") ?? "")
+                .font(SpaceTileStyle.bodyFont)
+                .foregroundStyle(SpaceTileStyle.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if let when {
+                Text(when)
+                    .font(SpaceTileStyle.hintFont)
+                    .foregroundStyle(SpaceTileStyle.textPrimary)
+                    .opacity(0.6)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, DesignConstants.Spacing.step2x)
+        .padding(.vertical, DesignConstants.Spacing.stepX)
+        .background(
+            RoundedRectangle(cornerRadius: SpaceTileStyle.eventRadius)
+                .fill(SpaceTileStyle.lava.opacity(0.15))
+        )
+        .padding(.horizontal, DesignConstants.Spacing.step2x)
+        .padding(.bottom, DesignConstants.Spacing.stepX)
+    }
+
+    /// The clock written in `start` when it carries one, the note otherwise.
+    private var when: String? {
+        if let start = event.string("start"), let time = Self.time(from: start) {
+            return time
+        }
+        let note = event.string("timeNote") ?? ""
+        return note.isEmpty ? nil : note
+    }
+
+    private static func time(from start: String) -> String? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        formatter.timeZone = .current
+        guard let date = formatter.date(from: String(start.prefix(16))) else {
+            return nil
+        }
+        return date.formatted(.dateTime.hour().minute())
     }
 }
 
