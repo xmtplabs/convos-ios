@@ -210,6 +210,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         static let publishedURLKey: String = "publishedUrl"
         static let instanceIdKey: String = "instanceId"
         static let emailKey: String = "email"
+        static let phoneKey: String = "phone"
         static let variantKey: String = "variant"
     }
 }
@@ -324,6 +325,16 @@ extension Profile {
     /// `agentTemplateId` above.
     public var agentEmail: String? {
         metadata?[Constant.emailKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
+    /// The agent's chat-capable phone number when the runtime publishes one.
+    /// Older agents and providers that do not expose a phone number return nil;
+    /// callers must show that honestly rather than manufacturing a relay.
+    public var agentPhone: String? {
+        metadata?[Constant.phoneKey]?.stringValue.flatMap { value in
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }

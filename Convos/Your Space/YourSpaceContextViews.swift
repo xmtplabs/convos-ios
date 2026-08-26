@@ -352,20 +352,22 @@ struct YourSpaceContextSection: View {
     }
 }
 
-/// Home's read-first doorway into the personal library. The entire surface is
-/// navigational; editing remains a separate action on the destination screen.
+/// Home's read-first doorway into the personal library. Opening the library and
+/// connecting an owned agent to another messenger remain distinct actions.
 struct YourSpaceMeSummaryCard: View {
     let profile: Profile
     let profileImage: UIImage?
     let items: [YourSpaceContextItem]
     let connectionCount: Int
     let onOpen: () -> Void
+    let onConnectAgentToChat: (AgentUseAnywhereChannel) -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
 
     var body: some View {
-        Button(action: onOpen) {
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: onOpen) {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
                 HStack(alignment: .center, spacing: DesignConstants.Spacing.step4x) {
                     ProfileAvatarView(
                         profile: profile,
@@ -379,10 +381,10 @@ struct YourSpaceMeSummaryCard: View {
                     }
 
                     VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                        Text("Your context")
+                        Text("All my things")
                             .font(.title2.weight(.bold))
                             .foregroundStyle(.colorTextPrimary)
-                        Text("Across your life")
+                        Text("Across every Convo")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.colorTextSecondary)
                         Text(profile.displayName)
@@ -401,7 +403,7 @@ struct YourSpaceMeSummaryCard: View {
                         .accessibilityHidden(true)
                 }
 
-                Text("Everything from your Convos and anything you share in from other apps, ready to find, make with, or use anywhere.")
+                Text("Docs, links, photos, and useful details from every Convo—ready to find or share anywhere.")
                     .font(.body)
                     .foregroundStyle(.colorTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -433,20 +435,62 @@ struct YourSpaceMeSummaryCard: View {
                 .font(.subheadline)
                 .foregroundStyle(.colorTextPrimary)
             }
-            .padding(DesignConstants.Spacing.step5x)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
-            .overlay {
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large)
-                    .stroke(Color.colorBorderSubtle, lineWidth: 0.5)
+                .padding(DesignConstants.Spacing.step5x)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
             }
-            .contentShape(.rect)
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("All my things, \(accessibilitySummary), \(usefulDetailCount) useful details")
+            .accessibilityHint("Opens everything saved across your Convos")
+
+            Divider()
+                .padding(.horizontal, DesignConstants.Spacing.step5x)
+
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+                Text("Bring an agent to another group")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                Text("Let it listen, coordinate, and keep the useful thing current.")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        connectionButtons
+                    }
+                    VStack(spacing: DesignConstants.Spacing.step2x) {
+                        connectionButtons
+                    }
+                }
+            }
+            .padding(DesignConstants.Spacing.step5x)
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Context across your life, \(accessibilitySummary), \(usefulDetailCount) useful details")
-        .accessibilityHint("Opens your private context library")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
+        .overlay {
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large)
+                .stroke(Color.colorBorderSubtle, lineWidth: 0.5)
+        }
         .accessibilityIdentifier("your-space-life-context")
+    }
+
+    @ViewBuilder
+    private var connectionButtons: some View {
+        ForEach(AgentUseAnywhereChannel.allCases) { channel in
+            Button {
+                onConnectAgentToChat(channel)
+            } label: {
+                Label(channel.title, systemImage: channel.symbolName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(.colorFillMinimal, in: .capsule)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Connect an agent to \(channel.title)")
+        }
     }
 
     private var fileCount: Int {

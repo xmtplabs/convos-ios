@@ -2,7 +2,7 @@
  THESIS: Your Space is the private agent layer across a person’s whole life: it says what changed, shows which human-owned agents are listening, and lets any useful result travel anywhere.
  OWN-WORLD: Native Convos neutrals, circular identity, glass reserved for persistent controls, and open editorial spacing between flat lists and one expressive Me card.
  STORY: On launch the user understands what was missed, acts on it, inspects continuous agent access, and can use their context or agent work in any chat app.
- FIRST VIEWPORT: Profile, anchored Your Space switcher, and add sit above one narrative briefing and three actions: catch up, inspect listening agents, and Use Anywhere.
+ FIRST VIEWPORT: Profile, anchored Your Space switcher, and add sit above one narrative briefing, the useful things agents updated, and a mixed Recent list of Convos and agent replies.
  FORM: A living cross-conversation digest using the pinned shell recorded as YS-SHELL-2026-08-18; no generated concept seed was used.
  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
  */
@@ -58,6 +58,9 @@ struct YourSpaceView: View {
     @State private var presentingPersonalCard: Bool = false
     @State private var presentingMeAndMyStuff: Bool = false
     @State private var presentingManageAgents: Bool = false
+    @State private var presentingRecentActivity: Bool = false
+    @State private var preferredAgentChannel: AgentUseAnywhereChannel?
+    @State private var inspectingUpdatedThing: YourSpaceContextItem?
     @State private var sharingItem: YourSpaceContextItem?
     @State private var shareNotice: YourSpaceShareNotice?
     @State private var sidebarWidth: CGFloat = 0.0
@@ -224,7 +227,18 @@ struct YourSpaceView: View {
                 meAndMyStuffDestination
             }
             .navigationDestination(isPresented: $presentingManageAgents) {
-                ManageAgentsView(agents: manageAgents)
+                ManageAgentsView(
+                    agents: manageAgents,
+                    preferredChannel: preferredAgentChannel,
+                    appConnectionsViewModel: viewModel.appSettingsViewModel.connectionsListViewModel,
+                    makePlaceConnectionsViewModel: makeAgentPlaceConnectionsViewModel,
+                    onSetParticipationMode: { agent, place, mode in
+                        try await setParticipationMode(for: agent, place: place, to: mode)
+                    }
+                )
+            }
+            .navigationDestination(isPresented: $presentingRecentActivity) {
+                recentActivityDestination
             }
             .sheet(item: $toolDestination) { destination in
                 YourSpaceToolDestinationSheet(
@@ -309,6 +323,19 @@ struct YourSpaceView: View {
                     onSelect: { conversation in
                         stage(item, in: conversation)
                     }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(item: $inspectingUpdatedThing) { item in
+                UpdatedThingDetailView(
+                    item: item,
+                    provenance: updatedThingProvenance(item),
+                    sourceHasAgent: sourceConversation(for: item)?.hasAgent == true,
+                    onOpenConvo: item.conversationId.map { conversationId in
+                        { openUpdatedThingConversation(conversationId) }
+                    },
+                    onShare: { shareUpdatedThing(item) }
                 )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -398,13 +425,15 @@ private extension YourSpaceView {
                 LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step10x) {
                     briefingHero
 
-                    homeActions
+                    if !recentlyUpdatedThings.isEmpty {
+                        updatedThingsSection
+                    }
+
+                    recentActivitySection
 
                     agentsWidget
 
                     contextSection
-
-                    recentConvosSection
 
                     if conversations.isEmpty {
                         emptyActions
@@ -593,187 +622,318 @@ private extension YourSpaceView {
         return "Private across \(briefing.sourceCount) \(convoWord), \(briefing.peopleCount) \(peopleWord), and \(allContextItems.count) saved \(contextWord)."
     }
 
-    @ViewBuilder
-    private var homeActions: some View {
-        if dynamicTypeSize.isAccessibilitySize {
-            VStack(spacing: DesignConstants.Spacing.step3x) {
-                if briefing.attentionCount > 0 {
-                    catchUpAction
-                }
-                agentsAction
-                useAnywhereAction
+    private var recentlyUpdatedThings: [YourSpaceContextItem] {
+        Array(allContextItems
+            .filter { item in
+                item.conversationId != nil && [.file, .link, .note].contains(item.kind)
             }
-        } else {
-            VStack(spacing: DesignConstants.Spacing.step3x) {
-                if briefing.attentionCount > 0 {
-                    catchUpAction
-                }
-                HStack(spacing: DesignConstants.Spacing.step3x) {
-                    agentsAction
-                    useAnywhereAction
-                }
-            }
-        }
+            .sorted { $0.date > $1.date }
+            .prefix(3))
     }
 
-    private var catchUpAction: some View {
-        homeAction(
-            title: "Catch up on \(briefing.attentionCount)",
-            systemImage: "sparkles",
-            isPrimary: true,
-            isEnabled: true
-        ) {
-            guard let update = briefing.attentionUpdates.first else { return }
-            selectConversation(update.conversation)
-        }
-    }
-
-    private var agentsAction: some View {
-        homeAction(
-            title: "Agents",
-            systemImage: "ear.fill",
-            isPrimary: false,
-            isEnabled: true
-        ) {
-            presentingManageAgents = true
-        }
-    }
-
-    private var useAnywhereAction: some View {
-        homeAction(
-            title: "Use anywhere",
-            systemImage: "square.and.arrow.up",
-            isPrimary: false,
-            isEnabled: true
-        ) {
-            browsingContextKind = .all
-        }
-    }
-
-    private func homeAction(
-        title: String,
-        systemImage: String,
-        isPrimary: Bool,
-        isEnabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image(systemName: systemImage)
-                    .font(.caption.weight(.bold))
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(isPrimary ? Color.colorTextPrimaryInverted : Color.colorTextPrimary)
-            .padding(.horizontal, DesignConstants.Spacing.step3x)
-            .frame(maxWidth: .infinity, minHeight: 48)
-            .background(
-                isPrimary ? Color.colorBackgroundInverted : Color.colorBackgroundRaisedSecondary,
-                in: .rect(cornerRadius: DesignConstants.CornerRadius.medium)
-            )
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.62)
-        .accessibilityIdentifier("your-space-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))-action")
-    }
-
-    private var recentConversations: [Conversation] {
-        Array(conversations
-            .sorted { ($0.lastMessage?.createdAt ?? $0.createdAt) > ($1.lastMessage?.createdAt ?? $1.createdAt) }
-            .prefix(7))
-    }
-
-    private var recentConvosSection: some View {
+    private var updatedThingsSection: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Recent Convos")
+                Text("Docs updated across your Convos")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.colorTextPrimary)
                 Spacer(minLength: DesignConstants.Spacing.step3x)
-                if briefing.attentionCount > 0 {
-                    Text("\(briefing.attentionCount) unread")
+                Button("See all") { browsingContextKind = .all }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+            }
+
+            VStack(spacing: DesignConstants.Spacing.step3x) {
+                ForEach(recentlyUpdatedThings) { item in
+                    updatedThingRow(item)
+                }
+            }
+        }
+        .accessibilityIdentifier("your-space-updated-things")
+    }
+
+    private func updatedThingRow(_ item: YourSpaceContextItem) -> some View {
+        VStack(spacing: 0) {
+            Button { inspectingUpdatedThing = item } label: {
+                HStack(spacing: DesignConstants.Spacing.step3x) {
+                    Image(systemName: item.kind == .link ? "link" : "doc.text.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                        .frame(width: 44, height: 44)
+                        .background(.colorBackgroundInverted, in: .rect(cornerRadius: DesignConstants.CornerRadius.small))
+
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                        Text(item.title)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.colorTextPrimary)
+                            .lineLimit(2)
+                        Text(updatedThingProvenance(item))
+                            .font(.caption)
+                            .foregroundStyle(.colorTextSecondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: DesignConstants.Spacing.step2x)
+
+                    Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.colorTextSecondary)
+                        .foregroundStyle(.colorTextTertiary)
+                }
+                .padding(DesignConstants.Spacing.step4x)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+
+            Divider().padding(.leading, 64)
+
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                if let conversationId = item.conversationId {
+                    Button {
+                        openUpdatedThingConversation(conversationId)
+                    } label: {
+                        Label(
+                            sourceConversation(for: item)?.hasAgent == true ? "Convo + agent" : "Open convo",
+                            systemImage: "bubble.left.and.bubble.right.fill"
+                        )
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Button { sharingItem = item } label: {
+                    Label("Share anywhere", systemImage: "square.and.arrow.up")
+                }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.colorTextPrimary)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .frame(minHeight: 44)
+        }
+        .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+        .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.medium))
+    }
+
+    private var allRecentActivity: [YourSpaceRecentActivityItem] {
+        conversations
+            .flatMap { conversation -> [YourSpaceRecentActivityItem] in
+                var items: [YourSpaceRecentActivityItem] = [.conversation(conversation)]
+                if let agentDm = conversation.agentDm,
+                   let message = agentDm.lastMessage {
+                    items.append(.agent(conversation: conversation, summary: agentDm, message: message))
+                }
+                return items
+            }
+            .sorted { $0.date > $1.date }
+    }
+
+    private var recentActivity: [YourSpaceRecentActivityItem] {
+        Array(allRecentActivity.prefix(7))
+    }
+
+    private var recentActivitySection: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Recent")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.colorTextPrimary)
+                Spacer(minLength: DesignConstants.Spacing.step3x)
+                if !allRecentActivity.isEmpty {
+                    Button("See all") { presentingRecentActivity = true }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.colorTextPrimary)
                 }
             }
 
-            if recentConversations.isEmpty {
-                Text("Your most recent Convos will stay close here.")
+            if recentActivity.isEmpty {
+                Text("Convos and agent updates will stay close here.")
                     .font(.body)
                     .foregroundStyle(.colorTextSecondary)
                     .padding(.vertical, DesignConstants.Spacing.step3x)
             } else {
                 VStack(spacing: 0) {
-                    ForEach(Array(recentConversations.enumerated()), id: \.element.id) { index, conversation in
-                        recentConversationRow(conversation)
-                        if index < recentConversations.count - 1 {
+                    ForEach(Array(recentActivity.enumerated()), id: \.element.id) { index, item in
+                        recentActivityRow(item)
+                        if index < recentActivity.count - 1 {
                             Divider().padding(.leading, 64)
                         }
                     }
                 }
             }
         }
-        .accessibilityIdentifier("your-space-recent-convos")
+        .accessibilityIdentifier("your-space-recent-activity")
     }
 
-    private func recentConversationRow(_ conversation: Conversation) -> some View {
-        Button {
-            selectConversation(conversation)
-        } label: {
-            HStack(spacing: DesignConstants.Spacing.step3x) {
-                ConversationAvatarView(
-                    conversation: conversation,
-                    conversationImage: nil,
-                    size: 48
+    @ViewBuilder
+    private func recentActivityRow(_ item: YourSpaceRecentActivityItem) -> some View {
+        switch item {
+        case .conversation(let conversation):
+            Button { selectConversation(conversation) } label: {
+                recentActivityLabel(
+                    avatar: AnyView(ConversationAvatarView(
+                        conversation: conversation,
+                        conversationImage: nil,
+                        size: 48
+                    )),
+                    title: conversation.computedDisplayName(memberNameOverride: contactNameOverride),
+                    detail: conversation.lastMessage?.text ?? "Convo started",
+                    context: "Convo",
+                    isUnread: conversation.isUnread,
+                    accessorySymbol: "chevron.right"
                 )
-                .frame(width: 48, height: 48)
+            }
+            .buttonStyle(.plain)
+        case .agent(let conversation, let summary, let message):
+            Button {
+                viewModel.selectAgentDm(in: conversation, agentInboxId: summary.inboxId)
+            } label: {
+                recentActivityLabel(
+                    avatar: AnyView(
+                        Image(systemName: "sparkles")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.colorTextPrimaryInverted)
+                            .frame(width: 48, height: 48)
+                            .background(.colorLava, in: .circle)
+                    ),
+                    title: summary.displayName,
+                    detail: message.text,
+                    context: "Agent in \(conversation.computedDisplayName(memberNameOverride: contactNameOverride))",
+                    isUnread: summary.isUnread,
+                    accessorySymbol: "message.fill"
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
 
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                    Text(conversation.computedDisplayName(memberNameOverride: contactNameOverride))
-                        .font(conversationIsUnread(conversation) ? .body.weight(.semibold) : .body)
+    private func recentActivityLabel(
+        avatar: AnyView,
+        title: String,
+        detail: String,
+        context: String,
+        isUnread: Bool,
+        accessorySymbol: String
+    ) -> some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            avatar.frame(width: 48, height: 48)
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    Text(title)
+                        .font(isUnread ? .body.weight(.semibold) : .body)
                         .foregroundStyle(.colorTextPrimary)
                         .lineLimit(1)
-                    Text(recentConversationPreview(conversation))
-                        .font(.subheadline)
+                    Text(context)
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(.colorTextSecondary)
                         .lineLimit(1)
                 }
-
-                Spacer(minLength: DesignConstants.Spacing.step2x)
-
-                if conversationIsUnread(conversation) {
-                    Circle()
-                        .fill(Color.colorLava)
-                        .frame(width: 8, height: 8)
-                        .accessibilityHidden(true)
-                }
-
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.colorTextTertiary)
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: DesignConstants.Spacing.step2x)
+            if isUnread {
+                Circle()
+                    .fill(Color.colorLava)
+                    .frame(width: 8, height: 8)
                     .accessibilityHidden(true)
             }
-            .frame(minHeight: 72)
-            .contentShape(.rect)
+            Image(systemName: accessorySymbol)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.colorTextTertiary)
+                .accessibilityHidden(true)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(conversation.computedDisplayName(memberNameOverride: contactNameOverride))
-        .accessibilityValue(conversationIsUnread(conversation) ? "Unread" : recentConversationPreview(conversation))
+        .frame(minHeight: 72)
+        .contentShape(.rect)
     }
 
-    private func recentConversationPreview(_ conversation: Conversation) -> String {
-        if let preview = conversation.lastMessage?.text, !preview.isEmpty {
-            return preview
+    private var recentActivityDestination: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(allRecentActivity.enumerated()), id: \.element.id) { index, item in
+                    recentActivityRow(item)
+                    if index < allRecentActivity.count - 1 {
+                        Divider().padding(.leading, 64)
+                    }
+                }
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step6x)
+            .padding(.vertical, DesignConstants.Spacing.step4x)
+            .frame(maxWidth: 720, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
-        return "Updated \(conversation.createdAt.formatted(.relative(presentation: .named)))"
+        .background(.colorBackgroundSurfaceless)
+        .navigationTitle("Recent")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func conversationIsUnread(_ conversation: Conversation) -> Bool {
-        conversation.isUnread || conversation.agentDm?.isUnread == true
+    private func updatedThingProvenance(_ item: YourSpaceContextItem) -> String {
+        let source = item.conversationId.flatMap(conversationTitle) ?? "Your Space"
+        return "Updated in \(source) · \(item.date.formatted(.relative(presentation: .named)))"
+    }
+
+    private func sourceConversation(for item: YourSpaceContextItem) -> Conversation? {
+        guard let conversationId = item.conversationId else { return nil }
+        return conversations.first(where: { $0.id == conversationId })
+    }
+
+    private func openUpdatedThingConversation(_ conversationId: String) {
+        inspectingUpdatedThing = nil
+        Task { @MainActor in
+            await Task.yield()
+            openConversationFromContextBrowser(conversationId)
+        }
+    }
+
+    private func shareUpdatedThing(_ item: YourSpaceContextItem) {
+        inspectingUpdatedThing = nil
+        Task { @MainActor in
+            await Task.yield()
+            sharingItem = item
+        }
+    }
+
+    private func openAgentSetup(for channel: AgentUseAnywhereChannel) {
+        preferredAgentChannel = channel
+        presentingManageAgents = true
+    }
+
+    private func openAgentManager() {
+        preferredAgentChannel = nil
+        presentingManageAgents = true
+    }
+
+    private func setParticipationMode(
+        for agent: ManageAgentsView.Agent,
+        place: ManageAgentsView.Agent.Place?,
+        to mode: ConversationParticipationMode
+    ) async throws {
+        guard agent.canManageParticipation else { return }
+        let writer = viewModel.session.messagingServiceSync().conversationMetadataWriter()
+        let placeIds = place.map { [$0.id] } ?? agent.places.map(\.id)
+        for placeId in placeIds {
+            try await writer.updateParticipationMode(mode, for: placeId)
+        }
+    }
+
+    private func makeAgentPlaceConnectionsViewModel(
+        agent: ManageAgentsView.Agent,
+        place: ManageAgentsView.Agent.Place
+    ) -> ConversationConnectionsViewModel? {
+        guard let agentInboxId = agent.agentInboxId else { return nil }
+        let messagingService = viewModel.session.messagingServiceSync()
+        return ConversationConnectionsViewModel(
+            conversationId: place.id,
+            agentInboxIds: [agentInboxId],
+            cloudConnectionManager: viewModel.session.cloudConnectionManager(
+                callbackURLScheme: ConfigManager.shared.appUrlScheme
+            ),
+            cloudConnectionRepository: viewModel.session.cloudConnectionRepository(),
+            grantWriter: messagingService.connectionGrantWriter(),
+            connectionEventWriter: messagingService.connectionEventWriter(),
+            enablementStore: viewModel.session.connectionEnablementStore(),
+            capabilityResolver: viewModel.session.capabilityResolver()
+        )
     }
 
     private var contextSection: some View {
@@ -782,7 +942,8 @@ private extension YourSpaceView {
             profileImage: profileSettingsViewModel.profileImage,
             items: allContextItems,
             connectionCount: activeConnectionCount,
-            onOpen: { presentingMeAndMyStuff = true }
+            onOpen: { presentingMeAndMyStuff = true },
+            onConnectAgentToChat: openAgentSetup(for:)
         )
     }
 
@@ -813,7 +974,7 @@ private extension YourSpaceView {
             .frame(maxWidth: .infinity)
         }
         .background(.colorBackgroundSurfaceless)
-        .navigationTitle("Your context")
+        .navigationTitle("All my things")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
@@ -912,73 +1073,53 @@ private extension YourSpaceView {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                    Text("Agents you can use")
+                    Text("Agents")
                         .font(.title2.weight(.bold))
                         .foregroundStyle(.colorTextPrimary)
-                    Text("Yours and others’, with continuous access and permissions visible.")
+                    Text("The ones you own, and the ones people share with you.")
                         .font(.subheadline)
                         .foregroundStyle(.colorTextSecondary)
                 }
 
                 Spacer(minLength: DesignConstants.Spacing.step3x)
 
-                Button("See all") {
-                    presentingManageAgents = true
-                }
+                Button("See all", action: openAgentManager)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.colorTextPrimary)
                 .accessibilityIdentifier("your-space-agents-see-all")
             }
 
+            VStack(spacing: DesignConstants.Spacing.step4x) {
+                if !homeOwnedAgents.isEmpty {
+                    agentHomeGroup(title: "Agents you own", agents: homeOwnedAgents)
+                }
+                if !homeUsableAgents.isEmpty {
+                    agentHomeGroup(title: "Agents you can use", agents: homeUsableAgents)
+                }
+            }
+        }
+        .accessibilityIdentifier("your-space-agents-widget")
+    }
+
+    private var homeOwnedAgents: [ManageAgentsView.Agent] {
+        Array(manageAgents.filter(\.isOwnedByCurrentUser).prefix(3))
+    }
+
+    private var homeUsableAgents: [ManageAgentsView.Agent] {
+        Array(manageAgents.filter { !$0.isOwnedByCurrentUser }.prefix(3))
+    }
+
+    private func agentHomeGroup(title: String, agents: [ManageAgentsView.Agent]) -> some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.colorTextSecondary)
+                .textCase(.uppercase)
+
             VStack(spacing: 0) {
-                ForEach(Array(Array(manageAgents.prefix(3)).enumerated()), id: \.element.id) { index, agent in
-                    Button {
-                        openAgent(agent)
-                    } label: {
-                        HStack(spacing: DesignConstants.Spacing.step3x) {
-                            Image(systemName: agent.symbolName)
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Color.white)
-                                .frame(width: 44, height: 44)
-                                .background(agent.tint, in: .circle)
-
-                            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                                Text(agent.name)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.colorTextPrimary)
-                                    .lineLimit(1)
-                                Text(agent.relationship)
-                                    .font(.caption)
-                                    .foregroundStyle(.colorTextSecondary)
-                                    .lineLimit(1)
-                                HStack(spacing: DesignConstants.Spacing.stepX) {
-                                    Circle()
-                                        .fill(agent.isListening ? Color.green : Color.colorTextTertiary)
-                                        .frame(width: 6, height: 6)
-                                    Text(agent.status)
-                                        .font(.caption.weight(.medium))
-                                        .foregroundStyle(.colorTextSecondary)
-                                        .lineLimit(1)
-                                }
-                            }
-
-                            Spacer(minLength: DesignConstants.Spacing.step2x)
-
-                            Image(systemName: agent.primaryConversationId == nil ? "chevron.right" : "message.fill")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.colorTextPrimary)
-                                .frame(width: 32, height: 32)
-                                .background(.colorFillMinimal, in: .circle)
-                        }
-                        .padding(.horizontal, DesignConstants.Spacing.step3x)
-                        .frame(minHeight: 76)
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(agent.name), \(agent.relationship)")
-                    .accessibilityValue("\(agent.status). \(agent.permissionSummary)")
-
-                    if index < min(manageAgents.count, 3) - 1 {
+                ForEach(Array(agents.enumerated()), id: \.element.id) { index, agent in
+                    agentHomeRow(agent)
+                    if index < agents.count - 1 {
                         Divider().padding(.leading, 68)
                     }
                 }
@@ -986,7 +1127,60 @@ private extension YourSpaceView {
             .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
             .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.medium))
         }
-        .accessibilityIdentifier("your-space-agents-widget")
+    }
+
+    private func agentHomeRow(_ agent: ManageAgentsView.Agent) -> some View {
+        Button { openAgent(agent) } label: {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                Image(systemName: agent.symbolName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.white)
+                    .frame(width: 44, height: 44)
+                    .background(agent.tint, in: .circle)
+
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        Text(agent.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.colorTextPrimary)
+                            .lineLimit(1)
+                        Text(agent.isOwnedByCurrentUser ? "Yours" : "\(agent.owner)’s")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(agent.isOwnedByCurrentUser ? Color.colorTextPrimaryInverted : Color.colorTextSecondary)
+                            .padding(.horizontal, DesignConstants.Spacing.step2x)
+                            .padding(.vertical, DesignConstants.Spacing.stepX)
+                            .background(
+                                agent.isOwnedByCurrentUser ? Color.colorLava : Color.colorFillMinimal,
+                                in: .capsule
+                            )
+                            .lineLimit(1)
+                    }
+                    HStack(spacing: DesignConstants.Spacing.stepX) {
+                        Circle()
+                            .fill(agent.isListening ? Color.green : Color.colorTextTertiary)
+                            .frame(width: 6, height: 6)
+                        Text(agent.status)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.colorTextSecondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: DesignConstants.Spacing.step2x)
+
+                Image(systemName: agent.primaryConversationId == nil ? "chevron.right" : "message.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(width: 32, height: 32)
+                    .background(.colorFillMinimal, in: .circle)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .frame(minHeight: 72)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(agent.name), \(agent.relationship)")
+        .accessibilityValue("\(agent.status). \(agent.permissionSummary)")
     }
 
     private func openAgent(_ agent: ManageAgentsView.Agent) {
@@ -1004,7 +1198,7 @@ private extension YourSpaceView {
             return
         }
 
-        presentingManageAgents = true
+        openAgentManager()
     }
 
     private var bringYourOwnAgentCallout: some View {
@@ -1386,7 +1580,7 @@ private extension YourSpaceView {
         Divider()
 
         Button("Manage") {
-            presentingManageAgents = true
+            openAgentManager()
         }
 
         Button("Add an agent") {
@@ -1409,7 +1603,8 @@ private extension YourSpaceView {
                     name: conversation.computedDisplayName(memberNameOverride: contactNameOverride),
                     access: "Private Home context",
                     replyBehavior: "Private replies",
-                    isListening: true
+                    isListening: true,
+                    participationMode: conversation.participationMode
                 )
             }
         return ManageAgentsView.Agent(
@@ -1429,6 +1624,7 @@ private extension YourSpaceView {
                 ? "Listening across \(briefing.sourceCount) \(placeWord)"
                 : "Ready to listen",
             isListening: briefing.sourceCount > 0,
+            isOwnedByCurrentUser: true,
             places: places,
             shareText: "I use my Convos Agent to keep up across conversations and make useful things I can share anywhere."
         )
@@ -1451,7 +1647,8 @@ private extension YourSpaceView {
                     name: entry.conversation.computedDisplayName(memberNameOverride: contactNameOverride),
                     access: mode == .paused ? "No new context" : "Continuous Convo context",
                     replyBehavior: replyBehavior(for: mode),
-                    isListening: mode != .paused
+                    isListening: mode != .paused,
+                    participationMode: mode
                 )
             }
             let listeningCount = places.filter(\.isListening).count
@@ -1482,6 +1679,11 @@ private extension YourSpaceView {
                     ? "Listening in \(listeningCount) \(placeWord)"
                     : "Paused",
                 isListening: listeningCount > 0,
+                isOwnedByCurrentUser: owner.isCurrentUser,
+                phone: first.agent.profile.agentPhone,
+                email: first.agent.profile.agentEmail,
+                canManageParticipation: true,
+                participationMode: sortedEntries.first?.conversation.participationMode ?? .mentionsOnly,
                 places: places,
                 shareText: shareText,
                 primaryConversationId: sortedEntries.first?.conversation.id,
@@ -1509,6 +1711,7 @@ private extension YourSpaceView {
                 billingSummary: "Your \(harness.provider.displayName) connection",
                 status: "Connected · choose a Place",
                 isListening: false,
+                isOwnedByCurrentUser: true,
                 shareText: "I use \(harness.name) alongside my Convos Agent. Add your own agent in Convos and use its work in any chat app.",
                 providerRawValue: harness.provider.rawValue
             )
@@ -2120,6 +2323,110 @@ private struct YourSpaceShareNotice: Identifiable {
     init(title: String, message: String) {
         self.title = title
         self.message = message
+    }
+}
+
+/// A useful thing is the Home's primary object: preview it, return to the
+/// source Convo (and its agent lane), or hand it to any app through iOS.
+private struct UpdatedThingDetailView: View {
+    let item: YourSpaceContextItem
+    let provenance: String
+    let sourceHasAgent: Bool
+    let onOpenConvo: (() -> Void)?
+    let onShare: () -> Void
+
+    @Environment(\.dismiss) private var dismiss: DismissAction
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step6x) {
+                    YourSpaceContextPreview(item: item)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 220)
+                        .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.medium))
+
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                        Text(item.title)
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.colorTextPrimary)
+                            .textSelection(.enabled)
+                        Text(provenance)
+                            .font(.subheadline)
+                            .foregroundStyle(.colorTextSecondary)
+                        if let detail = item.detail, !detail.isEmpty {
+                            Text(detail)
+                                .font(.body)
+                                .foregroundStyle(.colorTextPrimary)
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    VStack(spacing: DesignConstants.Spacing.step3x) {
+                        Button(action: onShare) {
+                            Label("Share anywhere", systemImage: "square.and.arrow.up")
+                                .font(.headline)
+                                .foregroundStyle(.colorTextPrimaryInverted)
+                                .frame(maxWidth: .infinity, minHeight: 52)
+                                .background(
+                                    .colorBackgroundInverted,
+                                    in: .rect(cornerRadius: DesignConstants.CornerRadius.medium)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Opens the iOS share sheet")
+
+                        if let onOpenConvo {
+                            Button(action: onOpenConvo) {
+                                Label(
+                                    sourceHasAgent ? "Open Convo + agent" : "Open source Convo",
+                                    systemImage: sourceHasAgent ? "sparkles.rectangle.stack.fill" : "bubble.left.and.bubble.right.fill"
+                                )
+                                .font(.headline)
+                                .foregroundStyle(.colorTextPrimary)
+                                .frame(maxWidth: .infinity, minHeight: 52)
+                                .background(.colorFillMinimal, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(DesignConstants.Spacing.step6x)
+                .frame(maxWidth: 720, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            }
+            .background(.colorBackgroundSurfaceless)
+            .navigationTitle("Updated thing")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private enum YourSpaceRecentActivityItem: Identifiable {
+    case conversation(Conversation)
+    case agent(conversation: Conversation, summary: Conversation.AgentDmSummary, message: MessagePreview)
+
+    var id: String {
+        switch self {
+        case .conversation(let conversation):
+            "convo:\(conversation.id)"
+        case .agent(let conversation, let summary, _):
+            "agent:\(conversation.id):\(summary.inboxId)"
+        }
+    }
+
+    var date: Date {
+        switch self {
+        case .conversation(let conversation):
+            conversation.lastMessage?.createdAt ?? conversation.createdAt
+        case .agent(_, _, let message):
+            message.createdAt
+        }
     }
 }
 
