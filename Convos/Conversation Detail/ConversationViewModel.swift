@@ -45,6 +45,17 @@ struct BuilderVoiceMemoSnapshot: Sendable {
     let levels: [Float]
 }
 
+enum ConversationMemberRemovalError: LocalizedError {
+    case notPermitted
+
+    var errorDescription: String? {
+        switch self {
+        case .notPermitted:
+            "Only the person who created this convo can remove members."
+        }
+    }
+}
+
 @MainActor
 @Observable
 class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this type_body_length
@@ -4253,16 +4264,12 @@ extension ConversationViewModel {
         presentingProfileSettings = true
     }
 
-    func remove(member: ConversationMember) {
-        guard canRemoveMembers else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await metadataWriter.removeMembers([member.profile.inboxId], from: conversation.id)
-            } catch {
-                Log.error("Error removing member: \(error.localizedDescription)")
-            }
-        }
+    /// Throws rather than swallowing the failure so callers can keep their UI
+    /// open and report it - the profile card dismisses itself only once the
+    /// removal has actually landed.
+    func remove(member: ConversationMember) async throws {
+        guard canRemoveMembers else { throw ConversationMemberRemovalError.notPermitted }
+        try await metadataWriter.removeMembers([member.profile.inboxId], from: conversation.id)
     }
 
     private func setNotificationsEnabled(_ enabled: Bool) {

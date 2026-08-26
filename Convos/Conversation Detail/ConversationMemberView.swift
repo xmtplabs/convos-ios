@@ -173,9 +173,15 @@ struct ConversationMemberView: View {
 
         if viewModel.canRemoveMembers {
             Section {
-                let action = {
-                    viewModel.remove(member: member)
-                    dismiss()
+                let action: () -> Void = {
+                    Task {
+                        do {
+                            try await viewModel.remove(member: member)
+                            dismiss()
+                        } catch {
+                            Log.error("Error removing member: \(error.localizedDescription)")
+                        }
+                    }
                 }
                 Button(action: action) {
                     Text("Remove")
@@ -216,9 +222,15 @@ struct ConversationMemberView: View {
         if !member.isCurrentUser {
             if viewModel.canRemoveMembers {
                 Section {
-                    let action = {
-                        viewModel.remove(member: member)
-                        dismiss()
+                    let action: () -> Void = {
+                        Task {
+                            do {
+                                try await viewModel.remove(member: member)
+                                dismiss()
+                            } catch {
+                                Log.error("Error removing member: \(error.localizedDescription)")
+                            }
+                        }
                     }
                     Button(action: action) {
                         Text("Remove")
