@@ -213,7 +213,7 @@ struct AgentDmPageView: View {
     private var addAgentState: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
             Button(action: session.requestAgentJoin) {
-                Text("Add an agent")
+                Text("Add @doc")
                     .font(.footnote)
                     .foregroundStyle(.colorTextPrimaryInverted)
                     .padding(.horizontal, DesignConstants.Spacing.step3x)
@@ -221,7 +221,7 @@ struct AgentDmPageView: View {
                     .background(.colorLava, in: .rect(cornerRadius: Constant.addAgentButtonRadius))
             }
             .accessibilityIdentifier("agent-dm-add-agent-button")
-            Text("To help the group out")
+            Text("Give this group a living doc")
                 .font(.footnote)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.colorLava)
@@ -241,7 +241,7 @@ struct AgentDmPageView: View {
     /// toward a cap and stops there, the way the old join card did.
     private var preparingState: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            Text("Preparing your agent chat")
+            Text("Adding @doc to this group")
                 .font(.footnote)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.colorLava)
@@ -458,7 +458,7 @@ struct AgentDmPageView: View {
             }
             .buttonStyle(.plain)
             .frame(width: 44, height: 44)
-            .accessibilityLabel("Switch agent. Current: \(selectedLane.name)")
+            .accessibilityLabel("Switch @doc engine. Current: \(selectedLane.name)")
             .accessibilityHint("Opens your connected agents and Ghost Mode")
             .accessibilityIdentifier("agent-chat-switcher-button")
         )

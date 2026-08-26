@@ -28,10 +28,9 @@ enum AgentUseAnywhereChannel: String, CaseIterable, Identifiable {
     }
 }
 
-/// One access-aware roster for every agent the person can use. Ownership is a
-/// permission attribute, never a separate product area: owned Convos agents,
-/// connected external agents, and agents shared through a Convo all render in
-/// the same list and disclose the same context boundary.
+/// One access-aware roster for every smart group doc the person controls or can
+/// use. The underlying runtime remains agent-shaped, but the product surface is
+/// the durable multiplayer workspace people recognize as @doc.
 struct ManageAgentsView: View {
     struct Agent: Identifiable {
         struct Place: Identifiable {
@@ -101,7 +100,7 @@ struct ManageAgentsView: View {
             canManageParticipation: Bool = false,
             participationMode: ConversationParticipationMode = .mentionsOnly,
             places: [Place] = [],
-            shareText: String = "Try this agent with me in Convos.",
+            shareText: String = "Add @doc to a group with me in Convos.",
             primaryConversationId: String? = nil,
             agentInboxId: String? = nil,
             providerRawValue: String? = nil
@@ -151,27 +150,40 @@ struct ManageAgentsView: View {
         self.onSetParticipationMode = onSetParticipationMode
     }
 
-    private var ownedAgents: [Agent] {
-        agents.filter(\.isOwnedByCurrentUser)
+    private var ownedDocs: [Agent] {
+        agents.filter { $0.providerRawValue == nil && $0.isOwnedByCurrentUser }
     }
 
-    private var usableAgents: [Agent] {
-        agents.filter { !$0.isOwnedByCurrentUser }
+    private var sharedDocs: [Agent] {
+        agents.filter { $0.providerRawValue == nil && !$0.isOwnedByCurrentUser }
+    }
+
+    private var advancedEngines: [Agent] {
+        agents.filter { $0.providerRawValue != nil }
     }
 
     var body: some View {
         List {
             Section {
-                Text("Your agents can keep up with a group, make the useful thing, and hand it back ready to share.")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextSecondary)
-                    .listRowBackground(Color.clear)
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 30, weight: .black))
+                        .foregroundStyle(Color.black)
+                    Text("One smart doc for every group.")
+                        .font(.system(.title2, design: .rounded, weight: .black))
+                        .foregroundStyle(Color.black)
+                    Text("@doc listens, remembers, and turns conversation into shared docs, sheets, and calendars.")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Color.black.opacity(0.72))
+                }
+                .padding(.vertical, DesignConstants.Spacing.step3x)
+                .listRowBackground(Color.colorLava)
             }
 
             if let preferredChannel {
                 Section {
                     Label {
-                        Text("Choose an agent you own. Its page shows the contact to add to \(preferredChannel.title) and the exact Listen, Talk, or Pause setting.")
+                        Text("Choose a @doc you control. Its page shows the contact to add to \(preferredChannel.title) and exactly what it can hear or say.")
                     } icon: {
                         Image(systemName: preferredChannel.symbolName)
                     }
@@ -185,32 +197,44 @@ struct ManageAgentsView: View {
             if agents.isEmpty {
                 emptyState
             } else {
-                if !ownedAgents.isEmpty {
+                if !ownedDocs.isEmpty {
                     Section {
-                        ForEach(ownedAgents) { agent in
-                            agentRow(agent)
+                        ForEach(ownedDocs) { doc in
+                            agentRow(doc)
                         }
                     } header: {
-                        Text("Agents you own")
+                        Text("Docs you control")
                     } footer: {
-                        Text("Convos agents you created and external agents you connected.")
+                        Text("You choose where each @doc lives, what it can use, and when it speaks.")
                     }
                 }
 
-                if !usableAgents.isEmpty {
+                if !sharedDocs.isEmpty {
                     Section {
-                        ForEach(usableAgents) { agent in
-                            agentRow(agent)
+                        ForEach(sharedDocs) { doc in
+                            agentRow(doc)
                         }
                     } header: {
-                        Text("Agents you can use")
+                        Text("Docs shared with you")
                     } footer: {
-                        Text("Owned by someone else and shared with you through a Convo.")
+                        Text("Someone else controls these @docs, but your group can use what they make.")
+                    }
+                }
+
+                if !advancedEngines.isEmpty {
+                    Section {
+                        ForEach(advancedEngines) { engine in
+                            agentRow(engine)
+                        }
+                    } header: {
+                        Text("Advanced engines")
+                    } footer: {
+                        Text("Optional private engines behind @doc. Group members never need to understand or configure these.")
                     }
                 }
             }
         }
-        .navigationTitle("Agents")
+        .navigationTitle("@docs")
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -225,7 +249,7 @@ struct ManageAgentsView: View {
             )
         } label: {
             HStack(spacing: DesignConstants.Spacing.step3x) {
-                Image(systemName: agent.symbolName)
+                Image(systemName: agent.providerRawValue == nil ? "doc.text.fill" : agent.symbolName)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color.white)
                     .frame(width: 42, height: 42)
@@ -243,7 +267,7 @@ struct ManageAgentsView: View {
                             .padding(.horizontal, DesignConstants.Spacing.step2x)
                             .padding(.vertical, DesignConstants.Spacing.stepX)
                             .background(
-                                agent.isOwnedByCurrentUser ? Color.colorLava : Color.colorFillMinimal,
+                                agent.isOwnedByCurrentUser ? Color.colorBackgroundInverted : Color.colorFillMinimal,
                                 in: .capsule
                             )
                             .lineLimit(1)
@@ -273,10 +297,10 @@ struct ManageAgentsView: View {
             Image(systemName: "sparkles")
                 .font(.system(size: 28, weight: .semibold))
                 .foregroundStyle(.colorTextSecondary)
-            Text("Your starter agent is getting ready")
+            Text("Your first @doc is ready")
                 .font(.headline)
                 .foregroundStyle(.colorTextPrimary)
-            Text("Start or join a Convo, then give an agent continuous Listen access when you are ready.")
+            Text("Start or join a group, then add @doc so everyone has one living place for what matters.")
                 .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
                 .multilineTextAlignment(.center)
@@ -332,7 +356,7 @@ private struct AgentAccessDetailView: View {
         .background(.colorBackgroundSurfaceless)
         .navigationTitle(agent.name)
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Couldn’t change agent access", isPresented: Binding(
+        .alert("Couldn’t change @doc access", isPresented: Binding(
             get: { modeError != nil },
             set: { if !$0 { modeError = nil } }
         )) {
@@ -367,9 +391,9 @@ private struct AgentAccessDetailView: View {
     private var useAnywhere: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                Text("Use anywhere")
+                Text("Add @doc anywhere")
                     .font(.title2.weight(.bold))
-                Text("Add this agent to another group like a person. It can listen, help coordinate, make the useful thing, and leave it ready for everyone.")
+                Text("Add @doc to another group like a person. It listens, keeps the shared workspace current, and leaves useful docs, sheets, and calendars ready for everyone.")
                     .font(.body)
                     .foregroundStyle(.colorTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -380,7 +404,7 @@ private struct AgentAccessDetailView: View {
             channelInstructions
 
             ShareLink(item: agent.shareText) {
-                Label("Share agent setup", systemImage: "square.and.arrow.up")
+                Label("Share @doc setup", systemImage: "square.and.arrow.up")
                     .font(.headline)
                     .foregroundStyle(.colorTextPrimaryInverted)
                     .frame(maxWidth: .infinity, minHeight: 52)
@@ -415,7 +439,7 @@ private struct AgentAccessDetailView: View {
                 Text(kind.title)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.colorTextSecondary)
-                Text(value ?? "Not available for this agent")
+                Text(value ?? "Not available for this @doc")
                     .font(.subheadline.weight(value == nil ? .regular : .medium))
                     .foregroundStyle(value == nil ? Color.colorTextTertiary : Color.colorTextPrimary)
                     .lineLimit(1)
@@ -447,13 +471,13 @@ private struct AgentAccessDetailView: View {
     private var participationControl: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
             HStack {
-                Text("In a group")
+                Text("How @doc joins in")
                     .font(.headline)
                 Spacer(minLength: DesignConstants.Spacing.step2x)
                 if isSavingMode { ProgressView().controlSize(.small) }
             }
 
-            Picker("Agent participation", selection: $selectedMode) {
+            Picker("@doc participation", selection: $selectedMode) {
                 Text("Listen").tag(ConversationParticipationMode.mentionsOnly)
                 Text("Talk").tag(ConversationParticipationMode.speakFreely)
                 Text("Pause").tag(ConversationParticipationMode.paused)
@@ -474,7 +498,7 @@ private struct AgentAccessDetailView: View {
 
     private var participationDescription: String {
         guard agent.canManageParticipation else {
-            return "Add this agent to a supported group before choosing Listen, Talk, or Pause."
+            return "Add this @doc to a supported group before choosing Listen, Talk, or Pause."
         }
         switch selectedMode {
         case .mentionsOnly:
@@ -525,14 +549,14 @@ private struct AgentAccessDetailView: View {
         switch channel {
         case .iMessage:
             return agent.phone != nil || agent.email != nil
-                ? "Copy a contact above, save it, then open the group details in Messages and add the agent."
-                : "This agent does not have a Messages contact yet. Share its setup while a contact address is provisioned."
+                ? "Copy a contact above, save it, then open the group details in Messages and add @doc."
+                : "This @doc does not have a Messages contact yet. Share its setup while a contact address is provisioned."
         case .whatsapp:
             return agent.phone != nil
-                ? "Save the phone number, then open Group info → Add participants and choose the agent."
-                : "WhatsApp needs a phone number. This agent has not published one yet."
+                ? "Save the phone number, then open Group info → Add participants and choose @doc."
+                : "WhatsApp needs a phone number. This @doc has not published one yet."
         case .telegram:
-            return "Share the agent setup to Telegram, then follow its Add to group action when supported."
+            return "Share the @doc setup to Telegram, then follow its Add to group action when supported."
         }
     }
 
@@ -558,7 +582,7 @@ private struct AgentAccessDetailView: View {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
                 Text("Connections")
                     .font(.title2.weight(.bold))
-                Text("Connect once to your app. Then choose each group below to decide where \(agent.name) can use it.")
+                Text("Connect once in Convos. Then choose each group below to decide where @doc can use it.")
                     .font(.body)
                     .foregroundStyle(.colorTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -604,7 +628,7 @@ private struct AgentAccessDetailView: View {
                 .font(.title2.weight(.bold))
             receiptRow("Your access", detail: agent.relationship, symbol: "person.crop.circle.badge.checkmark")
             Divider()
-            receiptRow("Agent access", detail: agent.permissionSummary, symbol: "lock.shield.fill")
+            receiptRow("@doc access", detail: agent.permissionSummary, symbol: "lock.shield.fill")
             Divider()
             receiptRow("Cost", detail: agent.billingSummary, symbol: "creditcard.fill")
         }
@@ -617,7 +641,7 @@ private struct AgentAccessDetailView: View {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
                     Text("Groups & permissions")
                         .font(.title2.weight(.bold))
-                    Text("Control what this agent can do with each group of people.")
+                    Text("Control what @doc can hear, use, and do with each group of people.")
                         .font(.body)
                         .foregroundStyle(.colorTextSecondary)
                 }
@@ -796,7 +820,7 @@ private struct AgentPlacePermissionsView: View {
                     Text("\(agent.name) in \(place.name)")
                         .font(.title2.weight(.bold))
                         .foregroundStyle(.colorTextPrimary)
-                    Text("These permissions apply only to this agent with this group of people.")
+                    Text("These permissions apply only to this @doc with this group of people.")
                         .font(.subheadline)
                         .foregroundStyle(.colorTextSecondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -821,7 +845,7 @@ private struct AgentPlacePermissionsView: View {
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
             } header: {
-                Text("What the agent can do")
+                Text("What @doc can do")
             }
 
             ConversationConnectionsSection(viewModel: connectionsViewModel)
@@ -873,7 +897,7 @@ private struct AgentPlacePermissionsView: View {
             .init(
                 id: "quarter-planner",
                 name: "Quarter’s Planner",
-                subtitle: "Convos Agent",
+                subtitle: "Smart group doc",
                 symbolName: "sparkles",
                 tint: .colorLava,
                 relationship: "Shared with you in Toronto Coworking",
@@ -900,7 +924,7 @@ private struct AgentPlacePermissionsView: View {
             .init(
                 id: "codex",
                 name: "Codex",
-                subtitle: "OpenAI coding agent",
+                subtitle: "OpenAI coding engine",
                 symbolName: "chevron.left.forwardslash.chevron.right",
                 tint: .black
             ),

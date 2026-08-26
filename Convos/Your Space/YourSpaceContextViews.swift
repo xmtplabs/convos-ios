@@ -1541,7 +1541,9 @@ struct YourSpaceShareDestinationSheet: View {
                                 Text("Any chat app")
                                     .font(.body.weight(.semibold))
                                     .foregroundStyle(.colorTextPrimary)
-                                Text("Send the actual file, link, or detail with iOS")
+                                Text(ConvosDocShare.applies(to: item.kind)
+                                    ? "Send the doc with its Made by Convos invite"
+                                    : "Send the actual file, link, or detail with iOS")
                                     .font(.caption)
                                     .foregroundStyle(.colorTextSecondary)
                             }
@@ -1635,30 +1637,41 @@ struct YourSpaceShareDestinationSheet: View {
                let text = try? String(contentsOf: file.url, encoding: .utf8),
                !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 if item.kind == .link, let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                    return [url]
+                    return addingDocInvitation(to: [url])
                 }
-                return [text]
+                return addingDocInvitation(to: [text])
             }
-            return [file.url]
+            return addingDocInvitation(to: [file.url])
 
         case let .conversation(context):
             if let destination = context.destinationURLString,
                let url = URL(string: destination) {
-                return [url]
+                return addingDocInvitation(to: [url])
             }
             if [.address, .phone, .email].contains(item.kind) {
-                return [textShareFallback]
+                return addingDocInvitation(to: [textShareFallback])
             }
             if let key = context.attachmentKey {
                 let filename = context.filename ?? context.title
                 let url = try await FileAttachmentPreviewLoader.loadPreviewURL(key: key, filename: filename)
-                return [url]
+                return addingDocInvitation(to: [url])
             }
-            return [textShareFallback]
+            return addingDocInvitation(to: [textShareFallback])
 
         case let .rememberedField(field):
-            return [field.shareText]
+            return addingDocInvitation(to: [field.shareText])
         }
+    }
+
+    private func addingDocInvitation(to items: [Any]) -> [Any] {
+        guard ConvosDocShare.applies(to: item.kind) else { return items }
+        if items.count == 1, let text = items.first as? String {
+            return ["\(ConvosDocShare.invitation)\n\n\(text)"]
+        }
+        if items.count == 1, let url = items.first as? URL, item.kind == .link {
+            return ["\(ConvosDocShare.invitation)\n\n\(url.absoluteString)"]
+        }
+        return [ConvosDocShare.invitation] + items
     }
 
     private var textShareFallback: String {

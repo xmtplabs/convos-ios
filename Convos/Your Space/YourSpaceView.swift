@@ -1,8 +1,8 @@
 /*
- THESIS: Your Space is the private agent layer across a person’s whole life: it says what changed, shows which human-owned agents are listening, and lets any useful result travel anywhere.
+ THESIS: Add @doc to any group in your life; Convos turns quiet intelligence into a living multiplayer doc, sheet, and calendar without asking people to understand agents.
  OWN-WORLD: Native Convos neutrals, circular identity, glass reserved for persistent controls, and open editorial spacing between flat lists and one expressive Me card.
- STORY: On launch the user understands what was missed, acts on it, inspects continuous agent access, and can use their context or agent work in any chat app.
- FIRST VIEWPORT: Profile, anchored Your Space switcher, and add sit above one narrative briefing, the useful things agents updated, and a mixed Recent list of Convos and agent replies.
+ STORY: On launch the user adds @doc wherever their group already talks, sees what its shared things changed, and can open or share the result anywhere.
+ FIRST VIEWPORT: Profile, anchored Your Space switcher, and add sit above the one-line product promise, an Add @doc action, and the most recently updated shared docs.
  FORM: A living cross-conversation digest using the pinned shell recorded as YS-SHELL-2026-08-18; no generated concept seed was used.
  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
  */
@@ -12,6 +12,7 @@ import ConvosComposer
 import ConvosCore
 import ConvosCoreiOS
 import SwiftUI
+import UIKit
 
 private struct PersonalAgentHarness: Identifiable {
     let provider: ExternalAgentProvider
@@ -58,6 +59,7 @@ struct YourSpaceView: View {
     @State private var presentingPersonalCard: Bool = false
     @State private var presentingMeAndMyStuff: Bool = false
     @State private var presentingManageAgents: Bool = false
+    @State private var presentingAddDoc: Bool = false
     @State private var presentingRecentActivity: Bool = false
     @State private var preferredAgentChannel: AgentUseAnywhereChannel?
     @State private var inspectingUpdatedThing: YourSpaceContextItem?
@@ -259,7 +261,7 @@ struct YourSpaceView: View {
                     briefing: briefing,
                     contextItems: allContextItems,
                     agentName: activePersonalAgentName,
-                    agentSubtitle: activePersonalAgent.map { $0.switcherSubtitle } ?? "Personal agent",
+                    agentSubtitle: "Your smart group workspace",
                     agentProvider: activePersonalAgent,
                     initialChatText: pendingChatDraft,
                     codexConfiguration: codexConnectionConfiguration,
@@ -273,6 +275,17 @@ struct YourSpaceView: View {
                     onAddAgent: addAgentFromChat
                 )
                 .navigationTransition(.zoom(sourceID: Constant.agentDockTransitionId, in: transitionNamespace))
+            }
+            .sheet(isPresented: $presentingAddDoc) {
+                AddDocDestinationSheet(
+                    conversations: conversations,
+                    memberNameOverride: contactNameOverride,
+                    onStartConvo: startConvoFromAddDoc,
+                    onSelectConversation: addDocToConversation,
+                    onSelectChannel: addDocToChannel
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
             .fullScreenCover(isPresented: $presentingPersonalAgentOnboarding) {
                 ExternalAgentOnboardingView(
@@ -425,13 +438,11 @@ private extension YourSpaceView {
                 LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step10x) {
                     briefingHero
 
-                    if !recentlyUpdatedThings.isEmpty {
-                        updatedThingsSection
-                    }
+                    updatedThingsSection
 
                     recentActivitySection
 
-                    agentsWidget
+                    docsWidget
 
                     contextSection
 
@@ -569,6 +580,12 @@ private extension YourSpaceView {
 
     private var addMenu: some View {
         Menu {
+            Button("Add @doc to a group", systemImage: "doc.badge.plus") {
+                presentingAddDoc = true
+            }
+
+            Divider()
+
             Button("Start a new convo", systemImage: "square.and.pencil") {
                 viewModel.onStartConvo()
             }
@@ -589,37 +606,85 @@ private extension YourSpaceView {
         .glassEffect(.regular.interactive(), in: .circle)
         .matchedTransitionSource(id: "composer-transition-source", in: transitionNamespace)
         .disabled(viewModel.staleDeviceObserver.isDeviceRemoved)
-        .accessibilityLabel("Add a convo")
+        .accessibilityLabel("Add @doc or a convo")
         .accessibilityIdentifier("your-space-add-menu")
     }
 
     private var briefingHero: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-            Text(briefing.headline)
-                .font(.system(.largeTitle, design: .serif, weight: .bold))
-                .tracking(-0.6)
-                .foregroundStyle(.colorTextPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                .contentTransition(.numericText())
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
+                HStack(alignment: .top, spacing: DesignConstants.Spacing.step4x) {
+                    Text("Add @doc to any group in your life.")
+                        .font(.system(.largeTitle, design: .rounded, weight: .black))
+                        .tracking(-1.0)
+                        .foregroundStyle(Color.black)
+                        .fixedSize(horizontal: false, vertical: true)
 
-            if briefing.sourceCount > 0 {
-                Text(sourceSummary)
-                    .font(.body)
-                    .foregroundStyle(.colorTextSecondary)
-            } else {
-                Label("Only you can see this space", systemImage: "lock.fill")
-                    .font(.body)
-                    .foregroundStyle(.colorTextSecondary)
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 38, weight: .black))
+                        .foregroundStyle(Color.black)
+                        .rotationEffect(.degrees(4))
+                        .accessibilityHidden(true)
+                }
+
+                Text("A living workspace that listens, remembers, and keeps the group moving. You control it from Convos.")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(Color.black.opacity(0.76))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    docCapability("Docs", symbol: "doc.text.fill")
+                    docCapability("Sheets", symbol: "tablecells.fill")
+                    docCapability("Calendars", symbol: "calendar")
+                }
+
+                Button {
+                    presentingAddDoc = true
+                } label: {
+                    HStack(spacing: DesignConstants.Spacing.step3x) {
+                        Image(systemName: "plus")
+                            .font(.headline.weight(.bold))
+                        Text("Add @doc")
+                            .font(.headline)
+                        Spacer(minLength: 0)
+                        Image(systemName: "arrow.up.right")
+                            .font(.headline.weight(.bold))
+                    }
+                    .foregroundStyle(Color.white)
+                    .padding(.horizontal, DesignConstants.Spacing.step5x)
+                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .background(Color.black, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Choose a Convo, iMessage, WhatsApp, or Telegram group")
+                .accessibilityIdentifier("your-space-add-doc-button")
+            }
+            .padding(DesignConstants.Spacing.step6x)
+            .background(Color.colorLava, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
+
+            HStack(alignment: .top, spacing: DesignConstants.Spacing.step3x) {
+                Image(systemName: briefing.attentionCount > 0 ? "doc.text.magnifyingglass" : "checkmark.circle.fill")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(briefing.attentionCount > 0 ? Color.colorLava : Color.green)
+                    .frame(width: 24)
+                Text(briefing.headline)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.colorTextPrimary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.numericText())
             }
         }
-        .accessibilityElement(children: .combine)
     }
 
-    private var sourceSummary: String {
-        let convoWord = briefing.sourceCount == 1 ? "convo" : "convos"
-        let peopleWord = briefing.peopleCount == 1 ? "person" : "people"
-        let contextWord = allContextItems.count == 1 ? "thing" : "things"
-        return "Private across \(briefing.sourceCount) \(convoWord), \(briefing.peopleCount) \(peopleWord), and \(allContextItems.count) saved \(contextWord)."
+    private func docCapability(_ title: String, symbol: String) -> some View {
+        Label(title, systemImage: symbol)
+            .font(.caption.weight(.bold))
+            .foregroundStyle(Color.black)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .frame(minHeight: 36)
+            .background(Color.white.opacity(0.46), in: .capsule)
     }
 
     private var recentlyUpdatedThings: [YourSpaceContextItem] {
@@ -634,7 +699,7 @@ private extension YourSpaceView {
     private var updatedThingsSection: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Docs updated across your Convos")
+                Text("Docs updated")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.colorTextPrimary)
                 Spacer(minLength: DesignConstants.Spacing.step3x)
@@ -643,9 +708,22 @@ private extension YourSpaceView {
                     .foregroundStyle(.colorTextPrimary)
             }
 
-            VStack(spacing: DesignConstants.Spacing.step3x) {
-                ForEach(recentlyUpdatedThings) { item in
-                    updatedThingRow(item)
+            if recentlyUpdatedThings.isEmpty {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                    Text("Your group docs will appear here")
+                        .font(.headline)
+                        .foregroundStyle(.colorTextPrimary)
+                    Text("Add @doc to a group. When it makes or updates something useful, you’ll see it here with the group and the original conversation attached.")
+                        .font(.subheadline)
+                        .foregroundStyle(.colorTextSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, DesignConstants.Spacing.step3x)
+            } else {
+                VStack(spacing: DesignConstants.Spacing.step3x) {
+                    ForEach(recentlyUpdatedThings) { item in
+                        updatedThingRow(item)
+                    }
                 }
             }
         }
@@ -692,7 +770,7 @@ private extension YourSpaceView {
                         openUpdatedThingConversation(conversationId)
                     } label: {
                         Label(
-                            sourceConversation(for: item)?.hasAgent == true ? "Convo + agent" : "Open convo",
+                            "Open group",
                             systemImage: "bubble.left.and.bubble.right.fill"
                         )
                     }
@@ -745,7 +823,7 @@ private extension YourSpaceView {
             }
 
             if recentActivity.isEmpty {
-                Text("Convos and agent updates will stay close here.")
+                Text("Your groups and @doc updates will stay close here.")
                     .font(.body)
                     .foregroundStyle(.colorTextSecondary)
                     .padding(.vertical, DesignConstants.Spacing.step3x)
@@ -788,15 +866,15 @@ private extension YourSpaceView {
             } label: {
                 recentActivityLabel(
                     avatar: AnyView(
-                        Image(systemName: "sparkles")
+                        Image(systemName: "doc.text.fill")
                             .font(.body.weight(.semibold))
                             .foregroundStyle(.colorTextPrimaryInverted)
                             .frame(width: 48, height: 48)
                             .background(.colorLava, in: .circle)
                     ),
-                    title: summary.displayName,
+                    title: "@doc",
                     detail: message.text,
-                    context: "Agent in \(conversation.computedDisplayName(memberNameOverride: contactNameOverride))",
+                    context: conversation.computedDisplayName(memberNameOverride: contactNameOverride),
                     isUnread: summary.isUnread,
                     accessorySymbol: "message.fill"
                 )
@@ -896,6 +974,45 @@ private extension YourSpaceView {
     private func openAgentSetup(for channel: AgentUseAnywhereChannel) {
         preferredAgentChannel = channel
         presentingManageAgents = true
+    }
+
+    private func startConvoFromAddDoc() {
+        presentingAddDoc = false
+        Task { @MainActor in
+            await Task.yield()
+            viewModel.onStartConvo()
+        }
+    }
+
+    private func addDocToConversation(_ conversation: Conversation) {
+        presentingAddDoc = false
+        Task { @MainActor in
+            if let summary = conversation.agentDm {
+                await Task.yield()
+                viewModel.selectAgentDm(in: conversation, agentInboxId: summary.inboxId)
+            } else {
+                let conversationId = conversation.id
+                let provisionTask = Task {
+                    await viewModel.session.ensureDefaultAgentConversationReady(id: conversationId)
+                }
+                selectConversation(conversation)
+                await Task.yield()
+                NotificationCenter.default.post(
+                    name: .selectAgentDmPageRequested,
+                    object: nil,
+                    userInfo: ["conversationId": conversationId]
+                )
+                await provisionTask.value
+            }
+        }
+    }
+
+    private func addDocToChannel(_ channel: AgentUseAnywhereChannel) {
+        presentingAddDoc = false
+        Task { @MainActor in
+            await Task.yield()
+            openAgentSetup(for: channel)
+        }
     }
 
     private func openAgentManager() {
@@ -1069,14 +1186,14 @@ private extension YourSpaceView {
         return Array(entries)
     }
 
-    private var agentsWidget: some View {
+    private var docsWidget: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                    Text("Agents")
+                    Text("Your @docs")
                         .font(.title2.weight(.bold))
                         .foregroundStyle(.colorTextPrimary)
-                    Text("The ones you own, and the ones people share with you.")
+                    Text("One smart workspace for every group.")
                         .font(.subheadline)
                         .foregroundStyle(.colorTextSecondary)
                 }
@@ -1086,30 +1203,30 @@ private extension YourSpaceView {
                 Button("See all", action: openAgentManager)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.colorTextPrimary)
-                .accessibilityIdentifier("your-space-agents-see-all")
+                .accessibilityIdentifier("your-space-docs-see-all")
             }
 
             VStack(spacing: DesignConstants.Spacing.step4x) {
-                if !homeOwnedAgents.isEmpty {
-                    agentHomeGroup(title: "Agents you own", agents: homeOwnedAgents)
+                if !homeOwnedDocs.isEmpty {
+                    docHomeGroup(title: "Docs you control", docs: homeOwnedDocs)
                 }
-                if !homeUsableAgents.isEmpty {
-                    agentHomeGroup(title: "Agents you can use", agents: homeUsableAgents)
+                if !homeSharedDocs.isEmpty {
+                    docHomeGroup(title: "Docs shared with you", docs: homeSharedDocs)
                 }
             }
         }
-        .accessibilityIdentifier("your-space-agents-widget")
+        .accessibilityIdentifier("your-space-docs-widget")
     }
 
-    private var homeOwnedAgents: [ManageAgentsView.Agent] {
-        Array(manageAgents.filter(\.isOwnedByCurrentUser).prefix(3))
+    private var homeOwnedDocs: [ManageAgentsView.Agent] {
+        Array(manageAgents.filter { $0.providerRawValue == nil && $0.isOwnedByCurrentUser }.prefix(3))
     }
 
-    private var homeUsableAgents: [ManageAgentsView.Agent] {
-        Array(manageAgents.filter { !$0.isOwnedByCurrentUser }.prefix(3))
+    private var homeSharedDocs: [ManageAgentsView.Agent] {
+        Array(manageAgents.filter { $0.providerRawValue == nil && !$0.isOwnedByCurrentUser }.prefix(3))
     }
 
-    private func agentHomeGroup(title: String, agents: [ManageAgentsView.Agent]) -> some View {
+    private func docHomeGroup(title: String, docs: [ManageAgentsView.Agent]) -> some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
             Text(title)
                 .font(.caption.weight(.bold))
@@ -1117,9 +1234,9 @@ private extension YourSpaceView {
                 .textCase(.uppercase)
 
             VStack(spacing: 0) {
-                ForEach(Array(agents.enumerated()), id: \.element.id) { index, agent in
-                    agentHomeRow(agent)
-                    if index < agents.count - 1 {
+                ForEach(Array(docs.enumerated()), id: \.element.id) { index, doc in
+                    docHomeRow(doc)
+                    if index < docs.count - 1 {
                         Divider().padding(.leading, 68)
                     }
                 }
@@ -1129,37 +1246,41 @@ private extension YourSpaceView {
         }
     }
 
-    private func agentHomeRow(_ agent: ManageAgentsView.Agent) -> some View {
-        Button { openAgent(agent) } label: {
+    private func docHomeRow(_ doc: ManageAgentsView.Agent) -> some View {
+        Button { openAgent(doc) } label: {
             HStack(spacing: DesignConstants.Spacing.step3x) {
-                Image(systemName: agent.symbolName)
+                Image(systemName: "doc.text.fill")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(Color.black)
                     .frame(width: 44, height: 44)
-                    .background(agent.tint, in: .circle)
+                    .background(Color.colorLava, in: .rect(cornerRadius: DesignConstants.CornerRadius.small))
 
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
-                        Text(agent.name)
+                        Text(doc.name)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.colorTextPrimary)
                             .lineLimit(1)
-                        Text(agent.isOwnedByCurrentUser ? "Yours" : "\(agent.owner)’s")
+                        Text(doc.isOwnedByCurrentUser ? "Yours" : "\(doc.owner)’s")
                             .font(.caption2.weight(.bold))
-                            .foregroundStyle(agent.isOwnedByCurrentUser ? Color.colorTextPrimaryInverted : Color.colorTextSecondary)
+                            .foregroundStyle(doc.isOwnedByCurrentUser ? Color.colorTextPrimaryInverted : Color.colorTextSecondary)
                             .padding(.horizontal, DesignConstants.Spacing.step2x)
                             .padding(.vertical, DesignConstants.Spacing.stepX)
                             .background(
-                                agent.isOwnedByCurrentUser ? Color.colorLava : Color.colorFillMinimal,
+                                doc.isOwnedByCurrentUser ? Color.colorBackgroundInverted : Color.colorFillMinimal,
                                 in: .capsule
                             )
                             .lineLimit(1)
                     }
+                    Text(doc.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(1)
                     HStack(spacing: DesignConstants.Spacing.stepX) {
                         Circle()
-                            .fill(agent.isListening ? Color.green : Color.colorTextTertiary)
+                            .fill(doc.isListening ? Color.green : Color.colorTextTertiary)
                             .frame(width: 6, height: 6)
-                        Text(agent.status)
+                        Text(doc.status)
                             .font(.caption.weight(.medium))
                             .foregroundStyle(.colorTextSecondary)
                             .lineLimit(1)
@@ -1168,7 +1289,7 @@ private extension YourSpaceView {
 
                 Spacer(minLength: DesignConstants.Spacing.step2x)
 
-                Image(systemName: agent.primaryConversationId == nil ? "chevron.right" : "message.fill")
+                Image(systemName: doc.primaryConversationId == nil ? "chevron.right" : "message.fill")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
                     .frame(width: 32, height: 32)
@@ -1179,8 +1300,8 @@ private extension YourSpaceView {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(agent.name), \(agent.relationship)")
-        .accessibilityValue("\(agent.status). \(agent.permissionSummary)")
+        .accessibilityLabel("\(doc.name), \(doc.relationship)")
+        .accessibilityValue("\(doc.status). \(doc.permissionSummary)")
     }
 
     private func openAgent(_ agent: ManageAgentsView.Agent) {
@@ -1215,17 +1336,17 @@ private extension YourSpaceView {
             }
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                Text("Bring personal agents to Convos")
+                Text("Connect an advanced engine")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.colorTextPrimary)
-                Text("Bring group context to an agent you already use, work with it in private, and control exactly what gets saved or shared back.")
+                Text("Power @doc with a private engine you already use, then control exactly what context it receives and what gets saved or shared back.")
                     .font(.body)
                     .foregroundStyle(.colorTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Label {
-                Text("Only you can talk to this personal agent. It is not connected to a group, and no group member can message it.")
+                Text("Only you can use this private engine. Group members see @doc and the useful things it makes—not the machinery underneath.")
             } icon: {
                 Image(systemName: "person.crop.circle.badge.checkmark")
             }
@@ -1433,7 +1554,7 @@ private extension YourSpaceView {
             }
             .buttonStyle(.plain)
             .disabled(dockTranscribing)
-            .accessibilityLabel("Send to your agent")
+            .accessibilityLabel("Send to @doc")
             .accessibilityIdentifier("your-space-recording-send-button")
         }
     }
@@ -1474,24 +1595,14 @@ private extension YourSpaceView {
 
     @ViewBuilder
     private var agentDockIdentity: some View {
-        if activePersonalAgent != nil {
-            Menu {
-                agentSwitcherMenuContent
-            } label: {
-                agentDockAvatar
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Switch personal agent")
-            .accessibilityIdentifier("your-space-agent-switcher")
-        } else {
-            Button {
-                presentPersonalAgentOnboarding()
-            } label: {
-                agentDockAvatar
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Connect a personal agent")
+        Menu {
+            agentSwitcherMenuContent
+        } label: {
+            agentDockAvatar
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open @doc settings")
+        .accessibilityIdentifier("your-space-doc-switcher")
     }
 
     private var dockIdentityText: some View {
@@ -1520,15 +1631,11 @@ private extension YourSpaceView {
 
     @ViewBuilder
     private var agentDockAvatarBadge: some View {
-        if let provider = activePersonalAgent {
-            personalAgentBadge(provider, size: 44)
-        } else {
-            Image(systemName: "powerplug.fill")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.colorTextPrimaryInverted)
-                .frame(width: 44, height: 44)
-                .background(.colorTextPrimary, in: .circle)
-        }
+        Image(systemName: "doc.text.fill")
+            .font(.body.weight(.bold))
+            .foregroundStyle(Color.black)
+            .frame(width: 44, height: 44)
+            .background(.colorLava, in: .circle)
     }
 
     private func toggleMockAgent() {
@@ -1547,7 +1654,7 @@ private extension YourSpaceView {
                 .background(dockNeutralButtonColor, in: .circle)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Chat with \(activePersonalAgentName ?? "your agent")")
+        .accessibilityLabel("Ask @doc")
         .accessibilityIdentifier("your-space-chat-button")
     }
 
@@ -1562,28 +1669,28 @@ private extension YourSpaceView {
                 .background(.colorLava, in: .circle)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Talk to \(activePersonalAgentName ?? "your agent")")
+        .accessibilityLabel("Talk to @doc")
         .accessibilityIdentifier("your-space-voice-button")
     }
 
     @ViewBuilder
     private var agentSwitcherMenuContent: some View {
-        ForEach(personalAgentSelectorHarnesses) { harness in
-            Button {
-                selectPersonalAgent(harness)
-            } label: {
-                Text(harness.name)
-                Text(harness.provider.switcherSubtitle)
-            }
+        Button("Manage @docs") {
+            openAgentManager()
         }
 
         Divider()
 
-        Button("Manage") {
-            openAgentManager()
+        ForEach(personalAgentSelectorHarnesses) { harness in
+            Button {
+                selectPersonalAgent(harness)
+            } label: {
+                Text("Use \(harness.name) engine")
+                Text(harness.provider.switcherSubtitle)
+            }
         }
 
-        Button("Add an agent") {
+        Button("Connect an engine") {
             presentPersonalAgentOnboarding()
         }
     }
@@ -1593,7 +1700,7 @@ private extension YourSpaceView {
     }
 
     private var starterConvosAgent: ManageAgentsView.Agent {
-        let placeWord = briefing.sourceCount == 1 ? "Place" : "Places"
+        let placeWord = briefing.sourceCount == 1 ? "group" : "groups"
         let places: [ManageAgentsView.Agent.Place] = conversations
             .sorted { ($0.lastMessage?.createdAt ?? $0.createdAt) > ($1.lastMessage?.createdAt ?? $1.createdAt) }
             .prefix(8)
@@ -1601,98 +1708,84 @@ private extension YourSpaceView {
                 ManageAgentsView.Agent.Place(
                     id: conversation.id,
                     name: conversation.computedDisplayName(memberNameOverride: contactNameOverride),
-                    access: "Private Home context",
-                    replyBehavior: "Private replies",
+                    access: "Private Convos context",
+                    replyBehavior: "Answers when asked",
                     isListening: true,
                     participationMode: conversation.participationMode
                 )
             }
         return ManageAgentsView.Agent(
             id: "convos-starter-agent",
-            name: "Convos Agent",
-            subtitle: "Your private agent across Convos",
-            symbolName: "sparkles",
+            name: "@doc",
+            subtitle: "Your private smart workspace",
+            symbolName: "doc.text.fill",
             tint: .colorLava,
-            relationship: "Owned by you",
+            relationship: "Controlled by you",
             owner: "you",
             accessSummary: briefing.sourceCount > 0
-                ? "Keeping up across \(briefing.sourceCount) \(placeWord)"
-                : "Ready when you add a Place",
-            permissionSummary: "Private context across your Convos and anything you share in",
+                ? "Ready across \(briefing.sourceCount) \(placeWord)"
+                : "Ready for your first group",
+            permissionSummary: "Private context across your Convos and anything you add",
             billingSummary: "Included by Convos",
             status: briefing.sourceCount > 0
-                ? "Listening across \(briefing.sourceCount) \(placeWord)"
-                : "Ready to listen",
+                ? "Ready across \(briefing.sourceCount) \(placeWord)"
+                : "Ready to add",
             isListening: briefing.sourceCount > 0,
             isOwnedByCurrentUser: true,
+            phone: ConvosDocShare.phoneNumber,
             places: places,
-            shareText: "I use my Convos Agent to keep up across conversations and make useful things I can share anywhere."
+            shareText: "Add @doc to any group in your life. It keeps a living group doc and can make shared sheets and calendars when you need them."
         )
     }
 
     private var groupOwnedAgents: [ManageAgentsView.Agent] {
-        let grouped = Dictionary(grouping: agentsAcrossConvos, by: { $0.agent.profile.inboxId })
-        return grouped.values.compactMap { entries in
-            guard let first = entries.first else { return nil }
-            let sortedEntries = entries.sorted {
-                ($0.conversation.lastMessage?.createdAt ?? $0.conversation.createdAt)
-                    > ($1.conversation.lastMessage?.createdAt ?? $1.conversation.createdAt)
-            }
-            let agentName = first.agent.displayName(contactNameFallback: contactNameOverride)
-            let owner = ownerIdentity(for: first)
-            let places = sortedEntries.map { entry in
-                let mode = entry.conversation.participationMode
-                return ManageAgentsView.Agent.Place(
-                    id: entry.conversation.id,
-                    name: entry.conversation.computedDisplayName(memberNameOverride: contactNameOverride),
-                    access: mode == .paused ? "No new context" : "Continuous Convo context",
-                    replyBehavior: replyBehavior(for: mode),
-                    isListening: mode != .paused,
-                    participationMode: mode
-                )
-            }
-            let listeningCount = places.filter(\.isListening).count
-            let placeWord = listeningCount == 1 ? "Place" : "Places"
+        agentsAcrossConvos.map { entry in
+            let owner = ownerIdentity(for: entry)
+            let conversation = entry.conversation
+            let conversationName = conversation.computedDisplayName(memberNameOverride: contactNameOverride)
+            let mode = conversation.participationMode
+            let place = ManageAgentsView.Agent.Place(
+                id: conversation.id,
+                name: conversationName,
+                access: mode == .paused ? "No new context" : "Living group context",
+                replyBehavior: replyBehavior(for: mode),
+                isListening: mode != .paused,
+                participationMode: mode
+            )
             let shareText: String = {
-                guard let shareEntry = sortedEntries.first(where: { $0.conversation.invite?.isEmpty == false }),
-                      let invite = shareEntry.conversation.invite else {
-                    return "Use \(agentName) with me in Convos. It is owned by \(owner.name) and only uses the Places we allow."
+                guard let invite = conversation.invite, !invite.isEmpty else {
+                    return "I built a doc for \(conversationName). If anyone wants to add anything, research, or update it from the group chat, add @doc at \(ConvosDocShare.phoneNumber)."
                 }
-                let placeName = shareEntry.conversation.computedDisplayName(memberNameOverride: contactNameOverride)
-                return "Use \(agentName) with me in \(placeName) on Convos: \(invite.inviteURLString)"
+                return "I built a doc for \(conversationName). If anyone wants to add anything, research, or update it from the group chat, add @doc at \(ConvosDocShare.phoneNumber). \(invite.inviteURLString)"
             }()
 
             return ManageAgentsView.Agent(
-                id: "convos-agent:\(first.agent.profile.inboxId)",
-                name: agentName,
-                subtitle: "Convos Agent",
-                symbolName: "sparkles",
+                id: "convos-doc:\(conversation.id):\(entry.agent.profile.inboxId)",
+                name: "@doc",
+                subtitle: conversationName,
+                symbolName: "doc.text.fill",
                 tint: .colorLava,
-                relationship: owner.isCurrentUser ? "Owned by you" : "Shared by \(owner.name)",
+                relationship: owner.isCurrentUser ? "Controlled by you" : "Shared by \(owner.name)",
                 owner: owner.isCurrentUser ? "you" : owner.name,
-                accessSummary: listeningCount > 0
-                    ? "Listening continuously in \(listeningCount) \(placeWord)"
-                    : "Paused in every Place",
-                permissionSummary: permissionSummary(for: places),
+                accessSummary: mode == .paused ? "Paused in \(conversationName)" : "Keeping the \(conversationName) workspace current",
+                permissionSummary: permissionSummary(for: [place]),
                 billingSummary: owner.isCurrentUser ? "You control usage" : "\(owner.name) controls usage",
-                status: listeningCount > 0
-                    ? "Listening in \(listeningCount) \(placeWord)"
-                    : "Paused",
-                isListening: listeningCount > 0,
+                status: mode == .paused ? "Paused" : "Keeping up with the group",
+                isListening: mode != .paused,
                 isOwnedByCurrentUser: owner.isCurrentUser,
-                phone: first.agent.profile.agentPhone,
-                email: first.agent.profile.agentEmail,
+                phone: entry.agent.profile.agentPhone ?? ConvosDocShare.phoneNumber,
+                email: entry.agent.profile.agentEmail,
                 canManageParticipation: true,
-                participationMode: sortedEntries.first?.conversation.participationMode ?? .mentionsOnly,
-                places: places,
+                participationMode: mode,
+                places: [place],
                 shareText: shareText,
-                primaryConversationId: sortedEntries.first?.conversation.id,
-                agentInboxId: first.agent.profile.inboxId
+                primaryConversationId: conversation.id,
+                agentInboxId: entry.agent.profile.inboxId
             )
         }
         .sorted { lhs, rhs in
             if lhs.isListening != rhs.isListening { return lhs.isListening }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            return lhs.subtitle.localizedCaseInsensitiveCompare(rhs.subtitle) == .orderedAscending
         }
     }
 
@@ -1712,7 +1805,7 @@ private extension YourSpaceView {
                 status: "Connected · choose a Place",
                 isListening: false,
                 isOwnedByCurrentUser: true,
-                shareText: "I use \(harness.name) alongside my Convos Agent. Add your own agent in Convos and use its work in any chat app.",
+                shareText: "I use \(harness.name) as an advanced engine behind @doc in Convos.",
                 providerRawValue: harness.provider.rawValue
             )
         }
@@ -1754,12 +1847,11 @@ private extension YourSpaceView {
     }
 
     private var dockTitle: String {
-        activePersonalAgentName ?? "Bring your agent"
+        "@doc"
     }
 
     private var dockSubtitle: String {
-        guard let activePersonalAgent else { return "Use the AI you choose" }
-        return activePersonalAgent.switcherSubtitle
+        "Make, edit, or find anything"
     }
 
     private func selectPersonalAgent(_ harness: PersonalAgentHarness) {
@@ -1808,7 +1900,7 @@ private extension YourSpaceView {
                     Image(systemName: "waveform")
                         .font(.headline.weight(.semibold))
                     VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                        Text("Ask your agent")
+                        Text("Ask @doc")
                             .font(.headline)
                         Text("Make, edit, or find anything")
                             .font(.caption)
@@ -1821,13 +1913,13 @@ private extension YourSpaceView {
             }
             .buttonStyle(.borderedProminent)
             .tint(.colorLava)
-            .accessibilityLabel("Ask your agent to make, edit, or find anything")
+            .accessibilityLabel("Ask @doc to make, edit, or find anything")
             .accessibilityIdentifier("your-space-voice-button")
 
             Button {
                 openPersonalAgent(mode: .chat)
             } label: {
-                Label("Chat with Your Space", systemImage: "message.fill")
+                Label("Chat with @doc", systemImage: "message.fill")
                     .font(.headline)
                     .frame(maxWidth: .infinity, minHeight: 52)
             }
@@ -1839,7 +1931,11 @@ private extension YourSpaceView {
 
     @ViewBuilder
     private var toolsMenuContent: some View {
-        Button("Bring personal agents", systemImage: "sparkles") {
+        Button("Add @doc to a group", systemImage: "doc.badge.plus") {
+            presentingAddDoc = true
+        }
+
+        Button("Advanced engines", systemImage: "cpu") {
             presentPersonalAgentOnboarding()
         }
 
@@ -1888,7 +1984,7 @@ private extension YourSpaceView {
         }
         if activePersonalAgent == .tasklet {
             return TaskletConnectionStore.configuration() == nil
-                ? "Reconnect your Tasklet agent"
+                ? "Reconnect your Tasklet engine"
                 : "Live · Tasklet memory and tools"
         }
         if activePersonalAgent == .grokBot {
@@ -1897,7 +1993,7 @@ private extension YourSpaceView {
             }
             return activeGrokBotAgent == nil
                 ? "Choose a Grokbot to add"
-                : "Live · Private agent on your computer"
+                : "Live · Private engine on your computer"
         }
         return "Connection preview"
     }
@@ -1936,7 +2032,7 @@ private extension YourSpaceView {
     }
 
     private var personalAgentSectionActionTitle: String {
-        guard let activePersonalAgent else { return "Connect a personal agent" }
+        guard let activePersonalAgent else { return "Connect an advanced engine" }
         let name = activePersonalAgentName ?? activePersonalAgent.displayName
         return activePersonalAgent.hasStoredConnection && (activePersonalAgent != .grokBot || activeGrokBotAgent != nil)
             ? "Talk to \(name) privately"
@@ -2100,7 +2196,7 @@ private extension YourSpaceView {
             guard await VoiceMemoRecorder.ensureRecordPermission() else {
                 shareNotice = YourSpaceShareNotice(
                     title: "Microphone access needed",
-                    message: "Allow microphone access in Settings to talk to your agent. You can still use chat."
+                    message: "Allow microphone access in Settings to talk to @doc. You can still use chat."
                 )
                 return
             }
@@ -2162,8 +2258,7 @@ private extension YourSpaceView {
     }
 
     private func saveAgentOutput(_ output: String) throws -> YourSpaceContextItem {
-        let agentName = activePersonalAgentName ?? "Your Space agent"
-        let file = try YourSpaceFileStore.storeText(output, title: "\(agentName) output")
+        let file = try YourSpaceFileStore.storeText(output, title: "@doc output")
         refreshLocalContext(selecting: file)
         return YourSpaceContextItem(local: file)
     }
@@ -2336,11 +2431,14 @@ private struct UpdatedThingDetailView: View {
     let onShare: () -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @State private var copiedDocNumber: Bool = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step6x) {
+                    docInvitationHeader
+
                     YourSpaceContextPreview(item: item)
                         .frame(maxWidth: .infinity)
                         .frame(height: 220)
@@ -2379,8 +2477,8 @@ private struct UpdatedThingDetailView: View {
                         if let onOpenConvo {
                             Button(action: onOpenConvo) {
                                 Label(
-                                    sourceHasAgent ? "Open Convo + agent" : "Open source Convo",
-                                    systemImage: sourceHasAgent ? "sparkles.rectangle.stack.fill" : "bubble.left.and.bubble.right.fill"
+                                    sourceHasAgent ? "Open group + @doc" : "Open source group",
+                                    systemImage: sourceHasAgent ? "doc.text.fill" : "bubble.left.and.bubble.right.fill"
                                 )
                                 .font(.headline)
                                 .foregroundStyle(.colorTextPrimary)
@@ -2396,11 +2494,186 @@ private struct UpdatedThingDetailView: View {
                 .frame(maxWidth: .infinity)
             }
             .background(.colorBackgroundSurfaceless)
-            .navigationTitle("Updated thing")
+            .navigationTitle("Group doc")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var docInvitationHeader: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Image(systemName: "doc.text.fill")
+                Text("Made by Convos")
+            }
+            .font(.headline.weight(.bold))
+            .foregroundStyle(Color.black)
+
+            Text("Text @doc directly to add anything or ask anything about this doc. You can also add me to your group chat to remember, share, research, or add anything to the group.")
+                .font(.body.weight(.medium))
+                .foregroundStyle(Color.black.opacity(0.76))
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Link(destination: ConvosDocShare.smsURL) {
+                    HStack(spacing: DesignConstants.Spacing.step3x) {
+                        Image(systemName: "message.fill")
+                            .font(.headline.weight(.bold))
+                        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                            Text("Text @doc")
+                                .font(.headline)
+                            Text(ConvosDocShare.phoneNumber)
+                                .font(.caption.monospacedDigit())
+                                .opacity(0.72)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "arrow.up.right")
+                            .font(.headline.weight(.bold))
+                    }
+                    .foregroundStyle(Color.white)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .background(Color.black, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+                }
+
+                Button {
+                    UIPasteboard.general.string = ConvosDocShare.phoneNumber
+                    copiedDocNumber = true
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(1.5))
+                        copiedDocNumber = false
+                    }
+                } label: {
+                    Image(systemName: copiedDocNumber ? "checkmark" : "square.on.square")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(Color.white)
+                        .frame(width: 56, height: 56)
+                        .background(Color.black, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(copiedDocNumber ? "Copied @doc phone number" : "Copy @doc phone number")
+            }
+        }
+        .padding(DesignConstants.Spacing.step5x)
+        .background(Color.colorLava, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
+    }
+}
+
+private struct AddDocDestinationSheet: View {
+    let conversations: [Conversation]
+    let memberNameOverride: (String) -> String?
+    let onStartConvo: () -> Void
+    let onSelectConversation: (Conversation) -> Void
+    let onSelectChannel: (AgentUseAnywhereChannel) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var copiedNumber: Bool = false
+
+    private var sortedConversations: [Conversation] {
+        conversations.sorted {
+            ($0.lastMessage?.createdAt ?? $0.createdAt) > ($1.lastMessage?.createdAt ?? $1.createdAt)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                        Image(systemName: "doc.text.fill")
+                            .font(.system(size: 34, weight: .black))
+                            .foregroundStyle(Color.black)
+                        Text("Give the group a brain.")
+                            .font(.system(.title, design: .rounded, weight: .black))
+                            .foregroundStyle(Color.black)
+                        Text("@doc keeps one living workspace for the group. Anyone can add to it just by talking.")
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(Color.black.opacity(0.74))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, DesignConstants.Spacing.step3x)
+                    .listRowBackground(Color.colorLava)
+                }
+
+                Section("In Convos") {
+                    Button(action: onStartConvo) {
+                        Label("Start a new group with @doc", systemImage: "plus.message.fill")
+                            .font(.body.weight(.semibold))
+                    }
+
+                    ForEach(sortedConversations) { conversation in
+                        Button { onSelectConversation(conversation) } label: {
+                            HStack(spacing: DesignConstants.Spacing.step3x) {
+                                ConversationAvatarView(
+                                    conversation: conversation,
+                                    conversationImage: nil,
+                                    size: 42
+                                )
+                                .frame(width: 42, height: 42)
+
+                                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                                    Text(conversation.computedDisplayName(memberNameOverride: memberNameOverride))
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(.colorTextPrimary)
+                                        .lineLimit(1)
+                                    Text(conversation.hasAgent ? "Open @doc" : "Open group to add @doc")
+                                        .font(.caption)
+                                        .foregroundStyle(.colorTextSecondary)
+                                }
+
+                                Spacer(minLength: 0)
+
+                                Image(systemName: conversation.hasAgent ? "checkmark.circle.fill" : "plus.circle.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(conversation.hasAgent ? Color.green : Color.colorLava)
+                            }
+                            .frame(minHeight: 60)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Section {
+                    Button {
+                        UIPasteboard.general.string = ConvosDocShare.phoneNumber
+                        copiedNumber = true
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(1.5))
+                            copiedNumber = false
+                        }
+                    } label: {
+                        HStack {
+                            Label(ConvosDocShare.phoneNumber, systemImage: "phone.fill")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.colorTextPrimary)
+                            Spacer(minLength: 0)
+                            Image(systemName: copiedNumber ? "checkmark" : "square.on.square")
+                                .foregroundStyle(copiedNumber ? Color.green : Color.colorTextSecondary)
+                        }
+                    }
+                    .accessibilityLabel(copiedNumber ? "Copied @doc phone number" : "Copy @doc phone number")
+
+                    ForEach(AgentUseAnywhereChannel.allCases) { channel in
+                        Button { onSelectChannel(channel) } label: {
+                            Label("Add @doc to \(channel.title)", systemImage: channel.symbolName)
+                                .foregroundStyle(.colorTextPrimary)
+                        }
+                    }
+                } header: {
+                    Text("Anywhere else your group talks")
+                } footer: {
+                    Text("Copy @doc’s contact or share its setup, then add it to the group like a person.")
+                }
+            }
+            .navigationTitle("Add @doc")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
                 }
             }
         }

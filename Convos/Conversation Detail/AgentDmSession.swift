@@ -74,7 +74,7 @@ final class AgentDmSession {
     /// joined but its profile has not synced a name yet, which is most of a
     /// brand-new conversation's first moments.
     var agentName: String {
-        agent?.profile.displayName ?? "Agent"
+        agent?.profile.displayName ?? "@doc"
     }
 
     /// The conversation the tab belongs to. Its id changes when a new-convo

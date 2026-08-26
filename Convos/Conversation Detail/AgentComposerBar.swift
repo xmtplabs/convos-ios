@@ -68,7 +68,7 @@ struct AgentComposerBar: View {
             .frame(width: Constant.avatarButtonSize, height: Constant.avatarButtonSize)
             .padding(.leading, DesignConstants.Spacing.step4x)
             .padding(.bottom, Constant.avatarBottomInset)
-            .accessibilityLabel("Switch agent. Current: \(selectedLane.name)")
+            .accessibilityLabel("Switch @doc engine. Current: \(selectedLane.name)")
             .accessibilityHint("Opens the agent and Ghost Mode list")
             .accessibilityIdentifier("agent-chat-switcher-button")
         }

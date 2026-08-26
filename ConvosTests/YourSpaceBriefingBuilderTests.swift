@@ -42,7 +42,7 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
         XCTAssertEqual(briefing.attentionCount, 0)
         XCTAssertEqual(
             briefing.headline,
-            "You’re caught up. Your agents are quietly keeping up with 2 convos."
+            "You’re caught up. @doc is quietly keeping up with 2 groups."
         )
     }
 
@@ -142,7 +142,7 @@ final class YourSpaceBriefingBuilderTests: XCTestCase {
 
         XCTAssertEqual(
             draft.messageText,
-            "Remember this\nhttps://example.com/context\n3728 Bear Hollow Rd, Joelton, TN 37080\nHome: 123 King Street West, Toronto"
+            "\(ConvosDocShare.invitation)\nRemember this\nhttps://example.com/context\n3728 Bear Hollow Rd, Joelton, TN 37080\nHome: 123 King Street West, Toronto"
         )
         XCTAssertEqual(draft.photoCount, 1)
         XCTAssertEqual(draft.videoNames, ["Clip.mov"])

@@ -287,9 +287,9 @@ private struct YourSpaceWidgetGallery: View {
                     isOn: $showsPeopleWidget
                 )
                 widgetToggle(
-                    title: "Agents across convos",
-                    description: "See which agents are in each convo and open their DM.",
-                    systemImage: "sparkles",
+                    title: "@docs across groups",
+                    description: "See which groups have a smart doc and open its private workspace.",
+                    systemImage: "doc.text.fill",
                     isOn: $showsAgentsWidget
                 )
                 widgetToggle(
@@ -474,9 +474,9 @@ private struct AgentAvatarBadge: View {
                 .frame(width: size, height: size)
                 .background(provider.tint, in: .circle)
         } else {
-            Image(systemName: "sparkles")
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .foregroundStyle(.colorTextPrimaryInverted)
+            Image(systemName: "doc.text.fill")
+                .font(.system(size: size * 0.42, weight: .bold))
+                .foregroundStyle(Color.black)
                 .frame(width: size, height: size)
                 .background(.colorLava, in: .circle)
         }
@@ -514,7 +514,7 @@ private struct AgentChatTopBar: View {
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .circle)
-            .accessibilityLabel("Manage agents")
+            .accessibilityLabel("Manage @docs")
         }
         .overlay {
             identityChip
@@ -525,10 +525,10 @@ private struct AgentChatTopBar: View {
 
     private var identityChip: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            AgentAvatarBadge(provider: agentProvider, size: 32)
+            AgentAvatarBadge(provider: nil, size: 32)
 
             VStack(alignment: .leading, spacing: 0) {
-                Text(agentName ?? "Your agent")
+                Text("@doc")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.colorTextPrimary)
                     .lineLimit(1)
@@ -542,7 +542,7 @@ private struct AgentChatTopBar: View {
         .padding(.vertical, DesignConstants.Spacing.stepX)
         .glassEffect(.regular, in: .capsule)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(agentName ?? "Your agent"), \(agentSubtitle)")
+        .accessibilityLabel("@doc, \(agentSubtitle)")
     }
 }
 
@@ -560,7 +560,7 @@ private struct AgentChatComposer: View {
     let onAddAgent: () -> Void
 
     private var placeholder: String {
-        "Chat with \(agentName ?? "your agent")"
+        "Ask @doc"
     }
 
     private var sendEnabled: Bool {
@@ -573,13 +573,13 @@ private struct AgentChatComposer: View {
             Menu {
                 switcherMenu
             } label: {
-                AgentAvatarBadge(provider: agentProvider, size: 36)
+                AgentAvatarBadge(provider: nil, size: 36)
                     .padding(DesignConstants.Spacing.stepX)
                     .glassEffect(.regular, in: .circle)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Switch agent")
-            .accessibilityIdentifier("agent-chat-switcher")
+            .accessibilityLabel("Open @doc settings")
+            .accessibilityIdentifier("doc-chat-settings")
 
             HStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
                 Button(action: onAddContext) {
@@ -611,7 +611,7 @@ private struct AgentChatComposer: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!sendEnabled)
-                .accessibilityLabel("Ask your agent")
+                .accessibilityLabel("Ask @doc")
             }
             .padding(DesignConstants.Spacing.step2x)
             .glassEffect(.regular, in: .rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
@@ -622,19 +622,20 @@ private struct AgentChatComposer: View {
 
     @ViewBuilder
     private var switcherMenu: some View {
-        ForEach(switcherAgents) { agent in
-            Button {
-                onSelectAgent(agent.id)
-            } label: {
-                Text(agent.name)
-                Text(agent.subtitle)
-            }
-        }
+        Button("Manage @docs", action: onManage)
 
         Divider()
 
-        Button("Manage", action: onManage)
-        Button("Add an agent", action: onAddAgent)
+        ForEach(switcherAgents.filter { $0.providerRawValue != nil }) { engine in
+            Button {
+                onSelectAgent(engine.id)
+            } label: {
+                Text("Use \(engine.name) engine")
+                Text(engine.subtitle)
+            }
+        }
+
+        Button("Connect an engine", action: onAddAgent)
     }
 }
 
@@ -871,7 +872,7 @@ struct YourSpaceInputSheet: View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
             ProgressView()
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                Text(isCodexSelected ? "Codex is working on your Mac…" : "\(agentName ?? "Your agent") is working…")
+                Text("@doc is working…")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
                 if isCodexSelected, let workspace = codexConfiguration?.workspacePath {
@@ -1020,18 +1021,18 @@ struct YourSpaceInputSheet: View {
         if isCodexSelected, codexConfiguration != nil {
             let contextCount = codexSnapshot?.items.count ?? 0
             if codexConfiguration?.sharesYourSpaceContext == true {
-                return "Codex is connected to your Mac with \(contextCount) approved items from Your Space. Tell me what you want to make, and I’ll bring the result back here."
+                return "@doc can use \(contextCount) approved items from Your Space. Tell it what the group needs, and it will bring the finished thing back here."
             }
-            return "Codex is connected to your Mac. Tell me what you want to make, and I’ll bring the result back here."
+            return "Tell @doc what the group needs. It can make or update a doc, sheet, calendar, link, or anything else useful."
         }
         if isTownSelected, onAskAgent != nil {
-            return "Town is connected to Convos. Ask your Town agent to use its memory and tools, and I’ll bring the finished result back here to save or share."
+            return "Tell @doc what the group needs. Its connected engine can use the memory and tools you approved."
         }
         if isTaskletSelected, onAskAgent != nil {
-            return "Tasklet is connected to Convos. Ask your agent to use its memory, connections, and tools, and I’ll bring the finished result back here to save or share."
+            return "Tell @doc what the group needs. Its connected engine can use the connections and tools you approved."
         }
         if isGrokBotSelected, onAskAgent != nil {
-            return "\(agentName ?? "Your Grokbot") is connected through your computer. Work here privately, then choose what you want to save or share."
+            return "Tell @doc what the group needs. Its private engine is connected through your computer."
         }
         return briefing.headline
     }
@@ -1083,16 +1084,16 @@ struct YourSpaceInputSheet: View {
             return "This question goes to your Town routine without Your Space context."
         }
         if isTaskletSelected, TaskletConnectionStore.configuration()?.sharesYourSpaceContext == true {
-            return "This question and a bounded snapshot of the Your Space context you approved go to your Tasklet agent."
+            return "This question and a bounded snapshot of the Your Space context you approved go to @doc’s connected engine."
         }
         if isTaskletSelected {
-            return "This question goes to your Tasklet agent without Your Space context."
+            return "This question goes to @doc’s connected engine without Your Space context."
         }
         if isGrokBotSelected, GrokBotConnectionStore.configuration()?.sharesYourSpaceContext == true {
-            return "This question and a bounded snapshot of the Your Space context you approved go to \(agentName ?? "your Grokbot")."
+            return "This question and a bounded snapshot of the Your Space context you approved go to @doc’s private engine."
         }
         if isGrokBotSelected {
-            return "This question goes to \(agentName ?? "your Grokbot") without Your Space context."
+            return "This question goes to @doc’s private engine without Your Space context."
         }
         return "Answers use private context already on this device."
     }
@@ -1137,7 +1138,7 @@ struct YourSpaceInputSheet: View {
             } catch {
                 guard !Task.isCancelled else { return }
                 inputError = InputError(
-                    title: "\(agentName ?? "Your agent") couldn’t finish that",
+                    title: "@doc couldn’t finish that",
                     message: error.localizedDescription
                 )
             }

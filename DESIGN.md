@@ -114,21 +114,21 @@ components:
 
 ## Overview
 
-**Creative North Star: "The Private Signal Desk"**
+**Creative North Star: "The Multiplayer Doc"**
 
-Convos is a quiet personal briefing room, not an inbox dashboard. Its visual world is restrained and editorial: open space, adaptive neutral surfaces, circular identity, a bounded recent-Convos list, and one expressive personal-library card.
+Convos feels like a consumer social product that happens to make powerful work. The first screen is bold, immediate, and legible from across the room: one saturated Lava launch card, one enormous promise—**Add `@doc` to any group in your life**—and one black action. Everything after the launch card becomes quiet and useful: updated docs, recent groups, docs the user controls, and personal context.
 
-The briefing voice is expressive, while every control around it remains unmistakably native iOS. System components, semantic colors, Dynamic Type, and familiar sheet and list behavior keep the interface calm and trustworthy; privacy is communicated through visible provenance and deliberate boundaries rather than decorative security theater.
+The character is closer to Cash App than an enterprise AI dashboard: oversized rounded type, confident color, simple icon language, and blunt verbs. System components, semantic colors, Dynamic Type, and familiar sheets and lists keep the confidence usable and trustworthy.
 
 The authenticated shell evolves `YS-SHELL-2026-08-18`: profile at top left opens Your context, the centered space switcher remains anchored, add sits at top right, and a More–agent command–chat tray remains at the bottom. Settings is nested inside Your context. The switcher expands downward from the header rather than rising from the bottom.
 
 **Key Characteristics:**
 
-- Restrained, adaptive Convos neutrals with Lava reserved for unread state and the live voice entry point.
-- One editorial serif briefing voice inside an otherwise system-sans interface.
+- A saturated Convos Lava hero on Home with black type and a black primary action.
+- Oversized rounded system typography for the product promise; sans typography everywhere.
 - Circular identity, native capsules, and one softly rounded attention surface.
 - System glass only on persistent shell controls; native sheets and lists everywhere else.
-- Private-by-default content with explicit, user-initiated sharing from a conversation composer.
+- Private-by-default content with explicit sharing and a branded invitation carried by every group doc.
 
 ## Colors
 
@@ -156,30 +156,30 @@ The palette is an adaptive black-to-white neutral system whose meaning survives 
 
 **The Inverted Attention Rule.** Give the briefing at most one solid inverted attention surface at a time so its rarity continues to mean “start here.”
 
-**The Signal and Voice Rule.** Lava is limited to compact unread signals and the waveform well inside the agent command bar; green remains a compact confirmation signal. Neither becomes decorative surface paint.
+**The Launch Lava Rule.** Lava may fill exactly one dominant launch surface on Home and compact active controls elsewhere. Do not repeat large Lava cards lower in the hierarchy. Green remains a compact confirmation signal.
 
 ## Typography
 
-**Display Font:** SwiftUI system serif design with Dynamic Type
+**Display Font:** SwiftUI rounded system design with Dynamic Type
 **Body Font:** SF system sans with Dynamic Type
 
-**Character:** The system serif makes the live briefing feel considered and personal. SF system sans carries every title, row, label, control, sheet, and supporting sentence so the product stays familiar and legible.
+**Character:** Rounded black display type makes the product promise friendly, iconic, and unmistakably consumer. SF system sans carries rows, controls, sheets, provenance, and supporting copy.
 
 ### Hierarchy
 
-- **Briefing** (bold, `largeTitle`, tracked `-0.6pt`): The launch sentence only; it expands vertically without a line limit.
+- **Product Promise** (black, rounded, `largeTitle` or larger, tracked `-0.8pt`): “Add `@doc` to any group in your life.” It expands vertically without a line limit.
 - **Section Title** (bold, `title2`): Major briefing groups such as recent updates, people, and footprint.
 - **Headline** (system headline, usually semibold): Attention labels, row leads, privacy promises, and accessible actions.
 - **Body** (system body): Message previews, provenance, descriptions, controls, and explanatory copy.
 - **Supporting Label** (system subheadline or caption): Conversation destinations, relative time, counts, and compact identity labels.
 
-**The One Serif Sentence Rule.** Reserve the system serif for the main briefing sentence; controls, rows, widgets, and sheet content remain SF system sans.
+**The One Giant Promise Rule.** Home gets one giant rounded sentence. Controls, rows, widgets, and sheets remain SF system sans and do not compete with it.
 
 ## Layout
 
 The shell is based on `YS-SHELL-2026-08-18`. Its top safe-area bar places circular profile identity, a flexible centered switcher, and a circular add control on one line. Settings lives inside Your context so the home chrome stays focused. The main briefing scrolls independently beneath it, and a fixed More–agent command–chat tray occupies the bottom safe area when reading size permits. The flexible command bar names its purpose in text instead of relying on an isolated waveform symbol.
 
-The home scroll view owns the visible viewport. Temporary chrome such as the anchored convo switcher is an overlay on that viewport and must never wrap, expand, or replace the scroll container's layout bounds. Its reading order is narrative → documents and artifacts updated across Convos → a mixed list of seven recent Convos and agent updates → ownership-aware Agents → All my things → optional supporting widgets. The narrative is the launch hero; the conversation index remains one gesture away in the header rather than taking over Home.
+The home scroll view owns the visible viewport. Temporary chrome such as the anchored convo switcher is an overlay on that viewport and must never wrap, expand, or replace the scroll container's layout bounds. Its reading order is `@doc` promise → docs updated → a mixed list of seven recent groups and `@doc` updates → Your `@docs` → All my things → optional supporting widgets. The conversation index remains one gesture away in the header rather than taking over Home.
 
 Content follows the existing `DesignConstants.Spacing` four-point rhythm. The main column uses a `24pt` horizontal inset, `32pt` top inset, `40pt` section rhythm, and `64pt` bottom breathing room, with a maximum readable width of `720pt`. Full-width empty-state and accessibility actions stop at `520pt`.
 
@@ -212,16 +212,16 @@ Identity is circular: profile and conversation avatars, people, unread dots, and
 - **Settings:** A gear inside Your context opens the existing app settings surface without adding another Home control.
 - **Add:** A circular interactive-glass control exposing exactly start and QR-join actions.
 - **More:** A circular interactive-glass `Menu` whose native popup opens Bring your own agent, Connections, Upload files, Files, Add a widget, and Connected convos directly—without an intermediate tools sheet.
-- **Voice:** A centered `56pt` Lava circle with a waveform symbol; it opens on-device recording and transcription into the private briefing assistant.
+- **`@doc` command:** A centered flexible command bar with a Lava doc identity and “Make, edit, or find anything.” It opens voice or text input without exposing the selected engine.
 - **Chat:** A trailing `44pt` interactive-glass circle with a filled message symbol; it opens the private text input surface.
 
-### Briefing Voice
+### Product Promise
 
-The large system-serif sentence is the signature component. It describes what needs attention, or explicitly says nothing does, and follows with a system-body source summary so every claim remains attributable to connected convos.
+The saturated Home card is the signature component. It says “Add `@doc` to any group in your life,” explains that it makes and maintains docs, sheets, and calendars, and ends in one full-width black **Add `@doc`** action. Dynamic catch-up copy may appear beneath the action, but it never replaces or weakens the promise.
 
-### Recent Convos and Agents
+### Recent Groups and `@doc`
 
-Up to seven real recency-sorted entries combine group conversations with agent updates. Rows stay flat on the canvas, use circular identity inside `72pt`-minimum targets, one-line previews, native dividers, explicit unread language, and a small Lava signal. Group rows push directly into the full-height Group surface; agent rows open the corresponding private agent lane. A single See all action exposes the longer list.
+Up to seven real recency-sorted entries combine group conversations with `@doc` updates. Rows stay flat on the canvas, use circular identity inside `72pt`-minimum targets, one-line previews, native dividers, explicit unread language, and a small Lava signal. Group rows push directly into the full-height Group surface; `@doc` rows open its group workspace. A single See all action exposes the longer list.
 
 ### Convo Surface Switcher
 
@@ -229,15 +229,15 @@ Every Convo is one full-screen shell with a compact **Group / Agent / Context** 
 
 ### Updated Things
 
-Directly below the narrative, Home shows up to three recently updated documents, links, files, or notes with real previews or clear document identity, source-Convo provenance, relative time, Open Convo, and Share anywhere. Tapping the content opens a preview with the same two exits. This is the core loop: see what changed, inspect the useful thing, then return to its source or hand it to any installed app.
+Directly below the launch card, Home shows up to three recently updated documents, sheets, links, files, or notes with real previews or clear identity, source-group provenance, relative time, Open group, and Share. Tapping the content opens a preview whose first element is a compact Lava **Made by Convos** invitation. Every external share includes the phone number +1 309-555-5555 exactly once. This is the core loop: the group gets a useful thing, shares it anywhere, and the document teaches the next person to text `@doc` directly or add it to another group.
 
 ### All My Things
 
 Home carries one generous **All my things** summary card with profile identity, counts for photos, links, files, and connections, a useful-details count, and a View all affordance. It never opens directly into edit mode. Its pushed destination begins with the personal card, followed by search, the category grid, compact Useful details filters, recent assets, and See all context. A distinct Edit toolbar action opens the contact-card editor, including bounded remembered fields and neutral recent-context suggestions. Every item preserves source-convo and sender provenance when available; private local items are labeled as such. Its final iMessage, WhatsApp, and Telegram actions route to agent setup rather than claiming external history is already mirrored.
 
-Agents appears before All my things as one access-aware roster, clearly divided into **Agents you own** and **Agents you can use**. Convos agents owned by the user, human-owned agents shared through a Place, and connected external agents use the same identity pattern. Every agent detail begins with **Use anywhere**: honest phone/email availability, copy actions, iMessage/WhatsApp/Telegram instructions, and a Listen/Talk/Pause control. It then shows app-level Connections and every group where the agent is available. Opening a group reveals permissions scoped to exactly that agent and that group, including both participation mode and connection grants. These controls never live in generic group settings.
+Your `@docs` appears before All my things as one access-aware roster, clearly divided into **Docs you control** and **Docs shared with you**. Every doc detail begins with **Add `@doc` anywhere**: the published number, copy actions, iMessage/WhatsApp/Telegram instructions, and a Listen/Talk/Pause control. It then shows Connections and every group where that doc is available. Opening a group reveals permissions scoped to exactly that doc and group. Connected providers appear only under **Advanced engines**.
 
-Bring personal agents to Convos is a permanent raised-neutral section immediately after Me. Its boundary copy states that the lane belongs only to the user, is not connected to a group, and cannot be messaged by group members. The same connection flow is reachable from More. Codex uses Mac pairing and a revocable capability token; Town uses its MCP connection; Tasklet appears directly below Town and combines the one-use MCP return bridge with a Tasklet webhook automation. Grok Bot appears directly below Tasklet and uses one outbound-only computer session: its waiting state exposes a clearly labeled Copy pairing token action with password-level handling guidance, its native multi-select list turns each enabled machine agent into a separately named `Grok Bot · Name` harness, and Check for new Grokbots lets the user add more later. Sensitive connection fields stay in Keychain. The persistent command bar names the active harness and offers a native switcher. Added provider identities persist independently of credentials; a disconnected row routes into provider-specific reconnect. Agent results render returned web links as explicit actions; the whole result or an individual link may be saved privately and staged for sharing. Talk to always starts with and defaults to the single group-local Convos agent—the verified live lane when available, or its orange fallback while syncing—then lists external agents the user has added, every enabled Grok Bot harness, and Ghost. Claude Code, Hermes, and OpenClaw remain previews; Connect MCP is Coming soon.
+Advanced engines are deliberately buried behind `@doc` management. Connecting Codex, Town, Tasklet, Grok Bot, or another provider may change capability, but never changes the visible `@doc` identity or the group's mental model. Sensitive connection fields stay in Keychain; disconnected engines route into provider-specific reconnect.
 
 ### Social Agent Identity
 

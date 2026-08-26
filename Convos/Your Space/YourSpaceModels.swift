@@ -609,12 +609,12 @@ enum YourSpaceBriefingBuilder {
 
     private static func headline(sourceCount: Int, attentionUpdates: [YourSpaceUpdate]) -> String {
         guard sourceCount > 0 else {
-            return "Your private space is ready. Add a convo or connect an agent, and it will start keeping up with you."
+            return "Your private space is ready. Add @doc to a group and it will start keeping up with what matters."
         }
 
         guard let first = attentionUpdates.first else {
-            let noun = sourceCount == 1 ? "convo" : "convos"
-            return "You’re caught up. Your agents are quietly keeping up with \(sourceCount) \(noun)."
+            let noun = sourceCount == 1 ? "group" : "groups"
+            return "You’re caught up. @doc is quietly keeping up with \(sourceCount) \(noun)."
         }
 
         if attentionUpdates.count == 1 {

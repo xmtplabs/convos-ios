@@ -8,17 +8,19 @@ ios
 
 ## Users
 
-People who participate in several private Convos and want to understand what changed, who needs attention, and what matters without opening every conversation one by one.
+People who want one useful, living document for every group in their life without asking the group to learn a new tool.
 
 ## Product Purpose
 
-Convos is an everyday private messenger for the surveillance age. This prototype makes the app's default destination a private personal space that connects context across a person's conversations, surfaces meaningful updates, and helps them decide where to act next.
+Convos lets anyone add `@doc` to a group and give that group a living workspace. People keep talking normally; `@doc` listens with permission, turns the conversation into useful docs, sheets, and calendar coordination, and keeps those things current.
 
-Success means opening Convos immediately answers “what is new and what deserves my attention?” while keeping every underlying conversation easy to reach.
+Success means a new user understands the product in ten seconds: **Add `@doc` to any group in your life.** The intelligence and model infrastructure remain underneath that promise.
 
 ## Positioning
 
-The home screen is not a replacement inbox. It is a private, continuously growing layer of personal context assembled from the user's Convos, with three bounded recent-conversation shortcuts so ordinary messaging never becomes harder. It can help the user remember people, notice changes across groups, and selectively bring personal context back into a specific conversation without making that context public by default.
+The home screen is the control room for the user's group docs, not an AI dashboard. It leads with the `@doc` promise, immediately shows docs that changed, then a bounded mixed list of recent groups and `@doc` activity. The complete conversation index and the user's private context remain one gesture away.
+
+The growth loop begins in the output. Every shared group doc carries a compact **Made by Convos** header and this invitation: “You can text `@doc` directly at +1 309-555-5555 to add anything or ask anything about this doc. You can also add me to your group chat to remember, share, research, or add anything to this group.” The document is useful without installing Convos; the invitation lets the rest of the group make it multiplayer from the chat they already use.
 
 ## Operating Context
 
@@ -27,26 +29,26 @@ The home screen is not a replacement inbox. It is a private, continuously growin
 - A top-right add control starts a new conversation or joins one by scanning a QR code.
 - The profile image at top left opens **Your context**, the private library spanning the user's loaded Convos plus anything deliberately shared in from another app. App settings is available from the gear inside that profile section, not from Home.
 - A native overflow menu exposes connections, private file upload, stored files, home customization, and the conversations contributing to the private space.
-- The bottom dock keeps a visible personal-agent command bar as the primary action, with More on the left and chat on the right. When an external harness is connected in the prototype, the bar names it and exposes a native harness switcher.
+- The bottom dock is always `@doc`: a visible make/edit/find command bar with More on the left and chat on the right. Connected models are advanced engines behind `@doc`, never the primary product identity.
 - Contacts are selected in the invite flow for a conversation rather than occupying a permanent bottom-level destination.
-- Home leads with one private serif narrative explaining what changed and where to start. Directly below it, **Docs updated across your Convos** exposes useful documents, links, files, and notes with source provenance, an immediate Open Convo action, and native Share anywhere. Next is one bounded, recency-sorted list mixing Convos and agent updates; Home shows seven and keeps the complete conversation index in the header switcher. Ownership-aware **Agents** and **All my things** follow. Opening a Convo pushes directly into Group inside a full-screen conversation shell. A compact **Group / Agent / Context** control beneath the group identity switches between the normal group chat, the user's private agent lane, and the group's Space without a half-sheet or persistent bottom navigation. Back remains top left and returns directly to the prior Convos list; Group retains group settings and Invite in the top chrome, while Agent keeps the private lane focused. Only Group and Agent render their own active composer at the bottom.
+- Home begins with one saturated, high-confidence promise: **Add `@doc` to any group in your life.** Its primary action opens a destination picker for an existing Convo, a new group, iMessage, WhatsApp, or Telegram. Directly below, **Docs updated** exposes useful documents, sheets, links, files, and notes with source provenance, an immediate Open group action, and native Share anywhere. Next is one bounded, recency-sorted list mixing seven groups and `@doc` updates. **Your `@docs`** separates docs the user controls from docs shared with them. **All my things** follows. Opening a Convo pushes directly into Group inside the existing full-screen conversation shell.
 - The **All my things** Home card opens a dedicated personal library for the editable contact card, photos, links, files, connections, automatically detected useful message details, and supported assets from loaded convos by type and provenance. Items explicitly shared into Convos from another app join the same searchable private library. Edit is a distinct action on that destination. The card's iMessage, WhatsApp, and Telegram actions lead to choosing an agent that can join another group; they do not imply passive cross-app ingestion.
 - Useful details are not contact-card fields: Your context shows compact Addresses, Phone numbers, Email, and All useful details filter rows, while the All Context sheet renders every indexed fact as a searchable full-width card with its source message, sender, convo, time, source-convo link, sender-message action, and share action.
-- **Agents** is one roster, visibly separated into **Agents you own** and **Agents you can use**, for Convos agents, agents shared through a Place, and external agents the user connected. Every row identifies the human owner or connection relationship, continuous Listen state, speech behavior, context boundary, cost owner, and Places where the agent is available. A group agent is modeled as a personal agent owned by the human who invited it, falling back to the Convo creator when inviter provenance is unavailable.
-- An agent profile is the single control center for that agent across the app. **Use anywhere** comes first and shows only real published phone/email contacts, copy actions, instructions for adding the agent to iMessage, WhatsApp, or Telegram, and a Listen/Talk/Pause control. **Connections** are established at app level from the agent profile; each group row then opens permissions scoped to that exact agent and group, including participation mode and which connected services it may use. Generic group settings must not duplicate these controls.
-- An always-present “Bring personal agents to Convos” section and the More menu open the external-agent connection flow. It explicitly states that the agent is private to the user, is not connected to a group, and cannot be messaged by group members. Codex can pair with the user's authenticated Mac app-server through a revocable capability token. Town connects through its MCP server, while Tasklet uses the same one-use MCP return bridge plus a Tasklet webhook automation. Grok Bot connects once to an outbound-only computer relay: while waiting, Convos lets the user copy the private pairing token into that relay, then expands every enabled named agent into its own private harness. Users can return to enable more without replacing their existing Grokbots. Claude Code, Hermes, and OpenClaw remain labeled previews; Connect MCP remains Coming soon. Results and individual returned links can be saved into Your Space and explicitly staged into a chosen convo.
+- **Your `@docs`** is one roster visibly separated into **Docs you control** and **Docs shared with you**. Each verified group agent is presented as the smart doc for that group and belongs to the human who added it. A doc profile is the single control center for where it can listen, speak, use connected services, and participate. These permissions remain scoped to that exact doc and group rather than generic group settings.
+- The first section of every doc profile is **Add `@doc` anywhere**. It shows the published phone number, copy actions, and concrete iMessage, WhatsApp, and Telegram instructions. **Connections** such as Gmail, Google Calendar, Google Docs, and Sheets live on the doc profile, followed by group-specific participation and connection permissions.
+- Advanced engines may be connected from the `@doc` menu, but provider setup is secondary. Codex, Town, Tasklet, Grok Bot, and future providers route requests behind the stable `@doc` identity. Credentials, provider-specific capabilities, prompts, transcripts, and results remain private unless the user deliberately shares an output.
 - Personal-agent identity is social only by explicit opt-in. “Show what agents I use on my profile in Convos” publishes a bounded list of provider identifiers such as Codex, Town, or Grok; it never publishes credentials, prompts, conversations, context, tools, results, or activity. Provider rows on a member profile open the existing Bring personal agents directory at that provider, and the setup CTA opens the complete directory. When synchronized membership proves that a member invited a verified group agent, their profile may say they set up that agent for the convo and offer a direct private-agent start action; the interface must not imply unsupported ownership.
-- The Talk to selector always starts with the single group-local Convos agent and selects it by default: the verified live lane when available, or its orange fallback while that member is syncing. External agents the user has actually added and every enabled named Grok Bot harness follow it, with Ghost last. It never promotes prototype personas such as Shane's Agent or Flight Tracker as if they were real agents. An added external agent is restored across Your Space and every group selector on that device; if its credential disappears, the row remains and opens the provider-specific reconnect flow.
-- Long-pressing a group message offers **Send to agent**. Its dark destination sheet uses that same ordered roster—group-local Convos agent, connected personal agents, then Ghost—and also offers universal links to ChatGPT, Claude, and Gemini. Choosing a Convos agent opens that private DM, selects the agent, and stages only the selected message plus its visible sender label in the composer for editing and confirmation; it never auto-sends. A reaction-sized private agent icon remains under the source message. Tapping it opens a **Sent to Agent** drawer naming the agent and explaining that only the user can see the handoff. External personal-agent results always offer **Share to a convo**; the current Convo is pinned first, and selection stages the result in the chosen group composer for editing before send. These markers and local personal-agent transcripts remain device-private and never become group reactions.
+- The Talk to surface always appears as `@doc`. A provider picker may select an advanced engine behind it, but switching engines must not change the product name, group affordance, or sharing language.
+- Long-pressing a group message offers **Send to `@doc`** and stages only the selected message plus its visible sender label for editing and confirmation; it never auto-sends. Outputs always offer **Share** to a Convo or any installed chat app, and document-like outputs carry the Made by Convos invitation.
 - The group-agent model picker offers ChatGPT, Claude, Grok, Gemini, and DeepSeek as the current prototype catalog.
-- Any context item, artifact, link, file, or agent may be used anywhere. The explicit Share flow puts the native iOS share sheet above the in-app Convos destinations so the real underlying URL or file can go to any installed chat app. Choosing a Convo still stages the item in its composer for review and never auto-sends it.
+- Any doc, sheet, calendar plan, link, file, or saved context item may be used anywhere. The explicit Share flow puts the native iOS share sheet above the in-app Convos destinations so the real underlying URL or file can go to any installed chat app. Choosing a Convo stages the item in its composer for review and never auto-sends it. Document-like shares include the Made by Convos invitation exactly once.
 
 ## Capabilities and Constraints
 
 - Preserve Convos' invitation-only, identity-per-conversation, local-first privacy model.
 - Treat connected-agent provider metadata as absent unless the profile's visibility flag is explicitly true. Turning visibility off removes the provider list while preserving unrelated profile metadata. Device-local consent and the remembered-provider roster are keyed by active inbox, never installation-wide; Delete All clears both plus personal-agent credentials before a new inbox can use the device.
 - Use the existing conversation store and navigation paths; the prototype must not fabricate real messages or imply that private context has been uploaded.
-- Voice transcription and imported files stay on-device. Built-in chat answers remain local and use the currently visible briefing data; when the user selects connected Codex, Town, Tasklet, or a named Grok Bot, the app sends the request and only the explicitly enabled, bounded Your Space snapshot to that connected agent.
+- Voice transcription and imported files stay on-device. Built-in `@doc` answers remain local and use the currently visible briefing data; when the user selects a connected advanced engine, the app sends the request and only the explicitly enabled, bounded Your Space snapshot to it.
 - The home experience needs useful loading, empty, unread, and no-attention states.
 - The conversation switcher must support many conversations, unread state, search, and direct navigation.
 - The context library must support search, type filters, provenance, local notes/photos/voice/files, an editable personal card with bounded custom title-and-info fields, and an explicit add menu for context or connections.
@@ -60,7 +62,7 @@ The home screen is not a replacement inbox. It is a private, continuously growin
 ## Brand Commitments
 
 - Product name: Convos.
-- Voice: direct, human, calm, private, and useful; never surveillance-like or breathlessly “AI.”
+- Voice: direct, human, bold, playful, private, and useful. Say `@doc`, docs, sheets, calendars, groups, and things people can do; bury “agent,” “model,” and “AI” unless the user opens advanced setup.
 - The supplied “Switching Spaces” screenshot is a structural reference for a private landing space and title-bar switcher, not an instruction to copy its visual styling or its “Spaces” terminology.
 
 ## Evidence on Hand
@@ -71,11 +73,11 @@ The home screen is not a replacement inbox. It is a private, continuously growin
 
 ## Product Principles
 
-1. Private by default: Your Space belongs to one person, and sharing out is deliberate.
-2. Orient before opening: the first screen explains what changed and where attention is valuable.
-3. Conversations stay one gesture away: replacing the inbox must not make navigation slower.
-4. Context compounds: the surface should become more useful as relationships and conversations grow.
-5. Show provenance: every update names its conversation, and names a person only when verified sender metadata is available, so the user can trust and inspect it.
+1. One-line understandable: Add `@doc` to any group in your life.
+2. Useful before signup: a shared doc stands on its own and carries the invitation back to the group.
+3. Intelligence stays underneath: people use docs, sheets, and calendars rather than managing AI infrastructure.
+4. Private by default: listening, connections, permissions, and personal context are explicit and inspectable.
+5. Show provenance: every update names its group and source so the user can trust and inspect it.
 
 ## Accessibility & Inclusion
 

@@ -841,7 +841,7 @@ struct AgentSwitcherSheet: View {
                     Text("Ghost Mode stays separate from the group. You choose exactly which message leaves.")
                 }
             }
-            .navigationTitle("Talk to")
+            .navigationTitle("Choose @doc engine")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -1019,7 +1019,7 @@ struct AgentMessageDestinationSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(.colorBackgroundSurfaceless)
-            .navigationTitle("Send to agent")
+            .navigationTitle("Send to @doc")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1102,7 +1102,7 @@ struct AgentMessageDestinationSheet: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open message in \(lane.name)")
-        .accessibilityHint("Opens an editable draft in this private agent chat")
+        .accessibilityHint("Opens an editable draft in your private @doc chat")
     }
 
     private func externalAppButton(_ destination: ExternalAppDestination) -> some View {
@@ -1193,7 +1193,7 @@ struct AgentReceiptDrawer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-            Text("Sent to Agent")
+            Text("Sent to @doc")
                 .font(.system(.largeTitle))
                 .fontWeight(.bold)
                 .padding(.bottom, DesignConstants.Spacing.step2x)

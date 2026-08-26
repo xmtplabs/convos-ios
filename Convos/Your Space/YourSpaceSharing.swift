@@ -3,6 +3,16 @@ import Foundation
 import UIKit
 import UniformTypeIdentifiers
 
+enum ConvosDocShare {
+    static let phoneNumber: String = "+1 309-555-5555"
+    static let smsURL: URL = URL(string: "sms:+13095555555")!
+    static let invitation: String = "Made by Convos — you can text @doc directly at \(phoneNumber) to add anything or ask anything about this doc. You can also add me to your group chat to remember, share, research, or add anything to this group."
+
+    static func applies(to kind: YourSpaceContextKind) -> Bool {
+        [.file, .note, .link].contains(kind)
+    }
+}
+
 @MainActor
 protocol YourSpaceDraftStaging: AnyObject {
     var messageText: String { get set }
@@ -28,6 +38,11 @@ struct YourSpaceShareStager {
 
     @MainActor
     func stage(_ item: YourSpaceContextItem, in composer: any YourSpaceDraftStaging) async throws {
+        if ConvosDocShare.applies(to: item.kind),
+           !composer.messageText.contains(ConvosDocShare.invitation) {
+            append(ConvosDocShare.invitation, to: composer)
+        }
+
         switch item.source {
         case let .local(file):
             try stageLocal(file, kind: item.kind, in: composer)
@@ -36,6 +51,7 @@ struct YourSpaceShareStager {
         case let .rememberedField(field):
             append(field.shareText, to: composer)
         }
+
     }
 
     @MainActor
