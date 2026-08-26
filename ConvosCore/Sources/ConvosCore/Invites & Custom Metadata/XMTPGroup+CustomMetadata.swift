@@ -116,9 +116,16 @@ extension XMTPiOS.Group {
     /// Read-only. The Assistant Worker validates a choice against that agent's
     /// own catalogue and publishes it; a client writing here would broadcast a
     /// model the agent may refuse.
-    public var agentModels: [String: String] {
+    /// Nil means the appData said nothing about models, which is not the same as
+    /// saying there are none. `currentCustomMetadata` turns an unreadable blob
+    /// into empty metadata rather than throwing, so an empty profile list is
+    /// indistinguishable from a failed read — and the models hang off those
+    /// profiles, so with none present this carries no information either way.
+    /// Callers must preserve what they already hold rather than clear it.
+    public var agentModels: [String: String]? {
         get throws {
             let metadata = try currentCustomMetadata
+            guard !metadata.profiles.isEmpty else { return nil }
             return metadata.profiles.reduce(into: [:]) { models, profile in
                 guard profile.hasModel, !profile.model.isEmpty else { return }
                 models[profile.inboxIdString.lowercased()] = profile.model

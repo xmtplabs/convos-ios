@@ -434,16 +434,22 @@ extension XMTPiOS.DecodedMessage {
         // Only the first differing agent earns a row — a commit that moved two
         // agents at once is not something the transcript can say in one line,
         // and naming one is better than naming neither.
+        //
+        // Walks the union of both sides, not just the new one: switching an
+        // agent back to its own default REMOVES its key, and a new-side-only
+        // scan never visits a removed key, so that change would fall through to
+        // the silent metadata row and leave no trace in the transcript.
         let oldModels = oldCustomValue.map(agentModels) ?? [:]
         let newModels = newCustomValue.map(agentModels) ?? [:]
         if !isCreatorSeedCommit,
-           let changed = newModels
-               .filter({ oldModels[$0.key] != $0.value })
-               .min(by: { $0.key < $1.key }) {
+           let changedKey = Set(oldModels.keys)
+               .union(newModels.keys)
+               .filter({ oldModels[$0] != newModels[$0] })
+               .min() {
             return .init(
                 field: ConversationUpdate.MetadataChange.Field.agentModel.rawValue,
-                oldValue: oldModels[changed.key],
-                newValue: changed.value
+                oldValue: oldModels[changedKey],
+                newValue: newModels[changedKey]
             )
         }
 

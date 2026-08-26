@@ -168,6 +168,33 @@ struct AgentModelSyncTests {
         #expect(change.field != ConversationUpdate.MetadataChange.Field.agentModel.rawValue)
     }
 
+    /// Switching an agent back to its own default removes the key rather than
+    /// setting it to something, and a scan of only the new side never visits a
+    /// removed key — so this change used to leave no transcript row at all.
+    @Test("clearing a model still produces an agent-model row")
+    func clearingModelProducesAgentModelChange() throws {
+        var profile = ConversationProfile()
+        profile.inboxID = Data(repeating: 0xAA, count: 32)
+        profile.model = "anthropic/claude-sonnet-5"
+        var before = ConversationCustomMetadata()
+        before.tag = "tag"
+        before.profiles = [profile]
+
+        var cleared = profile
+        cleared.clearModel()
+        var after = before
+        after.profiles = [cleared]
+
+        let change = XMTPiOS.DecodedMessage.appDataMetadataChange(
+            oldValue: try before.toCompactString(),
+            newValue: try after.toCompactString()
+        )
+
+        #expect(change.field == ConversationUpdate.MetadataChange.Field.agentModel.rawValue)
+        #expect(change.oldValue == "anthropic/claude-sonnet-5")
+        #expect(change.newValue == nil)
+    }
+
     /// A commit that changed something else entirely must not be read as a
     /// model change just because the profiles are present in both blobs.
     @Test("an unrelated change leaves no agent-model row")

@@ -365,7 +365,8 @@ struct MemberDepartureTests {
                     invitedByInboxId: nil
                 )
             },
-            memberProfiles: []
+            memberProfiles: [],
+            agentModelsAreAuthoritative: false
         )
         try dbManager.dbWriter.write { db in
             _ = try writer.persist(prepared, in: db)

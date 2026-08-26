@@ -137,6 +137,13 @@ public final class AgentModelStore {
     /// the order the member tapped in is the order the server sees.
     private var writeChain: Task<Void, Never>?
 
+    /// The newest synced value that arrived while a write was outstanding, held
+    /// so a failed write can roll back to it instead of to the older value the
+    /// server acknowledged before the sync. Double-optional on purpose: the
+    /// outer nil means "nothing arrived", the inner nil means "the room says no
+    /// model", and those are different answers.
+    private var deferredSyncedModel: String??
+
     public init(
         instanceId: String,
         variantId: String? = nil,
@@ -169,7 +176,15 @@ public final class AgentModelStore {
     /// lives in its container; only the choice travels in group state.
     public func apply(syncedModel: String?) {
         hasLoaded = true
-        guard writesInFlight == 0 else { return }
+        guard writesInFlight == 0 else {
+            // Held, not discarded. If the write now in flight fails it rolls
+            // back to what the server last acknowledged — and without this the
+            // rollback would restore a model the room has since moved off,
+            // leaving the picker on a value nothing will correct.
+            deferredSyncedModel = .some(syncedModel)
+            return
+        }
+        deferredSyncedModel = nil
         confirmedId = syncedModel
         selectedId = syncedModel
     }
@@ -232,15 +247,23 @@ public final class AgentModelStore {
             )
             if !snapshot.available.isEmpty { options = snapshot.available }
             confirmedId = option.id
+            // This tap is what the server holds now, so anything that synced
+            // while it was in flight is older than it and must not survive to
+            // be restored by a later rollback.
+            deferredSyncedModel = nil
             Log.info("agent model set to \(option.id)")
         } catch {
             Log.error("agent model update failed: \(error)")
             // Roll back only while this is still the newest tap — a newer one
             // already owns what the picker shows.
             guard writeGeneration == generation else { return }
-            selectedId = previous
-            confirmedId = previous
-            let previousName = previous.map { id in
+            // A synced value that landed while this write was out is newer than
+            // what the server acknowledged before it, so it wins the rollback.
+            let target = deferredSyncedModel ?? previous
+            deferredSyncedModel = nil
+            selectedId = target
+            confirmedId = target
+            let previousName = target.map { id in
                 options.first { $0.id == id }?.name ?? id
             }
             errorMessage = previousName.map {
