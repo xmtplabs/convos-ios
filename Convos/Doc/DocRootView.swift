@@ -11,6 +11,7 @@ struct DocRootView: View {
     private let profileSettingsViewModel: ProfileSettingsViewModel
     private let coreActions: any CoreActions
     @State private var viewModel: DocExperienceViewModel
+    @State private var navigationPath: [DocStatus]
     @State private var isPresentingSettings: Bool = false
     @State private var isPresentingConnectPreview: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion: Bool
@@ -28,6 +29,7 @@ struct DocRootView: View {
             coreActions: coreActions
         )
         _viewModel = State(initialValue: model)
+        _navigationPath = State(initialValue: model.previewInitialDoc.map { [$0] } ?? [])
         _isPresentingConnectPreview = State(initialValue: model.previewStage == .connect)
     }
 
@@ -45,7 +47,7 @@ struct DocRootView: View {
                     }
                 }
             } else {
-                NavigationStack {
+                NavigationStack(path: $navigationPath) {
                     DocHomeView(
                         viewModel: viewModel,
                         onSettings: { isPresentingSettings = true },
@@ -58,7 +60,7 @@ struct DocRootView: View {
                         }
                     )
                     .navigationDestination(for: DocStatus.self) { doc in
-                        DocRoomPlaceholderView(doc: doc)
+                        DocRoomView(viewModel: viewModel, initialDoc: doc)
                     }
                 }
             }
@@ -641,28 +643,5 @@ private struct DocAttachmentThumbnail: View {
             }
             .accessibilityLabel("Remove attachment")
         }
-    }
-}
-
-private struct DocRoomPlaceholderView: View {
-    let doc: DocStatus
-
-    var body: some View {
-        List {
-            Section {
-                if let url = doc.googleURL {
-                    Link(destination: url) {
-                        Label("Open in Google Docs", systemImage: "arrow.up.right.square")
-                            .frame(minHeight: 44.0)
-                    }
-                }
-            }
-            Section("Latest change") {
-                Text("\(doc.lastChange.who) \(doc.lastChange.what)")
-            }
-        }
-        .navigationTitle(doc.name)
-        .navigationBarTitleDisplayMode(.large)
-        .accessibilityIdentifier("doc-room-placeholder")
     }
 }

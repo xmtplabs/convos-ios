@@ -3667,9 +3667,9 @@ extension ConversationViewModel {
         }
     }
 
-    /// Sends a Doc control-plane answer with a caller-owned id so the Doc home
-    /// can observe the local delivery row and restore its waiting item on failure.
-    func sendDocAnswer(_ text: String, clientMessageId: String) async throws {
+    /// Sends Doc protocol text with a caller-owned id so Doc surfaces can
+    /// observe delivery independently of the regular conversation composer.
+    func sendDocProtocolText(_ text: String, clientMessageId: String) async throws {
         try await cachedMessageWriter.send(text: text, clientMessageId: clientMessageId)
     }
 

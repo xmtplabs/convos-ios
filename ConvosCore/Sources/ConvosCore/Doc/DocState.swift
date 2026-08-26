@@ -126,10 +126,32 @@ public struct DocWaitingItem: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+public struct DocContent: Codable, Hashable, Identifiable, Sendable {
+    public let docId: String
+    public let markdown: String
+    public let changes: [DocLastChange]
+    public let updatedAt: Date
+
+    public var id: String { docId }
+
+    public init(
+        docId: String,
+        markdown: String,
+        changes: [DocLastChange],
+        updatedAt: Date
+    ) {
+        self.docId = docId
+        self.markdown = markdown
+        self.changes = changes
+        self.updatedAt = updatedAt
+    }
+}
+
 public enum DocAgentEvent: Hashable, Sendable {
     case state(DocState)
     case item(DocWaitingItem)
     case itemResolved(id: String)
+    case docContent(DocContent)
 }
 
 public enum DocAnswer: Hashable, Sendable {
@@ -139,7 +161,9 @@ public enum DocAnswer: Hashable, Sendable {
 
 public enum DocWireMessage {
     public static func isHiddenText(_ text: String) -> Bool {
-        DocStateMessage.isDataPlaneText(text) || DocAnswerMessage.isDataPlaneText(text)
+        DocStateMessage.isDataPlaneText(text) ||
+            DocAnswerMessage.isDataPlaneText(text) ||
+            DocContentRequestMessage.isDataPlaneText(text)
     }
 }
 
@@ -175,6 +199,25 @@ public enum DocStateMessage {
         case "item-resolved":
             guard let id = envelope.id, !id.isEmpty else { return nil }
             return .itemResolved(id: id)
+        case "doc-content":
+            guard let docId = envelope.docId,
+                  !docId.isEmpty,
+                  let markdown = envelope.markdown,
+                  let updatedAt = envelope.updatedAt,
+                  updatedAt.isFinite else {
+                return nil
+            }
+            let changes = (envelope.changes ?? [])
+                .compactMap(\.value)
+                .sorted { $0.at > $1.at }
+            return .docContent(
+                DocContent(
+                    docId: docId,
+                    markdown: markdown,
+                    changes: changes,
+                    updatedAt: Date(timeIntervalSince1970: updatedAt)
+                )
+            )
         default:
             return nil
         }
@@ -186,6 +229,10 @@ public enum DocStateMessage {
         let docs: [RawDoc]?
         let item: RawItem?
         let id: String?
+        let docId: String?
+        let markdown: String?
+        let changes: [RawLastChange]?
+        let updatedAt: TimeInterval?
 
         private enum CodingKeys: String, CodingKey {
             case version = "v"
@@ -193,6 +240,10 @@ public enum DocStateMessage {
             case docs
             case item
             case id
+            case docId
+            case markdown
+            case changes
+            case updatedAt
         }
     }
 
@@ -292,6 +343,33 @@ public enum DocStateMessage {
                 docId: docId,
                 createdAt: Date(timeIntervalSince1970: createdAt)
             )
+        }
+    }
+}
+
+public enum DocContentRequestMessage {
+    public static let prefix: String = "⟦req⟧"
+
+    public static func isDataPlaneText(_ text: String) -> Bool {
+        text.hasPrefix(prefix)
+    }
+
+    public static func encode(docId: String) -> String? {
+        guard !docId.isEmpty,
+              let data = try? JSONEncoder().encode(RequestEnvelope(type: "doc-content", docId: docId)),
+              let payload = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return "\(prefix)\(payload)"
+    }
+
+    private struct RequestEnvelope: Encodable {
+        let type: String
+        let docId: String
+
+        private enum CodingKeys: String, CodingKey {
+            case type = "t"
+            case docId
         }
     }
 }

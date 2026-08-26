@@ -53,6 +53,41 @@ struct DocStateTests {
         #expect(DocStateMessage.parseEvent(#"⟦doc⟧{"v":1,"t":"item-resolved","id":""}"#) == nil)
     }
 
+    @Test("parses document content with a defensive changes ledger")
+    func parsesDocumentContent() throws {
+        let message = ##"⟦doc⟧{"v":1,"t":"doc-content","docId":"tahoe","markdown":"# Tahoe\nBring boots.","changes":[{"who":"Noah","what":"added the cabin","at":1787590000},{"who":"Sara","what":"added flight times","at":1787600000},{"who":"","what":"broken","at":1}],"updatedAt":1787600100,"future":true}"##
+
+        let event = try #require(DocStateMessage.parseEvent(message))
+        guard case .docContent(let content) = event else {
+            Issue.record("Expected document content")
+            return
+        }
+
+        #expect(content.docId == "tahoe")
+        #expect(content.markdown == "# Tahoe\nBring boots.")
+        #expect(content.changes.count == 2)
+        #expect(content.changes[0].who == "Sara")
+        #expect(content.changes[1].who == "Noah")
+        #expect(content.updatedAt == Date(timeIntervalSince1970: 1_787_600_100))
+    }
+
+    @Test("ignores malformed document content")
+    func ignoresMalformedDocumentContent() {
+        #expect(DocStateMessage.parseEvent(#"⟦doc⟧{"v":1,"t":"doc-content","docId":"","markdown":"Body","updatedAt":1}"#) == nil)
+        #expect(DocStateMessage.parseEvent(#"⟦doc⟧{"v":1,"t":"doc-content","docId":"tahoe","updatedAt":1}"#) == nil)
+    }
+
+    @Test("encodes document content requests")
+    func encodesDocumentContentRequest() throws {
+        let request = try #require(DocContentRequestMessage.encode(docId: "tahoe"))
+        let payload = String(request.dropFirst(DocContentRequestMessage.prefix.count))
+        let data = try #require(payload.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+
+        #expect(json == ["t": "doc-content", "docId": "tahoe"])
+        #expect(DocContentRequestMessage.encode(docId: "") == nil)
+    }
+
     @Test("encodes compact choice and text answers")
     func encodesAnswers() throws {
         let choice = try #require(DocAnswerMessage.encode(itemId: "ask-1", answer: .choice("Dec 14")))
@@ -72,6 +107,7 @@ struct DocStateTests {
     func hidesDataPlaneMessages() {
         #expect(!MessageContent.text("⟦doc⟧not-json").showsInMessagesList)
         #expect(!MessageContent.text("⟦ans⟧not-json").showsInMessagesList)
+        #expect(!MessageContent.text("⟦req⟧not-json").showsInMessagesList)
         #expect(MessageContent.text("A normal message").showsInMessagesList)
     }
 
@@ -128,6 +164,31 @@ struct DocStateTests {
             members: []
         )
         #expect(answerPreview.text.isEmpty)
+
+        let requestRow = DBLastMessageWithSource(
+            id: "doc-request",
+            clientMessageId: "doc-request",
+            conversationId: "agent-dm",
+            senderId: "user",
+            dateNs: 3,
+            date: Date(timeIntervalSince1970: 3),
+            status: .published,
+            messageType: .original,
+            contentType: .text,
+            text: "⟦req⟧not-json",
+            emoji: nil,
+            invite: nil,
+            linkPreview: nil,
+            sourceMessageId: nil,
+            attachmentUrls: [],
+            sourceMessageText: nil
+        )
+        let requestPreview = requestRow.hydrateMessagePreview(
+            conversationKind: .dm,
+            currentInboxId: "user",
+            members: []
+        )
+        #expect(requestPreview.text.isEmpty)
     }
 
     private func decodedAnswer(_ message: String) throws -> [String: Any] {

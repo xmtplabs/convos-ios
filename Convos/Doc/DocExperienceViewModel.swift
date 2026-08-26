@@ -13,6 +13,9 @@ enum DocPreviewStage: String {
     case forYou
     case share
     case disconnected
+    case roomUnbound
+    case roomBound
+    case docSheet
 
     static var current: DocPreviewStage? {
         let arguments = ProcessInfo.processInfo.arguments
@@ -30,12 +33,20 @@ enum DocItemSendState: Hashable {
     case failed(answer: DocAnswer)
 }
 
+enum DocContentLoadState: Hashable {
+    case idle
+    case loading
+    case failed
+}
+
 @MainActor @Observable
 final class DocExperienceViewModel {
     private(set) var conversationViewModel: NewConversationViewModel?
     private(set) var agentDmSession: AgentDmSession?
     private(set) var state: DocState?
     private(set) var pendingItems: [DocWaitingItem] = []
+    private(set) var docContentsById: [String: DocContent] = [:]
+    private(set) var docContentLoadStates: [String: DocContentLoadState] = [:]
     private(set) var itemSendStates: [String: DocItemSendState] = [:]
     private(set) var pendingScreenshotCount: Int = 0
     private(set) var isGoogleStatusLoaded: Bool = false
@@ -60,6 +71,7 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var processedEventMessageIds: Set<String> = []
     @ObservationIgnored private var resolvedItemIds: Set<String> = []
     @ObservationIgnored private var itemsNeedingHistoryReconciliation: Set<String> = []
+    @ObservationIgnored private var docContentTimeoutTasks: [String: Task<Void, Never>] = [:]
 
     init(
         session: any SessionManagerProtocol,
@@ -73,10 +85,23 @@ final class DocExperienceViewModel {
         self.hasCompletedWelcome = defaults.bool(forKey: Self.key("welcome", session: session))
 
         if let previewStage,
-           [DocPreviewStage.cards, .forYou, .share, .disconnected].contains(previewStage) {
+           [
+               DocPreviewStage.cards,
+               .forYou,
+               .share,
+               .disconnected,
+               .roomUnbound,
+               .roomBound,
+               .docSheet,
+           ].contains(previewStage) {
             state = Self.previewState
-            if previewStage == .forYou {
+            if [.forYou, .roomBound, .docSheet].contains(previewStage) {
                 pendingItems = Self.previewItems
+            }
+            if [.roomBound, .docSheet].contains(previewStage) {
+                docContentsById = Dictionary(
+                    uniqueKeysWithValues: Self.previewContents.map { ($0.docId, $0) }
+                )
             }
             if previewStage == .share {
                 sharedDocNumber = Self.previewNumber
@@ -87,6 +112,9 @@ final class DocExperienceViewModel {
                   let snapshot = try? JSONDecoder().decode(PersistedSnapshot.self, from: data) {
             state = snapshot.state
             pendingItems = snapshot.pendingItems
+            docContentsById = Dictionary(
+                uniqueKeysWithValues: (snapshot.docContents ?? []).map { ($0.docId, $0) }
+            )
             resolvedItemIds = Set(snapshot.resolvedItemIds)
             itemsNeedingHistoryReconciliation = Set(snapshot.pendingItems.map(\.id))
         } else if previewStage == nil,
@@ -108,6 +136,17 @@ final class DocExperienceViewModel {
                 return false
             }
             .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    var previewInitialDoc: DocStatus? {
+        switch previewStage {
+        case .roomUnbound:
+            return docs.first { $0.binding.state == .none }
+        case .roomBound, .docSheet:
+            return docs.first { $0.binding.state == .live }
+        default:
+            return nil
+        }
     }
 
     var shouldShowGoogleConnectCard: Bool {
@@ -243,7 +282,7 @@ final class DocExperienceViewModel {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await dmViewModel.sendDocAnswer(text, clientMessageId: clientMessageId)
+                try await dmViewModel.sendDocProtocolText(text, clientMessageId: clientMessageId)
                 try? await Task.sleep(for: .milliseconds(650))
                 guard itemSendStates[item.id] == .resolving(
                     answer: answer,
@@ -268,6 +307,100 @@ final class DocExperienceViewModel {
 
     func sendState(for item: DocWaitingItem) -> DocItemSendState? {
         itemSendStates[item.id]
+    }
+
+    func pendingItems(for docId: String) -> [DocWaitingItem] {
+        visiblePendingItems.filter { $0.docId == docId }
+    }
+
+    func currentDoc(for id: String, fallback: DocStatus) -> DocStatus {
+        docs.first(where: { $0.id == id }) ?? fallback
+    }
+
+    func content(for docId: String) -> DocContent? {
+        docContentsById[docId]
+    }
+
+    func contentLoadState(for docId: String) -> DocContentLoadState {
+        docContentLoadStates[docId] ?? .idle
+    }
+
+    func openRoom(for doc: DocStatus) {
+        guard previewStage == nil else { return }
+        if let cachedDate = docContentsById[doc.id]?.updatedAt,
+           doc.updatedAt <= cachedDate {
+            return
+        }
+        requestDocContent(for: doc.id)
+    }
+
+    func retryDocContent(for docId: String) {
+        requestDocContent(for: docId)
+    }
+
+    func sendScopedInstruction(_ instruction: String, for doc: DocStatus) async -> Bool {
+        let cleanInstruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanInstruction.isEmpty else { return false }
+        return await sendProtocolText("\(doc.name): \(cleanInstruction)")
+    }
+
+    func sendQuestion(_ question: String, excerpt: String, for doc: DocStatus) async -> Bool {
+        let cleanQuestion = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanExcerpt = excerpt
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        guard !cleanQuestion.isEmpty, !cleanExcerpt.isEmpty else { return false }
+        return await sendProtocolText("Re \"\(cleanExcerpt)\" in \(doc.name): \(cleanQuestion)")
+    }
+
+    private func requestDocContent(for docId: String) {
+        guard docContentLoadStates[docId] != .loading else { return }
+        guard let dmViewModel else {
+            docContentLoadStates[docId] = .idle
+            return
+        }
+        guard let request = DocContentRequestMessage.encode(docId: docId) else {
+            docContentLoadStates[docId] = .failed
+            return
+        }
+
+        docContentLoadStates[docId] = .loading
+        docContentTimeoutTasks[docId]?.cancel()
+        docContentTimeoutTasks[docId] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled,
+                  self?.docContentLoadStates[docId] == .loading else {
+                return
+            }
+            self?.docContentLoadStates[docId] = .failed
+        }
+
+        Task { @MainActor [weak self] in
+            do {
+                try await dmViewModel.sendDocProtocolText(
+                    request,
+                    clientMessageId: UUID().uuidString
+                )
+            } catch {
+                self?.docContentTimeoutTasks[docId]?.cancel()
+                self?.docContentTimeoutTasks[docId] = nil
+                self?.docContentLoadStates[docId] = .failed
+            }
+        }
+    }
+
+    private func sendProtocolText(_ text: String) async -> Bool {
+        if previewStage != nil { return true }
+        guard let dmViewModel else { return false }
+        do {
+            try await dmViewModel.sendDocProtocolText(
+                text,
+                clientMessageId: UUID().uuidString
+            )
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func observeDmIfReady() {
@@ -323,6 +456,20 @@ final class DocExperienceViewModel {
             case .itemResolved(let id):
                 resolveItem(id: id)
                 changedSnapshot = true
+            case .docContent(let content):
+                let cached = docContentsById[content.docId]
+                let accepted = cached.map { content.updatedAt >= $0.updatedAt } ?? true
+                if accepted {
+                    docContentsById[content.docId] = content
+                    changedSnapshot = true
+                }
+                let requiredDate = state?.docs.first { $0.id == content.docId }?.updatedAt
+                let satisfiesCurrentState = requiredDate.map { content.updatedAt >= $0 } ?? true
+                if accepted, satisfiesCurrentState {
+                    docContentLoadStates[content.docId] = .idle
+                    docContentTimeoutTasks[content.docId]?.cancel()
+                    docContentTimeoutTasks[content.docId] = nil
+                }
             }
         }
         if changedSnapshot { persistSnapshot() }
@@ -404,7 +551,8 @@ final class DocExperienceViewModel {
         let snapshot = PersistedSnapshot(
             state: state,
             pendingItems: pendingItems,
-            resolvedItemIds: Array(resolvedItemIds)
+            resolvedItemIds: Array(resolvedItemIds),
+            docContents: Array(docContentsById.values)
         )
         if let data = try? JSONEncoder().encode(snapshot) {
             defaults.set(data, forKey: Self.key("snapshot", session: session))
@@ -431,6 +579,7 @@ final class DocExperienceViewModel {
         let state: DocState?
         let pendingItems: [DocWaitingItem]
         let resolvedItemIds: [String]
+        let docContents: [DocContent]?
     }
 
     private static let previewNumber: String = "+16285550123"
@@ -496,5 +645,49 @@ final class DocExperienceViewModel {
                 people: 4
             ),
         ])
+    }
+
+    private static var previewContents: [DocContent] {
+        let now = Date()
+        return [
+            DocContent(
+                docId: "tahoe-trip",
+                markdown: """
+                # Tahoe Trip
+
+                ## Plan
+
+                Sara lands Friday at 4:30 PM. Meet at the cabin before dinner.
+
+                ## Bring
+
+                - Snow boots
+                - Warm layers
+                - Board games
+
+                ## Open questions
+
+                Confirm whether everyone prefers December 14 or December 21.
+                """,
+                changes: [
+                    DocLastChange(
+                        who: "Sara",
+                        what: "added flight times",
+                        at: now.addingTimeInterval(-12 * 60)
+                    ),
+                    DocLastChange(
+                        who: "Noah",
+                        what: "added the cabin address",
+                        at: now.addingTimeInterval(-48 * 60)
+                    ),
+                    DocLastChange(
+                        who: "Mina",
+                        what: "started a packing list",
+                        at: now.addingTimeInterval(-3 * 60 * 60)
+                    ),
+                ],
+                updatedAt: now.addingTimeInterval(-12 * 60)
+            ),
+        ]
     }
 }
