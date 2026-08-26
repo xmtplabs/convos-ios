@@ -469,7 +469,11 @@ struct AppSettingsView: View {
         // gesture only matters in production where the curated menu is opt-in.
         // Read the persisted flag directly (not a cached copy) so a menu that
         // was disabled elsewhere can be re-enabled without relaunching.
-        guard environment.isProduction, !DebugMenuFlagStore.isEnabled() else { return }
+        guard environment.isProduction else { return }
+        if DebugMenuFlagStore.isEnabled() {
+            Log.info("Version tap ignored: debug menu flag already enabled")
+            return
+        }
         let now = Date()
         if let lastTap = lastVersionTapAt, now.timeIntervalSince(lastTap) > Constant.versionTapWindow {
             versionTapCount = 0
@@ -478,6 +482,7 @@ struct AppSettingsView: View {
         versionTapCount += 1
         if versionTapCount >= Constant.versionTapThreshold {
             versionTapCount = 0
+            Log.info("Version-tap threshold reached; presenting enable-debug-menu prompt")
             showingEnableDebugConfirmation = true
         }
     }

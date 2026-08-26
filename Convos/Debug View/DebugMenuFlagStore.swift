@@ -27,6 +27,7 @@ enum DebugMenuFlagStore {
 
     static func setEnabled(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Constant.enabledKey)
+        Log.info("DebugMenuFlagStore: setEnabled(\(enabled)), readback=\(isEnabled())")
     }
 
     private enum Constant {
