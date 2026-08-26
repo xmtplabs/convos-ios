@@ -19,6 +19,8 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
 
     // Callbacks
     var onSelectConversation: ((Conversation) -> Void)?
+    var onOpenAgentDm: ((Conversation) -> Void)?
+    var onOpenThings: ((Conversation) -> Void)?
     var onConfirmedDeleteConversation: ((Conversation) -> Void)?
     var onExplodeConversation: ((Conversation) -> Void)?
     var onToggleMute: ((Conversation) -> Void)?
@@ -59,6 +61,8 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
 
     private func configureCallbacks(_ viewController: ConversationsViewController) {
         viewController.onSelectConversation = onSelectConversation
+        viewController.onOpenAgentDm = onOpenAgentDm
+        viewController.onOpenThings = onOpenThings
         viewController.onConfirmedDeleteConversation = onConfirmedDeleteConversation
         viewController.onExplodeConversation = onExplodeConversation
         viewController.onToggleMute = onToggleMute

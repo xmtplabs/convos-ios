@@ -11,13 +11,29 @@ func conversationContextMenuContent(
 ) -> some View {
     let isPending = conversation.isPendingInvite
 
+    if !isPending && conversation.hasHadVerifiedAgent {
+        ControlGroup {
+            let openAgentDmAction = { viewModel.selectAgentDm(conversation) }
+            Button(action: openAgentDmAction) {
+                Label("Agent", systemImage: "a.circle")
+            }
+            .accessibilityIdentifier("context-menu-open-agent-dm")
+
+            let openThingsAction = { viewModel.selectThings(conversation) }
+            Button(action: openThingsAction) {
+                Label("Things", systemImage: "square.grid.2x2")
+            }
+            .accessibilityIdentifier("context-menu-open-things")
+        }
+    }
+
     if !isPending {
         ControlGroup {
             let togglePinAction = { viewModel.togglePin(conversation: conversation) }
             Button(action: togglePinAction) {
                 Label(
                     conversation.isPinned ? "Unfav" : "Fav",
-                    systemImage: conversation.isPinned ? "star.slash.fill" : "star.fill"
+                    systemImage: conversation.isPinned ? "star.slash" : "star"
                 )
             }
 
@@ -25,7 +41,7 @@ func conversationContextMenuContent(
             Button(action: toggleReadAction) {
                 Label(
                     conversation.isUnread ? "Read" : "Unread",
-                    systemImage: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill"
+                    systemImage: conversation.isUnread ? "checkmark.message" : "message.badge"
                 )
             }
 
@@ -33,7 +49,7 @@ func conversationContextMenuContent(
             Button(action: toggleMuteAction) {
                 Label(
                     conversation.isMuted ? "Unmute" : "Mute",
-                    systemImage: conversation.isMuted ? "bell.fill" : "bell.slash.fill"
+                    systemImage: conversation.isMuted ? "bell" : "bell.slash"
                 )
             }
         }

@@ -23,6 +23,13 @@ public extension Notification.Name {
     /// selecting the group again is a no-op, so the page can't be seeded the way
     /// a fresh open is.
     static let selectAgentDmPageRequested: Notification.Name = Notification.Name("SelectAgentDmPageRequested")
+    /// Requests that an already-open conversation switch its pager to a specific
+    /// tab. Posted (with `userInfo["conversationId"]` and `userInfo["tab"]` = the
+    /// `ConversationTab` raw value) by the list's "Open Agent DM" / "Open Things"
+    /// context-menu actions, which reselect a conversation that may already be on
+    /// screen in a side-by-side layout - selecting the same id again is a no-op,
+    /// so the page can't be seeded the way a fresh open is.
+    static let selectConversationTabRequested: Notification.Name = Notification.Name("SelectConversationTabRequested")
     /// One conversation arriving on, or leaving, the screen. Posted with
     /// `userInfo["conversationId"]` and `userInfo["isOnScreen"]`, by each lane for
     /// itself: a conversation shows its group and its agent DM together, so both
