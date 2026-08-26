@@ -1584,6 +1584,8 @@ private extension ConversationView {
                 onOpen: { url in
                     pushHomeBrowserPage(for: url)
                 },
+                onInvite: homeBridgeNavigation.showInvitePicker,
+                onAsk: homeBridgeNavigation.showAgentDm,
                 webFallback: AnyView(spaceWebSurface)
             )
         } else {

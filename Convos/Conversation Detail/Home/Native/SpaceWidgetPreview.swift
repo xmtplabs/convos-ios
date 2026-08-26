@@ -4,9 +4,13 @@ import SwiftUI
 /// What a tile draws inside its card.
 ///
 /// A `Widget`'s children are its preview, and the preview's component name is
-/// the tile's type: `NotesPreview` is the notes tile, `EventsPreview` the
-/// calendar. Rendering falls through three tiers, so a Space is never blocked
-/// on this file catching up with it:
+/// the tile's type: `NotesPreview` is the notes tile, `DirectoryPreview` the
+/// members grid. Each one mirrors the component of the same name in the Space
+/// SDK, down to the stylesheet's own metrics, so the tab reads the same as the
+/// page it replaces.
+///
+/// Rendering falls through three tiers, so a Space is never blocked on this
+/// file catching up with it:
 ///
 /// 1. A preview this build knows, drawn as itself.
 /// 2. An unknown preview built from generic primitives — a list, a metric, a
@@ -15,6 +19,7 @@ import SwiftUI
 struct SpaceWidgetPreview: View {
     let widget: SpaceWidget
     let preview: SpaceNode?
+    let onInvite: () -> Void
 
     var body: some View {
         switch preview?.typeName {
@@ -32,82 +37,135 @@ struct SpaceWidgetPreview: View {
 
     // MARK: - Tier 1
 
+    /// Mirrors `NotesPreview`: a red header carrying the count, up to three
+    /// rows, and a hint in whatever room is left over.
     @ViewBuilder
     private var notes: some View {
-        // Titles first, count second: the reader recognises a note by its name,
-        // and the count only says how much more there is.
-        let titles = preview?.nodes("notes").compactMap { $0.string("title") } ?? []
-        TileRows(
-            heading: preview?.int("count").map { "\($0)" },
-            lines: titles,
-            empty: "No notes yet"
-        )
+        let titles = (preview?.nodes("notes") ?? []).compactMap { $0.string("title") }
+        let shown = Array(titles.prefix(Constant.rowLimit))
+        TileColumn {
+            TileHeaderBar(
+                icon: "folder",
+                name: "Notes",
+                count: preview?.int("count").map { "\($0)" },
+                background: SpaceTileStyle.notes
+            )
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, title in
+                TileTextRow(title)
+            }
+            if shown.count < Constant.rowLimit {
+                TileHintRow("Agents draft notes for the group")
+            }
+        }
     }
 
+    /// Mirrors `DirectoryPreview`: a two-by-two grid of 56pt avatars, the last
+    /// cell standing in for a larger group, and adding someone in the room left.
     @ViewBuilder
     private var directory: some View {
         let members = preview?.rows("members") ?? []
-        let names = members.compactMap { $0.string("name") }
-        VStack(spacing: DesignConstants.Spacing.step2x) {
-            HStack(spacing: -Constant.avatarOverlap) {
-                ForEach(Array(names.prefix(Constant.avatarLimit).enumerated()), id: \.offset) { _, name in
-                    InitialAvatar(name: name)
-                }
+        let beyond = members.count > Constant.memberCells
+            ? members.count - (Constant.memberCells - 1)
+            : 0
+        let shown = Array(members.prefix(beyond > 0 ? Constant.memberCells - 1 : Constant.memberCells))
+        let spare = Constant.memberCells - shown.count - (beyond > 0 ? 1 : 0)
+        let columns = [
+            GridItem(.fixed(SpaceTileStyle.avatarSize), spacing: SpaceTileStyle.small),
+            GridItem(.fixed(SpaceTileStyle.avatarSize), spacing: SpaceTileStyle.small)
+        ]
+        LazyVGrid(columns: columns, spacing: SpaceTileStyle.small) {
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, member in
+                MemberAvatar(name: member.string("name"))
             }
-            if members.count > names.prefix(Constant.avatarLimit).count {
-                Text(verbatim: "+\(members.count - Constant.avatarLimit)")
-                    .font(.caption2)
-                    .foregroundStyle(.colorTextSecondary)
+            if beyond > 0 {
+                OverflowAvatar()
+            }
+            if spare > 0 {
+                InviteAvatar(action: onInvite)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(SpaceTileStyle.small)
     }
 
     @ViewBuilder
     private var reminders: some View {
-        let rows = preview?.rows("reminders") ?? []
-        TileChecks(
-            rows: rows.map { ($0.string("label") ?? "", $0.bool("done") ?? false) },
-            empty: "Nothing due"
-        )
+        checkRows(preview?.rows("reminders") ?? [], empty: "Nothing due")
     }
 
     @ViewBuilder
     private var checklist: some View {
-        let rows = preview?.rows("items") ?? []
-        TileChecks(
-            rows: rows.map { ($0.string("label") ?? "", $0.bool("done") ?? false) },
-            empty: "Nothing to do"
-        )
+        checkRows(preview?.rows("items") ?? [], empty: "Nothing to do")
+    }
+
+    @ViewBuilder
+    private func checkRows(_ rows: [[String: SpaceValue]], empty: String) -> some View {
+        let shown = Array(rows.prefix(Constant.rowLimit))
+        TileColumn {
+            if shown.isEmpty {
+                TileHintRow(empty)
+            } else {
+                ForEach(Array(shown.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        Image(systemName: (row.bool("done") ?? false) ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 13))
+                            .foregroundStyle(SpaceTileStyle.textTertiary)
+                        Text(row.string("label") ?? "")
+                            .font(SpaceTileStyle.bodyFont)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(height: SpaceTileStyle.rowHeight)
+                    .padding(.horizontal, SpaceTileStyle.small)
+                }
+            }
+        }
     }
 
     @ViewBuilder
     private var events: some View {
         let items = preview?.nodes("events") ?? []
-        TileRows(
-            heading: preview?.strings("days").first,
-            lines: items.compactMap { $0.string("title") },
-            empty: "Nothing planned"
-        )
+        let shown = Array(items.prefix(Constant.rowLimit))
+        TileColumn {
+            if let day = preview?.strings("days").first {
+                TileHeaderBar(icon: "calendar", name: day, count: nil, background: SpaceTileStyle.fillPrimary)
+            }
+            if shown.isEmpty {
+                TileHintRow("Nothing planned")
+            } else {
+                ForEach(Array(shown.enumerated()), id: \.offset) { _, event in
+                    TileTextRow(event.string("title") ?? "")
+                }
+            }
+        }
     }
 
     // MARK: - Tier 2
 
     @ViewBuilder
     private var list: some View {
-        TileRows(heading: nil, lines: preview?.strings("items") ?? [], empty: "Empty")
+        let items = Array((preview?.strings("items") ?? []).prefix(Constant.rowLimit))
+        TileColumn {
+            if items.isEmpty {
+                TileHintRow("Empty")
+            } else {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    TileTextRow(item)
+                }
+            }
+        }
     }
 
     @ViewBuilder
     private var metric: some View {
-        VStack(spacing: DesignConstants.Spacing.stepHalf) {
+        VStack(spacing: 2.0) {
             Text(preview?.string("value") ?? "—")
-                .font(.title.weight(.semibold))
-                .foregroundStyle(.colorTextPrimary)
+                .font(.system(size: 28, weight: .semibold))
             if let label = preview?.string("label") {
                 Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(.colorTextSecondary)
+                    .font(SpaceTileStyle.hintFont)
+                    .foregroundStyle(SpaceTileStyle.textTertiary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -116,10 +174,9 @@ struct SpaceWidgetPreview: View {
     @ViewBuilder
     private var text: some View {
         Text(preview?.string("text") ?? "")
-            .font(.footnote)
-            .foregroundStyle(.colorTextPrimary)
+            .font(SpaceTileStyle.bodyFont)
             .multilineTextAlignment(.center)
-            .padding(DesignConstants.Spacing.step3x)
+            .padding(SpaceTileStyle.small)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -127,123 +184,167 @@ struct SpaceWidgetPreview: View {
 
     @ViewBuilder
     private var unknown: some View {
-        VStack(spacing: DesignConstants.Spacing.stepHalf) {
+        VStack(spacing: 2.0) {
             if let count = widget.itemCount {
                 Text(verbatim: "\(count)")
-                    .font(.title.weight(.semibold))
-                    .foregroundStyle(.colorTextPrimary)
+                    .font(.system(size: 28, weight: .semibold))
             }
             Text(widget.route)
-                .font(.caption2.monospaced())
-                .foregroundStyle(.colorTextSecondary)
+                .font(SpaceTileStyle.hintFont.monospaced())
+                .foregroundStyle(SpaceTileStyle.textTertiary)
                 .lineLimit(1)
         }
-        .padding(.horizontal, DesignConstants.Spacing.step2x)
+        .padding(.horizontal, SpaceTileStyle.small)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private enum Constant {
-        static let avatarLimit: Int = 3
-        static let avatarOverlap: CGFloat = 8.0
+        /// `.space-tile-rows` draws at most three.
+        static let rowLimit: Int = 3
+        /// `MEMBER_TILE_CELLS`
+        static let memberCells: Int = 4
     }
 }
 
-/// A heading with a few lines under it — the shape most previews reduce to.
-private struct TileRows: View {
-    let heading: String?
-    let lines: [String]
-    let empty: String
+// MARK: - Shared tile pieces
+
+/// The tile's own stack: pieces from the top, whatever is left below.
+private struct TileColumn<Content: View>: View {
+    @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-            if let heading {
-                Text(heading)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.colorTextPrimary)
-            }
-            if lines.isEmpty {
-                Text(empty)
-                    .font(.caption2)
-                    .foregroundStyle(.colorTextSecondary)
-            } else {
-                ForEach(Array(lines.prefix(Constant.lineLimit).enumerated()), id: \.offset) { _, line in
-                    Text(line)
-                        .font(.caption2)
-                        .foregroundStyle(.colorTextSecondary)
-                        .lineLimit(1)
-                }
-            }
+        VStack(spacing: 0) {
+            content
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(DesignConstants.Spacing.step3x)
-    }
-
-    private enum Constant {
-        static let lineLimit: Int = 3
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 
-/// Labelled rows with a done state, for reminders and checklists.
-private struct TileChecks: View {
-    let rows: [(label: String, done: Bool)]
-    let empty: String
+/// Mirrors `.space-tile-header`.
+private struct TileHeaderBar: View {
+    let icon: String
+    let name: String
+    let count: String?
+    let background: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-            if rows.isEmpty {
-                Text(empty)
-                    .font(.caption2)
-                    .foregroundStyle(.colorTextSecondary)
-            } else {
-                ForEach(Array(rows.prefix(Constant.rowLimit).enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: DesignConstants.Spacing.stepX) {
-                        Image(systemName: row.done ? "checkmark.circle.fill" : "circle")
-                            .font(.caption2)
-                            .foregroundStyle(row.done ? Color.colorTextSecondary : .colorTextSecondary)
-                        Text(row.label)
-                            .font(.caption2)
-                            .foregroundStyle(.colorTextPrimary)
-                            .strikethrough(row.done)
-                            .lineLimit(1)
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Image(systemName: icon)
+                .font(.system(size: 13))
+            Text(name)
+                .font(SpaceTileStyle.headerNameFont)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if let count {
+                Text(count)
+                    .font(SpaceTileStyle.bodyFont)
+            }
+        }
+        .foregroundStyle(SpaceTileStyle.onAccent)
+        .padding(.horizontal, SpaceTileStyle.large)
+        .frame(height: SpaceTileStyle.rowHeight)
+        .frame(maxWidth: .infinity)
+        .background(background)
+    }
+}
+
+/// Mirrors `.space-tile-row`.
+private struct TileTextRow: View {
+    let title: String
+
+    init(_ title: String) { self.title = title }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(title)
+                .font(SpaceTileStyle.bodyFont)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, SpaceTileStyle.small)
+        .frame(height: SpaceTileStyle.rowHeight)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(SpaceTileStyle.borderSubtle)
+                .frame(height: 1.0)
+        }
+    }
+}
+
+/// Mirrors `.space-tile-hint`.
+private struct TileHintRow: View {
+    let message: String
+
+    init(_ message: String) { self.message = message }
+
+    var body: some View {
+        Text(message)
+            .font(SpaceTileStyle.hintFont)
+            .foregroundStyle(SpaceTileStyle.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, SpaceTileStyle.small)
+            .padding(.vertical, SpaceTileStyle.extraSmall)
+    }
+}
+
+/// Mirrors `.space-avatar` / `.space-avatar-initial`.
+private struct MemberAvatar: View {
+    let name: String?
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: SpaceTileStyle.radius)
+            .fill(SpaceTileStyle.fillTertiary)
+            .overlay {
+                Text(initials)
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
+                    .foregroundStyle(SpaceTileStyle.onAccent)
+            }
+            .frame(width: SpaceTileStyle.avatarSize, height: SpaceTileStyle.avatarSize)
+    }
+
+    private var initials: String {
+        guard let first = name?.first else { return "" }
+        return String(first).uppercased()
+    }
+}
+
+/// Mirrors `.space-avatar-overflow`: three dots standing for the rest.
+private struct OverflowAvatar: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: SpaceTileStyle.radius)
+            .fill(SpaceTileStyle.fillMinimal)
+            .overlay {
+                HStack(spacing: 4.0) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        Circle()
+                            .fill(SpaceTileStyle.fillTertiary)
+                            .frame(width: 6.0, height: 6.0)
                     }
                 }
             }
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(DesignConstants.Spacing.step3x)
-    }
-
-    private enum Constant {
-        static let rowLimit: Int = 3
+            .frame(width: SpaceTileStyle.avatarSize, height: SpaceTileStyle.avatarSize)
     }
 }
 
-/// A member's initial, standing in until avatars are loaded.
-private struct InitialAvatar: View {
-    let name: String
+/// Mirrors `.space-avatar-invite`, which the web tile shows only where a native
+/// transport can open the picker. Here that transport is the app itself.
+private struct InviteAvatar: View {
+    let action: () -> Void
 
     var body: some View {
-        Circle()
-            .fill(Color.colorBackgroundSubtle)
-            .overlay {
-                Circle().strokeBorder(Color.colorBorderSubtle)
-            }
-            .overlay {
-                Text(initial)
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.colorTextSecondary)
-            }
-            .frame(width: Constant.size, height: Constant.size)
-    }
-
-    private var initial: String {
-        guard let first = name.first else { return "?" }
-        return String(first).uppercased()
-    }
-
-    private enum Constant {
-        static let size: CGFloat = 32.0
+        Button(action: action) {
+            RoundedRectangle(cornerRadius: SpaceTileStyle.radius)
+                .fill(SpaceTileStyle.fillPrimary)
+                .overlay {
+                    Image(systemName: "person.badge.plus")
+                        .font(.system(size: 22))
+                        .foregroundStyle(SpaceTileStyle.onAccent)
+                }
+                .frame(width: SpaceTileStyle.avatarSize, height: SpaceTileStyle.avatarSize)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add someone")
     }
 }

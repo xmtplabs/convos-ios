@@ -4,17 +4,21 @@ import SwiftUI
 
 /// The Context tab drawn from the Space document instead of its web page.
 ///
-/// A first pass: it draws the page's own title and description and a grid of
-/// its tiles, and opens a tapped tile in the existing web surface. The typed
-/// previews inside each tile (`NotesPreview`, `EventsPreview`, …) arrive in the
-/// same document and are deliberately not drawn yet — the cells carry a caption
-/// and a count for now, and become native one type at a time.
+/// It draws the page's own title and description, and its tiles on the web
+/// grid's geometry with each tile's preview rendered natively. Tapping one opens
+/// the real page in the existing browsing chain, so nothing a reader could reach
+/// before is unreachable now.
 ///
 /// Gated behind `FeatureFlags.isNativeSpaceEnabled`; the web surface remains
-/// the default and the fallback.
+/// the fallback for a Space that cannot serve documents.
 struct NativeSpaceView: View {
     let spaceURL: URL
     let onOpen: (URL) -> Void
+    /// Opens the invite picker, for the directory tile's spare cell — the same
+    /// affordance the web tile offers through the native bridge.
+    let onInvite: () -> Void
+    /// Takes the reader to the agent, for the page's "Add anything" action.
+    let onAsk: () -> Void
     /// What to draw when this Space cannot serve a document at all. A Space
     /// deployed before the document route existed answers the page itself, so
     /// the tab shows that page rather than an error a reader cannot act on.
@@ -23,9 +27,17 @@ struct NativeSpaceView: View {
     @State private var state: LoadState
 
     @MainActor
-    init(spaceURL: URL, onOpen: @escaping (URL) -> Void, webFallback: AnyView) {
+    init(
+        spaceURL: URL,
+        onOpen: @escaping (URL) -> Void,
+        onInvite: @escaping () -> Void,
+        onAsk: @escaping () -> Void,
+        webFallback: AnyView
+    ) {
         self.spaceURL = spaceURL
         self.onOpen = onOpen
+        self.onInvite = onInvite
+        self.onAsk = onAsk
         self.webFallback = webFallback
         // Seeded rather than defaulted to `.loading`: this view is rebuilt from
         // scratch every time a page is pushed or popped, and starting from what
@@ -62,7 +74,6 @@ struct NativeSpaceView: View {
                 }
                 .ignoresSafeArea()
             }
-            .overlay(alignment: .top) { diagnostic }
             .task(id: spaceURL) {
                 await load()
             }
@@ -83,80 +94,31 @@ struct NativeSpaceView: View {
         }
     }
 
-    /// A one-line answer to "why am I looking at this?".
+
+    /// Draws the page's own children in document order.
     ///
-    /// The fallback is otherwise indistinguishable from the tab never having
-    /// changed, which is exactly the question that comes up while this surface
-    /// is being brought up. Outside production only, and it goes before merge.
-    @ViewBuilder
-    private var diagnostic: some View {
-        if !ConfigManager.shared.currentEnvironment.isProduction, let note = diagnosticNote {
-            Text(note)
-                .font(.caption2.monospaced())
-                .foregroundStyle(.colorTextSecondary)
-                .lineLimit(1)
-                .padding(.horizontal, DesignConstants.Spacing.step2x)
-                .padding(.vertical, DesignConstants.Spacing.stepHalf)
-                .background(Capsule().fill(Color.colorBackgroundSurfaceless))
-                .overlay(Capsule().strokeBorder(Color.colorBorderSubtle))
-                .padding(.top, ConversationChromeMetrics.contentClearance)
-                .accessibilityIdentifier("native-space-diagnostic")
-        }
-    }
-
-    private var diagnosticNote: String? {
-        // Two facts answer every question this surface raises. The host says
-        // which environment served the Space — a shared-dev host cannot serve
-        // documents at all. The variant says whether this build is even asking
-        // for the paired backend, which separates "the pin never applied" from
-        // "the pin applied and routing dropped it".
-        let host = spaceURL.host() ?? "?"
-        let variant = FeatureFlags.shared.effectiveAgentVariantSlug ?? "none"
-        switch state {
-        case .loading: return nil
-        case .loaded: return "native · \(host) · v:\(variant)"
-        case let .unsupported(reason): return "web · \(reason) · \(host) · v:\(variant)"
-        case .failed: return "error · \(host) · v:\(variant)"
-        }
-    }
-
+    /// Not just the tiles: the starter's home page is
+    /// `Page([Intro, WidgetGrid, AskAgentButton])`, so drawing the grid alone
+    /// drops the prose that introduces it and the action beneath it. Nor the
+    /// front-matter — the web page spends `title` and `description` on the
+    /// document head, never on visible content.
     private func loaded(_ document: SpaceDocument) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step6x) {
-                header(document)
-                if document.widgets.isEmpty {
-                    Text("This space has no tiles yet.")
-                        .font(.footnote)
-                        .foregroundStyle(.colorTextSecondary)
-                } else {
-                    grid(document.widgets)
+            VStack(alignment: .leading, spacing: 0) {
+                if let root = document.rootNode {
+                    ForEach(Array(root.children.enumerated()), id: \.offset) { _, child in
+                        SpacePageContent(
+                            node: child,
+                            widgetGrid: { widgets in AnyView(grid(widgets)) },
+                            onAsk: onAsk
+                        )
+                    }
                 }
-                provenance(document)
             }
             .padding(.horizontal, Constant.gutter)
-            // The diagnostic floats above the content, so the page starts below
-            // it rather than under it.
-            .padding(
-                .top,
-                ConversationChromeMetrics.contentClearance
-                    + (diagnosticNote == nil ? 0 : Constant.diagnosticClearance)
-            )
+            .padding(.top, ConversationChromeMetrics.contentClearance)
             .padding(.bottom, DesignConstants.Spacing.step12x)
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    @ViewBuilder
-    private func header(_ document: SpaceDocument) -> some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            Text(document.metadata.title ?? "Space")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.colorTextPrimary)
-            if let description = document.metadata.description, !description.isEmpty {
-                Text(description)
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextSecondary)
-            }
         }
     }
 
@@ -189,7 +151,7 @@ struct NativeSpaceView: View {
         Button {
             open(widget)
         } label: {
-            WidgetTile(widget: widget)
+            WidgetTile(widget: widget, onInvite: onInvite)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("native-space-widget-\(widget.route)")
@@ -222,14 +184,6 @@ struct NativeSpaceView: View {
         return rows
     }
 
-    private func provenance(_ document: SpaceDocument) -> some View {
-        // Which deployment drew this is the first thing worth knowing when a
-        // tile looks stale, and it is the key a later cache will invalidate on.
-        Text(verbatim: "\(document.widgets.count) tiles · \(document.commitSha.prefix(7))")
-            .font(.caption2)
-            .foregroundStyle(.colorTextSecondary)
-            .accessibilityIdentifier("native-space-provenance")
-    }
 
     private func failure(_ reason: String) -> some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
@@ -322,8 +276,6 @@ struct NativeSpaceView: View {
         static let gutter: CGFloat = 24.0
         /// Two columns plus the gutter between them.
         static let gridMaximum: CGFloat = tileMaximum * 2 + gutter
-        /// Room for the floating diagnostic above the page.
-        static let diagnosticClearance: CGFloat = 28.0
     }
 }
 
@@ -334,23 +286,33 @@ struct NativeSpaceView: View {
 /// caption underneath, which is where the web puts it too.
 private struct WidgetTile: View {
     let widget: SpaceWidget
+    let onInvite: () -> Void
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step2x) {
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                .fill(Color.colorBackgroundSurfaceless)
+            // Mirrors `.space-index-tile`: the stylesheet's own radius, ground
+            // and hairline, so the card reads as the one the page draws.
+            RoundedRectangle(cornerRadius: SpaceTileStyle.radius)
+                .fill(SpaceTileStyle.fillMinimal)
                 .overlay {
-                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                        .strokeBorder(Color.colorBorderSubtle)
+                    SpaceWidgetPreview(
+                        widget: widget,
+                        preview: widget.preview,
+                        onInvite: onInvite
+                    )
                 }
+                .clipShape(RoundedRectangle(cornerRadius: SpaceTileStyle.radius))
                 .overlay {
-                    SpaceWidgetPreview(widget: widget, preview: widget.preview)
+                    RoundedRectangle(cornerRadius: SpaceTileStyle.radius)
+                        .strokeBorder(SpaceTileStyle.surface)
                 }
                 .aspectRatio(widget.aspectRatio, contentMode: .fit)
+            // `.space-index-caption`
             Text(widget.title)
-                .font(.footnote)
+                .font(.system(size: 12))
                 .foregroundStyle(.colorTextPrimary)
                 .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 }

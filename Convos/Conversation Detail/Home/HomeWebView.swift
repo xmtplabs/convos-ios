@@ -46,6 +46,14 @@ struct HomeWebView: UIViewRepresentable {
     /// Fired on the main actor when the page calls `window.convos.markReady()`,
     /// i.e. it has painted and any loading cover may be dismissed.
     var onMarkReady: @MainActor () -> Void = {}
+    /// Whether this surface may take the pooled, prewarmed view.
+    ///
+    /// True for the Home, which is what the pool is warmed for. False for a
+    /// page browsed from it: a different URL has nothing warm to inherit, and
+    /// taking the idle view inherits the last page's painted frame and its
+    /// parked geometry until the new load commits — which a reader sees as the
+    /// previous page flashing at the wrong width.
+    var usesPool: Bool = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -56,6 +64,16 @@ struct HomeWebView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        // A detached view belongs to this surface alone, so it dies with it
+        // rather than going back to a pool it never came from.
+        guard coordinator.usesPool else {
+            webView.navigationDelegate = nil
+            webView.uiDelegate = nil
+            webView.stopLoading()
+            webView.removeFromSuperview()
+            coordinator.bridgeHost = nil
+            return
+        }
         // The bridge stays installed for the pooled view's next surface; only
         // its host is repointed, so it is not detached here. Reset the host to
         // defaults so a page still loaded in the released view cannot call back
@@ -82,8 +100,11 @@ struct HomeWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         // Adopted rather than created: building one costs about a third of a
         // second before it can even start a navigation. See `HomeWebViewPool`.
-        let adoption = HomeWebViewPool.shared.adoption(for: url)
-        let webView = HomeWebViewPool.shared.acquire()
+        let adoption = usesPool ? HomeWebViewPool.shared.adoption(for: url) : .unprepared
+        let webView = usesPool
+            ? HomeWebViewPool.shared.acquire()
+            : HomeWebViewPool.shared.makeDetachedWebView()
+        context.coordinator.usesPool = usesPool
         // Allow Safari Web Inspector to attach to the home/space and browser
         // sub-page web views while debugging the window.convos bridge. Gated on
         // a feature flag (off by default) that is reachable in every
@@ -215,6 +236,9 @@ struct HomeWebView: UIViewRepresentable {
         /// bridge itself is owned by the pool, not the coordinator, so it can
         /// outlive this surface and keep `window.convos` across a hand-back.
         var bridgeHost: HomeBridgeHost?
+        /// Whether the view this coordinator drives came from the pool, and so
+        /// whether tearing the surface down should hand it back.
+        var usesPool: Bool = true
 
         init(
             onLoaded: @escaping @MainActor () -> Void,

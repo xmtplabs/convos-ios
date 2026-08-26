@@ -34,7 +34,11 @@ struct HomeBrowserPageView: View {
                 topContentInset: topInset,
                 bottomContentInset: proxy.safeAreaInsets.bottom,
                 onNavigationRequest: onNavigationRequest,
-                bridgeNavigation: bridgeNavigation
+                bridgeNavigation: bridgeNavigation,
+                // The pool is warmed for the Home's own URL. A browsed page has
+                // nothing warm to inherit from it, and taking the idle view
+                // would inherit the previous page's painted frame instead.
+                usesPool: false
             )
             .ignoresSafeArea(edges: .vertical)
         }

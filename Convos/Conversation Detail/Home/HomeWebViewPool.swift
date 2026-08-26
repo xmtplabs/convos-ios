@@ -188,6 +188,21 @@ final class HomeWebViewPool {
         HomeBridgeBindingRegistry.shared.binding(for: webView.configuration.userContentController)
     }
 
+    /// Builds a view that never enters the pool.
+    ///
+    /// The pool exists to give the Home's *first* paint a head start: one view,
+    /// prewarmed on the likeliest space URL. A page browsed from the Home wants
+    /// none of that. It loads a different URL, so there is nothing warm to
+    /// inherit — and taking the idle view means inheriting the last page's
+    /// painted frame and its parked geometry until the new load commits, which
+    /// a reader sees as the previous page flashing at the wrong width.
+    ///
+    /// Its reporter and bridge register the same way, so everything keyed off
+    /// the view still resolves.
+    func makeDetachedWebView() -> WKWebView {
+        makeWebView()
+    }
+
     private func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         // The paint script is not installed here: it carries the token of the
