@@ -18,9 +18,9 @@ struct TownSetupView: View {
     var body: some View {
         Form {
             previewBackendSection
+            mcpServerSection
+            routineSection
             webhookSection
-            returnToolSection
-            instructionSection
             privacySection
             connectionSection
         }
@@ -46,9 +46,29 @@ struct TownSetupView: View {
     }
 
     @ViewBuilder
+    private var mcpServerSection: some View {
+        Section("Create the MCP server") {
+            Text("In Town, go to Powers > Integrations > \"Add MCP server\". Name it Convos, select \"No auth\", and paste this MCP URL from Convos.")
+            Text(dependencies.mcpURL.absoluteString)
+                .font(.footnote.monospaced())
+                .textSelection(.enabled)
+            AgentSetupCopyButton(title: "Copy MCP URL", text: dependencies.mcpURL.absoluteString)
+        }
+    }
+
+    @ViewBuilder
+    private var routineSection: some View {
+        Section("Create the routine") {
+            Text("Paste these instructions into a new Town routine.")
+            Text(AgentSetupCopy.townInstruction)
+            AgentSetupCopyButton(title: "Copy instructions", text: AgentSetupCopy.townInstruction)
+        }
+    }
+
+    @ViewBuilder
     private var webhookSection: some View {
-        Section("Turn on its webhook") {
-            Text("In Town, open the routine you want in Convos, enable its webhook trigger, copy the webhook URL and secret into Convos.")
+        Section("Enable the webhook") {
+            Text("In Town, enable the routine's webhook trigger, then copy the webhook URL and bearer secret it shows into these fields in Convos.")
             TextField("Webhook URL", text: $webhookURL)
                 .textContentType(.URL)
                 .textInputAutocapitalization(.never)
@@ -61,25 +81,6 @@ struct TownSetupView: View {
                     .font(.footnote)
                     .foregroundStyle(.red)
             }
-        }
-    }
-
-    @ViewBuilder
-    private var returnToolSection: some View {
-        Section("Give Town the return tool") {
-            Text("Add this custom MCP server to the routine and enable return_result.")
-            Text(dependencies.mcpURL.absoluteString)
-                .font(.footnote.monospaced())
-                .textSelection(.enabled)
-            AgentSetupCopyButton(title: "Copy MCP URL", text: dependencies.mcpURL.absoluteString)
-        }
-    }
-
-    @ViewBuilder
-    private var instructionSection: some View {
-        Section("Tell the routine how to reply") {
-            Text(AgentSetupCopy.townInstruction)
-            AgentSetupCopyButton(title: "Copy instruction", text: AgentSetupCopy.townInstruction)
         }
     }
 

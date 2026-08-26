@@ -71,7 +71,7 @@ struct ContactDetailView: View {
     private let session: (any SessionManagerProtocol)?
     private let coreActions: any CoreActions
     private let profileSettingsViewModel: ProfileSettingsViewModel
-    private let onRemove: (() -> Void)?
+    private let onRemove: (() async throws -> Void)?
     /// When set (member sheets presented from a conversation), Chat on a
     /// DM-able agent hands the agent inboxId back to the presenter, which
     /// dismisses this sheet and selects the conversation's agent-DM page.
@@ -83,6 +83,9 @@ struct ContactDetailView: View {
     @State private var isApplyingBlockChange: Bool = false
     @State private var presentingBlockConfirmation: Bool = false
     @State private var presentingRemoveConfirmation: Bool = false
+    @State private var isRemovingMember: Bool = false
+    @State private var presentingRemoveError: Bool = false
+    @State private var removeErrorMessage: String?
     @State private var presentingPicker: Bool = false
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
@@ -126,7 +129,7 @@ struct ContactDetailView: View {
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsCloseButton: Bool = true,
         pushedConversationInsetsTopSafeArea: Bool = false,
-        onRemove: (() -> Void)? = nil,
+        onRemove: (() async throws -> Void)? = nil,
         onStartAgentDm: ((String) -> Void)? = nil
     ) {
         self.contact = contact
@@ -178,6 +181,9 @@ struct ContactDetailView: View {
                 presentingPicker: $presentingPicker,
                 presentingSendMessageError: $presentingSendMessageError,
                 sendMessageErrorMessage: sendMessageErrorMessage,
+                presentingRemoveError: $presentingRemoveError,
+                removeErrorTitle: removeErrorTitle,
+                removeErrorMessage: removeErrorMessage,
                 blockAlertTitle: blockAlertTitle,
                 blockAlertMessage: blockAlertMessage,
                 presentingAgentInfo: $presentingAgentInfo,
@@ -201,7 +207,7 @@ struct ContactDetailView: View {
                 "Remove \(contact.resolvedDisplayName)?",
                 isPresented: $presentingRemoveConfirmation
             ) {
-                Button("Remove", role: .destructive) { onRemove?() }
+                Button("Remove", role: .destructive) { handleRemoveConfirmed() }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text(
@@ -361,6 +367,7 @@ struct ContactDetailView: View {
                 ContactDetailActions(
                     isBlocked: isBlocked,
                     isApplyingBlockChange: isApplyingBlockChange,
+                    isRemovingMember: isRemovingMember,
                     // A template-backed agent's Chat spawns a fresh instance
                     // into a new conversation (see `handleChatWithAgentTemplate`).
                     // A non-template verified agent gets a private DM with the
@@ -480,6 +487,10 @@ struct ContactDetailView: View {
             preselectedInboxIds: [contact.inboxId],
             onConfirm: handlePickerConfirm
         )
+    }
+
+    private var removeErrorTitle: String {
+        "Couldn't remove \(contact.resolvedDisplayName)"
     }
 
     // MARK: - Block alert content
@@ -647,6 +658,32 @@ struct ContactDetailView: View {
     private func handleRemoveTap() {
         // Removing the agent is destructive, so confirm natively before firing.
         presentingRemoveConfirmation = true
+    }
+
+    /// A confirmed removal closes this card once it lands - the profile then
+    /// describes someone who is no longer in the conversation, so leaving it up
+    /// strands the user on a stale view. Owned here rather than by the callers
+    /// because every entry point routes through this same confirmation, and
+    /// `dismiss` resolves correctly for both presentation styles: it pops the
+    /// card pushed from the members list, and closes the sheet opened by a
+    /// member tap in a chat (same action the X button already uses).
+    ///
+    /// The dismissal waits on the removal instead of racing it. Closing
+    /// optimistically would report success for a removal that failed, leaving
+    /// the member in the conversation with nothing on screen to say so.
+    private func handleRemoveConfirmed() {
+        guard !isRemovingMember else { return }
+        isRemovingMember = true
+        Task { @MainActor in
+            defer { isRemovingMember = false }
+            do {
+                try await onRemove?()
+                dismiss()
+            } catch {
+                removeErrorMessage = error.localizedDescription
+                presentingRemoveError = true
+            }
+        }
     }
 
     private func applyBlockChange(block: Bool) {
@@ -854,6 +891,10 @@ private struct ContactDetailSubtitle: View {
 private struct ContactDetailActions: View {
     let isBlocked: Bool
     let isApplyingBlockChange: Bool
+    /// Disables the Remove row while the removal is in flight, so a second tap
+    /// can't fire another one before the card closes. Mirrors
+    /// `isApplyingBlockChange` on the Block row.
+    let isRemovingMember: Bool
     let canSendMessage: Bool
     let showChat: Bool
     /// Shows the model dropdown under Chat. Agents only - a human contact
@@ -987,7 +1028,7 @@ private struct ContactDetailActions: View {
             label: "Remove",
             footer: "Remove from convo",
             color: .colorTextPrimary,
-            isDisabled: false,
+            isDisabled: isRemovingMember,
             accessibilityLabel: "Remove \(contactDisplayName)",
             accessibilityIdentifier: "remove-member-button",
             action: onRemove
@@ -1399,6 +1440,9 @@ private struct ContactDetailModalsModifier<
     @Binding var presentingPicker: Bool
     @Binding var presentingSendMessageError: Bool
     let sendMessageErrorMessage: String?
+    @Binding var presentingRemoveError: Bool
+    let removeErrorTitle: String
+    let removeErrorMessage: String?
     let blockAlertTitle: String
     let blockAlertMessage: String
     @Binding var presentingAgentInfo: Bool
@@ -1418,6 +1462,15 @@ private struct ContactDetailModalsModifier<
                 "Couldn't open message picker",
                 isPresented: $presentingSendMessageError,
                 presenting: sendMessageErrorMessage
+            ) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { message in
+                Text(message)
+            }
+            .alert(
+                removeErrorTitle,
+                isPresented: $presentingRemoveError,
+                presenting: removeErrorMessage
             ) { _ in
                 Button("OK", role: .cancel) {}
             } message: { message in

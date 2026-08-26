@@ -36,6 +36,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// DM page instead of the group. Used when a conversations-list row is
     /// tapped whose most-recent unread is in the DM.
     var initialAgentDmInboxId: String?
+    /// An explicit page to open on, overriding the unread heuristic. Set by the
+    /// list's "Open Agent DM" / "Open Things" context-menu actions so the open
+    /// lands on the chosen tab regardless of which lane holds the unread. Nil
+    /// leaves the heuristic in charge.
+    var initialTabOverride: ConversationTab?
     /// Controls the messages list's leading empty-state view (QR invite +
     /// identity, or the `ConversationInfoPreview`). Defaults to `.standard`
     /// in normal chat. The Agent Builder passes `.hidden` so the
@@ -117,11 +122,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var groupEmptyStateSettled: Bool = false
     @State private var homeBrowserEntries: [HomeBrowserEntry] = []
     @State private var showingDebugInjector: Bool = false
-    /// Consent surface for agent ability-use asks, managed by
-    /// `prepareEscalationIfNeeded` keyed on `escalationTaskKey` (nil while
-    /// the abilities flag is off or the conversation has no agent; rebuilt
-    /// when the shown conversation changes).
-    @State private var escalationViewModel: ConversationEscalationViewModel?
     @State private var presentingAddFromContactsPicker: Bool = false
     /// Non-nil presents the Connections browser modal, carrying the
     /// launching agent DM's context (see `ConnectionsBrowserMode`).
@@ -345,7 +345,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
         // flag is on. Absent, the composer draws no bubble at all.
         .environment(\.agentParticipation, participationContext)
         .task(id: participationTaskKey) { await prepareParticipation() }
-        .task(id: escalationTaskKey) { prepareEscalationIfNeeded() }
         // The mode rides the group's appData, so another member's change lands
         // as a change to this conversation's synced row and the bubble follows
         // it - nothing here polls.
@@ -376,13 +375,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
     private func seedInitialTabIfNeeded() {
         guard !didSeedInitialTab else { return }
         didSeedInitialTab = true
-        let agentDmRequested: Bool = initialAgentDmInboxId != nil
-            && initialAgentDmInboxId == primaryAgentInboxId
-        let tab: ConversationTab = ConversationTab.initial(
-            available: availableTabs,
-            agentDmRequested: agentDmRequested,
-            agentDmHoldsTheUnread: agentDmHoldsTheUnread
-        )
+        let tab: ConversationTab
+        if let override = initialTabOverride, availableTabs.contains(override) {
+            tab = override
+        } else {
+            let agentDmRequested: Bool = initialAgentDmInboxId != nil
+                && initialAgentDmInboxId == primaryAgentInboxId
+            tab = ConversationTab.initial(
+                available: availableTabs,
+                agentDmRequested: agentDmRequested,
+                agentDmHoldsTheUnread: agentDmHoldsTheUnread
+            )
+        }
         guard tab != selectedTab else { return }
         selectTab(tab)
     }
@@ -418,6 +422,22 @@ struct ConversationView<MessagesBottomBar: View>: View {
             return
         }
         selectTab(.agent)
+    }
+
+    /// Switches to a requested tab when the list's "Open Agent DM" / "Open Things"
+    /// action targets this conversation while it is already on screen (a fresh
+    /// open seeds the tab from `initialTabOverride`, but reselecting the same
+    /// conversation is a no-op, so a mounted view has to be told directly).
+    /// Ignores requests for another conversation or a tab this one doesn't offer.
+    private func handleSelectConversationTabRequest(_ note: Notification) {
+        guard let conversationId = note.userInfo?["conversationId"] as? String,
+              conversationId == viewModel.conversation.id,
+              let rawTab = note.userInfo?["tab"] as? String,
+              let tab = ConversationTab(rawValue: rawTab),
+              availableTabs.contains(tab) else {
+            return
+        }
+        selectTab(tab)
     }
 
     /// Programmatic tab selection. Every page is mounted, so this is only the
@@ -594,6 +614,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .onReceive(NotificationCenter.default.publisher(for: .selectAgentDmPageRequested)) { note in
             handleSelectAgentDmPageRequest(note)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .selectConversationTabRequested)) { note in
+            handleSelectConversationTabRequest(note)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .conversationNotificationTapped)) { notification in
             let conversationId: String? = notification.userInfo?["conversationId"] as? String
             if conversationId == viewModel.conversation.id {
@@ -608,7 +631,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // too covers the conversation that binds a DM and never shows it.
             agentDmSession?.updateDmOnScreen(isOnScreen: false)
             navigator?.closed(context: navState.closeContext())
-            escalationViewModel?.stopObserving()
         }
         // Keep the edge-swipe back gesture, drop the content-area one while
         // this screen is up (see ContentPopGestureDisabler).
@@ -1423,29 +1445,66 @@ private extension ConversationView {
     /// so a Space page is not reloaded every time the user looks away.
     @ViewBuilder
     var pageHost: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                ForEach(availableTabs) { tab in
-                    page(for: tab)
-                        // Sized against the scroll view's container rather than
-                        // a `GeometryReader`: the reader measures zero on the
-                        // first layout pass, which left every page zero-width
-                        // and the pager resting on the last one instead of the
-                        // tab the conversation opened on.
-                        .containerRelativeFrame(.horizontal)
-                        .id(tab)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(availableTabs) { tab in
+                        page(for: tab)
+                            // Sized against the scroll view's container rather than
+                            // a `GeometryReader`: the reader measures zero on the
+                            // first layout pass, which left every page zero-width
+                            // and the pager resting on the last one instead of the
+                            // tab the conversation opened on.
+                            .containerRelativeFrame(.horizontal)
+                            .id(tab)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: pagerSelection)
+            // A long-press menu owns the screen while it is up, and a drag that
+            // paged out from under it would leave the menu pointing at a message
+            // on another tab.
+            .scrollDisabled(isPagingDisabled)
+            .introspect(.scrollView, on: .iOS(.v26)) { (scrollView: UIScrollView) in
+                scrollView.bounces = false
+            }
+            .onChange(of: didSeedInitialTab, initial: false) { _, seeded in
+                guard seeded else { return }
+                realignPagerAfterSeeding(using: proxy)
+            }
+        }
+    }
+
+    /// Snaps the pager onto the seeded tab once the scroll view has laid out.
+    ///
+    /// Seeding sets `selectedTab` in `onAppear`, before the pager finishes its
+    /// first layout, so `scrollPosition` scrolls toward the target while paging
+    /// is still settling. A tab two pages from the default (Things sits past
+    /// Agent) can settle the pager on the page in between while the state still
+    /// reads the target - the segmented control shows the seeded tab but the
+    /// wrong page is on screen. Re-driving the offset once through the scroll
+    /// proxy, after this layout pass, lands the page the state already points at.
+    private func realignPagerAfterSeeding(using proxy: ScrollViewProxy) {
+        let target: ConversationTab = selectedTab
+        guard target != .group else { return }
+        // The pager's container measures zero on its first layout pass, so the
+        // seed's `scrollPosition` can settle on an intermediate page (Things sits
+        // past Agent), and the Space page finishes laying out a beat later still.
+        // Re-assert the offset across the next few frames until the late layout
+        // has caught up; once the pager is on the target the scroll is a no-op,
+        // and the guard leaves a user who swiped away in that window alone.
+        let delays: [Double] = [0, 0.1, 0.2, 0.35, 0.5, 0.75]
+        for delay in delays {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard selectedTab == target else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    proxy.scrollTo(target, anchor: .leading)
                 }
             }
-            .scrollTargetLayout()
-        }
-        .scrollTargetBehavior(.paging)
-        .scrollPosition(id: pagerSelection)
-        // A long-press menu owns the screen while it is up, and a drag that
-        // paged out from under it would leave the menu pointing at a message
-        // on another tab.
-        .scrollDisabled(isPagingDisabled)
-        .introspect(.scrollView, on: .iOS(.v26)) { (scrollView: UIScrollView) in
-            scrollView.bounces = false
         }
     }
 
@@ -1648,10 +1707,11 @@ private extension ConversationView {
     }
 
     /// The single host seam for the composer's connections capability: the
-    /// `+` menu row and the browser modal both feed from this one read. No
-    /// composer surface consults the flag directly.
+    /// `+` menu row and the browser modal both feed from this one read.
+    /// Which services a conversation can actually use is decided per
+    /// environment by the backend and agent runtime, not the client.
     var composerConnectionsEnabled: Bool {
-        FeatureFlags.shared.isAbilitiesV2Enabled
+        true
     }
 
     /// Powerplug tap from the `+` menu row: presents the Connections
@@ -1862,7 +1922,6 @@ struct MemberContactDetailSheetContent: View {
     let member: ConversationMember
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     var onStartAgentDm: ((String) -> Void)?
-    @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {
         let messagingService = viewModel.messagingService
@@ -1873,10 +1932,10 @@ struct MemberContactDetailSheetContent: View {
             in: viewModel.conversation.id,
             contactsRepository: contactsRepository
         )
-        let onRemove: () -> Void = {
-            viewModel.remove(member: member)
-            dismiss()
-        }
+        // Closing the sheet is `ContactDetailView`'s job - it dismisses itself
+        // once the removal lands and reports the failure otherwise, so every
+        // entry point behaves the same.
+        let onRemove: () async throws -> Void = { try await viewModel.remove(member: member) }
         NavigationStack {
             ContactDetailView(
                 contact: resolvedContact,
@@ -2082,20 +2141,16 @@ private extension ConversationView {
 /// on one Equatable instead of stacking per-branch `.animation` modifiers.
 private enum ConversationBottomBarSlot: Equatable {
     case capabilityApprovedToast
-    case escalationPrompt(requestId: String)
     case onboarding
 }
 
 // MARK: - Bottom bar status slot
 
 private extension ConversationView {
-    /// Toast wins, then a pending agent ability-use ask, then onboarding.
+    /// Toast wins, then onboarding.
     var bottomBarSlot: ConversationBottomBarSlot {
         if viewModel.showsCapabilityApprovedToast {
             return .capabilityApprovedToast
-        }
-        if let request = escalationViewModel?.pendingRequest {
-            return .escalationPrompt(requestId: request.id)
         }
         return .onboarding
     }
@@ -2103,8 +2158,7 @@ private extension ConversationView {
     /// The status slot under the composer. Capability requests no longer
     /// auto-present a card here: the transcript's connect pill is the
     /// single entry point for those and opens the approval sheet. The slot
-    /// keeps the post-approval toast, the agent ability-use consent card,
-    /// and the onboarding view.
+    /// keeps the post-approval toast and the onboarding view.
     var bottomBarStatusSlot: some View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
         return Group {
@@ -2112,11 +2166,6 @@ private extension ConversationView {
             case .capabilityApprovedToast:
                 CapabilityApprovedToastView()
                     .transition(.blurReplace)
-            case .escalationPrompt:
-                if let escalationViewModel {
-                    AbilityEscalationPromptSurface(viewModel: escalationViewModel)
-                        .transition(.blurReplace)
-                }
             case .onboarding:
                 ConversationOnboardingView(
                     coordinator: onboardingCoordinator,
@@ -2127,40 +2176,5 @@ private extension ConversationView {
             }
         }
         .animation(.spring(duration: 0.4, bounce: 0.2), value: bottomBarSlot)
-    }
-
-    /// Keys the escalation `.task` on the conversation AND on whether it
-    /// has an agent, mirroring `participationTaskKey`: a view instance that
-    /// pages to another conversation rebuilds the model for the new stream,
-    /// and an agent that joins an already-open conversation starts
-    /// observation without needing a re-appear.
-    var escalationTaskKey: String {
-        "\(viewModel.conversation.id)-\(viewModel.conversation.hasAgent)"
-    }
-
-    /// Builds the escalation view model when the Abilities V2 flag is on
-    /// and the conversation has an agent. The flag is read once and latched
-    /// -- same posture as `ConversationInfoView.AgentAccessMode`. Runs from
-    /// a `.task` keyed on `escalationTaskKey`, so re-appearance restarts
-    /// stream observation and a conversation change rebuilds the model.
-    func prepareEscalationIfNeeded() {
-        if let escalationViewModel, escalationViewModel.conversationId != viewModel.conversation.id {
-            escalationViewModel.stopObserving()
-            self.escalationViewModel = nil
-        }
-        if let escalationViewModel {
-            escalationViewModel.startObserving()
-            return
-        }
-        guard FeatureFlags.shared.isAbilitiesV2Enabled,
-              viewModel.conversation.hasAgent else {
-            return
-        }
-        let escalation = ConversationEscalationViewModel(
-            conversationId: viewModel.conversation.id,
-            selection: AbilitiesServices.selection
-        )
-        escalation.startObserving()
-        escalationViewModel = escalation
     }
 }

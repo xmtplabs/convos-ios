@@ -154,7 +154,11 @@ struct ConversationMembersListView: View {
             in: viewModel.conversation.id,
             contactsRepository: contactsRepository
         )
-        let onRemove: () -> Void = { viewModel.remove(member: member) }
+        // No dismissal here: `ContactDetailView` pops itself off this stack
+        // once the removal lands, and surfaces the error if it doesn't. A
+        // `dismiss` captured in this closure would belong to the members list,
+        // not to the card pushed from it.
+        let onRemove: () async throws -> Void = { try await viewModel.remove(member: member) }
         ContactDetailView(
             contact: resolvedContact,
             mode: .scopedToConversation(

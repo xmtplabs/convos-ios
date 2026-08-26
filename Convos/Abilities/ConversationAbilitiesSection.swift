@@ -2,9 +2,8 @@ import ConvosComposer
 import ConvosCore
 import SwiftUI
 
-/// The V2 per-conversation abilities section shown in conversation info
-/// when the Abilities V2 flag is on (the V1 `ConversationConnectionsSection`
-/// renders otherwise; see `ConversationInfoView.agentAccessSection`).
+/// The per-conversation abilities section shown in conversation info (see
+/// `ConversationInfoView.agentAccessSection`).
 ///
 /// One toggle per ability per agent: single-agent conversations render one
 /// plain toggle per ability, multi-agent conversations label each row with

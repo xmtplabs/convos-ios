@@ -146,7 +146,7 @@ final class DocExperienceViewModel {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var storageAccountIdentifier: String
     @ObservationIgnored private var docMessageAggregator: DocAgentMessageAggregator?
-    @ObservationIgnored private var googleStatusCancellable: AnyCancellable?
+    @ObservationIgnored private var googleStatusTask: Task<Void, Never>?
     @ObservationIgnored private var observedDmConversationId: String?
     @ObservationIgnored private var observedDocAgentInboxId: String?
     @ObservationIgnored private var latestStateMessageId: String?
@@ -675,28 +675,30 @@ final class DocExperienceViewModel {
     }
 
     private func observeGoogleStatus(conversationId: String) {
+        googleStatusTask?.cancel()
         isGoogleStatusLoaded = false
         isGoogleDocsReady = false
         isConnectingGoogleDocs = false
         googleConnectErrorMessage = nil
-        let repository = session.cloudConnectionRepository()
-        googleStatusCancellable = repository.connectionsPublisher()
-            .combineLatest(repository.grantsPublisher(for: conversationId))
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] connections, grants in
-                guard let self else { return }
-                let googleConnectionIds = Set(
-                    connections
-                        .filter { $0.serviceId == "googledocs" }
-                        .map(\.id)
-                )
-                isGoogleDocsReady = grants.contains { grant in
-                    grant.serviceId == "googledocs" &&
-                        googleConnectionIds.contains(grant.connectionId) &&
-                        grant.grantedToInboxId == agentInboxId
+        let selection = AbilitiesServices.selection
+        let agentInboxId = agentInboxId
+        googleStatusTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let catalog = try await selection.service.fetchCatalog()
+                let optIns = try await selection.service.conversationAbilities(conversationId: conversationId)
+                guard !Task.isCancelled else { return }
+                let googleDocs = catalog.abilities.first { $0.id == DocGoogleConnectionChain.abilityId }
+                isGoogleDocsReady = googleDocs?.entitlement?.status == .active && optIns.contains {
+                    $0.abilityId == DocGoogleConnectionChain.abilityId &&
+                        $0.agentInboxId == agentInboxId
                 }
-                isGoogleStatusLoaded = true
+            } catch {
+                guard !Task.isCancelled else { return }
+                Log.warning("Doc: couldn't refresh Google Docs ability status: \(error.localizedDescription)")
             }
+            isGoogleStatusLoaded = true
+        }
     }
 
     private func persistSnapshot() {
@@ -1078,31 +1080,41 @@ extension DocExperienceViewModel {
         }
         isConnectingGoogleDocs = true
         googleConnectErrorMessage = nil
-        let session = session
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let repository = session.cloudConnectionRepository()
-                let manager = session.cloudConnectionManager(
-                    callbackURLScheme: ConfigManager.shared.appUrlScheme
-                )
-                let writer = session.messagingService().connectionGrantWriter()
+                let selection = AbilitiesServices.selection
+                let catalog = try await selection.service.fetchCatalog()
+                guard let ability = catalog.abilities.first(where: {
+                    $0.id == DocGoogleConnectionChain.abilityId
+                }) else {
+                    throw AbilitiesServiceError.unknownAbility(abilityId: DocGoogleConnectionChain.abilityId)
+                }
                 let agents = conversation.members.filter(\.isAgent).map { $0.profile.inboxId }
-                try await DocGoogleConnectionChain.connectAndGrant(
-                    existingConnection: {
-                        try await repository.connections().first {
-                            $0.provider == .composio &&
-                                $0.serviceId == "googledocs" &&
-                                $0.status == .active
-                        }
+                let defaultBundles = ability.bundles.filter(\.defaultEnabled).map(\.id)
+                let bundleIds = defaultBundles.isEmpty ? ability.bundles.map(\.id) : defaultBundles
+                try await DocGoogleConnectionChain.connectAndExtend(
+                    entitlementIsActive: ability.entitlement?.status == .active,
+                    bundleIds: bundleIds,
+                    beginEntitlement: {
+                        try await selection.service.beginEntitlement(abilityId: DocGoogleConnectionChain.abilityId)
                     },
-                    connect: { try await manager.connect(serviceId: "googledocs") },
-                    grant: { connection in
+                    authorize: { redirectUrl in
+                        guard let authorizer = selection.authorizer else {
+                            throw DocGoogleConnectionChain.Error.authorizationUnavailable
+                        }
+                        try await authorizer.authorize(redirectUrl: redirectUrl)
+                    },
+                    completeEntitlement: {
+                        try await selection.service.completeEntitlement(abilityId: DocGoogleConnectionChain.abilityId)
+                    },
+                    extend: { bundleIds in
                         for agent in agents {
-                            try await writer.grantConnection(
-                                connection.id,
-                                to: conversation.id,
-                                grantedToInboxId: agent
+                            try await selection.service.extendAbility(
+                                conversationId: conversation.id,
+                                abilityId: DocGoogleConnectionChain.abilityId,
+                                agentInboxId: agent,
+                                bundleIds: bundleIds
                             )
                         }
                     }
@@ -1131,19 +1143,61 @@ enum DocScreenshotSelectionPolicy {
 }
 
 enum DocGoogleConnectionChain {
-    @MainActor
-    static func connectAndGrant<Connection>(
-        existingConnection: () async throws -> Connection?,
-        connect: () async throws -> Connection,
-        grant: (Connection) async throws -> Void
-    ) async throws {
-        let connection: Connection
-        if let existing = try await existingConnection() {
-            connection = existing
-        } else {
-            connection = try await connect()
+    static let abilityId: String = "googledocs"
+
+    enum Error: LocalizedError {
+        case authorizationUnavailable
+        case missingAuthorizationURL
+        case noPermissionBundles
+
+        var errorDescription: String? {
+            switch self {
+            case .authorizationUnavailable:
+                "Google sign-in is unavailable. Try again."
+            case .missingAuthorizationURL:
+                "Google sign-in couldn't start. Try again."
+            case .noPermissionBundles:
+                "Google Docs permissions are unavailable. Try again later."
+            }
         }
-        try await grant(connection)
+    }
+
+    @MainActor
+    static func connectAndExtend(
+        entitlementIsActive: Bool,
+        bundleIds: [String],
+        beginEntitlement: () async throws -> AbilityEntitlementInitiation,
+        authorize: (String) async throws -> Void,
+        completeEntitlement: () async throws -> Void,
+        extend: ([String]) async throws -> Void
+    ) async throws {
+        guard !bundleIds.isEmpty else { throw Error.noPermissionBundles }
+        if !entitlementIsActive {
+            let initiation = try await beginEntitlement()
+            if initiation.status == .pendingAuth {
+                guard let redirectUrl = initiation.redirectUrl else {
+                    throw Error.missingAuthorizationURL
+                }
+                try await authorize(redirectUrl)
+                try await completeRetryingAuthIncomplete(completeEntitlement)
+            }
+        }
+        try await extend(bundleIds)
+    }
+
+    @MainActor
+    private static func completeRetryingAuthIncomplete(
+        _ complete: () async throws -> Void
+    ) async throws {
+        for delay in [Duration.seconds(1), .seconds(2)] {
+            do {
+                try await complete()
+                return
+            } catch AbilitiesAPI.EndpointError.authIncomplete {
+                try await Task.sleep(for: delay)
+            }
+        }
+        try await complete()
     }
 }
 
@@ -1420,7 +1474,8 @@ extension DocExperienceViewModel {
         let completedWelcome = hasCompletedWelcome
         docMessageAggregator?.stop()
         docMessageAggregator = nil
-        googleStatusCancellable = nil
+        googleStatusTask?.cancel()
+        googleStatusTask = nil
         observedDmConversationId = nil
         observedDocAgentInboxId = nil
         conversationViewModel = nil

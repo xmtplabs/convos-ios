@@ -250,52 +250,29 @@ struct AppSettingsView: View {
         }
     }
 
-    /// The V1 connections list, or the V2 abilities list behind the
-    /// Abilities V2 feature flag. Off by default in every environment;
-    /// reachable from the Debug menu in non-production builds and from the
-    /// curated prod debug menu in production. Read at push time, so
-    /// flipping the flag in either debug menu takes effect on the next
-    /// visit. The V2 branch presents `AbilitiesListScreen`, which owns its
-    /// view model via `@State`, so re-evaluations of this builder cannot
-    /// replace the model mid-push.
+    /// The abilities list. `AbilitiesListScreen` owns its view model via
+    /// `@State`, so re-evaluations of this builder cannot replace the model
+    /// mid-push.
     @ViewBuilder
     private var connectionsDestination: some View {
-        if FeatureFlags.shared.isAbilitiesV2Enabled {
-            AbilitiesListScreen(
-                selection: AbilitiesServices.selection,
-                mode: .appSettings,
-                usageSource: AbilitiesServices.connectionUsageSource
-            )
-        } else {
-            ConnectionsListView(viewModel: viewModel.connectionsListViewModel)
-        }
+        AbilitiesListScreen(
+            selection: AbilitiesServices.selection,
+            mode: .appSettings,
+            usageSource: AbilitiesServices.connectionUsageSource
+        )
     }
 
-    /// Row title and count follow `connectionsDestination`: "Abilities"
-    /// over the V2 list under the flag, "Connections" over the V1 list
-    /// otherwise. The count is V1 connections, so it only renders alongside
-    /// the V1 title.
     @ViewBuilder
     private var connectionsRowLabel: some View {
-        let isAbilitiesV2: Bool = FeatureFlags.shared.isAbilitiesV2Enabled
-        let title: String = "Connections"
-        let connectionsCount: Int = viewModel.connectionsListViewModel.connections.count
-        let showsCount: Bool = !isAbilitiesV2 && connectionsCount > 0
         HStack {
             Image(systemName: "batteryblock.fill")
                 .foregroundStyle(.colorTextPrimary)
                 .frame(width: DesignConstants.Spacing.step8x, alignment: .center)
 
-            Text(title)
+            Text("Connections")
                 .foregroundStyle(.colorTextPrimary)
 
             Spacer()
-
-            if showsCount {
-                Text("\(connectionsCount)")
-                    .foregroundStyle(.colorTextSecondary)
-                    .monospacedDigit()
-            }
         }
     }
 
@@ -395,10 +372,11 @@ struct AppSettingsView: View {
             isPresented: $showingEnableDebugConfirmation,
             titleVisibility: .visible
         ) {
-            // Persist the opt-in. Dismissing the dialog flips
-            // `showingEnableDebugConfirmation` back to false, which re-renders
-            // the body so `linksSection` re-reads the gate and reveals the row.
-            let enableAction = { DebugMenuFlagStore.enable() }
+            // Persist the opt-in. The flag store is observable and the body
+            // reads it through `DebugMenuGate.showsProdDebugMenu`, so the row
+            // appears (or disappears, when disabled from inside the menu)
+            // without waiting for an unrelated re-render.
+            let enableAction = { DebugMenuFlagStore.shared.enable() }
             Button("Enable", action: enableAction)
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -469,7 +447,11 @@ struct AppSettingsView: View {
         // gesture only matters in production where the curated menu is opt-in.
         // Read the persisted flag directly (not a cached copy) so a menu that
         // was disabled elsewhere can be re-enabled without relaunching.
-        guard environment.isProduction, !DebugMenuFlagStore.isEnabled() else { return }
+        guard environment.isProduction else { return }
+        if DebugMenuFlagStore.shared.isEnabled {
+            Log.info("Version tap ignored: debug menu flag already enabled")
+            return
+        }
         let now = Date()
         if let lastTap = lastVersionTapAt, now.timeIntervalSince(lastTap) > Constant.versionTapWindow {
             versionTapCount = 0
@@ -478,6 +460,7 @@ struct AppSettingsView: View {
         versionTapCount += 1
         if versionTapCount >= Constant.versionTapThreshold {
             versionTapCount = 0
+            Log.info("Version-tap threshold reached; presenting enable-debug-menu prompt")
             showingEnableDebugConfirmation = true
         }
     }

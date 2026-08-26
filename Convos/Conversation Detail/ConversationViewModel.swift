@@ -45,6 +45,17 @@ struct BuilderVoiceMemoSnapshot: Sendable {
     let levels: [Float]
 }
 
+enum ConversationMemberRemovalError: LocalizedError {
+    case notPermitted
+
+    var errorDescription: String? {
+        switch self {
+        case .notPermitted:
+            "Only the person who created this convo can remove members."
+        }
+    }
+}
+
 @MainActor
 @Observable
 class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this type_body_length
@@ -4272,16 +4283,12 @@ extension ConversationViewModel {
         presentingProfileSettings = true
     }
 
-    func remove(member: ConversationMember) {
-        guard canRemoveMembers else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await metadataWriter.removeMembers([member.profile.inboxId], from: conversation.id)
-            } catch {
-                Log.error("Error removing member: \(error.localizedDescription)")
-            }
-        }
+    /// Throws rather than swallowing the failure so callers can keep their UI
+    /// open and report it - the profile card dismisses itself only once the
+    /// removal has actually landed.
+    func remove(member: ConversationMember) async throws {
+        guard canRemoveMembers else { throw ConversationMemberRemovalError.notPermitted }
+        try await metadataWriter.removeMembers([member.profile.inboxId], from: conversation.id)
     }
 
     private func setNotificationsEnabled(_ enabled: Bool) {
@@ -4950,26 +4957,6 @@ extension ConversationViewModel {
 
     func makeAgentFilesLinksRepository() -> AgentFilesLinksRepository {
         session.agentFilesLinksRepository(for: conversation.id)
-    }
-
-    func makeConversationConnectionsViewModel() -> ConversationConnectionsViewModel {
-        // Snapshot of agent inbox ids at view-model creation. Per-conversation toggles
-        // fan out one grant row per agent currently in the conversation; if membership
-        // changes mid-life of the view model, callers can recreate it (the view model is
-        // shaped per ConversationInfo presentation, so that already happens naturally).
-        let agentInboxIds = conversation.members
-            .filter { $0.isAgent }
-            .map { $0.profile.inboxId }
-        return ConversationConnectionsViewModel(
-            conversationId: conversation.id,
-            agentInboxIds: agentInboxIds,
-            cloudConnectionManager: session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme),
-            cloudConnectionRepository: session.cloudConnectionRepository(),
-            grantWriter: messagingService.connectionGrantWriter(),
-            connectionEventWriter: messagingService.connectionEventWriter(),
-            enablementStore: session.connectionEnablementStore(),
-            capabilityResolver: session.capabilityResolver()
-        )
     }
 
     @MainActor

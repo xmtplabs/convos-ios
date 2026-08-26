@@ -130,45 +130,61 @@ struct DocFeedbackFlowTests {
         #expect(gate.canSend(isReady: true, isSending: false, hasPayload: true))
     }
 
-    @Test("Google connect chains authorization directly into conversation grant")
-    func googleConnectChainsGrant() async throws {
+    @Test("Google connect chains V2 entitlement into conversation extension")
+    func googleConnectChainsV2EntitlementAndExtension() async throws {
         var calls: [String] = []
 
-        try await DocGoogleConnectionChain.connectAndGrant(
-            existingConnection: {
-                calls.append("lookup")
-                return nil as String?
+        try await DocGoogleConnectionChain.connectAndExtend(
+            entitlementIsActive: false,
+            bundleIds: ["documents.read", "documents.write"],
+            beginEntitlement: {
+                calls.append("begin")
+                return AbilityEntitlementInitiation(
+                    status: .pendingAuth,
+                    redirectUrl: "https://example.com/connect"
+                )
             },
-            connect: {
-                calls.append("connect")
-                return "google-connection"
+            authorize: { redirectUrl in
+                calls.append("authorize:\(redirectUrl)")
             },
-            grant: { connection in
-                calls.append("grant:\(connection)")
+            completeEntitlement: {
+                calls.append("complete")
+            },
+            extend: { bundleIds in
+                calls.append("extend:\(bundleIds.joined(separator: ","))")
             }
         )
 
-        #expect(calls == ["lookup", "connect", "grant:google-connection"])
+        #expect(calls == [
+            "begin",
+            "authorize:https://example.com/connect",
+            "complete",
+            "extend:documents.read,documents.write",
+        ])
     }
 
-    @Test("Google connect reuses an active entitlement before granting")
-    func googleConnectReusesExistingConnection() async throws {
+    @Test("Google connect reuses an active V2 entitlement before extension")
+    func googleConnectReusesActiveV2Entitlement() async throws {
         var calls: [String] = []
 
-        try await DocGoogleConnectionChain.connectAndGrant(
-            existingConnection: {
-                calls.append("lookup")
-                return "existing"
+        try await DocGoogleConnectionChain.connectAndExtend(
+            entitlementIsActive: true,
+            bundleIds: ["documents.write"],
+            beginEntitlement: {
+                calls.append("begin")
+                return AbilityEntitlementInitiation(status: .active)
             },
-            connect: {
-                calls.append("connect")
-                return "new"
+            authorize: { _ in
+                calls.append("authorize")
             },
-            grant: { connection in
-                calls.append("grant:\(connection)")
+            completeEntitlement: {
+                calls.append("complete")
+            },
+            extend: { bundleIds in
+                calls.append("extend:\(bundleIds.joined(separator: ","))")
             }
         )
 
-        #expect(calls == ["lookup", "grant:existing"])
+        #expect(calls == ["extend:documents.write"])
     }
 }

@@ -257,16 +257,11 @@ struct ConvosApp: App {
     /// the surfaces refresh again on appear.
     private static func configureAbilities(session: any SessionManagerProtocol, environment: AppEnvironment) {
         AbilitiesServices.configure(session: session, environment: environment)
-        // Auto-enable mirrors the v1 connections toggle, so it runs exactly
-        // when that surface renders: whenever the abilities v2 flag is off.
-        // The flag is re-read on every agent add, so a debug-menu flip takes
-        // effect without a relaunch.
-        session.configureAutoEnableAbilities {
-            await MainActor.run { !FeatureFlags.shared.isAbilitiesV2Enabled }
-        }
-        if FeatureFlags.shared.isAbilitiesV2Enabled {
-            Task { await AbilitiesServices.refreshCatalogInBackground() }
-        }
+        // Auto-enable was the v1 connections behavior; leaving the service
+        // unconfigured keeps it disabled. Which services a conversation can
+        // use is decided per environment by the backend and agent runtime,
+        // not by the client enabling connections on every conversation.
+        Task { await AbilitiesServices.refreshCatalogInBackground() }
     }
 
     /// Tints the unselected tab items tertiary. The selected color is
@@ -356,12 +351,10 @@ struct ConvosApp: App {
             )
         }
 
-        // Abilities V2 foreground refresh: updates the live service's
+        // Abilities foreground refresh: updates the live service's
         // last-known catalog so the next screen-appear fetch merges against
-        // fresh state. No-op in mock mode or with the flag off.
-        if FeatureFlags.shared.isAbilitiesV2Enabled {
-            Task { await AbilitiesServices.refreshCatalogInBackground() }
-        }
+        // fresh state. No-op in mock mode.
+        Task { await AbilitiesServices.refreshCatalogInBackground() }
 
         // Messages the share extension wrote to the shared database from its
         // own process are invisible to this process's GRDB observation (it
