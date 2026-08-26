@@ -94,7 +94,6 @@ struct NativeSpaceView: View {
         }
     }
 
-
     /// Draws the page's own children in document order.
     ///
     /// Not just the tiles: the starter's home page is
@@ -183,7 +182,6 @@ struct NativeSpaceView: View {
         flush()
         return rows
     }
-
 
     private func failure(_ reason: String) -> some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
