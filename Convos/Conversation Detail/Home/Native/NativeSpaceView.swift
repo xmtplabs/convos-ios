@@ -26,8 +26,9 @@ struct NativeSpaceView: View {
         case loading
         case loaded(SpaceDocument)
         case failed(String)
-        /// This deployment does not serve documents; the web page does.
-        case unsupported
+        /// This deployment does not serve documents; the web page does. The
+        /// string is why, for the diagnostic strip.
+        case unsupported(String)
     }
 
     var body: some View {
@@ -40,6 +41,7 @@ struct NativeSpaceView: View {
                 }
                 .ignoresSafeArea()
             }
+            .overlay(alignment: .top) { diagnostic }
             .task(id: spaceURL) {
                 await load()
             }
@@ -57,6 +59,39 @@ struct NativeSpaceView: View {
             failure(reason)
         case let .loaded(document):
             loaded(document)
+        }
+    }
+
+    /// A one-line answer to "why am I looking at this?".
+    ///
+    /// The fallback is otherwise indistinguishable from the tab never having
+    /// changed, which is exactly the question that comes up while this surface
+    /// is being brought up. Outside production only, and it goes before merge.
+    @ViewBuilder
+    private var diagnostic: some View {
+        if !ConfigManager.shared.currentEnvironment.isProduction, let note = diagnosticNote {
+            Text(note)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.colorTextSecondary)
+                .lineLimit(1)
+                .padding(.horizontal, DesignConstants.Spacing.step2x)
+                .padding(.vertical, DesignConstants.Spacing.stepHalf)
+                .background(Capsule().fill(Color.colorBackgroundSurfaceless))
+                .overlay(Capsule().strokeBorder(Color.colorBorderSubtle))
+                .padding(.top, ConversationChromeMetrics.contentClearance)
+                .accessibilityIdentifier("native-space-diagnostic")
+        }
+    }
+
+    private var diagnosticNote: String? {
+        // The host is the load-bearing half: a Space on the shared dev
+        // environment cannot serve documents, and its host says so at a glance.
+        let host = spaceURL.host() ?? "?"
+        switch state {
+        case .loading: return nil
+        case .loaded: return "native · \(host)"
+        case let .unsupported(reason): return "web · \(reason) · \(host)"
+        case .failed: return "error · \(host)"
         }
     }
 
@@ -210,8 +245,10 @@ struct NativeSpaceView: View {
             // `unavailable` is the opposite: the route answered, its data did
             // not, and that is worth saying out loud.
             switch error {
-            case .malformed, .status:
-                state = .unsupported
+            case .malformed:
+                state = .unsupported("not a document")
+            case let .status(code):
+                state = .unsupported("HTTP \(code)")
             case .invalidURL, .unavailable:
                 state = .failed(Self.describe(error))
             }
