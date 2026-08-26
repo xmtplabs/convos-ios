@@ -18,6 +18,9 @@ struct NativeSpaceView: View {
     /// Space can answer for itself.
     let memberNames: [String]
     let onOpen: (URL, String?) -> Void
+    /// Opens the group's own member list, for the directory tile — the same
+    /// destination the conversation's info view opens.
+    let onOpenMembers: () -> Void
     /// Opens the invite picker, for the directory tile's spare cell — the same
     /// affordance the web tile offers through the native bridge.
     let onInvite: () -> Void
@@ -47,6 +50,7 @@ struct NativeSpaceView: View {
         memberNames: [String],
         topSafeAreaInset: CGFloat,
         onOpen: @escaping (URL, String?) -> Void,
+        onOpenMembers: @escaping () -> Void,
         onInvite: @escaping () -> Void,
         onAsk: @escaping () -> Void,
         onScrollUnderChrome: @escaping (CGFloat) -> Void,
@@ -56,6 +60,7 @@ struct NativeSpaceView: View {
         self.memberNames = memberNames
         self.topSafeAreaInset = topSafeAreaInset
         self.onOpen = onOpen
+        self.onOpenMembers = onOpenMembers
         self.onInvite = onInvite
         self.onAsk = onAsk
         self.onScrollUnderChrome = onScrollUnderChrome
@@ -310,6 +315,16 @@ struct NativeSpaceView: View {
     }
 
     private func open(_ widget: SpaceWidget) {
+        // The group's own members are a thing this app already knows how to
+        // show, and shows from the conversation's info view. Opening the Space's
+        // rendering of the same people instead would be a second, worse members
+        // list — one that cannot tap through to a profile. Keyed on the
+        // component rather than the route, because drawing the roster is what
+        // makes a tile the directory.
+        if widget.preview?.typeName == Constant.directoryPreview {
+            onOpenMembers()
+            return
+        }
         // A tile drawn before the Space exists has no page behind it. Doing
         // nothing is the honest answer; the tile becomes live when the document
         // it stands in for arrives.
@@ -394,6 +409,8 @@ struct NativeSpaceView: View {
         static let gutter: CGFloat = 24.0
         /// Two columns plus the gutter between them.
         static let gridMaximum: CGFloat = tileMaximum * 2 + gutter
+        /// The component that makes a tile the group's member list.
+        static let directoryPreview: String = "DirectoryPreview"
     }
 }
 

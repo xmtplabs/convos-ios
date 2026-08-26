@@ -120,6 +120,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var spaceSheetRoot: HomeBrowserEntry?
     /// The sheet's own navigation stack, for links followed inside it.
     @State private var spaceSheetPath: [HomeBrowserEntry] = []
+    /// The group's member list, opened from the Home's directory tile.
+    @State private var presentingMembersList: Bool = false
     /// How far the Context page has scrolled up under the chrome, which decides
     /// whether the wash behind the segmented control is drawn at all.
     @State private var contextScrolledUnderChrome: CGFloat = 0
@@ -1365,6 +1367,9 @@ private extension ConversationView {
         .sheet(item: $spaceSheetRoot) { root in
             spaceSheet(root: root)
         }
+        .sheet(isPresented: $presentingMembersList) {
+            membersListSheet
+        }
         // The agent composer's own state mirrors its own coordinator. Without
         // it, `FocusCoordinator.moveFocus` still runs and still updates the
         // coordinator, but nothing takes first responder. The group composer
@@ -1574,29 +1579,57 @@ private extension ConversationView {
             .navigationTitle(entry.title ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    // The wash goes on the button, not on the label inside it:
-                    // put on the label, the toolbar draws its own background
-                    // around the result and the circle reads as a rounded rect.
-                    Button(action: dismissSpaceSheet) {
-                        Image(systemName: "xmark")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.colorTextPrimary)
-                            .frame(
-                                width: SpaceSheetMetrics.closeButtonSize,
-                                height: SpaceSheetMetrics.closeButtonSize
-                            )
-                            .contentShape(.circle)
-                    }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .circle)
-                    .accessibilityLabel("Close")
-                    .accessibilityIdentifier("space-sheet-close")
-                }
-                // Toolbar items share one glass background whose shape the bar
-                // chooses, which squares off the circle drawn above.
-                .sharedBackgroundVisibility(.hidden)
+                sheetCloseItem(
+                    identifier: "space-sheet-close",
+                    action: dismissSpaceSheet
+                )
             }
+    }
+
+    /// The close button every sheet opened from the Home carries.
+    ///
+    /// The wash goes on the button, not on the label inside it: put on the
+    /// label, the toolbar draws its own background around the result and the
+    /// circle reads as a rounded rect. Toolbar items also share one glass
+    /// background whose shape the bar chooses, which squares it off again —
+    /// hence opting this item out of it.
+    @ToolbarContentBuilder
+    private func sheetCloseItem(
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button(action: action) {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(
+                        width: SpaceSheetMetrics.closeButtonSize,
+                        height: SpaceSheetMetrics.closeButtonSize
+                    )
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .accessibilityLabel("Close")
+            .accessibilityIdentifier(identifier)
+        }
+        .sharedBackgroundVisibility(.hidden)
+    }
+
+    /// The group's own member list, presented rather than pushed — the same
+    /// view the conversation's info view opens, so the Home's directory tile
+    /// and that path arrive at one members list rather than two.
+    @ViewBuilder
+    private var membersListSheet: some View {
+        NavigationStack {
+            ConversationMembersListView(viewModel: viewModel)
+                .toolbar {
+                    sheetCloseItem(identifier: "members-sheet-close") {
+                        presentingMembersList = false
+                    }
+                }
+        }
     }
 
     /// The Context tab's root: the conversation's Space web surface.
@@ -1640,6 +1673,7 @@ private extension ConversationView {
                 onOpen: { url, title in
                     presentSpacePage(for: url, title: title)
                 },
+                onOpenMembers: { presentingMembersList = true },
                 onInvite: homeBridgeNavigation.showInvitePicker,
                 onAsk: homeBridgeNavigation.showAgentDm,
                 onScrollUnderChrome: { contextScrolledUnderChrome = $0 },
