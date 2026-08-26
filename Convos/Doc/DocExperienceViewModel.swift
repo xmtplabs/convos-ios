@@ -38,6 +38,7 @@ enum DocPreviewStage: String {
     case finishHome
     case finishRoom
     case finishDraft
+    case notDocAgent
 
     static var current: DocPreviewStage? {
         let arguments = ProcessInfo.processInfo.arguments
@@ -75,6 +76,7 @@ final class DocExperienceViewModel {
     private(set) var pendingScreenshotCount: Int = 0
     private(set) var isGoogleStatusLoaded: Bool = false
     private(set) var isGoogleDocsReady: Bool = false
+    private(set) var isShowingNotDocAgentNotice: Bool = false
     var isPresentingGoogleConnect: Bool = false
     var isPresentingHistory: Bool = false
     var isPresentingShareNumber: Bool = false
@@ -98,6 +100,10 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var resolvedItemIds: Set<String> = []
     @ObservationIgnored private var itemsNeedingHistoryReconciliation: Set<String> = []
     @ObservationIgnored private var docContentTimeoutTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var resetCancellable: AnyCancellable?
+    @ObservationIgnored private var notDocAgentNoticeTask: Task<Void, Never>?
+    @ObservationIgnored private var compatibilityDetector: DocAgentCompatibilityDetector = .init()
+    @ObservationIgnored private var didDismissNotDocAgentNotice: Bool = false
 
     init(
         session: any SessionManagerProtocol,
@@ -108,7 +114,7 @@ final class DocExperienceViewModel {
         self.coreActions = coreActions
         self.defaults = defaults
         self.previewStage = DocPreviewStage.current
-        self.hasCompletedWelcome = defaults.bool(forKey: Self.key("welcome", session: session))
+        self.hasCompletedWelcome = defaults.bool(forKey: Self.storageKey("welcome", session: session))
 
         if let previewStage,
            [
@@ -148,7 +154,7 @@ final class DocExperienceViewModel {
                 presentedDraftItem = pendingItems.first { $0.register == .draft }
             }
         } else if previewStage == nil,
-                  let data = defaults.data(forKey: Self.key("snapshot", session: session)),
+                  let data = defaults.data(forKey: Self.storageKey("snapshot", session: session)),
                   let snapshot = try? JSONDecoder().decode(PersistedSnapshot.self, from: data) {
             state = snapshot.state
             pendingItems = snapshot.pendingItems
@@ -157,10 +163,28 @@ final class DocExperienceViewModel {
             )
             resolvedItemIds = Set(snapshot.resolvedItemIds)
             itemsNeedingHistoryReconciliation = Set(snapshot.pendingItems.map(\.id))
+            compatibilityDetector.hasSeenDocSentinel = snapshot.hasSeenDocSentinel ??
+                (snapshot.state != nil || !snapshot.pendingItems.isEmpty || !(snapshot.docContents ?? []).isEmpty)
         } else if previewStage == nil,
-                  let data = defaults.data(forKey: Self.key("state", session: session)) {
+                  let data = defaults.data(forKey: Self.storageKey("state", session: session)) {
             state = try? JSONDecoder().decode(DocState.self, from: data)
+            compatibilityDetector.hasSeenDocSentinel = state != nil
         }
+
+        if previewStage == .notDocAgent {
+            isShowingNotDocAgentNotice = true
+        }
+
+        resetCancellable = NotificationCenter.default
+            .publisher(for: .docAgentResetRequested)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let self,
+                      notification.object as? String == Self.accountIdentifier(session: self.session) else {
+                    return
+                }
+                self.resetRuntimeState()
+            }
     }
 
     var docs: [DocStatus] {
@@ -231,14 +255,14 @@ final class DocExperienceViewModel {
     func completeWelcome() {
         hasCompletedWelcome = true
         guard previewStage == nil else { return }
-        defaults.set(true, forKey: Self.key("welcome", session: session))
+        defaults.set(true, forKey: Self.storageKey("welcome", session: session))
         Task { await startAgentIfNeeded() }
     }
 
     func startAgentIfNeeded() async {
         guard previewStage == nil, hasCompletedWelcome, conversationViewModel == nil else { return }
 
-        let storedId = defaults.string(forKey: Self.key("originConversationId", session: session))
+        let storedId = Self.storedOriginConversationId(session: session, defaults: defaults)
         let conversations = try? await session
             .conversationsRepository(for: [.allowed, .unknown])
             .fetchAll()
@@ -277,7 +301,7 @@ final class DocExperienceViewModel {
     func showGoogleConnectIfNeeded() {
         guard previewStage == nil,
               dmViewModel != nil,
-              !defaults.bool(forKey: Self.key("googleConnectHandled", session: session)) else {
+              !defaults.bool(forKey: Self.storageKey("googleConnectHandled", session: session)) else {
             return
         }
         isPresentingGoogleConnect = true
@@ -286,7 +310,14 @@ final class DocExperienceViewModel {
     func didDismissGoogleConnect() {
         isPresentingGoogleConnect = false
         guard previewStage == nil else { return }
-        defaults.set(true, forKey: Self.key("googleConnectHandled", session: session))
+        defaults.set(true, forKey: Self.storageKey("googleConnectHandled", session: session))
+    }
+
+    func dismissNotDocAgentNotice() {
+        didDismissNotDocAgentNotice = true
+        notDocAgentNoticeTask?.cancel()
+        notDocAgentNoticeTask = nil
+        isShowingNotDocAgentNotice = false
     }
 
     func didSend(screenshotCount: Int) {
@@ -537,7 +568,7 @@ final class DocExperienceViewModel {
         updateAnswerDeliveries(from: messages)
         guard let agentInboxId else { return }
 
-        var changedSnapshot = false
+        var changedSnapshot = observeAgentCompatibility(messages, agentInboxId: agentInboxId)
         for message in messages.sorted(by: { $0.date < $1.date }) {
             guard !processedEventMessageIds.contains(message.id),
                   message.senderId == agentInboxId,
@@ -584,6 +615,38 @@ final class DocExperienceViewModel {
             }
         }
         if changedSnapshot { persistSnapshot() }
+        updateNotDocAgentNotice()
+    }
+
+    private func observeAgentCompatibility(_ messages: [AnyMessage], agentInboxId: String) -> Bool {
+        var changed = false
+        for message in messages where message.senderId == agentInboxId {
+            guard case .text(let text) = message.content else { continue }
+            changed = compatibilityDetector.observe(text: text, isAgent: true) || changed
+        }
+        return changed
+    }
+
+    private func updateNotDocAgentNotice() {
+        guard previewStage == nil else { return }
+        guard compatibilityDetector.shouldWarn, !didDismissNotDocAgentNotice else {
+            notDocAgentNoticeTask?.cancel()
+            notDocAgentNoticeTask = nil
+            isShowingNotDocAgentNotice = false
+            return
+        }
+        guard notDocAgentNoticeTask == nil else { return }
+        notDocAgentNoticeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled,
+                  let self,
+                  self.compatibilityDetector.shouldWarn,
+                  !self.didDismissNotDocAgentNotice else {
+                return
+            }
+            self.isShowingNotDocAgentNotice = true
+            self.notDocAgentNoticeTask = nil
+        }
     }
 
     private func updateAnswerDeliveries(from messages: [AnyMessage]) {
@@ -663,27 +726,17 @@ final class DocExperienceViewModel {
             state: state,
             pendingItems: pendingItems,
             resolvedItemIds: Array(resolvedItemIds),
-            docContents: Array(docContentsById.values)
+            docContents: Array(docContentsById.values),
+            hasSeenDocSentinel: compatibilityDetector.hasSeenDocSentinel
         )
         if let data = try? JSONEncoder().encode(snapshot) {
-            defaults.set(data, forKey: Self.key("snapshot", session: session))
+            defaults.set(data, forKey: Self.storageKey("snapshot", session: session))
         }
     }
 
     private func persistOriginConversationId(_ id: String) {
         guard !id.hasPrefix("draft-") else { return }
-        defaults.set(id, forKey: Self.key("originConversationId", session: session))
-    }
-
-    private static func key(_ component: String, session: any SessionManagerProtocol) -> String {
-        let account: String
-        switch session.messagingServiceSync().state {
-        case .authorized(let inboxId):
-            account = inboxId
-        case .registering:
-            account = "registering"
-        }
-        return "doc.v1.\(account).\(component)"
+        defaults.set(id, forKey: Self.storageKey("originConversationId", session: session))
     }
 
     private static func itemPrecedes(_ lhs: DocWaitingItem, _ rhs: DocWaitingItem) -> Bool {
@@ -706,7 +759,113 @@ final class DocExperienceViewModel {
         let pendingItems: [DocWaitingItem]
         let resolvedItemIds: [String]
         let docContents: [DocContent]?
+        let hasSeenDocSentinel: Bool?
     }
+}
+
+extension DocExperienceViewModel {
+    static func storedOriginConversationId(
+        session: any SessionManagerProtocol,
+        defaults: UserDefaults = .standard
+    ) -> String? {
+        defaults.string(forKey: storageKey("originConversationId", session: session))
+    }
+
+    static func resetAgentBinding(
+        session: any SessionManagerProtocol,
+        defaults: UserDefaults = .standard
+    ) {
+        if let conversationId = storedOriginConversationId(session: session, defaults: defaults) {
+            AgentJoinDiagnosticsStore.shared.clear(conversationId: conversationId)
+        }
+        ["originConversationId", "welcome", "googleConnectHandled", "snapshot", "state"]
+            .map { storageKey($0, session: session) }
+            .forEach { defaults.removeObject(forKey: $0) }
+        NotificationCenter.default.post(
+            name: .docAgentResetRequested,
+            object: accountIdentifier(session: session)
+        )
+    }
+
+    static func storageKey(_ component: String, session: any SessionManagerProtocol) -> String {
+        "doc.v1.\(accountIdentifier(session: session)).\(component)"
+    }
+
+    private static func accountIdentifier(session: any SessionManagerProtocol) -> String {
+        switch session.messagingServiceSync().state {
+        case .authorized(let inboxId):
+            inboxId
+        case .registering:
+            "registering"
+        }
+    }
+
+    private func resetRuntimeState() {
+        messagesCancellable = nil
+        dmMessagesRepository = nil
+        googleStatusCancellable = nil
+        observedDmConversationId = nil
+        conversationViewModel = nil
+        agentDmSession = nil
+        state = nil
+        pendingItems = []
+        docContentsById = [:]
+        docContentLoadStates = [:]
+        itemSendStates = [:]
+        composerTexts = [:]
+        composerPhotos = [:]
+        pendingScreenshotCount = 0
+        isGoogleStatusLoaded = false
+        isGoogleDocsReady = false
+        isPresentingGoogleConnect = false
+        isPresentingHistory = false
+        isPresentingShareNumber = false
+        presentedDraftItem = nil
+        activeAnswerItemId = nil
+        sharedDocNumber = nil
+        hasCompletedWelcome = false
+        latestStateMessageId = nil
+        stateMessageIdAtLastSend = nil
+        processedEventMessageIds = []
+        resolvedItemIds = []
+        itemsNeedingHistoryReconciliation = []
+        docContentTimeoutTasks.values.forEach { $0.cancel() }
+        docContentTimeoutTasks = [:]
+        notDocAgentNoticeTask?.cancel()
+        notDocAgentNoticeTask = nil
+        compatibilityDetector = .init()
+        didDismissNotDocAgentNotice = false
+        isShowingNotDocAgentNotice = false
+    }
+}
+
+struct DocAgentCompatibilityDetector {
+    fileprivate(set) var hasSeenDocSentinel: Bool = false
+    private(set) var hasSeenNormalAgentMessage: Bool = false
+
+    var shouldWarn: Bool {
+        hasSeenNormalAgentMessage && !hasSeenDocSentinel
+    }
+
+    @discardableResult
+    mutating func observe(text: String, isAgent: Bool) -> Bool {
+        guard isAgent else { return false }
+        let oldValue = self
+        if DocStateMessage.isDataPlaneText(text) {
+            hasSeenDocSentinel = true
+        } else if !DocWireMessage.isHiddenText(text) {
+            hasSeenNormalAgentMessage = true
+        }
+        return self != oldValue
+    }
+}
+
+extension DocAgentCompatibilityDetector: Equatable {}
+
+private extension Notification.Name {
+    static let docAgentResetRequested: Notification.Name = Notification.Name(
+        "org.convos.docAgentResetRequested"
+    )
 }
 
 enum DocItemReconciler {

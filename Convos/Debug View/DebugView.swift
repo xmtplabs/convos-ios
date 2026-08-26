@@ -52,14 +52,14 @@ struct DebugViewSection: View {
     @State private var abilitiesV1ShimEnabled: Bool = AbilitiesServices.isV1AwarenessShimEnabled
     @State private var abilitiesEscalationMockEnabled: Bool = AbilitiesServices.isEscalationMockEnabled
     @State private var identity: DeviceIdentitySnapshot?
-    @State private var presentingDocAgentVariantPicker: Bool = false
-    @State private var presentingDocAgent: NewConversationViewModel?
-    @State private var selectedDocAgentVariantSlug: String?
-    @State private var shouldLaunchDocAgentAfterVariantPicker: Bool = false
+    @State private var docAgentBindingId: String?
+    @State private var docAgentDiagnostic: AgentJoinDiagnostic?
+    @State private var didResetDocAgent: Bool = false
 
     var body: some View {
         Group {
             featuresSection
+            docSection
             subscriptionSection
             pushNotificationsSection
             debugSection
@@ -75,19 +75,14 @@ struct DebugViewSection: View {
             logStorageInfo = DebugLogExporter.getStorageInfo(environment: environment)
             let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
             identity = await DeviceIdentitySnapshot.current(identityStore: identityStore)
+            refreshDocAgentDiagnostic()
         }
-        .selfSizingSheet(
-            isPresented: $presentingDocAgentVariantPicker,
-            onDismiss: handleDocAgentVariantPickerDismissed
-        ) {
-            AgentVariantPickerSheet(onContinue: handleDocAgentVariantSelected)
-        }
-        .sheet(item: $presentingDocAgent) { viewModel in
-            NewConversationView(
-                viewModel: viewModel,
-                profileSettingsViewModel: .shared
-            )
-            .background(.colorBackgroundSurfaceless)
+        .onReceive(
+            NotificationCenter.default
+                .publisher(for: .agentJoinDiagnosticsDidChange)
+                .receive(on: DispatchQueue.main)
+        ) { _ in
+            refreshDocAgentDiagnostic()
         }
     }
 
@@ -103,12 +98,6 @@ struct DebugViewSection: View {
             abilitiesFeatureToggles
             Toggle("Enable Relay (BYOA)", isOn: Bindable(FeatureFlags.shared).agentRelayEnabled)
             Toggle("Agent model picker", isOn: Bindable(FeatureFlags.shared).isAgentModelPickerEnabled)
-
-            let createDocAgentAction = { beginDocAgentLaunch() }
-            Button(action: createDocAgentAction) {
-                Text("Create Doc agent")
-                    .foregroundStyle(.colorTextPrimary)
-            }
 
             let showInfoAction = { showingAgentsInfoSheet = true }
             Button(action: showInfoAction) {
@@ -129,14 +118,59 @@ struct DebugViewSection: View {
         }
     }
 
-    /// The agent-variant flag. The toggle gates where variants are actually
-    /// picked: the sheet at conversation creation and the dropdown in the
-    /// make-an-agent composer. There is deliberately no picker here — a
-    /// variant belongs to one conversation, chosen as that conversation is
-    /// made, not set globally from Settings for whatever comes next.
+    /// The agent-variant flag. The toggle gates the picker at conversation
+    /// creation, including the Doc launch below, and the dropdown in the
+    /// make-an-agent composer.
     @ViewBuilder
     private var agentVariantToggles: some View {
         Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
+    }
+
+    @ViewBuilder
+    private var docSection: some View {
+        Section("Doc") {
+            LabeledContent("Selected variant") {
+                Text(selectedDocVariantDescription)
+                    .foregroundStyle(.colorTextSecondary)
+                    .textSelection(.enabled)
+            }
+
+            LabeledContent("Doc agent variant") {
+                VStack(alignment: .trailing, spacing: DesignConstants.Spacing.stepHalf) {
+                    Text(docAgentVariantDescription)
+                        .foregroundStyle(.colorTextSecondary)
+                        .multilineTextAlignment(.trailing)
+                        .textSelection(.enabled)
+                    Text(docAgentVariantDroppedDescription)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+
+            NavigationLink {
+                DebugDocAgentLaunchFlow(
+                    session: session,
+                    coreActions: coreActions,
+                    startsWithVariantPicker: FeatureFlags.shared.isAgentVariantSelectorEnabled
+                )
+            } label: {
+                Text("Create Doc agent")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+
+            let resetDocAgentAction = { resetDocAgent() }
+            Button(action: resetDocAgentAction) {
+                Text("Reset Doc agent")
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            .disabled(docAgentBindingId == nil)
+
+            if didResetDocAgent {
+                Text("Doc agent reset. Close Settings to restart first run.")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+        }
     }
 
     /// The Abilities V2 flag with its sub-toggles: the V1 awareness shim
@@ -460,33 +494,110 @@ struct DebugViewSection: View {
         }
     }
 
-    private func beginDocAgentLaunch() {
-        guard FeatureFlags.shared.isAgentVariantSelectorEnabled else {
-            launchDocAgent(variantSlug: nil)
+    private var docAgentVariantDescription: String {
+        guard let variant = docAgentDiagnostic?.variant else { return "none — default agent" }
+        let commit = variant.commit.isEmpty ? "unknown" : String(variant.commit.prefix(10))
+        return "\(variant.slug) @ \(commit)"
+    }
+
+    private var selectedDocVariantDescription: String {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-DocDiagnosticPreview") {
+            return "pr-3655"
+        }
+        #endif
+        return FeatureFlags.shared.effectiveAgentVariantSlug ?? "none"
+    }
+
+    private var docAgentVariantDroppedDescription: String {
+        guard let docAgentDiagnostic else { return "No join response recorded" }
+        let requested = docAgentDiagnostic.requestedVariantId ?? "none"
+        let dropped = docAgentDiagnostic.variantDropped.map(String.init) ?? "unknown"
+        return "requested: \(requested) · variantDropped: \(dropped)"
+    }
+
+    private func refreshDocAgentDiagnostic() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-DocDiagnosticPreview") {
+            docAgentBindingId = "doc-preview-conversation"
+            docAgentDiagnostic = AgentJoinDiagnostic(
+                conversationId: "doc-preview-conversation",
+                requestedVariantId: "pr-3655",
+                variant: .init(slug: "pr-3655", commit: "abc123def456"),
+                variantDropped: false
+            )
             return
         }
-        selectedDocAgentVariantSlug = nil
-        shouldLaunchDocAgentAfterVariantPicker = false
-        presentingDocAgentVariantPicker = true
+        #endif
+        docAgentBindingId = DocExperienceViewModel.storedOriginConversationId(session: session)
+        docAgentDiagnostic = docAgentBindingId.flatMap {
+            AgentJoinDiagnosticsStore.shared.diagnostic(for: $0)
+        }
     }
 
-    private func handleDocAgentVariantSelected(_ slug: String?) {
-        selectedDocAgentVariantSlug = slug
-        shouldLaunchDocAgentAfterVariantPicker = true
+    private func resetDocAgent() {
+        DocExperienceViewModel.resetAgentBinding(session: session)
+        docAgentBindingId = nil
+        docAgentDiagnostic = nil
+        didResetDocAgent = true
+    }
+}
+
+/// The Debug create path stays inside one navigation destination. Swapping its
+/// content after Continue avoids coordinating two overlapping presentations.
+private struct DebugDocAgentLaunchFlow: View {
+    let session: any SessionManagerProtocol
+    let coreActions: any CoreActions
+    @State private var conversationViewModel: NewConversationViewModel?
+
+    init(
+        session: any SessionManagerProtocol,
+        coreActions: any CoreActions,
+        startsWithVariantPicker: Bool
+    ) {
+        self.session = session
+        self.coreActions = coreActions
+        if startsWithVariantPicker {
+            _conversationViewModel = State(initialValue: nil)
+        } else {
+            _conversationViewModel = State(initialValue: NewConversationViewModel(
+                session: session,
+                mode: .newConversation,
+                coreActions: coreActions,
+                agentVariantSlug: FeatureFlags.shared.effectiveAgentVariantSlug
+            ))
+        }
     }
 
-    private func handleDocAgentVariantPickerDismissed() {
-        guard shouldLaunchDocAgentAfterVariantPicker else { return }
-        shouldLaunchDocAgentAfterVariantPicker = false
-        launchDocAgent(variantSlug: selectedDocAgentVariantSlug)
+    var body: some View {
+        Group {
+            if let conversationViewModel {
+                NewConversationView(
+                    viewModel: conversationViewModel,
+                    profileSettingsViewModel: .shared,
+                    embedsNavigationStack: false
+                )
+                .background(.colorBackgroundSurfaceless)
+            } else {
+                AgentVariantPickerSheet(
+                    dismissesOnContinue: false,
+                    onContinue: continueWithVariant
+                )
+            }
+        }
     }
 
-    private func launchDocAgent(variantSlug: String?) {
-        presentingDocAgent = NewConversationViewModel(
+    private func continueWithVariant(_ slug: String?) {
+        if let variant = AgentVariantRegistry.shared.variant(withSlug: slug) {
+            FeatureFlags.shared.selectedAgentVariant = variant
+        } else if slug == nil {
+            FeatureFlags.shared.selectedAgentVariant = nil
+        }
+        conversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation,
             coreActions: coreActions,
-            agentVariantSlug: variantSlug
+            agentVariantSlug: FeatureFlags.shared.effectiveAgentVariantSlug
         )
     }
 }

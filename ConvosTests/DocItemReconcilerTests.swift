@@ -4,6 +4,45 @@ import Foundation
 import Testing
 
 struct DocItemReconcilerTests {
+    @Test func compatibilityDetectorWarnsOnlyForNormalAgentRepliesWithoutDocEvents() {
+        var detector = DocAgentCompatibilityDetector()
+
+        detector.observe(text: "A normal assistant reply", isAgent: false)
+        #expect(!detector.shouldWarn)
+
+        detector.observe(text: "A normal assistant reply", isAgent: true)
+        #expect(detector.shouldWarn)
+
+        detector.observe(text: "⟦doc⟧not-even-valid-json", isAgent: true)
+        #expect(!detector.shouldWarn)
+    }
+
+    @Test func compatibilityDetectorIgnoresHiddenClientProtocolMessages() {
+        var detector = DocAgentCompatibilityDetector()
+
+        detector.observe(text: #"⟦ans⟧{"id":"question","choice":"Dec 14"}"#, isAgent: true)
+        detector.observe(text: #"⟦req⟧{"t":"doc-content","docId":"trip"}"#, isAgent: true)
+
+        #expect(!detector.shouldWarn)
+    }
+
+    @MainActor
+    @Test func resetClearsOnlyDocShellState() throws {
+        let suiteName = "DocAgentResetTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let session = MockInboxesService()
+        let docKeys = ["originConversationId", "welcome", "googleConnectHandled", "snapshot", "state"]
+            .map { DocExperienceViewModel.storageKey($0, session: session) }
+        docKeys.forEach { defaults.set("stored", forKey: $0) }
+        defaults.set("keep", forKey: "unrelated")
+
+        DocExperienceViewModel.resetAgentBinding(session: session, defaults: defaults)
+
+        #expect(docKeys.allSatisfy { defaults.object(forKey: $0) == nil })
+        #expect(defaults.string(forKey: "unrelated") == "keep")
+    }
+
     @Test func resolvedTombstonePreventsColdHistoryFromRestoringItem() throws {
         let item = waitingItem(id: "cold-item")
         var pendingItems = [item]

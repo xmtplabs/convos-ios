@@ -1404,11 +1404,25 @@ extension ConvosAPIClient {
         case 200...299:
             let decoder = JSONDecoder()
             let response = try decoder.decode(ConvosAPI.AgentJoinResponse.self, from: data)
+            if let conversationId = joinRequest.conversationId {
+                AgentJoinDiagnosticsStore.shared.record(
+                    conversationId: conversationId,
+                    requestedVariantId: safeOptions?.variantId,
+                    response: response
+                )
+            }
             // When a key was sent, the returned instanceId should equal it (the
             // key is the workflow instance id); a match on a retry is the
             // client-visible proof the server adopted rather than re-provisioned.
             let matchSuffix = joinRequest.idempotencyKey.map { " idempotencyKey=\($0.rawValue) instanceIdMatchesKey=\(response.instanceId == $0.rawValue)" } ?? ""
-            Log.info("agents/join succeeded: instanceId=\(response.instanceId ?? "nil")\(matchSuffix) joined=\(response.joined) inboxIdPresent=\(response.inboxId != nil)")
+            let responseVariant = response.variant.map { "\($0.slug)@\($0.commit)" } ?? "none"
+            let variantDropped = response.variantDropped.map(String.init) ?? "unknown"
+            Log.info(
+                "agents/join succeeded: instanceId=\(response.instanceId ?? "nil")\(matchSuffix) " +
+                    "joined=\(response.joined) inboxIdPresent=\(response.inboxId != nil) " +
+                    "requestedVariant=\(safeOptions?.variantId ?? "none") " +
+                    "variant=\(responseVariant) variantDropped=\(variantDropped)"
+            )
             return response
         case 502:
             throw APIError.agentProvisionFailed

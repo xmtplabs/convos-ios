@@ -207,6 +207,11 @@ private struct DocHomeView: View {
                     .docHomeRow()
             }
 
+            if viewModel.isShowingNotDocAgentNotice {
+                DocWrongAgentNotice(onDismiss: viewModel.dismissNotDocAgentNotice)
+                    .docHomeRow()
+            }
+
             if !viewModel.visiblePendingItems.isEmpty {
                 DocForYouSection(
                     viewModel: viewModel,
@@ -253,6 +258,33 @@ private struct DocHomeView: View {
             DocComposer(viewModel: viewModel)
         }
         .accessibilityIdentifier("doc-home")
+    }
+}
+
+private struct DocWrongAgentNotice: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step3x) {
+            Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text("This agent isn't running the Doc preview. Reset it in Settings ▸ Debug.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.semibold))
+            }
+            .frame(minWidth: 44.0, minHeight: 44.0)
+            .contentShape(.rect)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(DesignConstants.Spacing.step3x)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14.0))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("doc-wrong-agent-notice")
     }
 }
 

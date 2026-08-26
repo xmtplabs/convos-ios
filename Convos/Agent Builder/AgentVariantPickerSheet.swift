@@ -11,6 +11,7 @@ import SwiftUI
 /// variant chosen in the make-an-agent composer, so the common case is
 /// Continue without touching the dropdown.
 struct AgentVariantPickerSheet: View {
+    var dismissesOnContinue: Bool = true
     let onContinue: (String?) -> Void
 
     @State private var registry: AgentVariantRegistry = .shared
@@ -72,7 +73,9 @@ struct AgentVariantPickerSheet: View {
         let confirm: () -> Void = {
             let slug = selectedSlug
             Log.info("AgentVariant: new conversation starting under variant \(slug ?? "none")")
-            dismiss()
+            if dismissesOnContinue {
+                dismiss()
+            }
             onContinue(slug)
         }
         return Button(action: confirm) {
