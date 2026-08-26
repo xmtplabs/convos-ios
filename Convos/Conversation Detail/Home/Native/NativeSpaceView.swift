@@ -20,7 +20,28 @@ struct NativeSpaceView: View {
     /// the tab shows that page rather than an error a reader cannot act on.
     let webFallback: AnyView
 
-    @State private var state: LoadState = .loading
+    @State private var state: LoadState
+
+    @MainActor
+    init(spaceURL: URL, onOpen: @escaping (URL) -> Void, webFallback: AnyView) {
+        self.spaceURL = spaceURL
+        self.onOpen = onOpen
+        self.webFallback = webFallback
+        // Seeded rather than defaulted to `.loading`: this view is rebuilt from
+        // scratch every time a page is pushed or popped, and starting from what
+        // the Space last answered is what keeps that invisible.
+        _state = State(initialValue: Self.seed(for: spaceURL))
+    }
+
+    /// The state a freshly built view starts in, given what this Space last said.
+    @MainActor
+    private static func seed(for spaceURL: URL) -> LoadState {
+        switch SpaceDocumentStore.shared.outcome(for: spaceURL) {
+        case let .loaded(document): .loaded(document)
+        case let .unsupported(reason): .unsupported(reason)
+        case nil: .loading
+        }
+    }
 
     private enum LoadState: Equatable {
         case loading
@@ -244,9 +265,15 @@ struct NativeSpaceView: View {
     }
 
     private func load() async {
-        state = .loading
+        // Only an unseeded view shows the loading state. A rebuild, or a revisit
+        // with something already cached, redraws what it had and quietly checks
+        // for a newer document behind it.
+        if state == .loading, SpaceDocumentStore.shared.outcome(for: spaceURL) == nil {
+            state = .loading
+        }
         do {
             let document = try await SpaceDocumentLoader.load(base: spaceURL)
+            SpaceDocumentStore.shared.record(.loaded(document), for: spaceURL)
             state = .loaded(document)
         } catch let error as SpaceDocumentLoader.LoadError {
             // A deployment that predates the document route serves its page as
@@ -256,14 +283,27 @@ struct NativeSpaceView: View {
             // not, and that is worth saying out loud.
             switch error {
             case .malformed:
-                state = .unsupported("not a document")
+                record(.unsupported("not a document"))
             case let .status(code):
-                state = .unsupported("HTTP \(code)")
+                record(.unsupported("HTTP \(code)"))
             case .invalidURL, .unavailable:
+                // A failure is transient and is not remembered; a reader who
+                // comes back gets a fresh attempt rather than a stale error.
+                // Anything already drawn stays drawn.
+                if case .loaded = state { return }
                 state = .failed(Self.describe(error))
             }
         } catch {
+            if case .loaded = state { return }
             state = .failed(error.localizedDescription)
+        }
+    }
+
+    private func record(_ outcome: SpaceDocumentStore.Outcome) {
+        SpaceDocumentStore.shared.record(outcome, for: spaceURL)
+        switch outcome {
+        case let .loaded(document): state = .loaded(document)
+        case let .unsupported(reason): state = .unsupported(reason)
         }
     }
 
@@ -304,20 +344,7 @@ private struct WidgetTile: View {
                         .strokeBorder(Color.colorBorderSubtle)
                 }
                 .overlay {
-                    // Most tiles carry no count — it is only set where the page
-                    // queried a collection — so the route stands in rather than
-                    // leaving a card that reads as failed to load.
-                    if let count = widget.itemCount {
-                        Text(verbatim: "\(count)")
-                            .font(.title.weight(.semibold))
-                            .foregroundStyle(.colorTextPrimary)
-                    } else {
-                        Text(widget.route)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.colorTextSecondary)
-                            .lineLimit(1)
-                            .padding(.horizontal, DesignConstants.Spacing.step2x)
-                    }
+                    SpaceWidgetPreview(widget: widget, preview: widget.preview)
                 }
                 .aspectRatio(widget.aspectRatio, contentMode: .fit)
             Text(widget.title)

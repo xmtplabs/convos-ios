@@ -91,6 +91,44 @@ struct SpaceNode: Equatable {
     func flattened() -> [SpaceNode] {
         [self] + children.flatMap { $0.flattened() }
     }
+
+    // Prop readers. A document's props are author-written, so every one of
+    // these answers "absent" rather than trapping: a tile that is missing a
+    // field draws without it instead of taking the page down.
+
+    func string(_ name: String) -> String? {
+        props[name]?.stringValue
+    }
+
+    func int(_ name: String) -> Int? {
+        props[name]?.intValue
+    }
+
+    func strings(_ name: String) -> [String] {
+        props[name]?.arrayValue?.compactMap(\.stringValue) ?? []
+    }
+
+    /// The component children of one prop, skipping anything that is plain data.
+    func nodes(_ name: String) -> [SpaceNode] {
+        props[name]?.arrayValue?.compactMap(SpaceNode.init) ?? []
+    }
+
+    /// The object rows of one prop, for props that carry data rather than
+    /// components — a reminder's `{label, done}`, a member's `{name, imageUrl}`.
+    func rows(_ name: String) -> [[String: SpaceValue]] {
+        props[name]?.arrayValue?.compactMap(\.objectValue) ?? []
+    }
+}
+
+extension [String: SpaceValue] {
+    func string(_ name: String) -> String? {
+        self[name]?.stringValue
+    }
+
+    func bool(_ name: String) -> Bool? {
+        if case let .bool(value)? = self[name] { return value }
+        return nil
+    }
 }
 
 /// One home-screen tile, as the app needs it to draw a cell.
@@ -106,6 +144,9 @@ struct SpaceWidget: Identifiable, Equatable {
     let itemCount: Int?
     /// The route a single-item tile opens instead of its collection.
     let itemHref: String?
+    /// What the tile draws: the first component in its children, whose own name
+    /// is the tile's type (`NotesPreview`, `EventsPreview`, …).
+    let preview: SpaceNode?
 
     var id: String { route }
 
@@ -143,6 +184,7 @@ struct SpaceWidget: Identifiable, Equatable {
         size = node.props["size"]?.stringValue ?? "1x1"
         itemCount = node.props["itemCount"]?.intValue
         itemHref = node.props["itemHref"]?.stringValue
+        preview = node.children.first
     }
 }
 
