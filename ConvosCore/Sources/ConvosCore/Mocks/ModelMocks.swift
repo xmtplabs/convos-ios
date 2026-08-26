@@ -419,6 +419,13 @@ private func summaryFromFirstMetadataChange(
             return "\(creatorDisplayName) paused agents, so they'll never see the following messages"
         }
         return "\(creatorDisplayName) set agents to \(mode.transcriptTitle)"
+    case .agentModel:
+        guard let newValue = metadataChange.newValue else { return nil }
+        // The model id, not a friendly name: the catalogue that names it lives
+        // inside the agent's container, and a transcript row has to render from
+        // the commit alone — including for a member whose device never read
+        // that catalogue.
+        return "\(creatorDisplayName) switched an agent to \(newValue)"
     case .metadata, .unknown:
         return nil
     }

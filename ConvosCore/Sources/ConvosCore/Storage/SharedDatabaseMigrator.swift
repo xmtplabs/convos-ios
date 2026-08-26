@@ -223,6 +223,25 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addConversationParticipationMode", migrate: Self.addConversationParticipationMode)
         migrator.registerMigration("clearCutListenParticipationMode", migrate: Self.clearCutListenParticipationMode)
         migrator.registerMigration("addConversationSpaceURLString", migrate: Self.addConversationSpaceURLString)
+        migrator.registerMigration("addConversationMemberAgentModel", migrate: Self.addConversationMemberAgentModel)
+    }
+
+    /// The model one agent runs on, mirrored from that agent's profile in the
+    /// group's appData (the Assistant Worker publishes it; clients only read).
+    ///
+    /// It sits on the membership row rather than on `conversation`, which is
+    /// where the participation mode sits, because the two are scoped
+    /// differently: a mode governs the whole room, while a model belongs to one
+    /// agent and a room can hold several. `conversation_members` is already
+    /// keyed by exactly that pair.
+    ///
+    /// Nullable with no default. Null is an agent nobody has switched, which is
+    /// not the same as an agent on a known model: it runs whatever its own
+    /// template shipped, and only the agent can say what that is.
+    static func addConversationMemberAgentModel(_ db: Database) throws {
+        try db.alter(table: "conversation_members") { t in
+            t.add(column: "agentModel", .text)
+        }
     }
 
     /// The deployed Space web URL for the conversation, mirrored from the

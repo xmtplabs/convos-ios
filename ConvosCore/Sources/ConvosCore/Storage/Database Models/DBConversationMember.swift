@@ -13,6 +13,7 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
         static let consent: Column = Column(CodingKeys.consent)
         static let createdAt: Column = Column(CodingKeys.createdAt)
         static let invitedByInboxId: Column = Column(CodingKeys.invitedByInboxId)
+        static let agentModel: Column = Column(CodingKeys.agentModel)
     }
 
     let conversationId: String
@@ -21,6 +22,16 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
     let consent: Consent
     let createdAt: Date
     var invitedByInboxId: String?
+
+    /// The model this member runs on, when the member is an agent, mirrored
+    /// from its profile in the group's appData. Nil for a human member, and nil
+    /// for an agent nobody has switched — which is not a model the client can
+    /// name, since an unswitched agent runs whatever its own template shipped.
+    ///
+    /// Read-only here: the Assistant Worker validates a choice against that
+    /// agent's own catalogue and publishes it, so this column mirrors a value
+    /// rather than authoring one.
+    var agentModel: String?
 
     static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMember.Columns.inboxId])
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])

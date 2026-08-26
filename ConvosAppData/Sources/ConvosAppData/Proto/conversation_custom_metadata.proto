@@ -73,4 +73,18 @@ message ConversationProfile {
     // now; no client reads or writes this field anymore. Kept defined so the
     // field number stays claimed and payloads from older releases keep decoding.
     optional string connections = 5;
+    // The model this agent runs on, for a profile that belongs to one. Absent
+    // for a human member, and absent for an agent nobody has switched — which
+    // is not the same as a model: an unswitched agent runs whatever its own
+    // template shipped, and only the agent knows what that is.
+    //
+    // It hangs off the profile rather than off the conversation because the
+    // choice belongs to one agent, which is exactly what participationMode is
+    // not: a room holding several agents carries one entry each.
+    //
+    // The Assistant Worker is the sole authority. An agent only runs what its
+    // own catalogue lists, so a choice is validated and applied before it is
+    // published here; clients read this copy to see what every member's agent
+    // was switched to, and never write it.
+    optional string model = 6;
 }

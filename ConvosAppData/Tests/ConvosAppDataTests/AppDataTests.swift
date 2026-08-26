@@ -138,6 +138,60 @@ struct SerializationTests {
         #expect(decoded.hasSpaceURL == true)
         #expect(decoded.spaceURL == url)
     }
+
+    @Test("Agent model decodes from the blob Herald actually writes")
+    func agentModelDecodesFromHeraldBlob() throws {
+        // Not hand-built: this is the exact output of the Assistant stack's
+        // own writer for one agent switched to a model, captured verbatim. A
+        // hand-rolled blob could encode the field the same wrong way this
+        // client decodes it and the test would still pass; a fixture from the
+        // other side of the wire cannot.
+        let blob = "CgF0EkMKIAARIjNEVWZ3iJkAESIzRFVmd4iZABEiM0RVZneImQAREgRBcmlhMhlhbnRocm9waWMvY2xhdWRlLXNvbm5ldC01"
+
+        let decoded = try ConversationCustomMetadata.fromCompactString(blob)
+
+        let profile = try #require(decoded.profiles.first)
+        #expect(profile.hasModel == true)
+        #expect(profile.model == "anthropic/claude-sonnet-5")
+        // The rest of the profile has to survive the splice that put the model
+        // there, since that splice rewrites the whole submessage.
+        #expect(profile.name == "Aria")
+        #expect(
+            profile.inboxIdString
+                == "0011223344556677889900112233445566778899001122334455667788990011"
+        )
+    }
+
+    @Test("Agent model survives an unrelated read-modify-write")
+    func agentModelSurvivesReadModifyWrite() throws {
+        var profile = ConversationProfile()
+        profile.inboxID = Data(repeating: 0x11, count: 32)
+        profile.model = "anthropic/claude-sonnet-5"
+        var metadata = ConversationCustomMetadata()
+        metadata.profiles = [profile]
+
+        var reloaded = try ConversationCustomMetadata.fromCompactString(metadata.toCompactString())
+        reloaded.emoji = "🛰️"
+        let decoded = try ConversationCustomMetadata.fromCompactString(reloaded.toCompactString())
+
+        #expect(decoded.profiles.first?.model == "anthropic/claude-sonnet-5")
+        #expect(decoded.emoji == "🛰️")
+    }
+
+    @Test("A profile with no model is not a profile on an empty model")
+    func absentAgentModelIsDistinctFromEmpty() throws {
+        var profile = ConversationProfile()
+        profile.inboxID = Data(repeating: 0x11, count: 32)
+        var metadata = ConversationCustomMetadata()
+        metadata.profiles = [profile]
+
+        let decoded = try ConversationCustomMetadata.fromCompactString(metadata.toCompactString())
+
+        // An agent nobody has switched runs its own template default, and only
+        // the agent knows what that is. Reading absent as "" would let a client
+        // claim it knows.
+        #expect(decoded.profiles.first?.hasModel == false)
+    }
 }
 
 @Suite("ConversationProfile Tests")

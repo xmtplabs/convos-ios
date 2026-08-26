@@ -157,6 +157,23 @@ public final class AgentModelStore {
         return options.first { $0.id == selectedId }?.name ?? selectedId
     }
 
+    /// Adopts a model that arrived over the network — someone switched this
+    /// agent on another device and the synced conversation carries their value.
+    ///
+    /// The counterpart of `AgentParticipationStore.apply(syncedLevel:)`, and
+    /// ignored under the same condition: a write outstanding on this device is
+    /// newer than anything the sync can be carrying, and this device's own
+    /// change arrives back here as a synced value a moment later anyway.
+    ///
+    /// Does not touch `options`. The catalogue is what this agent *can* run and
+    /// lives in its container; only the choice travels in group state.
+    public func apply(syncedModel: String?) {
+        hasLoaded = true
+        guard writesInFlight == 0 else { return }
+        confirmedId = syncedModel
+        selectedId = syncedModel
+    }
+
     /// Reads the agent's model and catalogue. Safe to call on every appearance.
     public func load() async {
         let generation = writeGeneration

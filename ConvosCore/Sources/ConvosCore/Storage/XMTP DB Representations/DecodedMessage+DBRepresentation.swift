@@ -428,6 +428,25 @@ extension XMTPiOS.DecodedMessage {
             )
         }
 
+        // A model change reads out of the same blob, off the agents' profiles.
+        // Suppressed on the creator's seed commit for the same reason the mode
+        // is: that commit is the room's starting state, not a member's choice.
+        // Only the first differing agent earns a row — a commit that moved two
+        // agents at once is not something the transcript can say in one line,
+        // and naming one is better than naming neither.
+        let oldModels = oldCustomValue.map(agentModels) ?? [:]
+        let newModels = newCustomValue.map(agentModels) ?? [:]
+        if !isCreatorSeedCommit,
+           let changed = newModels
+               .filter({ oldModels[$0.key] != $0.value })
+               .min(by: { $0.key < $1.key }) {
+            return .init(
+                field: ConversationUpdate.MetadataChange.Field.agentModel.rawValue,
+                oldValue: oldModels[changed.key],
+                newValue: changed.value
+            )
+        }
+
         let oldExpiresAt: Date? = oldCustomValue.flatMap(expiresAtDate)
         let newExpiresAt: Date? = newCustomValue.flatMap(expiresAtDate)
         if oldExpiresAt != newExpiresAt {
@@ -444,6 +463,17 @@ extension XMTPiOS.DecodedMessage {
             oldValue: nil,
             newValue: nil
         )
+    }
+
+    /// The model each agent carries in one appData blob, keyed by lowercase hex
+    /// inbox id. Agents with no model are absent rather than mapped to "": an
+    /// unswitched agent runs its own template default, which the blob cannot
+    /// name.
+    private static func agentModels(_ metadata: ConversationCustomMetadata) -> [String: String] {
+        metadata.profiles.reduce(into: [:]) { models, profile in
+            guard profile.hasModel, !profile.model.isEmpty else { return }
+            models[profile.inboxIdString.lowercased()] = profile.model
+        }
     }
 
     private static func expiresAtDate(_ metadata: ConversationCustomMetadata) -> Date? {

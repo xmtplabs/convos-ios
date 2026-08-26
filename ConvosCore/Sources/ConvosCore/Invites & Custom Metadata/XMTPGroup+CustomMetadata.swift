@@ -104,6 +104,28 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// The model each agent in the conversation runs on, keyed by lowercase hex
+    /// inbox id, for the agents that carry one.
+    ///
+    /// Read from synced group state, like the participation mode, so a member
+    /// sees what every other member's agent was switched to without asking a
+    /// server. Unlike the mode, this is per agent: a room holding several
+    /// carries one entry each, and an agent nobody has switched carries none —
+    /// it runs whatever its own template shipped, which only it can name.
+    ///
+    /// Read-only. The Assistant Worker validates a choice against that agent's
+    /// own catalogue and publishes it; a client writing here would broadcast a
+    /// model the agent may refuse.
+    public var agentModels: [String: String] {
+        get throws {
+            let metadata = try currentCustomMetadata
+            return metadata.profiles.reduce(into: [:]) { models, profile in
+                guard profile.hasModel, !profile.model.isEmpty else { return }
+                models[profile.inboxIdString.lowercased()] = profile.model
+            }
+        }
+    }
+
     /// Whether this conversation carries the agent-DM marker. The agent's
     /// identity comes from the membership itself (member kind plus
     /// attestation), not from the marker; callers gating UI should also

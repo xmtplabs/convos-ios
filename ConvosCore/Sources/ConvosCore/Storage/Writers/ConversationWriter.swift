@@ -287,7 +287,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         try await denyConsentIfInviteWasLocallyDeleted(for: conversation)
         let metadata = try await extractConversationMetadata(from: conversation)
         let members = try await conversation.members
-        let dbMembers = members.map { $0.dbRepresentation(conversationId: conversation.id) }
+        // The roster knows the members; the appData knows which of them is an
+        // agent that has been switched, and to what. Joined here, while both
+        // are in hand, so the row that gets saved already carries the model.
+        let dbMembers = members.map { member -> DBConversationMember in
+            var row = member.dbRepresentation(conversationId: conversation.id)
+            row.agentModel = metadata.agentModels[member.inboxId.lowercased()]
+            return row
+        }
         let memberProfiles = try conversation.memberProfiles
         let dbConversation = try await createDBConversation(
             from: conversation,
@@ -813,6 +820,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         /// The deployed Space web URL carried in the group's appData; the
         /// Assistant Worker is the sole authority. Nil until one is published.
         let spaceURLString: String?
+        /// The model each agent in this conversation runs on, keyed by
+        /// lowercase hex inbox id, for the agents carrying one. The Assistant
+        /// Worker publishes these; clients only read. Empty when no agent here
+        /// has been switched.
+        let agentModels: [String: String]
         let memberCount: Int
     }
 
@@ -864,6 +876,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             originConversationId: originConversationId,
             participationMode: try? conversation.participationMode,
             spaceURLString: (try? conversation.spaceURL).flatMap { $0 },
+            agentModels: (try? conversation.agentModels) ?? [:],
             memberCount: memberCount
         )
     }
@@ -1296,7 +1309,16 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 role: member.role,
                 consent: member.consent,
                 createdAt: existing?.createdAt ?? member.createdAt,
-                invitedByInboxId: existing?.invitedByInboxId ?? member.invitedByInboxId
+                invitedByInboxId: existing?.invitedByInboxId ?? member.invitedByInboxId,
+                // Deliberately NOT coalesced with the stored row, unlike the
+                // two above. Those are local facts the roster cannot restate,
+                // so a rebuild has to carry them; this one is mirrored from
+                // appData and the incoming value is the whole answer — nil
+                // means appData names no model for this member. Falling back to
+                // the stored value would make clearing a model impossible: the
+                // agent would keep reporting the one it was switched away from,
+                // with nothing left to correct it.
+                agentModel: member.agentModel
             )
             try memberToSave.save(db)
             let memberProfile = DBMemberProfile(

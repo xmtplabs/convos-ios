@@ -275,6 +275,28 @@ public nonisolated struct ConversationProfile: Sendable {
   /// Clears the value of `connections`. Subsequent reads from it will return its default value.
   public mutating func clearConnections() {self._connections = nil}
 
+  /// The model this agent runs on, for a profile that belongs to one. Absent
+  /// for a human member, and absent for an agent nobody has switched — which
+  /// is not the same as a model: an unswitched agent runs whatever its own
+  /// template shipped, and only the agent knows what that is.
+  ///
+  /// It hangs off the profile rather than off the conversation because the
+  /// choice belongs to one agent, which is exactly what participationMode is
+  /// not: a room holding several agents carries one entry each.
+  ///
+  /// The Assistant Worker is the sole authority. An agent only runs what its
+  /// own catalogue lists, so a choice is validated and applied before it is
+  /// published here; clients read this copy to see what every member's agent
+  /// was switched to, and never write it.
+  public var model: String {
+    get {_model ?? String()}
+    set {_model = newValue}
+  }
+  /// Returns true if `model` has been explicitly set.
+  public var hasModel: Bool {self._model != nil}
+  /// Clears the value of `model`. Subsequent reads from it will return its default value.
+  public mutating func clearModel() {self._model = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -283,6 +305,7 @@ public nonisolated struct ConversationProfile: Sendable {
   fileprivate var _image: String? = nil
   fileprivate var _encryptedImage: EncryptedImageRef? = nil
   fileprivate var _connections: String? = nil
+  fileprivate var _model: String? = nil
 }
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
@@ -441,7 +464,7 @@ nonisolated extension EncryptedImageRef: SwiftProtobuf.Message, SwiftProtobuf._M
 
 nonisolated extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationProfile"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}inboxId\0\u{1}name\0\u{1}image\0\u{1}encryptedImage\0\u{1}connections\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}inboxId\0\u{1}name\0\u{1}image\0\u{1}encryptedImage\0\u{1}connections\0\u{1}model\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -454,6 +477,7 @@ nonisolated extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf.
       case 3: try { try decoder.decodeSingularStringField(value: &self._image) }()
       case 4: try { try decoder.decodeSingularMessageField(value: &self._encryptedImage) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self._connections) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self._model) }()
       default: break
       }
     }
@@ -479,6 +503,9 @@ nonisolated extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf.
     try { if let v = self._connections {
       try visitor.visitSingularStringField(value: v, fieldNumber: 5)
     } }()
+    try { if let v = self._model {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 6)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -488,6 +515,7 @@ nonisolated extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf.
     if lhs._image != rhs._image {return false}
     if lhs._encryptedImage != rhs._encryptedImage {return false}
     if lhs._connections != rhs._connections {return false}
+    if lhs._model != rhs._model {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
