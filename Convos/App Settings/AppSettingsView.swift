@@ -395,10 +395,11 @@ struct AppSettingsView: View {
             isPresented: $showingEnableDebugConfirmation,
             titleVisibility: .visible
         ) {
-            // Persist the opt-in. Dismissing the dialog flips
-            // `showingEnableDebugConfirmation` back to false, which re-renders
-            // the body so `linksSection` re-reads the gate and reveals the row.
-            let enableAction = { DebugMenuFlagStore.enable() }
+            // Persist the opt-in. The flag store is observable and the body
+            // reads it through `DebugMenuGate.showsProdDebugMenu`, so the row
+            // appears (or disappears, when disabled from inside the menu)
+            // without waiting for an unrelated re-render.
+            let enableAction = { DebugMenuFlagStore.shared.enable() }
             Button("Enable", action: enableAction)
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -470,7 +471,7 @@ struct AppSettingsView: View {
         // Read the persisted flag directly (not a cached copy) so a menu that
         // was disabled elsewhere can be re-enabled without relaunching.
         guard environment.isProduction else { return }
-        if DebugMenuFlagStore.isEnabled() {
+        if DebugMenuFlagStore.shared.isEnabled {
             Log.info("Version tap ignored: debug menu flag already enabled")
             return
         }

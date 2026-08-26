@@ -49,7 +49,6 @@ struct ProdDebugMenuView: View {
     @State private var isExportingLogs: Bool = false
     @State private var identity: DeviceIdentitySnapshot?
     @State private var installations: InstallationsSnapshot?
-    @State private var debugModeEnabled: Bool = DebugMenuFlagStore.isEnabled()
     @State private var creditBalance: CreditBalance?
     @State private var currentSubscription: UserSubscription? = SubscriptionServices.shared.currentSubscription
 
@@ -79,10 +78,7 @@ struct ProdDebugMenuView: View {
     @ViewBuilder
     private var debugModeSection: some View {
         Section {
-            Toggle("Debug mode", isOn: $debugModeEnabled)
-                .onChange(of: debugModeEnabled) { _, newValue in
-                    DebugMenuFlagStore.setEnabled(newValue)
-                }
+            Toggle("Debug mode", isOn: Bindable(DebugMenuFlagStore.shared).isEnabled)
         } footer: {
             Text("Turn this off to hide the debug menu and clear the on-screen indicator.")
         }
