@@ -1843,8 +1843,9 @@ struct MemberContactDetailSheetContent: View {
             contactsRepository: contactsRepository
         )
         // Closing the sheet is `ContactDetailView`'s job - it dismisses itself
-        // once the removal is confirmed, so every entry point behaves the same.
-        let onRemove: () -> Void = { viewModel.remove(member: member) }
+        // once the removal lands and reports the failure otherwise, so every
+        // entry point behaves the same.
+        let onRemove: () async throws -> Void = { try await viewModel.remove(member: member) }
         NavigationStack {
             ContactDetailView(
                 contact: resolvedContact,
