@@ -68,7 +68,7 @@ struct DocWaitingItemCard: View {
 
             Text(item.context)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.colorTextSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if !item.chips.isEmpty {
@@ -134,8 +134,8 @@ struct DocInlineAnswerField: View {
                     .padding(.horizontal, DesignConstants.Spacing.step3x)
                     .frame(minHeight: 44.0)
                     .background(
-                        Color(uiColor: .tertiarySystemFill),
-                        in: RoundedRectangle(cornerRadius: 14.0)
+                        Color.colorFillMinimal,
+                        in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
                     )
                     .submitLabel(.send)
                     .onSubmit(send)
@@ -165,7 +165,7 @@ struct DocInlineAnswerField: View {
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(.colorLava)
             .disabled(!isEnabled)
         }
     }
@@ -193,8 +193,7 @@ struct DocAnswerChips: View {
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 ForEach(chips, id: \.self) { chip in
                     Button(chip) { onAnswer(chip) }
-                        .buttonStyle(.bordered)
-                        .controlSize(.regular)
+                        .convosButtonStyle(.outlineCapsule(fullWidth: false))
                         .frame(minHeight: 44.0)
                         .disabled(!isEnabled)
                 }
@@ -223,13 +222,9 @@ struct DocItemCardContainer<Content: View>: View {
     var body: some View {
         content
             .background(
-                Color(uiColor: .secondarySystemGroupedBackground),
-                in: RoundedRectangle(cornerRadius: 16.0)
+                Color.colorBackgroundRaisedSecondary,
+                in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
             )
-            .overlay {
-                RoundedRectangle(cornerRadius: 16.0)
-                    .stroke(Color.primary.opacity(0.06), lineWidth: 1.0)
-            }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("doc-item-\(itemId)")
     }
@@ -242,7 +237,7 @@ struct DocItemResolvingView: View {
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(.colorLava)
                 .font(.title3)
             Text(label)
                 .font(.subheadline.weight(.semibold))

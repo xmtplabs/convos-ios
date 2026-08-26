@@ -50,8 +50,9 @@ Doc's agent is a native member of the group's *existing* iMessage thread — blu
 - The name **Doc** is committed, not a codename.
 - **iMessage as the wedge** is committed: native membership in existing groups is the defining mechanism, not one channel among many.
 - **Google Docs as the artifact** is committed: the user owns the output in their own account.
-- The app currently ships Convos branding; whether and how it rebrands to Doc is an open decision. No product voice has been established.
-- **Standing visual preference (2026-08-26):** Doc's app UI is the iOS category standard played straight — system-native vocabulary (system materials, large titles, SF, semantic colors, one tint, SF Symbols), no invented visual world, executed at **Flighty's** craft level: data-rich glanceable status inside pure platform conventions. Tint is system blue until the rebrand decision. The dev-preview Doc build hides legacy Convos conversations entirely.
+- The app currently ships Convos branding; whether and how it rebrands to Doc is an open decision.
+- **Voice (forming, Saul-pinned 2026-08-26):** the phrase "living doc" is banned in all product copy — say "doc". The agent speaks in first person, casual: the home number CTA reads "I go by @doc"; the first share to a group is exactly "here's a doc for us (link)" (sent by the agent when @doc is in the chat, by the organizer's share sheet otherwise); subsequent group notices are "updated the doc with <~8 words max> (link)".
+- **Standing visual preference (2026-08-26, revised same day):** Doc's app UI keeps the iOS category-standard structure at **Flighty's** craft level, but is styled with the **incumbent Convos design system** — the app's own tokens, colors, type treatments, and shared components — as much as possible, per Saul's correction that raw system-blue native styling "looks clunky." System-blue-everything is superseded; the Convos component library is the styling authority. The dev-preview Doc build hides legacy Convos conversations from the UI (their data still feeds the state parser).
 
 ## Evidence on Hand
 

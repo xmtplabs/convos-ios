@@ -34,7 +34,7 @@ struct DocReaderView: View {
                         .padding(.vertical, DesignConstants.Spacing.step6x)
                         .frame(maxWidth: .infinity)
                     }
-                    .background(Color(uiColor: .systemBackground))
+                    .background(Color.colorBackgroundSurfaceless)
                 } else if viewModel.contentLoadState(for: doc.id) == .failed {
                     ContentUnavailableView {
                         Label("Doc unavailable", systemImage: "doc.badge.ellipsis")
@@ -44,7 +44,7 @@ struct DocReaderView: View {
                         Button("Retry") {
                             viewModel.retryDocContent(for: doc.id)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .convosButtonStyle(.rounded(fullWidth: false, backgroundColor: .colorLava))
                     }
                     .accessibilityIdentifier("doc-reader-unavailable")
                 } else {
@@ -52,7 +52,7 @@ struct DocReaderView: View {
                         ProgressView()
                         Text("Loading the doc…")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.colorTextSecondary)
                     }
                     .accessibilityIdentifier("doc-reader-loading")
                 }
@@ -153,8 +153,8 @@ private struct DocSelectionQuestionComposer: View {
                     .padding(.horizontal, DesignConstants.Spacing.step3x)
                     .frame(minHeight: 44.0)
                     .background(
-                        Color(uiColor: .tertiarySystemFill),
-                        in: RoundedRectangle(cornerRadius: 18.0)
+                        Color.colorFillMinimal,
+                        in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
                     )
                     .submitLabel(.send)
                     .onSubmit(onSend)
@@ -166,6 +166,7 @@ private struct DocSelectionQuestionComposer: View {
                     } else {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 32.0))
+                            .foregroundStyle(.colorLava)
                             .frame(width: 44.0, height: 44.0)
                     }
                 }
@@ -175,7 +176,7 @@ private struct DocSelectionQuestionComposer: View {
         }
         .padding(.horizontal, DesignConstants.Spacing.step3x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
-        .background(.regularMaterial)
+        .background(.colorBackgroundRaisedSecondary)
         .overlay(alignment: .top) { Divider() }
     }
 }

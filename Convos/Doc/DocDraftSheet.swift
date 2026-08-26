@@ -35,22 +35,18 @@ struct DocDraftSheet: View {
                 if let anchor = item.draft?.anchor {
                     Label(anchor, systemImage: "text.book.closed")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.colorTextSecondary)
                         .padding(.horizontal, DesignConstants.Spacing.step3x)
                         .frame(minHeight: 28.0)
-                        .background(Color.secondary.opacity(0.1), in: Capsule())
+                        .background(.colorFillMinimal, in: Capsule())
                 }
 
                 DocEditableMarkdownView(source: $editedSource)
                     .padding(DesignConstants.Spacing.step2x)
                     .background(
-                        Color(uiColor: .secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: 14.0)
+                        Color.colorBackgroundRaisedSecondary,
+                        in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
                     )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14.0)
-                            .stroke(Color.primary.opacity(0.08), lineWidth: 1.0)
-                    }
                     .accessibilityLabel("Draft text")
                     .accessibilityHint("Editable formatted draft")
                     .accessibilityIdentifier("doc-draft-editor")
@@ -60,7 +56,7 @@ struct DocDraftSheet: View {
             .padding(DesignConstants.Spacing.step4x)
             .frame(maxWidth: 680.0)
             .frame(maxWidth: .infinity)
-            .background(Color(uiColor: .systemGroupedBackground))
+            .background(Color.colorBackgroundSurfaceless)
             .navigationTitle(item.headline)
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -91,8 +87,7 @@ struct DocDraftSheet: View {
         Button("Discard", role: .destructive) {
             answer(.action(.discard, edited: nil))
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
+        .convosButtonStyle(.outline(fullWidth: true))
         .frame(maxWidth: .infinity, minHeight: 44.0)
         .disabled(!isEnabled)
     }
@@ -104,8 +99,7 @@ struct DocDraftSheet: View {
                 editedSource: editedSource
             ))
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
+        .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
         .frame(maxWidth: .infinity, minHeight: 44.0)
         .disabled(!isEnabled || cleanText.isEmpty)
     }

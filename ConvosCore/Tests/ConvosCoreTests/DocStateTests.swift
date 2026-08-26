@@ -6,15 +6,25 @@ import Testing
 struct DocStateTests {
     @Test("parses a version-one state snapshot")
     func parsesStateSnapshot() throws {
-        let message = #"⟦doc⟧{"v":1,"t":"state","docs":[{"id":"tahoe","name":"Tahoe Trip","url":"https://docs.google.com/document/d/1","updatedAt":1787600000,"lastChange":{"who":"Sara","what":"added flight times","at":1787599000},"binding":{"state":"live","number":"+16285550123","group":"Tahoe"},"dates":"Dec 12–15","people":7}],"future":true}"#
+        let message = #"⟦doc⟧{"v":1,"t":"state","line":"+16285550999","docs":[{"id":"tahoe","name":"Tahoe Trip","url":"https://docs.google.com/document/d/1","updatedAt":1787600000,"lastChange":{"who":"Sara","what":"added flight times","at":1787599000},"binding":{"state":"live","number":"+16285550123","group":"Tahoe"},"dates":"Dec 12–15","people":7}],"future":true}"#
 
         let state = try #require(DocStateMessage.parse(message))
 
         #expect(state.version == 1)
+        #expect(state.line == "+16285550999")
         #expect(state.docs.count == 1)
         #expect(state.docs[0].name == "Tahoe Trip")
         #expect(state.docs[0].binding.state == .live)
         #expect(state.docs[0].people == 7)
+    }
+
+    @Test("accepts absent and null contribution lines")
+    func parsesOptionalContributionLine() throws {
+        let absent = try #require(DocStateMessage.parse(#"⟦doc⟧{"v":1,"t":"state","docs":[]}"#))
+        let null = try #require(DocStateMessage.parse(#"⟦doc⟧{"v":1,"t":"state","line":null,"docs":[]}"#))
+
+        #expect(absent.line == nil)
+        #expect(null.line == nil)
     }
 
     @Test("ignores unsupported envelopes and malformed docs")

@@ -35,7 +35,7 @@ struct DocForYouSection: View {
                     .frame(minHeight: 44.0)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(.colorLava)
                 .listRowInsets(rowInsets)
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
@@ -44,7 +44,7 @@ struct DocForYouSection: View {
         } header: {
             Text("For you")
                 .font(.title3.weight(.semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(.colorTextPrimary)
                 .textCase(nil)
                 .accessibilityAddTraits(.isHeader)
         }

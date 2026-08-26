@@ -65,15 +65,15 @@ struct DocRoomView: View {
                     HStack(spacing: DesignConstants.Spacing.step3x) {
                         Image(systemName: "doc.richtext")
                             .font(.title3)
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(.colorLava)
                             .frame(width: 32.0, height: 32.0)
                         VStack(alignment: .leading, spacing: 4.0) {
                             Text("Read the doc")
                                 .font(.body.weight(.semibold))
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(.colorTextPrimary)
                             Text("Updated \(docRelativeTime(from: content?.updatedAt ?? doc.updatedAt))")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.colorTextSecondary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         Image(systemName: "chevron.right")
@@ -83,8 +83,8 @@ struct DocRoomView: View {
                     .padding(DesignConstants.Spacing.step4x)
                     .frame(minHeight: 64.0)
                     .background(
-                        Color(uiColor: .secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: 14.0)
+                        Color.colorBackgroundRaisedSecondary,
+                        in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
                     )
                 }
                 .buttonStyle(.plain)
@@ -97,7 +97,7 @@ struct DocRoomView: View {
         .listStyle(.plain)
         .scrollDismissesKeyboard(.interactively)
         .scrollContentBackground(.hidden)
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(Color.colorBackgroundSurfaceless)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -171,7 +171,7 @@ private struct DocActivationView: View {
                     .accessibilityHidden(true)
                 Text("In the group · \(docDisplayPhoneNumber(doc.binding.number))")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.colorTextSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, DesignConstants.Spacing.step2x)
@@ -181,19 +181,18 @@ private struct DocActivationView: View {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
                 Text(docDisplayPhoneNumber(doc.binding.number))
                     .font(.title2.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.colorTextPrimary)
                     .textSelection(.enabled)
                 Text("Add Doc to the group and this doc updates itself")
                     .font(.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.colorTextSecondary)
                 Button("Share", systemImage: "square.and.arrow.up", action: onShare)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                    .convosButtonStyle(.rounded(fullWidth: false, backgroundColor: .colorLava))
                     .frame(minHeight: 44.0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(DesignConstants.Spacing.step5x)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18.0))
+            .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
             .accessibilityIdentifier("doc-room-unbound-hero")
         }
     }
@@ -207,7 +206,7 @@ private struct DocChangesLedger: View {
             if changes.isEmpty {
                 Text("No changes yet.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.colorTextSecondary)
                     .padding(DesignConstants.Spacing.step4x)
             } else {
                 ForEach(Array(changes.enumerated()), id: \.offset) { index, change in
@@ -227,8 +226,8 @@ private struct DocChangesLedger: View {
             }
         }
         .background(
-            Color(uiColor: .secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 14.0)
+            Color.colorBackgroundRaisedSecondary,
+            in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
         )
         .accessibilityIdentifier("doc-room-history")
     }
@@ -236,7 +235,7 @@ private struct DocChangesLedger: View {
     private func changeDescription(_ change: DocLastChange) -> some View {
         Text("\(change.who) \(change.what)")
             .font(.subheadline)
-            .foregroundStyle(.primary)
+            .foregroundStyle(.colorTextPrimary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -244,7 +243,7 @@ private struct DocChangesLedger: View {
     private func relativeTime(_ change: DocLastChange) -> some View {
         Text(docCompactRelativeTime(from: change.at))
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.colorTextSecondary)
     }
 }
 
@@ -308,7 +307,7 @@ private struct DocScopedComposer: View {
         }
         .padding(.horizontal, DesignConstants.Spacing.step3x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
-        .background(.regularMaterial)
+        .background(.colorBackgroundRaisedSecondary)
         .overlay(alignment: .top) { Divider() }
     }
 
@@ -326,7 +325,7 @@ private struct DocScopedComposer: View {
         ZStack(alignment: .leading) {
             if text.wrappedValue.isEmpty {
                 Text("Tell Doc about this doc…")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.colorTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .allowsHitTesting(false)
             }
@@ -339,8 +338,8 @@ private struct DocScopedComposer: View {
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .frame(minHeight: 44.0)
         .background(
-            Color(uiColor: .tertiarySystemFill),
-            in: RoundedRectangle(cornerRadius: 18.0)
+            Color.colorFillMinimal,
+            in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
         )
             .disabled(isSending)
             .submitLabel(.send)
@@ -357,6 +356,7 @@ private struct DocScopedComposer: View {
             } else {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 32.0))
+                    .foregroundStyle(.colorLava)
                     .frame(width: 44.0, height: 44.0)
             }
         }
@@ -392,7 +392,7 @@ private func docRelativeTime(from date: Date) -> String {
     return formatter.localizedString(for: date, relativeTo: Date())
 }
 
-private func docDisplayPhoneNumber(_ rawNumber: String) -> String {
+func docDisplayPhoneNumber(_ rawNumber: String) -> String {
     let digits = rawNumber.filter(\.isNumber)
     let localDigits: Substring
     if digits.count == 11, digits.first == "1" {

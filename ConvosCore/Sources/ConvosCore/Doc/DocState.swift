@@ -8,10 +8,12 @@ import Foundation
 /// payload without requiring a coordinated client release.
 public struct DocState: Codable, Hashable, Sendable {
     public let version: Int
+    public let line: String?
     public let docs: [DocStatus]
 
-    public init(version: Int = 1, docs: [DocStatus]) {
+    public init(version: Int = 1, line: String? = nil, docs: [DocStatus]) {
         self.version = version
+        self.line = line
         self.docs = docs
     }
 }
@@ -221,7 +223,13 @@ public enum DocStateMessage {
         case "state":
             guard let rawDocs = envelope.docs else { return nil }
             let docs: [DocStatus] = rawDocs.compactMap(\.status)
-            return .state(DocState(version: envelope.version, docs: docs))
+            return .state(
+                DocState(
+                    version: envelope.version,
+                    line: envelope.line?.nilIfEmpty,
+                    docs: docs
+                )
+            )
         case "item":
             guard let item = envelope.item?.value else { return nil }
             return .item(item)
@@ -255,6 +263,7 @@ public enum DocStateMessage {
     private struct RawEnvelope: Decodable {
         let version: Int
         let type: String
+        let line: String?
         let docs: [RawDoc]?
         let item: RawItem?
         let id: String?
@@ -266,6 +275,7 @@ public enum DocStateMessage {
         private enum CodingKeys: String, CodingKey {
             case version = "v"
             case type = "t"
+            case line
             case docs
             case item
             case id

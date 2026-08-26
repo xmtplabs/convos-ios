@@ -108,7 +108,7 @@ extension DocExperienceViewModel {
 
     static var previewState: DocState {
         let now = Date()
-        return DocState(docs: [
+        return DocState(line: previewNumber, docs: [
             DocStatus(
                 id: "tahoe-trip",
                 name: "Tahoe Trip",

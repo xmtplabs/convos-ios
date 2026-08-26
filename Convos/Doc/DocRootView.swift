@@ -13,7 +13,6 @@ struct DocRootView: View {
     @State private var viewModel: DocExperienceViewModel
     @State private var navigationPath: [DocStatus]
     @State private var isPresentingSettings: Bool = false
-    @State private var isPresentingConnectPreview: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion: Bool
 
     init(
@@ -30,7 +29,6 @@ struct DocRootView: View {
         )
         _viewModel = State(initialValue: model)
         _navigationPath = State(initialValue: model.previewInitialDoc.map { [$0] } ?? [])
-        _isPresentingConnectPreview = State(initialValue: model.previewStage == .connect)
     }
 
     var body: some View {
@@ -51,13 +49,7 @@ struct DocRootView: View {
                     DocHomeView(
                         viewModel: viewModel,
                         onSettings: { isPresentingSettings = true },
-                        onConnectGoogle: {
-                            if viewModel.previewStage == nil {
-                                viewModel.isPresentingGoogleConnect = true
-                            } else {
-                                isPresentingConnectPreview = true
-                            }
-                        }
+                        onConnectGoogle: viewModel.connectGoogleDocs
                     )
                     .navigationDestination(for: DocStatus.self) { doc in
                         DocRoomView(viewModel: viewModel, initialDoc: doc)
@@ -65,7 +57,7 @@ struct DocRootView: View {
                 }
             }
         }
-        .tint(.blue)
+        .tint(.colorLava)
         .task {
             await viewModel.startAgentIfNeeded()
         }
@@ -75,36 +67,6 @@ struct DocRootView: View {
         .onChange(of: viewModel.dmViewModel?.conversation.id) { _, dmId in
             guard dmId != nil else { return }
             viewModel.showGoogleConnectIfNeeded()
-        }
-        .sheet(
-            isPresented: $viewModel.isPresentingGoogleConnect,
-            onDismiss: viewModel.didDismissGoogleConnect
-        ) {
-            if let conversation = viewModel.googleConnectConversation {
-                CloudConnectionGrantRequestSheet(
-                    viewModel: CloudConnectionGrantRequestSheetViewModel(
-                        serviceId: "googledocs",
-                        conversationId: conversation.id,
-                        conversation: conversation,
-                        session: conversationsViewModel.session
-                    ),
-                    onDismiss: viewModel.didDismissGoogleConnect
-                )
-                .presentationDetents([.medium])
-            }
-        }
-        .sheet(isPresented: $isPresentingConnectPreview) {
-            CloudConnectionGrantRequestSheet(
-                viewModel: CloudConnectionGrantRequestSheetViewModel(
-                    serviceId: "googledocs",
-                    conversationId: "doc-preview",
-                    conversation: nil,
-                    session: conversationsViewModel.session,
-                    previewingDisconnectedService: true
-                ),
-                onDismiss: { isPresentingConnectPreview = false }
-            )
-                .presentationDetents([.medium])
         }
         .sheet(item: $viewModel.presentedDraftItem) { item in
             DocDraftSheet(
@@ -159,18 +121,19 @@ private struct DocWelcomeView: View {
                     Spacer(minLength: DesignConstants.Spacing.step8x)
                     Image(systemName: "doc.text.fill")
                         .font(.system(size: 56.0, weight: .medium))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(.colorLava)
                         .frame(width: 96.0, height: 96.0)
-                        .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 24.0))
+                        .background(.colorFillMinimal, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large))
                         .accessibilityHidden(true)
 
                     Text("Doc")
                         .font(.largeTitle.bold())
+                        .foregroundStyle(.colorTextPrimary)
                         .padding(.top, DesignConstants.Spacing.step6x)
 
-                    Text("Doc turns your group's iMessage thread into a living doc")
+                    Text("Doc turns your group's iMessage thread into a doc that stays up to date")
                         .font(.title3)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.colorTextSecondary)
                         .multilineTextAlignment(.center)
                         .padding(.top, DesignConstants.Spacing.step3x)
                         .padding(.horizontal, DesignConstants.Spacing.step8x)
@@ -178,8 +141,7 @@ private struct DocWelcomeView: View {
                     Spacer(minLength: DesignConstants.Spacing.step8x)
 
                     Button("Continue", action: onContinue)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
+                        .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
                         .frame(maxWidth: .infinity)
                         .frame(minHeight: 44.0)
                         .padding(.horizontal, DesignConstants.Spacing.step5x)
@@ -189,7 +151,7 @@ private struct DocWelcomeView: View {
                 .frame(minHeight: proxy.size.height)
             }
         }
-        .background(Color(uiColor: .systemBackground))
+        .background(Color.colorBackgroundSurfaceless)
         .accessibilityIdentifier("doc-welcome")
     }
 }
@@ -203,12 +165,21 @@ private struct DocHomeView: View {
     var body: some View {
         List {
             if viewModel.shouldShowGoogleConnectCard {
-                DocGoogleConnectCard(onConnect: onConnectGoogle)
+                DocGoogleConnectCard(
+                    isConnecting: viewModel.isConnectingGoogleDocs,
+                    errorMessage: viewModel.googleConnectErrorMessage,
+                    onConnect: onConnectGoogle
+                )
                     .docHomeRow()
             }
 
             if viewModel.isShowingNotDocAgentNotice {
                 DocWrongAgentNotice(onDismiss: viewModel.dismissNotDocAgentNotice)
+                    .docHomeRow()
+            }
+
+            if !viewModel.docs.isEmpty, let line = viewModel.contributionLine {
+                DocContributionLine(number: line, onShare: viewModel.presentContributionLine)
                     .docHomeRow()
             }
 
@@ -233,6 +204,11 @@ private struct DocHomeView: View {
                     .transition(DocMotion.docArrival(reduceMotion: reduceMotion))
                 }
             }
+
+            if viewModel.docs.isEmpty, let line = viewModel.contributionLine {
+                DocContributionLine(number: line, onShare: viewModel.presentContributionLine)
+                    .docHomeRow()
+            }
         }
         .listStyle(.plain)
         .scrollDismissesKeyboard(.interactively)
@@ -241,7 +217,7 @@ private struct DocHomeView: View {
             DocMotion.arrival(reduceMotion: reduceMotion),
             value: viewModel.docs.map(\.id)
         )
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(Color.colorBackgroundSurfaceless)
         .navigationTitle("Doc")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
@@ -282,7 +258,7 @@ private struct DocWrongAgentNotice: View {
             .accessibilityLabel("Dismiss")
         }
         .padding(DesignConstants.Spacing.step3x)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14.0))
+        .background(.colorFillMinimal, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("doc-wrong-agent-notice")
     }
@@ -304,6 +280,8 @@ private extension View {
 }
 
 private struct DocGoogleConnectCard: View {
+    let isConnecting: Bool
+    let errorMessage: String?
     let onConnect: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
 
@@ -313,16 +291,18 @@ private struct DocGoogleConnectCard: View {
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
                     label
                     connectButton
+                    errorLabel
                 }
             } else {
                 HStack(alignment: .center, spacing: DesignConstants.Spacing.step3x) {
                     label
                     connectButton
                 }
+                errorLabel
             }
         }
         .padding(DesignConstants.Spacing.step3x)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14.0))
+        .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
         .accessibilityIdentifier("doc-google-connect-card")
     }
 
@@ -330,7 +310,7 @@ private struct DocGoogleConnectCard: View {
         HStack(alignment: .center, spacing: DesignConstants.Spacing.step3x) {
             Image(systemName: "doc.text")
                 .font(.title3)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(.colorLava)
                 .frame(width: 32.0, height: 32.0)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
@@ -345,10 +325,61 @@ private struct DocGoogleConnectCard: View {
     }
 
     private var connectButton: some View {
-        Button("Connect", action: onConnect)
-            .buttonStyle(.bordered)
+        Button(action: onConnect) {
+            if isConnecting {
+                ProgressView().frame(minWidth: 60.0)
+            } else {
+                Text(errorMessage == nil ? "Connect" : "Retry")
+            }
+        }
+            .convosButtonStyle(.outlineCapsule(fullWidth: false))
             .controlSize(.regular)
             .frame(minHeight: 44.0)
+            .disabled(isConnecting)
+    }
+
+    @ViewBuilder
+    private var errorLabel: some View {
+        if let errorMessage {
+            Text(errorMessage)
+                .font(.footnote)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("doc-google-connect-error")
+        }
+    }
+}
+
+private struct DocContributionLine: View {
+    let number: String
+    let onShare: () -> Void
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            Image(systemName: "message.badge.waveform.fill")
+                .foregroundStyle(.colorLava)
+                .frame(width: 32.0, height: 32.0)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                Text("I go by @doc")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                Text(docDisplayPhoneNumber(number))
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.colorTextSecondary)
+                    .textSelection(.enabled)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Share", systemImage: "square.and.arrow.up", action: onShare)
+                .convosButtonStyle(.outlineCapsule(fullWidth: false))
+                .labelStyle(.iconOnly)
+                .frame(minWidth: 44.0, minHeight: 44.0)
+                .accessibilityLabel("Share Doc's number")
+        }
+        .padding(DesignConstants.Spacing.step3x)
+        .background(Color.colorFillMinimal, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("doc-contribution-line")
     }
 }
 
@@ -360,14 +391,15 @@ private struct DocEmptyState: View {
             Spacer(minLength: 72.0)
             Image(systemName: "photo.on.rectangle.angled")
                 .font(.system(size: 42.0, weight: .medium))
-                .foregroundStyle(.blue)
+                .foregroundStyle(.colorLava)
                 .accessibilityHidden(true)
             Text("Screenshot your group's thread and send it here")
                 .font(.title2.weight(.semibold))
+                .foregroundStyle(.colorTextPrimary)
                 .multilineTextAlignment(.center)
-            Text(isPreparing ? "Doc is getting ready. You can choose screenshots now." : "Choose one or more screenshots below to start your first living doc.")
+            Text(isPreparing ? "Doc is getting ready. You can choose screenshots now." : "Choose one or more screenshots below to start your first doc.")
                 .font(.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.colorTextSecondary)
                 .multilineTextAlignment(.center)
             Spacer(minLength: 72.0)
         }
@@ -393,7 +425,7 @@ private struct DocStatusCard: View {
                             .accessibilityLabel(freshnessLabel)
                         Text(doc.name)
                             .font(.headline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(.colorTextPrimary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Image(systemName: "chevron.right")
                             .font(.footnote.weight(.semibold))
@@ -403,7 +435,7 @@ private struct DocStatusCard: View {
 
                     Text("\(doc.lastChange.who) \(doc.lastChange.what) · \(compactRelativeTime(from: doc.lastChange.at))")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.colorTextSecondary)
                         .lineLimit(2)
                 }
                 .contentShape(.rect)
@@ -423,11 +455,7 @@ private struct DocStatusCard: View {
             }
         }
         .padding(DesignConstants.Spacing.step4x)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16.0))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16.0)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1.0)
-        }
+        .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
         .contentShape(.rect)
         .accessibilityIdentifier("doc-card-\(doc.id)")
     }
@@ -454,13 +482,9 @@ private struct DocStatusCard: View {
         } else {
             Button(action: onShare) {
                 Label("Share Doc's number", systemImage: "person.badge.plus")
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, DesignConstants.Spacing.step3x)
-                    .frame(minHeight: 44.0)
-                    .background(Color.blue.opacity(0.12), in: Capsule())
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.blue)
+            .convosButtonStyle(.outlineCapsule(fullWidth: false))
+            .frame(minHeight: 44.0)
             .accessibilityIdentifier("doc-share-number")
         }
     }
@@ -468,15 +492,15 @@ private struct DocStatusCard: View {
     private func metadataPill(systemImage: String, text: String) -> some View {
         Label(text, systemImage: systemImage)
             .font(.caption.weight(.medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.colorTextSecondary)
             .padding(.horizontal, DesignConstants.Spacing.step3x)
             .frame(minHeight: 28.0)
-            .background(Color.secondary.opacity(0.1), in: Capsule())
+            .background(.colorFillMinimal, in: Capsule())
     }
 
     private var freshnessColor: Color {
         let age = Date().timeIntervalSince(doc.updatedAt)
-        if age < 24 * 60 * 60 { return .accentColor }
+        if age < 24 * 60 * 60 { return .colorLava }
         return Color(uiColor: .systemGray3)
     }
 
@@ -526,10 +550,10 @@ private struct DocComposer: View {
                     Text(progressText)
                         .font(.footnote.weight(.medium))
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.colorTextSecondary)
                 .padding(.horizontal, DesignConstants.Spacing.step3x)
                 .frame(minHeight: 32.0)
-                .background(.thinMaterial, in: Capsule())
+                .background(.colorFillMinimal, in: Capsule())
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("doc-reading-progress")
             }
@@ -576,7 +600,7 @@ private struct DocComposer: View {
         .padding(.horizontal, DesignConstants.Spacing.step3x)
         .padding(.top, DesignConstants.Spacing.step2x)
         .padding(.bottom, DesignConstants.Spacing.step2x)
-        .background(.regularMaterial)
+        .background(.colorBackgroundRaisedSecondary)
         .overlay(alignment: .top) { Divider() }
         .onChange(of: selectedPhotos) { _, photos in
             load(photos)
@@ -603,7 +627,7 @@ private struct DocComposer: View {
     private var photoPicker: some View {
         PhotosPicker(
             selection: $selectedPhotos,
-            maxSelectionCount: max(1, maxPendingMediaAttachments - pendingPhotos.count),
+            maxSelectionCount: DocScreenshotSelectionPolicy.maximumSelectionCount,
             matching: .images,
             photoLibrary: .shared()
         ) {
@@ -611,7 +635,7 @@ private struct DocComposer: View {
                 .font(.system(size: 20.0))
                 .frame(width: 44.0, height: 44.0)
         }
-        .disabled(!viewModel.isDmReadyForDisplay || pendingPhotos.count >= maxPendingMediaAttachments || isSending)
+        .disabled(!viewModel.isDmReadyForDisplay || isSending)
         .accessibilityLabel("Choose screenshots")
         .accessibilityIdentifier("doc-photo-picker")
     }
@@ -620,7 +644,7 @@ private struct DocComposer: View {
         ZStack(alignment: .leading) {
             if messageText.wrappedValue.isEmpty {
                 Text(viewModel.isDmReadyForDisplay ? "Add screenshots or tell Doc…" : "Preparing Doc…")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.colorTextSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .allowsHitTesting(false)
             }
@@ -632,7 +656,7 @@ private struct DocComposer: View {
         .padding(.horizontal, DesignConstants.Spacing.step3x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .frame(minHeight: 44.0)
-        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 18.0))
+        .background(.colorFillMinimal, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
         .disabled(!viewModel.isDmReadyForDisplay || isSending)
         .submitLabel(.send)
         .onSubmit(send)
@@ -648,6 +672,7 @@ private struct DocComposer: View {
             } else {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 32.0))
+                    .foregroundStyle(.colorLava)
                     .frame(width: 44.0, height: 44.0)
             }
         }

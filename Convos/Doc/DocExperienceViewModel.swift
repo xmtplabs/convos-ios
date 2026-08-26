@@ -76,6 +76,8 @@ final class DocExperienceViewModel {
     private(set) var pendingScreenshotCount: Int = 0
     private(set) var isGoogleStatusLoaded: Bool = false
     private(set) var isGoogleDocsReady: Bool = false
+    private(set) var isConnectingGoogleDocs: Bool = false
+    private(set) var googleConnectErrorMessage: String?
     private(set) var isShowingNotDocAgentNotice: Bool = false
     var isPresentingGoogleConnect: Bool = false
     var isPresentingHistory: Bool = false
@@ -219,17 +221,12 @@ final class DocExperienceViewModel {
     }
 
     var shouldShowGoogleConnectCard: Bool {
-        if previewStage == .disconnected { return true }
+        if previewStage == .connect || previewStage == .disconnected { return true }
         return previewStage == nil && isGoogleStatusLoaded && !isGoogleDocsReady
     }
 
     var isDmReadyForDisplay: Bool {
         dmViewModel != nil || previewStage != nil
-    }
-
-    var shareText: String? {
-        guard let sharedDocNumber else { return nil }
-        return "Add Doc to our group so the doc stays updated: \(sharedDocNumber)"
     }
 
     var agentInboxId: String? {
@@ -351,7 +348,6 @@ final class DocExperienceViewModel {
 
     func addPendingPhoto(_ image: UIImage, in scope: DocComposerScope) {
         var photos = composerPhotos[scope] ?? []
-        guard photos.count < maxPendingMediaAttachments else { return }
         photos.append(DocPendingPhoto(image: image))
         composerPhotos[scope] = photos
     }
@@ -711,6 +707,8 @@ final class DocExperienceViewModel {
     private func observeGoogleStatus(conversationId: String) {
         isGoogleStatusLoaded = false
         isGoogleDocsReady = false
+        isConnectingGoogleDocs = false
+        googleConnectErrorMessage = nil
         let repository = session.cloudConnectionRepository()
         googleStatusCancellable = repository.connectionsPublisher()
             .combineLatest(repository.grantsPublisher(for: conversationId))
@@ -771,6 +769,103 @@ final class DocExperienceViewModel {
         let resolvedItemIds: [String]
         let docContents: [DocContent]?
         let hasSeenDocSentinel: Bool?
+    }
+}
+
+extension DocExperienceViewModel {
+    var contributionLine: String? {
+        guard let line = state?.line?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !line.isEmpty else {
+            return nil
+        }
+        return line
+    }
+
+    var shareText: String? {
+        guard let sharedDocNumber else { return nil }
+        return "Add Doc to our group so the doc stays updated: \(sharedDocNumber)"
+    }
+
+    func presentContributionLine() {
+        guard let contributionLine else { return }
+        sharedDocNumber = contributionLine
+        isPresentingShareNumber = true
+    }
+
+    func connectGoogleDocs() {
+        guard previewStage == nil,
+              let conversation = googleConnectConversation,
+              !isConnectingGoogleDocs else {
+            return
+        }
+        isConnectingGoogleDocs = true
+        googleConnectErrorMessage = nil
+        let session = session
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let repository = session.cloudConnectionRepository()
+                let manager = session.cloudConnectionManager(
+                    callbackURLScheme: ConfigManager.shared.appUrlScheme
+                )
+                let writer = session.messagingService().connectionGrantWriter()
+                let agents = conversation.members.filter(\.isAgent).map { $0.profile.inboxId }
+                try await DocGoogleConnectionChain.connectAndGrant(
+                    existingConnection: {
+                        try await repository.connections().first {
+                            $0.provider == .composio &&
+                                $0.serviceId == "googledocs" &&
+                                $0.status == .active
+                        }
+                    },
+                    connect: { try await manager.connect(serviceId: "googledocs") },
+                    grant: { connection in
+                        for agent in agents {
+                            try await writer.grantConnection(
+                                connection.id,
+                                to: conversation.id,
+                                grantedToInboxId: agent
+                            )
+                        }
+                    }
+                )
+                isGoogleDocsReady = true
+                isGoogleStatusLoaded = true
+                defaults.set(true, forKey: Self.storageKey("googleConnectHandled", session: session))
+            } catch let error as OAuthError {
+                if case .cancelled = error {
+                    googleConnectErrorMessage = nil
+                } else {
+                    googleConnectErrorMessage = error.localizedDescription
+                }
+            } catch {
+                googleConnectErrorMessage = error.localizedDescription
+            }
+            isConnectingGoogleDocs = false
+        }
+    }
+}
+
+enum DocScreenshotSelectionPolicy {
+    /// PhotosUI uses `nil` for an unlimited multi-select. The transport sends
+    /// each image in sequence, so there is no message-level attachment cap.
+    static let maximumSelectionCount: Int? = nil
+}
+
+enum DocGoogleConnectionChain {
+    @MainActor
+    static func connectAndGrant<Connection>(
+        existingConnection: () async throws -> Connection?,
+        connect: () async throws -> Connection,
+        grant: (Connection) async throws -> Void
+    ) async throws {
+        let connection: Connection
+        if let existing = try await existingConnection() {
+            connection = existing
+        } else {
+            connection = try await connect()
+        }
+        try await grant(connection)
     }
 }
 

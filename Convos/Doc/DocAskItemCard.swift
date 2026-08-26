@@ -41,7 +41,7 @@ struct DocAskItemCard: View {
         .photosPicker(
             isPresented: $isPhotoPickerPresented,
             selection: $selectedPhotos,
-            maxSelectionCount: maxPendingMediaAttachments,
+            maxSelectionCount: DocScreenshotSelectionPolicy.maximumSelectionCount,
             matching: .images
         )
         .accessibilityActions {
@@ -55,7 +55,7 @@ struct DocAskItemCard: View {
             DocItemKindLine(
                 title: "Ask · " + kindTitle,
                 systemImage: "sparkle",
-                color: .accentColor
+                color: .colorLava
             )
 
             Text(item.headline)
@@ -64,7 +64,7 @@ struct DocAskItemCard: View {
 
             Text(item.context)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.colorTextSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             action
@@ -81,8 +81,7 @@ struct DocAskItemCard: View {
         switch item.kind {
         case .bindGroup:
             Button("Share Doc's number", systemImage: "person.badge.plus", action: onShareNumber)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
+                .convosButtonStyle(.rounded(fullWidth: false, backgroundColor: .colorLava))
                 .frame(minHeight: 44.0)
                 .disabled(!actionsAreEnabled)
         case .catchup:
@@ -92,8 +91,7 @@ struct DocAskItemCard: View {
                 Label("Choose screenshots", systemImage: "photo.on.rectangle.angled")
                     .frame(minHeight: 44.0)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
+            .convosButtonStyle(.rounded(fullWidth: false, backgroundColor: .colorLava))
             .disabled(!actionsAreEnabled)
         case .staleCheck:
             DocAnswerChips(

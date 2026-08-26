@@ -77,13 +77,13 @@ struct DocDraftItemCard: View {
 
             Text(item.context)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.colorTextSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack {
                 Label("Review draft", systemImage: "square.and.pencil")
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(.colorLava)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
