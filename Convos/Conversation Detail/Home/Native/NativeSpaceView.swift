@@ -84,14 +84,18 @@ struct NativeSpaceView: View {
     }
 
     private var diagnosticNote: String? {
-        // The host is the load-bearing half: a Space on the shared dev
-        // environment cannot serve documents, and its host says so at a glance.
+        // Two facts answer every question this surface raises. The host says
+        // which environment served the Space — a shared-dev host cannot serve
+        // documents at all. The variant says whether this build is even asking
+        // for the paired backend, which separates "the pin never applied" from
+        // "the pin applied and routing dropped it".
         let host = spaceURL.host() ?? "?"
+        let variant = FeatureFlags.shared.effectiveAgentVariantSlug ?? "none"
         switch state {
         case .loading: return nil
-        case .loaded: return "native · \(host)"
-        case let .unsupported(reason): return "web · \(reason) · \(host)"
-        case .failed: return "error · \(host)"
+        case .loaded: return "native · \(host) · v:\(variant)"
+        case let .unsupported(reason): return "web · \(reason) · \(host) · v:\(variant)"
+        case .failed: return "error · \(host) · v:\(variant)"
         }
     }
 
