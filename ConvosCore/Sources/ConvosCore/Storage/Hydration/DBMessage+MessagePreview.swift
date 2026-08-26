@@ -152,8 +152,8 @@ extension DBLastMessageWithSource {
     }
 
     private var docDataPlanePreview: MessagePreview? {
-        let isDataPlane = (contentType == .text && DocStateMessage.isDataPlaneText(text ?? "")) ||
-            (messageType == .reaction && DocStateMessage.isDataPlaneText(sourceMessageText ?? ""))
+        let isDataPlane = (contentType == .text && DocWireMessage.isHiddenText(text ?? "")) ||
+            (messageType == .reaction && DocWireMessage.isHiddenText(sourceMessageText ?? ""))
         return isDataPlane ? .init(text: "", createdAt: date) : nil
     }
 

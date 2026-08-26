@@ -28,14 +28,17 @@ Doc's agent is a native member of the group's *existing* iMessage thread — blu
 - The agent platform (Worker, Hermes runtime, backend, Herald) lives in the separate `convos-assistants` monorepo; this app talks only to convos-backend.
 - Dev preview mechanics: a per-PR agent variant (Settings ▸ Debug ▸ Agent Variant ▸ Doc) binds at agent-create; on the Doc variant any newly created agent boots as Doc. A Debug "Create Doc agent" action uses the same bare agent join as first run so the selected variant supplies its hard-coded template.
 - First run proactively presents the existing native Google Docs connection and sharing sheet after the Doc agent DM is ready; OAuth and grants continue through existing app and backend APIs.
+- Home keeps Google Docs readiness visible after first run and returns to the same native connection and grant flow when access is absent or revoked.
 - Doc mode is production-locked and entered with the Debug toggle or a recognized Doc agent variant. Its first-run and home shell replace the legacy tab and conversation-list UI entirely.
+- Home's **For you** register surfaces unresolved agent questions above doc status. Chip answers send immediately; free-text answers send in the same gesture and restore inline if delivery fails.
 - Each doc carries a fixture at the top: the contribution phone number and a CTA to text it.
 - Build conventions (schemes, Secrets.swift, environments) are documented in the repo's CLAUDE.md and ENVIRONMENTS.md.
 
 ## Capabilities and Constraints
 
 - Screenshot ingestion via vision analysis; the doc is always regenerated in full from the agent's per-thread ledger, never patched.
-- The agent DM carries replaceable state snapshots as compact JSON prefixed by `⟦doc⟧`. The client defensively parses protocol v1, persists the latest snapshot per account for cold/offline rendering, and suppresses all prefixed messages from transcript, preview, and notification surfaces.
+- The agent DM carries replaceable state snapshots, waiting items, and item-resolution events as compact JSON prefixed by `⟦doc⟧`. The client defensively parses protocol v1 and persists the latest snapshot plus unresolved items per account for cold/offline rendering.
+- Organizer answers travel back through the same DM as compact JSON prefixed by `⟦ans⟧`. Both protocol prefixes are control-plane traffic and stay hidden from transcript, preview, and notification surfaces.
 - Google Docs create/update/share are Composio-backed and dev-only today (production deliberately dark); OAuth scope is `drive.file` — Doc touches only documents it created.
 - One shared Photon Business line (+1 628 309-5734, dev) serves all docs; group messages route by thread, direct texts route only when the sender is unambiguous. Inbound media over the line carries no bytes — images must come through this app's agent DM.
 - The agent's only group-facing voice today is "\<name\> updated the doc: \<link\>" on meaningful changes. **Open decision:** additional outbound allowances are under consideration — treat silence-in-groups as current posture, not doctrine.

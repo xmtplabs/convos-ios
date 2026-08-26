@@ -10,6 +10,9 @@ enum DocPreviewStage: String {
     case connect
     case empty
     case cards
+    case forYou
+    case share
+    case disconnected
 
     static var current: DocPreviewStage? {
         let arguments = ProcessInfo.processInfo.arguments
@@ -21,14 +24,26 @@ enum DocPreviewStage: String {
     }
 }
 
+enum DocItemSendState: Hashable {
+    case resolving(answer: DocAnswer, clientMessageId: String)
+    case awaitingDelivery(answer: DocAnswer, clientMessageId: String)
+    case failed(answer: DocAnswer)
+}
+
 @MainActor @Observable
 final class DocExperienceViewModel {
     private(set) var conversationViewModel: NewConversationViewModel?
     private(set) var agentDmSession: AgentDmSession?
     private(set) var state: DocState?
+    private(set) var pendingItems: [DocWaitingItem] = []
+    private(set) var itemSendStates: [String: DocItemSendState] = [:]
     private(set) var pendingScreenshotCount: Int = 0
+    private(set) var isGoogleStatusLoaded: Bool = false
+    private(set) var isGoogleDocsReady: Bool = false
     var isPresentingGoogleConnect: Bool = false
     var isPresentingHistory: Bool = false
+    var isPresentingShareNumber: Bool = false
+    private(set) var sharedDocNumber: String?
     var hasCompletedWelcome: Bool
 
     let previewStage: DocPreviewStage?
@@ -37,9 +52,14 @@ final class DocExperienceViewModel {
     @ObservationIgnored private let coreActions: any CoreActions
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var messagesCancellable: AnyCancellable?
+    @ObservationIgnored private var dmMessagesRepository: (any MessagesRepositoryProtocol)?
+    @ObservationIgnored private var googleStatusCancellable: AnyCancellable?
     @ObservationIgnored private var observedDmConversationId: String?
     @ObservationIgnored private var latestStateMessageId: String?
     @ObservationIgnored private var stateMessageIdAtLastSend: String?
+    @ObservationIgnored private var processedEventMessageIds: Set<String> = []
+    @ObservationIgnored private var resolvedItemIds: Set<String> = []
+    @ObservationIgnored private var itemsNeedingHistoryReconciliation: Set<String> = []
 
     init(
         session: any SessionManagerProtocol,
@@ -52,8 +72,23 @@ final class DocExperienceViewModel {
         self.previewStage = DocPreviewStage.current
         self.hasCompletedWelcome = defaults.bool(forKey: Self.key("welcome", session: session))
 
-        if previewStage == .cards {
+        if let previewStage,
+           [DocPreviewStage.cards, .forYou, .share, .disconnected].contains(previewStage) {
             state = Self.previewState
+            if previewStage == .forYou {
+                pendingItems = Self.previewItems
+            }
+            if previewStage == .share {
+                sharedDocNumber = Self.previewNumber
+                isPresentingShareNumber = true
+            }
+        } else if previewStage == nil,
+                  let data = defaults.data(forKey: Self.key("snapshot", session: session)),
+                  let snapshot = try? JSONDecoder().decode(PersistedSnapshot.self, from: data) {
+            state = snapshot.state
+            pendingItems = snapshot.pendingItems
+            resolvedItemIds = Set(snapshot.resolvedItemIds)
+            itemsNeedingHistoryReconciliation = Set(snapshot.pendingItems.map(\.id))
         } else if previewStage == nil,
                   let data = defaults.data(forKey: Self.key("state", session: session)) {
             state = try? JSONDecoder().decode(DocState.self, from: data)
@@ -64,6 +99,29 @@ final class DocExperienceViewModel {
         (state?.docs ?? []).sorted { lhs, rhs in
             lhs.updatedAt > rhs.updatedAt
         }
+    }
+
+    var visiblePendingItems: [DocWaitingItem] {
+        pendingItems
+            .filter { item in
+                guard case .awaitingDelivery = itemSendStates[item.id] else { return true }
+                return false
+            }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    var shouldShowGoogleConnectCard: Bool {
+        if previewStage == .disconnected { return true }
+        return previewStage == nil && isGoogleStatusLoaded && !isGoogleDocsReady
+    }
+
+    var isDmReadyForDisplay: Bool {
+        dmViewModel != nil || previewStage != nil
+    }
+
+    var shareText: String? {
+        guard let sharedDocNumber else { return nil }
+        return "Add Doc to our group so the doc stays updated: \(sharedDocNumber)"
     }
 
     var agentInboxId: String? {
@@ -158,6 +216,60 @@ final class DocExperienceViewModel {
         stateMessageIdAtLastSend = latestStateMessageId
     }
 
+    func presentShareNumber(for doc: DocStatus) {
+        let directNumber = doc.binding.number.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackNumber = docs
+            .lazy
+            .map(\.binding.number)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
+        guard let number = directNumber.isEmpty ? fallbackNumber : directNumber,
+              !number.isEmpty else {
+            return
+        }
+        sharedDocNumber = number
+        isPresentingShareNumber = true
+    }
+
+    func sendAnswer(_ answer: DocAnswer, for item: DocWaitingItem) {
+        guard let dmViewModel,
+              pendingItems.contains(where: { $0.id == item.id }),
+              let text = DocAnswerMessage.encode(itemId: item.id, answer: answer) else {
+            return
+        }
+        let clientMessageId = UUID().uuidString
+        itemSendStates[item.id] = .resolving(answer: answer, clientMessageId: clientMessageId)
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await dmViewModel.sendDocAnswer(text, clientMessageId: clientMessageId)
+                try? await Task.sleep(for: .milliseconds(650))
+                guard itemSendStates[item.id] == .resolving(
+                    answer: answer,
+                    clientMessageId: clientMessageId
+                ) else {
+                    return
+                }
+                itemSendStates[item.id] = .awaitingDelivery(
+                    answer: answer,
+                    clientMessageId: clientMessageId
+                )
+            } catch {
+                itemSendStates[item.id] = .failed(answer: answer)
+            }
+        }
+    }
+
+    func retryAnswer(for item: DocWaitingItem) {
+        guard case .failed(let answer) = itemSendStates[item.id] else { return }
+        sendAnswer(answer, for: item)
+    }
+
+    func sendState(for item: DocWaitingItem) -> DocItemSendState? {
+        itemSendStates[item.id]
+    }
+
     private func observeDmIfReady() {
         guard let dmViewModel,
               dmViewModel.conversation.id != observedDmConversationId else {
@@ -165,39 +277,137 @@ final class DocExperienceViewModel {
             return
         }
         observedDmConversationId = dmViewModel.conversation.id
-        messagesCancellable = session.messagesRepository(for: dmViewModel.conversation.id)
+        let repository = session.messagesRepository(for: dmViewModel.conversation.id)
+        dmMessagesRepository = repository
+        messagesCancellable = repository
             .messagesPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages in
-                self?.ingest(messages)
+                guard let self else { return }
+                ingest(messages)
+                reconcilePersistedItemsIfNeeded()
             }
+        observeGoogleStatus(conversationId: dmViewModel.conversation.id)
         showGoogleConnectIfNeeded()
     }
 
     private func ingest(_ messages: [AnyMessage]) {
+        updateAnswerDeliveries(from: messages)
         guard let agentInboxId else { return }
-        let candidates: [(message: AnyMessage, state: DocState)] = messages.compactMap { message in
-            guard message.senderId == agentInboxId,
+
+        var changedSnapshot = false
+        for message in messages.sorted(by: { $0.date < $1.date }) {
+            guard !processedEventMessageIds.contains(message.id),
+                  message.senderId == agentInboxId,
                   case .text(let text) = message.content,
-                  let state = DocStateMessage.parse(text) else {
-                return nil
+                  let event = DocStateMessage.parseEvent(text) else {
+                continue
             }
-            return (message, state)
+            processedEventMessageIds.insert(message.id)
+
+            switch event {
+            case .state(let newState):
+                latestStateMessageId = message.id
+                state = newState
+                changedSnapshot = true
+                if pendingScreenshotCount > 0,
+                   message.id != stateMessageIdAtLastSend {
+                    pendingScreenshotCount = 0
+                    stateMessageIdAtLastSend = nil
+                }
+            case .item(let item):
+                guard !resolvedItemIds.contains(item.id) else { continue }
+                pendingItems.removeAll { $0.id == item.id }
+                pendingItems.append(item)
+                changedSnapshot = true
+            case .itemResolved(let id):
+                resolveItem(id: id)
+                changedSnapshot = true
+            }
         }
-        guard let latest = candidates.first,
-              latest.message.id != latestStateMessageId else {
+        if changedSnapshot { persistSnapshot() }
+    }
+
+    private func updateAnswerDeliveries(from messages: [AnyMessage]) {
+        for (itemId, sendState) in Array(itemSendStates) {
+            let clientMessageId: String
+            let answer: DocAnswer
+            switch sendState {
+            case let .resolving(currentAnswer, currentMessageId),
+                 let .awaitingDelivery(currentAnswer, currentMessageId):
+                clientMessageId = currentMessageId
+                answer = currentAnswer
+            case .failed:
+                continue
+            }
+            guard let message = messages.first(where: { $0.id == clientMessageId }) else { continue }
+            switch message.status {
+            case .published:
+                resolveItem(id: itemId)
+                persistSnapshot()
+            case .failed:
+                itemSendStates[itemId] = .failed(answer: answer)
+            case .unpublished, .unknown:
+                break
+            }
+        }
+    }
+
+    private func resolveItem(id: String) {
+        pendingItems.removeAll { $0.id == id }
+        itemSendStates[id] = nil
+        resolvedItemIds.insert(id)
+        itemsNeedingHistoryReconciliation.remove(id)
+    }
+
+    /// A cold snapshot can outlive a resolve event that has moved beyond the
+    /// repository's first page. Page backward only for items restored from disk;
+    /// live items continue on the inexpensive current-page observation path.
+    private func reconcilePersistedItemsIfNeeded() {
+        let currentIds = Set(pendingItems.map(\.id))
+        itemsNeedingHistoryReconciliation.formIntersection(currentIds)
+        guard !itemsNeedingHistoryReconciliation.isEmpty,
+              let dmMessagesRepository else {
             return
         }
-
-        latestStateMessageId = latest.message.id
-        state = latest.state
-        if let data = try? JSONEncoder().encode(latest.state) {
-            defaults.set(data, forKey: Self.key("state", session: session))
+        guard dmMessagesRepository.hasMoreMessages else {
+            itemsNeedingHistoryReconciliation.removeAll()
+            return
         }
-        if pendingScreenshotCount > 0,
-           latest.message.id != stateMessageIdAtLastSend {
-            pendingScreenshotCount = 0
-            stateMessageIdAtLastSend = nil
+        try? dmMessagesRepository.fetchPrevious()
+    }
+
+    private func observeGoogleStatus(conversationId: String) {
+        isGoogleStatusLoaded = false
+        isGoogleDocsReady = false
+        let repository = session.cloudConnectionRepository()
+        googleStatusCancellable = repository.connectionsPublisher()
+            .combineLatest(repository.grantsPublisher(for: conversationId))
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] connections, grants in
+                guard let self else { return }
+                let googleConnectionIds = Set(
+                    connections
+                        .filter { $0.serviceId == "googledocs" }
+                        .map(\.id)
+                )
+                isGoogleDocsReady = grants.contains { grant in
+                    grant.serviceId == "googledocs" &&
+                        googleConnectionIds.contains(grant.connectionId) &&
+                        grant.grantedToInboxId == agentInboxId
+                }
+                isGoogleStatusLoaded = true
+            }
+    }
+
+    private func persistSnapshot() {
+        let snapshot = PersistedSnapshot(
+            state: state,
+            pendingItems: pendingItems,
+            resolvedItemIds: Array(resolvedItemIds)
+        )
+        if let data = try? JSONEncoder().encode(snapshot) {
+            defaults.set(data, forKey: Self.key("snapshot", session: session))
         }
     }
 
@@ -217,6 +427,37 @@ final class DocExperienceViewModel {
         return "doc.v1.\(account).\(component)"
     }
 
+    private struct PersistedSnapshot: Codable {
+        let state: DocState?
+        let pendingItems: [DocWaitingItem]
+        let resolvedItemIds: [String]
+    }
+
+    private static let previewNumber: String = "+16285550123"
+
+    private static var previewItems: [DocWaitingItem] {
+        let now = Date()
+        return [
+            DocWaitingItem(
+                id: "question-dates",
+                kind: .question,
+                headline: "Which weekend works for everyone?",
+                context: "Tahoe Trip needs a date before Doc can update the plan.",
+                chips: ["Dec 14", "Dec 21"],
+                docId: "tahoe-trip",
+                createdAt: now.addingTimeInterval(-4 * 60)
+            ),
+            DocWaitingItem(
+                id: "unknown-sender",
+                kind: .unknownContributor,
+                headline: "Who sent the cabin address?",
+                context: "Name the person so Doc can credit the update.",
+                docId: "tahoe-trip",
+                createdAt: now.addingTimeInterval(-8 * 60)
+            ),
+        ]
+    }
+
     private static var previewState: DocState {
         let now = Date()
         return DocState(docs: [
@@ -232,7 +473,7 @@ final class DocExperienceViewModel {
                 ),
                 binding: DocBinding(
                     state: .live,
-                    number: "+16285550123",
+                    number: previewNumber,
                     group: "Tahoe Weekend"
                 ),
                 dates: "Dec 12–15",
@@ -250,7 +491,7 @@ final class DocExperienceViewModel {
                 ),
                 binding: DocBinding(
                     state: .none,
-                    number: "+16285550123"
+                    number: previewNumber
                 ),
                 people: 4
             ),

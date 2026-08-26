@@ -641,7 +641,7 @@ extension MessagingService {
             guard let textContent = content as? String else {
                 return nil
             }
-            guard !DocStateMessage.isDataPlaneText(textContent) else {
+            guard !DocWireMessage.isHiddenText(textContent) else {
                 return nil
             }
             return shouldShowSenderName ? "\(senderName): \(textContent)" : textContent
@@ -656,7 +656,7 @@ extension MessagingService {
             }
             let emoji = reaction.emoji
             let sourceMessageText = try await getSourceMessageText(messageId: reaction.reference, conversationId: conversationId)
-            guard !DocStateMessage.isDataPlaneText(sourceMessageText ?? "") else {
+            guard !DocWireMessage.isHiddenText(sourceMessageText ?? "") else {
                 return nil
             }
             let sourceText = sourceMessageText.formattedAsReactionSource()
@@ -668,7 +668,7 @@ extension MessagingService {
                 return nil
             }
             if let textContent = reply.content as? String {
-                guard !DocStateMessage.isDataPlaneText(textContent) else {
+                guard !DocWireMessage.isHiddenText(textContent) else {
                     return nil
                 }
                 return shouldShowSenderName ? "\(senderName): \(textContent)" : textContent

@@ -48,7 +48,14 @@ struct DocRootView: View {
                 NavigationStack {
                     DocHomeView(
                         viewModel: viewModel,
-                        onSettings: { isPresentingSettings = true }
+                        onSettings: { isPresentingSettings = true },
+                        onConnectGoogle: {
+                            if viewModel.previewStage == nil {
+                                viewModel.isPresentingGoogleConnect = true
+                            } else {
+                                isPresentingConnectPreview = true
+                            }
+                        }
                     )
                     .navigationDestination(for: DocStatus.self) { doc in
                         DocRoomPlaceholderView(doc: doc)
@@ -121,6 +128,13 @@ struct DocRootView: View {
                 )
             }
         }
+        .shareSheet(
+            isPresented: $viewModel.isPresentingShareNumber,
+            items: viewModel.shareText.map { [$0] } ?? [],
+            applicationActivities: viewModel.sharedDocNumber.map {
+                [DocCopyNumberActivity(number: $0)]
+            }
+        )
     }
 }
 
@@ -172,24 +186,55 @@ private struct DocWelcomeView: View {
 private struct DocHomeView: View {
     @Bindable var viewModel: DocExperienceViewModel
     let onSettings: () -> Void
+    let onConnectGoogle: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion: Bool
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: DesignConstants.Spacing.step3x) {
+            LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+                if viewModel.shouldShowGoogleConnectCard {
+                    DocGoogleConnectCard(onConnect: onConnectGoogle)
+                }
+
+                if !viewModel.visiblePendingItems.isEmpty {
+                    Text("For you")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, DesignConstants.Spacing.step2x)
+                        .accessibilityAddTraits(.isHeader)
+
+                    ForEach(viewModel.visiblePendingItems) { item in
+                        DocWaitingItemCard(
+                            item: item,
+                            sendState: viewModel.sendState(for: item),
+                            isEnabled: viewModel.isDmReadyForDisplay,
+                            onAnswer: { viewModel.sendAnswer($0, for: item) },
+                            onRetry: { viewModel.retryAnswer(for: item) }
+                        )
+                    }
+                }
+
                 if viewModel.docs.isEmpty {
                     DocEmptyState(isPreparing: viewModel.isPreparingAgent)
                 } else {
                     ForEach(viewModel.docs) { doc in
-                        NavigationLink(value: doc) {
-                            DocStatusCard(doc: doc)
-                        }
-                        .buttonStyle(.plain)
+                        DocStatusCard(
+                            doc: doc,
+                            onShare: { viewModel.presentShareNumber(for: doc) }
+                        )
+                        .transition(
+                            .opacity.combined(with: .move(edge: reduceMotion ? .bottom : .top))
+                        )
                     }
                 }
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.top, DesignConstants.Spacing.step2x)
             .padding(.bottom, DesignConstants.Spacing.step6x)
+            .animation(
+                reduceMotion ? nil : .easeOut(duration: 0.3),
+                value: viewModel.docs.map(\.id)
+            )
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("Doc")
@@ -208,6 +253,35 @@ private struct DocHomeView: View {
             DocComposer(viewModel: viewModel)
         }
         .accessibilityIdentifier("doc-home")
+    }
+}
+
+private struct DocGoogleConnectCard: View {
+    let onConnect: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DesignConstants.Spacing.step3x) {
+            Image(systemName: "doc.text")
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 32.0, height: 32.0)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                Text("Connect Google Docs")
+                    .font(.subheadline.weight(.semibold))
+                Text("Doc needs it to write your docs")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Connect", action: onConnect)
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .frame(minHeight: 44.0)
+        }
+        .padding(DesignConstants.Spacing.step3x)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14.0))
+        .accessibilityIdentifier("doc-google-connect-card")
     }
 }
 
@@ -239,28 +313,35 @@ private struct DocEmptyState: View {
 
 private struct DocStatusCard: View {
     let doc: DocStatus
+    let onShare: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
-            HStack(alignment: .firstTextBaseline, spacing: DesignConstants.Spacing.step2x) {
-                Circle()
-                    .fill(freshnessColor)
-                    .frame(width: 9.0, height: 9.0)
-                    .accessibilityLabel(freshnessLabel)
-                Text(doc.name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .accessibilityHidden(true)
-            }
+            NavigationLink(value: doc) {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+                    HStack(alignment: .firstTextBaseline, spacing: DesignConstants.Spacing.step2x) {
+                        Circle()
+                            .fill(freshnessColor)
+                            .frame(width: 9.0, height: 9.0)
+                            .accessibilityLabel(freshnessLabel)
+                        Text(doc.name)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
+                    }
 
-            Text("\(doc.lastChange.who) \(doc.lastChange.what) · \(compactRelativeTime(from: doc.lastChange.at))")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
+                    Text("\(doc.lastChange.who) \(doc.lastChange.what) · \(compactRelativeTime(from: doc.lastChange.at))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
 
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: DesignConstants.Spacing.step2x) {
@@ -281,7 +362,6 @@ private struct DocStatusCard: View {
                 .stroke(Color.primary.opacity(0.06), lineWidth: 1.0)
         }
         .contentShape(.rect)
-        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("doc-card-\(doc.id)")
     }
 
@@ -295,19 +375,27 @@ private struct DocStatusCard: View {
         }
     }
 
+    @ViewBuilder
     private var bindingPill: some View {
-        Label(
-            doc.binding.state == .live ? "In the group" : "Share Doc's number",
-            systemImage: doc.binding.state == .live ? "checkmark.circle.fill" : "person.badge.plus"
-        )
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(doc.binding.state == .live ? Color.green : Color.blue)
-        .padding(.horizontal, DesignConstants.Spacing.step3x)
-        .frame(minHeight: 28.0)
-        .background(
-            (doc.binding.state == .live ? Color.green : Color.blue).opacity(0.12),
-            in: Capsule()
-        )
+        if doc.binding.state == .live {
+            Label("In the group", systemImage: "checkmark.circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.green)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+                .frame(minHeight: 28.0)
+                .background(Color.green.opacity(0.12), in: Capsule())
+        } else {
+            Button(action: onShare) {
+                Label("Share Doc's number", systemImage: "person.badge.plus")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    .frame(minHeight: 44.0)
+                    .background(Color.blue.opacity(0.12), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.blue)
+            .accessibilityIdentifier("doc-share-number")
+        }
     }
 
     private func metadataPill(systemImage: String, text: String) -> some View {
@@ -321,9 +409,8 @@ private struct DocStatusCard: View {
 
     private var freshnessColor: Color {
         let age = Date().timeIntervalSince(doc.updatedAt)
-        if age < 60 * 60 { return .green }
-        if age < 24 * 60 * 60 { return .orange }
-        return .secondary
+        if age < 24 * 60 * 60 { return .accentColor }
+        return Color(uiColor: .systemGray3)
     }
 
     private var freshnessLabel: String {
@@ -443,6 +530,7 @@ private struct DocComposer: View {
             viewModel.isPresentingHistory = true
         } label: {
             Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 20.0))
                 .frame(width: 44.0, height: 44.0)
         }
         .accessibilityLabel("History")
@@ -457,16 +545,17 @@ private struct DocComposer: View {
             photoLibrary: .shared()
         ) {
             Image(systemName: "photo")
+                .font(.system(size: 20.0))
                 .frame(width: 44.0, height: 44.0)
         }
-        .disabled(dmViewModel == nil || pendingAttachments.count >= maxPendingMediaAttachments)
+        .disabled(!viewModel.isDmReadyForDisplay || pendingAttachments.count >= maxPendingMediaAttachments)
         .accessibilityLabel("Choose screenshots")
         .accessibilityIdentifier("doc-photo-picker")
     }
 
     private var messageField: some View {
         TextField(
-            dmViewModel == nil ? "Preparing Doc…" : "Message Doc",
+            viewModel.isDmReadyForDisplay ? "Add screenshots or tell Doc…" : "Preparing Doc…",
             text: messageText,
             axis: .vertical
         )
@@ -476,7 +565,7 @@ private struct DocComposer: View {
         .padding(.horizontal, DesignConstants.Spacing.step3x)
         .frame(minHeight: 44.0)
         .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 18.0))
-        .disabled(dmViewModel == nil)
+        .disabled(!viewModel.isDmReadyForDisplay)
         .submitLabel(.send)
         .onSubmit(send)
         .accessibilityIdentifier("doc-message-field")

@@ -85,6 +85,64 @@ public struct DocBinding: Codable, Hashable, Sendable {
     }
 }
 
+public struct DocWaitingItem: Codable, Hashable, Identifiable, Sendable {
+    public enum Register: String, Codable, Hashable, Sendable {
+        case waiting
+    }
+
+    public enum Kind: String, Codable, Hashable, Sendable {
+        case question
+        case unknownContributor = "unknown_contributor"
+        case noticeAsk = "notice_ask"
+    }
+
+    public let id: String
+    public let register: Register
+    public let kind: Kind
+    public let headline: String
+    public let context: String
+    public let chips: [String]
+    public let docId: String?
+    public let createdAt: Date
+
+    public init(
+        id: String,
+        register: Register = .waiting,
+        kind: Kind,
+        headline: String,
+        context: String,
+        chips: [String] = [],
+        docId: String? = nil,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.register = register
+        self.kind = kind
+        self.headline = headline
+        self.context = context
+        self.chips = chips
+        self.docId = docId
+        self.createdAt = createdAt
+    }
+}
+
+public enum DocAgentEvent: Hashable, Sendable {
+    case state(DocState)
+    case item(DocWaitingItem)
+    case itemResolved(id: String)
+}
+
+public enum DocAnswer: Hashable, Sendable {
+    case choice(String)
+    case text(String)
+}
+
+public enum DocWireMessage {
+    public static func isHiddenText(_ text: String) -> Bool {
+        DocStateMessage.isDataPlaneText(text) || DocAnswerMessage.isDataPlaneText(text)
+    }
+}
+
 public enum DocStateMessage {
     public static let prefix: String = "⟦doc⟧"
 
@@ -93,28 +151,48 @@ public enum DocStateMessage {
     }
 
     public static func parse(_ text: String) -> DocState? {
+        guard case .state(let state) = parseEvent(text) else { return nil }
+        return state
+    }
+
+    public static func parseEvent(_ text: String) -> DocAgentEvent? {
         guard isDataPlaneText(text) else { return nil }
         let payload = text.dropFirst(prefix.count)
         guard let data = payload.data(using: .utf8),
               let envelope = try? JSONDecoder().decode(RawEnvelope.self, from: data),
-              envelope.version == 1,
-              envelope.type == "state" else {
+              envelope.version == 1 else {
             return nil
         }
 
-        let docs = envelope.docs.compactMap(\.status)
-        return DocState(version: envelope.version, docs: docs)
+        switch envelope.type {
+        case "state":
+            guard let rawDocs = envelope.docs else { return nil }
+            let docs: [DocStatus] = rawDocs.compactMap(\.status)
+            return .state(DocState(version: envelope.version, docs: docs))
+        case "item":
+            guard let item = envelope.item?.value else { return nil }
+            return .item(item)
+        case "item-resolved":
+            guard let id = envelope.id, !id.isEmpty else { return nil }
+            return .itemResolved(id: id)
+        default:
+            return nil
+        }
     }
 
     private struct RawEnvelope: Decodable {
         let version: Int
         let type: String
-        let docs: [RawDoc]
+        let docs: [RawDoc]?
+        let item: RawItem?
+        let id: String?
 
         private enum CodingKeys: String, CodingKey {
             case version = "v"
             case type = "t"
             case docs
+            case item
+            case id
         }
     }
 
@@ -179,6 +257,81 @@ public enum DocStateMessage {
                 return nil
             }
             return DocBinding(state: state, number: number, group: group)
+        }
+    }
+
+    private struct RawItem: Decodable {
+        let id: String?
+        let register: String?
+        let kind: String?
+        let headline: String?
+        let context: String?
+        let chips: [String]?
+        let docId: String?
+        let createdAt: TimeInterval?
+
+        var value: DocWaitingItem? {
+            guard let id, !id.isEmpty,
+                  let register,
+                  let register = DocWaitingItem.Register(rawValue: register),
+                  let kind,
+                  let kind = DocWaitingItem.Kind(rawValue: kind),
+                  let headline, !headline.isEmpty,
+                  let context, !context.isEmpty,
+                  let createdAt, createdAt.isFinite else {
+                return nil
+            }
+            let cleanChips: [String] = (chips ?? []).filter { !$0.isEmpty }
+            return DocWaitingItem(
+                id: id,
+                register: register,
+                kind: kind,
+                headline: headline,
+                context: context,
+                chips: cleanChips,
+                docId: docId,
+                createdAt: Date(timeIntervalSince1970: createdAt)
+            )
+        }
+    }
+}
+
+public enum DocAnswerMessage {
+    public static let prefix: String = "⟦ans⟧"
+
+    public static func isDataPlaneText(_ text: String) -> Bool {
+        text.hasPrefix(prefix)
+    }
+
+    public static func encode(itemId: String, answer: DocAnswer) -> String? {
+        guard !itemId.isEmpty else { return nil }
+        let envelope = AnswerEnvelope(id: itemId, answer: answer)
+        guard let data = try? JSONEncoder().encode(envelope),
+              let payload = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return "\(prefix)\(payload)"
+    }
+
+    private struct AnswerEnvelope: Encodable {
+        let id: String
+        let answer: DocAnswer
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case choice
+            case text
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(id, forKey: .id)
+            switch answer {
+            case .choice(let choice):
+                try container.encode(choice, forKey: .choice)
+            case .text(let text):
+                try container.encode(text, forKey: .text)
+            }
         }
     }
 }

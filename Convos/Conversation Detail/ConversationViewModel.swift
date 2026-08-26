@@ -3667,6 +3667,12 @@ extension ConversationViewModel {
         }
     }
 
+    /// Sends a Doc control-plane answer with a caller-owned id so the Doc home
+    /// can observe the local delivery row and restore its waiting item on failure.
+    func sendDocAnswer(_ text: String, clientMessageId: String) async throws {
+        try await cachedMessageWriter.send(text: text, clientMessageId: clientMessageId)
+    }
+
     private func sendComposerContents(focusCoordinator: FocusCoordinator, endedDictation: Bool) {
         let hasText = !messageText.isEmpty
         let hasMedia = !pendingMediaAttachments.isEmpty
