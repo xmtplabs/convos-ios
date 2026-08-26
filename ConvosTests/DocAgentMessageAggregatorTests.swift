@@ -25,9 +25,12 @@ final class DocAgentMessageAggregatorTests: XCTestCase {
         )
         let aggregator = makeAggregator(conversations: conversations, repositories: repositories)
         let stateArrived = expectation(description: "alternate lane state arrived")
+        var didFulfill = false
 
         aggregator.start(agentInboxId: agent.profile.inboxId) { messages in
             viewModel.ingestAggregatedMessages(messages, agentInboxId: agent.profile.inboxId)
+            guard !didFulfill else { return }
+            didFulfill = true
             stateArrived.fulfill()
         }
 
@@ -58,14 +61,55 @@ final class DocAgentMessageAggregatorTests: XCTestCase {
         )
         let aggregator = makeAggregator(conversations: conversations, repositories: repositories)
         let statesArrived = expectation(description: "all lane states arrived")
+        var didFulfill = false
 
         aggregator.start(agentInboxId: agent.profile.inboxId) { messages in
             viewModel.ingestAggregatedMessages(messages, agentInboxId: agent.profile.inboxId)
+            guard !didFulfill else { return }
+            didFulfill = true
             statesArrived.fulfill()
         }
 
         await fulfillment(of: [statesArrived], timeout: 1)
         XCTAssertEqual(viewModel.docs.map(\.name), ["Newest State"])
+    }
+
+    func testHistoricalStateBackfillsOnColdStartWithoutLiveEvents() async {
+        let defaults = makeDefaults()
+        let agent = agentMember()
+        let historicalState = stateMessage(
+            id: "historical-state",
+            name: "Cold Start Card",
+            date: 100,
+            sender: agent
+        )
+        let lane = conversation(id: "historical-lane", agent: agent)
+        let repository = TestDocMessagesRepository(
+            conversationId: lane.id,
+            historicalMessages: [historicalState],
+            publishesMessages: false
+        )
+        let conversations = CurrentValueSubject<[Conversation], Never>([lane])
+        let viewModel = DocExperienceViewModel(
+            session: MockInboxesService(),
+            coreActions: NoOpCoreActions(),
+            defaults: defaults
+        )
+        let aggregator = makeAggregator(
+            conversations: conversations,
+            repositories: [lane.id: repository]
+        )
+        let stateArrived = expectation(description: "historical state backfilled")
+
+        aggregator.start(agentInboxId: agent.profile.inboxId) { messages in
+            viewModel.ingestAggregatedMessages(messages, agentInboxId: agent.profile.inboxId)
+            if viewModel.docs.map(\.name) == ["Cold Start Card"] {
+                stateArrived.fulfill()
+            }
+        }
+
+        await fulfillment(of: [stateArrived], timeout: 1)
+        XCTAssertEqual(viewModel.docs.map(\.name), ["Cold Start Card"])
     }
 
     private func makeAggregator(
@@ -134,14 +178,26 @@ final class DocAgentMessageAggregatorTests: XCTestCase {
 private final class TestDocMessagesRepository: MessagesRepositoryProtocol, @unchecked Sendable {
     private let subject: CurrentValueSubject<[AnyMessage], Never>
     private let conversationId: String
+    private let historicalMessages: [AnyMessage]
+    private let publishesMessages: Bool
 
-    init(conversationId: String, messages: [AnyMessage] = []) {
+    init(
+        conversationId: String,
+        messages: [AnyMessage] = [],
+        historicalMessages: [AnyMessage]? = nil,
+        publishesMessages: Bool = true
+    ) {
         self.conversationId = conversationId
         self.subject = CurrentValueSubject(messages)
+        self.historicalMessages = historicalMessages ?? messages
+        self.publishesMessages = publishesMessages
     }
 
     var messagesPublisher: AnyPublisher<[AnyMessage], Never> {
-        subject.eraseToAnyPublisher()
+        guard publishesMessages else {
+            return Empty(completeImmediately: false).eraseToAnyPublisher()
+        }
+        return subject.eraseToAnyPublisher()
     }
 
     var conversationMessagesResultPublisher: AnyPublisher<ConversationMessagesResult, Never> {
@@ -156,6 +212,10 @@ private final class TestDocMessagesRepository: MessagesRepositoryProtocol, @unch
 
     func fetchInitialResult() throws -> ConversationMessagesResult {
         fatalError("Unused by DocAgentMessageAggregatorTests")
+    }
+
+    func fetchRecent(limit: Int) throws -> [AnyMessage] {
+        Array(historicalMessages.prefix(limit))
     }
 
     func fetchPrevious() throws {}

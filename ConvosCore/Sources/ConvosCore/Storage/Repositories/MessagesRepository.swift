@@ -45,6 +45,7 @@ public protocol MessagesRepositoryProtocol {
 
     func fetchInitial() throws -> [AnyMessage]
     func fetchInitialResult() throws -> ConversationMessagesResult
+    func fetchRecent(limit: Int) throws -> [AnyMessage]
     func fetchPrevious() throws
 
     var hasMoreMessages: Bool { get }
@@ -55,6 +56,11 @@ extension MessagesRepositoryProtocol {
         conversationMessagesResultPublisher
             .map { $0.messages }
             .eraseToAnyPublisher()
+    }
+
+    public func fetchRecent(limit: Int) throws -> [AnyMessage] {
+        guard limit > 0 else { return [] }
+        return Array(try fetchInitial().suffix(limit))
     }
 }
 
@@ -253,6 +259,22 @@ class MessagesRepository: MessagesRepositoryProtocol {
                 return ConversationMessagesResult(conversationId: conversationId, messages: [], readReceipts: [], memberProfiles: [:])
             }
             return try self.composeInitialResult(db, conversationId: conversationId, limit: limit)
+        }
+    }
+
+    func fetchRecent(limit: Int) throws -> [AnyMessage] {
+        guard limit > 0 else { return [] }
+        return try dbReader.read { [weak self] db in
+            guard let self else { return [] }
+            let (messages, _) = try db.composeMessages(
+                for: conversationId,
+                currentInboxId: currentInboxId,
+                limit: limit,
+                seenMessageIds: [],
+                isInitialLoad: true,
+                isPaginating: false
+            )
+            return messages
         }
     }
 

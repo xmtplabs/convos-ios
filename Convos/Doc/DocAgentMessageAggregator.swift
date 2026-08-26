@@ -65,7 +65,9 @@ final class DocAgentMessageAggregator {
     private var conversationsCancellable: AnyCancellable?
     private var messageCancellables: [String: AnyCancellable] = [:]
     private var messageRepositories: [String: any MessagesRepositoryProtocol] = [:]
-    private var messagesByConversationId: [String: [AnyMessage]] = [:]
+    private var liveMessagesByConversationId: [String: [AnyMessage]] = [:]
+    private var backfillMessagesByConversationId: [String: [AnyMessage]] = [:]
+    private var conversationsWithBackfilledState: Set<String> = []
     private var activeConversationIds: Set<String> = []
     private var receivedConversationIds: Set<String> = []
     private var onMessages: (([AnyMessage]) -> Void)?
@@ -102,7 +104,9 @@ final class DocAgentMessageAggregator {
         conversationsCancellable = nil
         messageCancellables.removeAll()
         messageRepositories.removeAll()
-        messagesByConversationId.removeAll()
+        liveMessagesByConversationId.removeAll()
+        backfillMessagesByConversationId.removeAll()
+        conversationsWithBackfilledState.removeAll()
         activeConversationIds.removeAll()
         receivedConversationIds.removeAll()
         onMessages = nil
@@ -130,7 +134,9 @@ final class DocAgentMessageAggregator {
         for conversationId in activeConversationIds.subtracting(matchingIds) {
             messageCancellables[conversationId] = nil
             messageRepositories[conversationId] = nil
-            messagesByConversationId[conversationId] = nil
+            liveMessagesByConversationId[conversationId] = nil
+            backfillMessagesByConversationId[conversationId] = nil
+            conversationsWithBackfilledState.remove(conversationId)
             receivedConversationIds.remove(conversationId)
         }
 
@@ -138,11 +144,20 @@ final class DocAgentMessageAggregator {
         for conversationId in matchingIds where messageCancellables[conversationId] == nil {
             let repository = repositoryProvider(conversationId)
             messageRepositories[conversationId] = repository
+            refreshBackfill(
+                repository: repository,
+                conversationId: conversationId,
+                agentInboxId: agentInboxId
+            )
             messageCancellables[conversationId] = repository
                 .messagesPublisher
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] messages in
-                    self?.updateMessages(messages, conversationId: conversationId)
+                    self?.updateMessages(
+                        messages,
+                        conversationId: conversationId,
+                        agentInboxId: agentInboxId
+                    )
                 }
         }
         emitIfReady()
@@ -150,11 +165,20 @@ final class DocAgentMessageAggregator {
 
     private func updateMessages(
         _ messages: [AnyMessage],
-        conversationId: String
+        conversationId: String,
+        agentInboxId: String
     ) {
         guard activeConversationIds.contains(conversationId) else { return }
-        messagesByConversationId[conversationId] = messages
+        liveMessagesByConversationId[conversationId] = messages
         receivedConversationIds.insert(conversationId)
+        if !conversationsWithBackfilledState.contains(conversationId),
+           let repository = messageRepositories[conversationId] {
+            refreshBackfill(
+                repository: repository,
+                conversationId: conversationId,
+                agentInboxId: agentInboxId
+            )
+        }
 #if DEBUG
         let sentinelCount = messages.reduce(into: 0) { count, message in
             guard case .text(let text) = message.content,
@@ -171,13 +195,78 @@ final class DocAgentMessageAggregator {
         emitIfReady()
     }
 
+    private func refreshBackfill(
+        repository: any MessagesRepositoryProtocol,
+        conversationId: String,
+        agentInboxId: String
+    ) {
+        do {
+            let recentMessages = try repository.fetchRecent(limit: Constant.historyBackfillLimit)
+            let result = Self.wireBackfill(
+                from: recentMessages,
+                agentInboxId: agentInboxId
+            )
+            backfillMessagesByConversationId[conversationId] = result.messages
+            receivedConversationIds.insert(conversationId)
+            if result.foundState {
+                conversationsWithBackfilledState.insert(conversationId)
+            }
+#if DEBUG
+            Log.info(
+                "Doc wire history backfill id=\(conversationId) scanned=\(recentMessages.count) " +
+                    "sentinels=\(result.messages.count) stateFound=\(result.foundState)"
+            )
+#endif
+        } catch {
+            Log.warning("Doc wire history backfill failed id=\(conversationId): \(error.localizedDescription)")
+        }
+    }
+
+    private static func wireBackfill(
+        from messages: [AnyMessage],
+        agentInboxId: String
+    ) -> (messages: [AnyMessage], foundState: Bool) {
+        let wireMessages = messages
+            .filter { message in
+                guard message.senderId == agentInboxId,
+                      case .text(let text) = message.content else {
+                    return false
+                }
+                return DocStateMessage.isDataPlaneText(text)
+            }
+            .sorted { DocMessagePosition(message: $0) > DocMessagePosition(message: $1) }
+        guard let stateMessage = wireMessages.first(where: isStateMessage) else {
+            return (wireMessages, false)
+        }
+        let statePosition = DocMessagePosition(message: stateMessage)
+        let messagesSinceState = wireMessages.filter {
+            DocMessagePosition(message: $0) >= statePosition
+        }
+        return (messagesSinceState, true)
+    }
+
+    private static func isStateMessage(_ message: AnyMessage) -> Bool {
+        guard case .text(let text) = message.content,
+              case .state = DocStateMessage.parseEvent(text) else {
+            return false
+        }
+        return true
+    }
+
     private func emitIfReady() {
         guard !activeConversationIds.isEmpty,
               activeConversationIds.isSubset(of: receivedConversationIds) else {
             return
         }
-        let messages = activeConversationIds
-            .flatMap { messagesByConversationId[$0] ?? [] }
+        var messagesById: [String: AnyMessage] = [:]
+        for conversationId in activeConversationIds {
+            let messages = (backfillMessagesByConversationId[conversationId] ?? []) +
+                (liveMessagesByConversationId[conversationId] ?? [])
+            for message in messages {
+                messagesById[message.id] = message
+            }
+        }
+        let messages = messagesById.values
             .sorted { lhs, rhs in
                 if lhs.date == rhs.date { return lhs.id < rhs.id }
                 return lhs.date < rhs.date
@@ -196,5 +285,9 @@ final class DocAgentMessageAggregator {
         )
 #endif
         onMessages?(messages)
+    }
+
+    private enum Constant {
+        static let historyBackfillLimit: Int = 500
     }
 }
