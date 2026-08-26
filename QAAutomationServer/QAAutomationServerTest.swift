@@ -11,15 +11,33 @@ final class QAAutomationServerTest: XCTestCase {
         app.launchEnvironment["YOUR_SPACE_VISUAL_FIXTURE"] = "1"
         app.launch()
 
-        let contextSearch = app.buttons["your-space-context-search"]
-        XCTAssertTrue(contextSearch.waitForExistence(timeout: 10))
-        let initialY = contextSearch.frame.minY
+        let docMaker = app.otherElements["your-space-doc-maker"]
+        XCTAssertTrue(docMaker.waitForExistence(timeout: 10))
+
+        let docLibrary = app.otherElements["your-space-doc-library"]
+        XCTAssertTrue(docLibrary.waitForExistence(timeout: 3))
+        let initialY = docLibrary.frame.minY
 
         let homeScroll = app.scrollViews["your-space-home-scroll"]
         XCTAssertTrue(homeScroll.waitForExistence(timeout: 2))
         homeScroll.swipeUp()
 
-        XCTAssertLessThan(contextSearch.frame.minY, initialY - 40)
+        XCTAssertLessThan(docLibrary.frame.minY, initialY - 40)
+    }
+
+    @MainActor
+    func testYourSpaceMakesADocWithoutConnectedEngine() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["YOUR_SPACE_VISUAL_FIXTURE"] = "1"
+        app.launch()
+
+        let makeDoc = app.buttons["your-space-make-doc-button"]
+        XCTAssertTrue(makeDoc.waitForExistence(timeout: 10))
+        makeDoc.tap()
+
+        let docInput = app.textFields["your-space-chat-input"]
+        XCTAssertTrue(docInput.waitForExistence(timeout: 5))
+        XCTAssertTrue((docInput.value as? String)?.contains("Make a living group doc") == true)
     }
 
     @MainActor

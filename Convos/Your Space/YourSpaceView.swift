@@ -1,9 +1,9 @@
 /*
- THESIS: Add @doc to any group in your life; Convos turns quiet intelligence into a living multiplayer doc, sheet, and calendar without asking people to understand agents.
- OWN-WORLD: Native Convos neutrals, circular identity, glass reserved for persistent controls, and open editorial spacing between flat lists and one expressive Me card.
- STORY: On launch the user adds @doc wherever their group already talks, sees what its shared things changed, and can open or share the result anywhere.
- FIRST VIEWPORT: Profile, anchored Your Space switcher, and add sit above the one-line product promise, an Add @doc action, and the most recently updated shared docs.
- FORM: A living cross-conversation digest using the pinned shell recorded as YS-SHELL-2026-08-18; no generated concept seed was used.
+ THESIS: Turn anything into one useful group doc; Home refuses the inbox, agent dashboard, and personal-context control-room defaults.
+ OWN-WORLD: One drenched Lava work surface, blunt rounded type, a white input well, black action, and flat document rows on the native canvas.
+ STORY: The user names what the group is keeping track of, gives @doc anything, receives a living doc, then shares it so anyone can keep adding without learning a new app.
+ FIRST VIEWPORT: A tiny @doc header sits above one enormous Lava maker containing the promise, source input, attachment action, Make the doc button, and the sharing loop.
+ FORM: Ruthless Operate-mode distillation of the established Convos world; the prior dashboard remains behind progressive disclosure, never on Home.
  FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
  */
 
@@ -56,6 +56,8 @@ struct YourSpaceView: View {
     @State private var rememberedFields: [YourSpaceRememberedField] = YourSpaceRememberedFieldStore.fields()
     @State private var browsingContextKind: YourSpaceContextKind?
     @State private var presentingAddContext: Bool = false
+    @State private var addingSourceToNewDoc: Bool = false
+    @State private var newDocIdea: String = ""
     @State private var presentingPersonalCard: Bool = false
     @State private var presentingMeAndMyStuff: Bool = false
     @State private var presentingManageAgents: Bool = false
@@ -72,6 +74,7 @@ struct YourSpaceView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion: Bool
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
     @AccessibilityFocusState private var switcherButtonAccessibilityFocused: Bool
+    @FocusState private var newDocIdeaFocused: Bool
     @AppStorage("your-space-people-widget") private var showsPeopleWidget: Bool = false
     @AppStorage("your-space-footprint-widget") private var showsFootprintWidget: Bool = false
     @AppStorage("your-space-agents-widget") private var showsAgentsWidget: Bool = false
@@ -217,11 +220,6 @@ struct YourSpaceView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 topBar.accessibilityHidden(presentingSwitcher)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !dynamicTypeSize.isAccessibilitySize {
-                    bottomBar.accessibilityHidden(presentingSwitcher)
-                }
-            }
             .navigationDestination(item: selectedConversationBinding) { convoViewModel in
                 pushedConversationDestination(viewModel: convoViewModel)
             }
@@ -261,7 +259,7 @@ struct YourSpaceView: View {
                     briefing: briefing,
                     contextItems: allContextItems,
                     agentName: activePersonalAgentName,
-                    agentSubtitle: "Your smart group workspace",
+                    agentSubtitle: "Your living group doc",
                     agentProvider: activePersonalAgent,
                     initialChatText: pendingChatDraft,
                     codexConfiguration: codexConnectionConfiguration,
@@ -312,6 +310,10 @@ struct YourSpaceView: View {
             .sheet(isPresented: $presentingAddContext) {
                 YourSpaceAddContextSheet { file in
                     refreshLocalContext(selecting: file)
+                    if addingSourceToNewDoc {
+                        addingSourceToNewDoc = false
+                        startDocFromHome(sourceTitle: file.name)
+                    }
                 }
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
@@ -435,42 +437,20 @@ private extension YourSpaceView {
             YourSpaceLoadingView()
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step10x) {
+                LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step8x) {
                     briefingHero
 
-                    updatedThingsSection
-
-                    recentActivitySection
-
-                    docsWidget
-
-                    contextSection
-
-                    if conversations.isEmpty {
-                        emptyActions
+                    if !recentlyUpdatedThings.isEmpty {
+                        updatedThingsSection
                     }
-
-                    if dynamicTypeSize.isAccessibilitySize {
-                        accessibilityActions
-                    }
-
-                    if showsPeopleWidget, !activePeople.isEmpty {
-                        peopleWidget
-                    }
-
-                    contextPromise
-
-                    if showsFootprintWidget, briefing.sourceCount > 0 {
-                        footprintWidget
-                    }
-
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step6x)
-                .padding(.top, DesignConstants.Spacing.step8x)
+                .padding(.top, DesignConstants.Spacing.step5x)
                 .padding(.bottom, DesignConstants.Spacing.step16x)
                 .frame(maxWidth: 720, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
+            .scrollDismissesKeyboard(.interactively)
             .scrollIndicators(.hidden)
             .accessibilityIdentifier("your-space-home-scroll")
         }
@@ -478,8 +458,22 @@ private extension YourSpaceView {
 
     private var topBar: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Image(systemName: "doc.text.fill")
+                    .font(.body.weight(.black))
+                    .foregroundStyle(Color.black)
+                    .frame(width: 36, height: 36)
+                    .background(.colorLava, in: .rect(cornerRadius: DesignConstants.CornerRadius.small))
+                Text("@doc")
+                    .font(.title3.weight(.black))
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("@doc Home")
+
+            Spacer(minLength: 0)
+
             profileButton
-            spaceSwitcherButton
             addMenu
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -545,7 +539,7 @@ private extension YourSpaceView {
         .buttonStyle(.plain)
         .frame(width: 44, height: 44)
         .contentShape(.circle)
-        .accessibilityLabel("Open context across your life")
+        .accessibilityLabel("Open your stuff")
         .accessibilityIdentifier("your-space-profile-button")
     }
 
@@ -580,8 +574,22 @@ private extension YourSpaceView {
 
     private var addMenu: some View {
         Menu {
-            Button("Add @doc to a group", systemImage: "doc.badge.plus") {
-                presentingAddDoc = true
+            Button("New doc", systemImage: "doc.badge.plus") {
+                newDocIdeaFocused = true
+            }
+
+            Divider()
+
+            Button("Your docs", systemImage: "doc.on.doc.fill") {
+                openAgentManager()
+            }
+            Button("All convos", systemImage: "bubble.left.and.bubble.right.fill") {
+                withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) {
+                    presentingSwitcher = true
+                }
+            }
+            Button("All my things", systemImage: "tray.full.fill") {
+                presentingMeAndMyStuff = true
             }
 
             Divider()
@@ -593,11 +601,11 @@ private extension YourSpaceView {
                 viewModel.onJoinConvo()
             }
 
-            Divider()
-
-            toolsMenuContent
+            Button("Settings", systemImage: "gearshape") {
+                onOpenSettings()
+            }
         } label: {
-            Image(systemName: "plus")
+            Image(systemName: "ellipsis")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(.colorTextPrimary)
                 .frame(width: 44, height: 44)
@@ -606,50 +614,73 @@ private extension YourSpaceView {
         .glassEffect(.regular.interactive(), in: .circle)
         .matchedTransitionSource(id: "composer-transition-source", in: transitionNamespace)
         .disabled(viewModel.staleDeviceObserver.isDeviceRemoved)
-        .accessibilityLabel("Add @doc or a convo")
+        .accessibilityLabel("More")
         .accessibilityIdentifier("your-space-add-menu")
     }
 
     private var briefingHero: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
-                HStack(alignment: .top, spacing: DesignConstants.Spacing.step4x) {
-                    Text("Add @doc to any group in your life.")
-                        .font(.system(.largeTitle, design: .rounded, weight: .black))
-                        .tracking(-1.0)
-                        .foregroundStyle(Color.black)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Spacer(minLength: 0)
-
-                    Image(systemName: "doc.text.fill")
-                        .font(.system(size: 38, weight: .black))
-                        .foregroundStyle(Color.black)
-                        .rotationEffect(.degrees(4))
-                        .accessibilityHidden(true)
-                }
-
-                Text("A living workspace that listens, remembers, and keeps the group moving. You control it from Convos.")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(Color.black.opacity(0.76))
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step6x) {
+            HStack(alignment: .top, spacing: DesignConstants.Spacing.step4x) {
+                Text("Turn anything into a group doc.")
+                    .font(.system(.largeTitle, design: .rounded, weight: .black))
+                    .tracking(-1.0)
+                    .foregroundStyle(Color.black)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: DesignConstants.Spacing.step2x) {
-                    docCapability("Docs", symbol: "doc.text.fill")
-                    docCapability("Sheets", symbol: "tablecells.fill")
-                    docCapability("Calendars", symbol: "calendar")
-                }
+                Spacer(minLength: 0)
 
-                Button {
-                    presentingAddDoc = true
-                } label: {
-                    HStack(spacing: DesignConstants.Spacing.step3x) {
+                Image(systemName: "arrow.down.doc.fill")
+                    .font(.system(size: 38, weight: .black))
+                    .foregroundStyle(Color.black)
+                    .rotationEffect(.degrees(3))
+                    .accessibilityHidden(true)
+            }
+
+            Text("Give @doc screenshots, links, messages, or files. It organizes everything and keeps one useful doc current.")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Color.black.opacity(0.76))
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: DesignConstants.Spacing.step3x) {
+                HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
+                    TextField(
+                        "What should this doc keep track of?",
+                        text: $newDocIdea,
+                        axis: .vertical
+                    )
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(Color.black)
+                    .tint(Color.black)
+                    .lineLimit(2 ... 5)
+                    .focused($newDocIdeaFocused)
+                    .submitLabel(.go)
+                    .onSubmit { startDocFromHome() }
+
+                    Button {
+                        addingSourceToNewDoc = true
+                        presentingAddContext = true
+                    } label: {
                         Image(systemName: "plus")
-                            .font(.headline.weight(.bold))
-                        Text("Add @doc")
+                            .font(.body.weight(.bold))
+                            .foregroundStyle(Color.white)
+                            .frame(width: 44, height: 44)
+                            .background(Color.black, in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Give @doc a photo, note, voice memo, or file")
+                }
+                .padding(.leading, DesignConstants.Spacing.step4x)
+                .padding(.trailing, DesignConstants.Spacing.step2x)
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+                .frame(minHeight: 64)
+                .background(Color.white.opacity(0.94), in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
+
+                Button { startDocFromHome() } label: {
+                    HStack(spacing: DesignConstants.Spacing.step3x) {
+                        Text("Make the doc")
                             .font(.headline)
                         Spacer(minLength: 0)
-                        Image(systemName: "arrow.up.right")
+                        Image(systemName: "arrow.right")
                             .font(.headline.weight(.bold))
                     }
                     .foregroundStyle(Color.white)
@@ -658,33 +689,18 @@ private extension YourSpaceView {
                     .background(Color.black, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Choose a Convo, iMessage, WhatsApp, or Telegram group")
-                .accessibilityIdentifier("your-space-add-doc-button")
+                .accessibilityHint("Opens @doc with this idea ready to send")
+                .accessibilityIdentifier("your-space-make-doc-button")
             }
-            .padding(DesignConstants.Spacing.step6x)
-            .background(Color.colorLava, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
 
-            HStack(alignment: .top, spacing: DesignConstants.Spacing.step3x) {
-                Image(systemName: briefing.attentionCount > 0 ? "doc.text.magnifyingglass" : "checkmark.circle.fill")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(briefing.attentionCount > 0 ? Color.colorLava : Color.green)
-                    .frame(width: 24)
-                Text(briefing.headline)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.colorTextPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.numericText())
-            }
+            Label("Share it. Anyone can text @doc to add more.", systemImage: "square.and.arrow.up")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(Color.black)
+                .fixedSize(horizontal: false, vertical: true)
         }
-    }
-
-    private func docCapability(_ title: String, symbol: String) -> some View {
-        Label(title, systemImage: symbol)
-            .font(.caption.weight(.bold))
-            .foregroundStyle(Color.black)
-            .padding(.horizontal, DesignConstants.Spacing.step3x)
-            .frame(minHeight: 36)
-            .background(Color.white.opacity(0.46), in: .capsule)
+        .padding(DesignConstants.Spacing.step6x)
+        .background(Color.colorLava, in: .rect(cornerRadius: DesignConstants.CornerRadius.large))
+        .accessibilityIdentifier("your-space-doc-maker")
     }
 
     private var recentlyUpdatedThings: [YourSpaceContextItem] {
@@ -699,46 +715,34 @@ private extension YourSpaceView {
     private var updatedThingsSection: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Docs updated")
+                Text("Your docs")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.colorTextPrimary)
                 Spacer(minLength: DesignConstants.Spacing.step3x)
-                Button("See all") { browsingContextKind = .all }
+                Button("See all", action: openAgentManager)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.colorTextPrimary)
             }
 
-            if recentlyUpdatedThings.isEmpty {
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                    Text("Your group docs will appear here")
-                        .font(.headline)
-                        .foregroundStyle(.colorTextPrimary)
-                    Text("Add @doc to a group. When it makes or updates something useful, you’ll see it here with the group and the original conversation attached.")
-                        .font(.subheadline)
-                        .foregroundStyle(.colorTextSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.vertical, DesignConstants.Spacing.step3x)
-            } else {
-                VStack(spacing: DesignConstants.Spacing.step3x) {
-                    ForEach(recentlyUpdatedThings) { item in
-                        updatedThingRow(item)
+            VStack(spacing: 0) {
+                ForEach(Array(recentlyUpdatedThings.enumerated()), id: \.element.id) { index, item in
+                    updatedThingRow(item)
+                    if index < recentlyUpdatedThings.count - 1 {
+                        Divider()
                     }
                 }
             }
         }
-        .accessibilityIdentifier("your-space-updated-things")
+        .accessibilityIdentifier("your-space-doc-library")
     }
 
     private func updatedThingRow(_ item: YourSpaceContextItem) -> some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
             Button { inspectingUpdatedThing = item } label: {
                 HStack(spacing: DesignConstants.Spacing.step3x) {
-                    Image(systemName: item.kind == .link ? "link" : "doc.text.fill")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.colorTextPrimaryInverted)
-                        .frame(width: 44, height: 44)
-                        .background(.colorBackgroundInverted, in: .rect(cornerRadius: DesignConstants.CornerRadius.small))
+                    YourSpaceContextPreview(item: item)
+                        .frame(width: 88, height: 88)
+                        .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.small))
 
                     VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                         Text(item.title)
@@ -757,12 +761,10 @@ private extension YourSpaceView {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.colorTextTertiary)
                 }
-                .padding(DesignConstants.Spacing.step4x)
+                .padding(.vertical, DesignConstants.Spacing.step3x)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-
-            Divider().padding(.leading, 64)
 
             HStack(spacing: DesignConstants.Spacing.step3x) {
                 if let conversationId = item.conversationId {
@@ -784,11 +786,9 @@ private extension YourSpaceView {
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(.colorTextPrimary)
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.leading, 100)
             .frame(minHeight: 44)
         }
-        .background(.colorBackgroundRaisedSecondary, in: .rect(cornerRadius: DesignConstants.CornerRadius.medium))
-        .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.medium))
     }
 
     private var allRecentActivity: [YourSpaceRecentActivityItem] {
@@ -2156,16 +2156,35 @@ private extension YourSpaceView {
         openPersonalAgent(mode: .chat)
     }
 
-    private func openPersonalAgent(mode: YourSpaceInputMode) {
+    private func startDocFromHome(sourceTitle: String? = nil) {
+        let trimmedIdea = newDocIdea.trimmingCharacters(in: .whitespacesAndNewlines)
+        let subject = sourceTitle ?? trimmedIdea
+        let prompt: String
+
+        if subject.isEmpty {
+            prompt = "Make a living group doc from what I share next. Organize it, keep it useful, and make it easy to share."
+        } else {
+            prompt = "Make a living group doc for \(subject). Organize what matters, fill obvious gaps with research, and make it easy to share."
+        }
+
+        newDocIdea = ""
+        newDocIdeaFocused = false
+        Task { @MainActor in
+            await Task.yield()
+            openPersonalAgent(mode: .chat, initialDraft: prompt)
+        }
+    }
+
+    private func openPersonalAgent(mode: YourSpaceInputMode, initialDraft: String = "") {
         if mode == .chat {
-            pendingChatDraft = ""
+            pendingChatDraft = initialDraft
         }
         if isMockAgentActive {
             inputMode = mode
             return
         }
         guard let activePersonalAgent else {
-            presentPersonalAgentOnboarding()
+            inputMode = mode
             return
         }
         guard activePersonalAgent.hasStoredConnection else {

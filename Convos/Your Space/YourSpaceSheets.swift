@@ -900,7 +900,7 @@ struct YourSpaceInputSheet: View {
                 Button {
                     saveResponse(text)
                 } label: {
-                    Label(savedOutput == nil ? "Save to Your Space" : "Saved", systemImage: savedOutput == nil ? "square.and.arrow.down" : "checkmark")
+                    Label(savedOutput == nil ? "Save doc" : "Saved", systemImage: savedOutput == nil ? "square.and.arrow.down" : "checkmark")
                         .font(.caption.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 40)
                 }
@@ -910,7 +910,7 @@ struct YourSpaceInputSheet: View {
                 Button {
                     shareResponse(text)
                 } label: {
-                    Label("Share to a convo", systemImage: "arrowshape.turn.up.right")
+                    Label("Share anywhere", systemImage: "square.and.arrow.up")
                         .font(.caption.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 40)
                 }
@@ -1034,7 +1034,7 @@ struct YourSpaceInputSheet: View {
         if isGrokBotSelected, onAskAgent != nil {
             return "Tell @doc what the group needs. Its private engine is connected through your computer."
         }
-        return briefing.headline
+        return "@doc is ready. Add screenshots, links, messages, or files. It will organize everything into one useful group doc."
     }
 
     private var promptSuggestionTitles: [String] {
@@ -1066,7 +1066,11 @@ struct YourSpaceInputSheet: View {
                 "Make something useful I can save or share",
             ]
         }
-        return ["What needs me?", "What's new?", "Who is active?"]
+        return [
+            "Make a doc from these screenshots",
+            "Organize this group project",
+            "Turn these links into a useful plan",
+        ]
     }
 
     private var contextBoundaryCopy: String {
@@ -1095,7 +1099,7 @@ struct YourSpaceInputSheet: View {
         if isGrokBotSelected {
             return "This question goes to @doc’s private engine without Your Space context."
         }
-        return "Answers use private context already on this device."
+        return "This doc only uses what you choose to give it."
     }
 
     private func sendToCodex(_ question: String, configuration: CodexConnectionConfiguration) {
@@ -1197,7 +1201,26 @@ struct YourSpaceInputSheet: View {
             return "Your Space currently connects \(briefing.peopleCount) \(peopleWord) across \(briefing.sourceCount) \(convoWord)."
         }
 
-        return "Here's the clearest signal I have right now: \(briefing.headline)"
+        let subject = question
+            .replacingOccurrences(of: "Make a living group doc for ", with: "", options: [.caseInsensitive])
+            .replacingOccurrences(of: "Make a living group doc from what I share next.", with: "New group doc", options: [.caseInsensitive])
+            .split(separator: ".")
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = (subject?.isEmpty == false ? subject : nil) ?? "New group doc"
+        return """
+        \(title)
+
+        This is the group’s living doc. Send screenshots, links, messages, files, or voice notes and @doc will keep it organized here.
+
+        What’s here now
+        • The group’s shared source of truth
+        • New details organized as they arrive
+        • One thing anyone can open or share
+
+        Made by Convos — text @doc directly to add or ask anything about this doc. Add @doc to the group so everyone can keep it current.
+        """
     }
 
     private func saveResponse(_ text: String) {

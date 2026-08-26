@@ -14,24 +14,22 @@ People who want one useful, living document for every group in their life withou
 
 Convos lets anyone add `@doc` to a group and give that group a living workspace. People keep talking normally; `@doc` listens with permission, turns the conversation into useful docs, sheets, and calendar coordination, and keeps those things current.
 
-Success means a new user understands the product in ten seconds: **Add `@doc` to any group in your life.** The intelligence and model infrastructure remain underneath that promise.
+Success means a new user understands the product in ten seconds: **Turn anything into a group doc.** The intelligence and model infrastructure remain underneath that promise.
 
 ## Positioning
 
-The home screen is the control room for the user's group docs, not an AI dashboard. It leads with the `@doc` promise, immediately shows docs that changed, then a bounded mixed list of recent groups and `@doc` activity. The complete conversation index and the user's private context remain one gesture away.
+The home screen is the `@doc` product, not a Convos dashboard. It does one job: let the user name what a group should keep track of, give `@doc` screenshots, links, messages, files, or voice, and receive one living document that can be shared anywhere. Beneath the maker is only the user's recent document library. Conversations, personal context, settings, and advanced engines remain reachable through secondary navigation without competing with the loop.
 
 The growth loop begins in the output. Every shared group doc carries a compact **Made by Convos** header and this invitation: “You can text `@doc` directly at +1 309-555-5555 to add anything or ask anything about this doc. You can also add me to your group chat to remember, share, research, or add anything to this group.” The document is useful without installing Convos; the invitation lets the rest of the group make it multiplayer from the chat they already use.
 
 ## Operating Context
 
-- The user lands in “Your Space” every time they open the app.
-- The title control at the top opens every conversation in a panel that drops from directly beneath the header, keeps Your Space first, and places search above the convo list.
-- A top-right add control starts a new conversation or joins one by scanning a QR code.
-- The profile image at top left opens **Your context**, the private library spanning the user's loaded Convos plus anything deliberately shared in from another app. App settings is available from the gear inside that profile section, not from Home.
-- A native overflow menu exposes connections, private file upload, stored files, home customization, and the conversations contributing to the private space.
-- The bottom dock is always `@doc`: a visible make/edit/find command bar with More on the left and chat on the right. Connected models are advanced engines behind `@doc`, never the primary product identity.
+- The user lands on `@doc` every time they open the app. The first viewport contains one Lava maker, one plain-language input, one attachment action, and one black **Make the doc** action.
+- The compact header shows the `@doc` identity, the user's profile, and one native overflow menu. The overflow contains New doc, Your docs, All convos, All my things, Start a new convo, Join a convo, and Settings.
+- Home has no persistent agent dock, conversation feed, briefing dashboard, widget grid, or provider roster. Those capabilities remain available after an explicit navigation choice.
+- The profile image opens **All my things**, the private library spanning the user's loaded Convos plus anything deliberately shared in from another app.
 - Contacts are selected in the invite flow for a conversation rather than occupying a permanent bottom-level destination.
-- Home begins with one saturated, high-confidence promise: **Add `@doc` to any group in your life.** Its primary action opens a destination picker for an existing Convo, a new group, iMessage, WhatsApp, or Telegram. Directly below, **Docs updated** exposes useful documents, sheets, links, files, and notes with source provenance, an immediate Open group action, and native Share anywhere. Next is one bounded, recency-sorted list mixing seven groups and `@doc` updates. **Your `@docs`** separates docs the user controls from docs shared with them. **All my things** follows. Opening a Convo pushes directly into Group inside the existing full-screen conversation shell.
+- Home begins with one saturated promise: **Turn anything into a group doc.** The user can type what the group should track or add a source immediately. **Make the doc** opens the stable `@doc` workspace with that intent staged. Directly below, **Your docs** shows up to three recent document-like items with rich previews, source provenance, Open group, and Share anywhere. A single See all action opens the complete doc roster.
 - The **All my things** Home card opens a dedicated personal library for the editable contact card, photos, links, files, connections, automatically detected useful message details, and supported assets from loaded convos by type and provenance. Items explicitly shared into Convos from another app join the same searchable private library. Edit is a distinct action on that destination. The card's iMessage, WhatsApp, and Telegram actions lead to choosing an agent that can join another group; they do not imply passive cross-app ingestion.
 - Useful details are not contact-card fields: Your context shows compact Addresses, Phone numbers, Email, and All useful details filter rows, while the All Context sheet renders every indexed fact as a searchable full-width card with its source message, sender, convo, time, source-convo link, sender-message action, and share action.
 - **Your `@docs`** is one roster visibly separated into **Docs you control** and **Docs shared with you**. Each verified group agent is presented as the smart doc for that group and belongs to the human who added it. A doc profile is the single control center for where it can listen, speak, use connected services, and participate. These permissions remain scoped to that exact doc and group rather than generic group settings.
@@ -49,7 +47,7 @@ The growth loop begins in the output. Every shared group doc carries a compact *
 - Treat connected-agent provider metadata as absent unless the profile's visibility flag is explicitly true. Turning visibility off removes the provider list while preserving unrelated profile metadata. Device-local consent and the remembered-provider roster are keyed by active inbox, never installation-wide; Delete All clears both plus personal-agent credentials before a new inbox can use the device.
 - Use the existing conversation store and navigation paths; the prototype must not fabricate real messages or imply that private context has been uploaded.
 - Voice transcription and imported files stay on-device. Built-in `@doc` answers remain local and use the currently visible briefing data; when the user selects a connected advanced engine, the app sends the request and only the explicitly enabled, bounded Your Space snapshot to it.
-- The home experience needs useful loading, empty, unread, and no-attention states.
+- The home experience needs useful loading and empty-document states without reintroducing dashboard content.
 - The conversation switcher must support many conversations, unread state, search, and direct navigation.
 - The context library must support search, type filters, provenance, local notes/photos/voice/files, an editable personal card with bounded custom title-and-info fields, and an explicit add menu for context or connections.
 - The first production-grade context index is deliberately bounded to the 500 newest combined results across at most 500 loaded conversations. It indexes supported attachments/link previews plus addresses, phone numbers, and emails detected within the latest 5,000 eligible text messages, capped at 250 useful-detail results. Broader semantic extraction and paging remain separate data-contract decisions.
@@ -73,7 +71,7 @@ The growth loop begins in the output. Every shared group doc carries a compact *
 
 ## Product Principles
 
-1. One-line understandable: Add `@doc` to any group in your life.
+1. One-line understandable: Turn anything into a group doc.
 2. Useful before signup: a shared doc stands on its own and carries the invitation back to the group.
 3. Intelligence stays underneath: people use docs, sheets, and calendars rather than managing AI infrastructure.
 4. Private by default: listening, connections, permissions, and personal context are explicit and inspectable.

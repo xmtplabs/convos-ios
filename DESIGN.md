@@ -116,17 +116,17 @@ components:
 
 **Creative North Star: "The Multiplayer Doc"**
 
-Convos feels like a consumer social product that happens to make powerful work. The first screen is bold, immediate, and legible from across the room: one saturated Lava launch card, one enormous promise—**Add `@doc` to any group in your life**—and one black action. Everything after the launch card becomes quiet and useful: updated docs, recent groups, docs the user controls, and personal context.
+Convos feels like a consumer social product that happens to make powerful work. Home is radically single-purpose: one saturated Lava work surface, one enormous promise—**Turn anything into a group doc**—one source well, and one black action. Everything after it is only the user's recent docs.
 
 The character is closer to Cash App than an enterprise AI dashboard: oversized rounded type, confident color, simple icon language, and blunt verbs. System components, semantic colors, Dynamic Type, and familiar sheets and lists keep the confidence usable and trustworthy.
 
-The authenticated shell evolves `YS-SHELL-2026-08-18`: profile at top left opens Your context, the centered space switcher remains anchored, add sits at top right, and a More–agent command–chat tray remains at the bottom. Settings is nested inside Your context. The switcher expands downward from the header rather than rising from the bottom.
+The experimental Home shell replaces dashboard chrome with a tiny `@doc` wordmark at top left and profile plus native overflow at top right. It has no persistent bottom dock. The complete conversation index and every prior management surface remain one explicit choice away in the overflow.
 
 **Key Characteristics:**
 
 - A saturated Convos Lava hero on Home with black type and a black primary action.
 - Oversized rounded system typography for the product promise; sans typography everywhere.
-- Circular identity, native capsules, and one softly rounded attention surface.
+- Circular identity, one large rounded maker, and flat document rows.
 - System glass only on persistent shell controls; native sheets and lists everywhere else.
 - Private-by-default content with explicit sharing and a branded invitation carried by every group doc.
 
@@ -167,7 +167,7 @@ The palette is an adaptive black-to-white neutral system whose meaning survives 
 
 ### Hierarchy
 
-- **Product Promise** (black, rounded, `largeTitle` or larger, tracked `-0.8pt`): “Add `@doc` to any group in your life.” It expands vertically without a line limit.
+- **Product Promise** (black, rounded, `largeTitle` or larger, tracked `-0.8pt`): “Turn anything into a group doc.” It expands vertically without a line limit.
 - **Section Title** (bold, `title2`): Major briefing groups such as recent updates, people, and footprint.
 - **Headline** (system headline, usually semibold): Attention labels, row leads, privacy promises, and accessible actions.
 - **Body** (system body): Message previews, provenance, descriptions, controls, and explanatory copy.
@@ -177,15 +177,15 @@ The palette is an adaptive black-to-white neutral system whose meaning survives 
 
 ## Layout
 
-The shell is based on `YS-SHELL-2026-08-18`. Its top safe-area bar places circular profile identity, a flexible centered switcher, and a circular add control on one line. Settings lives inside Your context so the home chrome stays focused. The main briefing scrolls independently beneath it, and a fixed More–agent command–chat tray occupies the bottom safe area when reading size permits. The flexible command bar names its purpose in text instead of relying on an isolated waveform symbol.
+The experimental Home shell uses one compact top safe-area bar: `@doc` identity on the leading edge, then profile and overflow on the trailing edge. The main scroll starts immediately beneath it. No persistent control competes with the maker at the bottom safe area.
 
-The home scroll view owns the visible viewport. Temporary chrome such as the anchored convo switcher is an overlay on that viewport and must never wrap, expand, or replace the scroll container's layout bounds. Its reading order is `@doc` promise → docs updated → a mixed list of seven recent groups and `@doc` updates → Your `@docs` → All my things → optional supporting widgets. The conversation index remains one gesture away in the header rather than taking over Home.
+The home scroll view owns the visible viewport. Its complete reading order is maker → Your docs. The maker includes the promise, explanation, multiline intent field, attachment action, Make the doc action, and one-line sharing loop. Conversation lists, context, providers, widgets, and settings never enter this scroll.
 
 Content follows the existing `DesignConstants.Spacing` four-point rhythm. The main column uses a `24pt` horizontal inset, `32pt` top inset, `40pt` section rhythm, and `64pt` bottom breathing room, with a maximum readable width of `720pt`. Full-width empty-state and accessibility actions stop at `520pt`.
 
-At accessibility Dynamic Type sizes, the bottom controls leave the safe-area overlay and reappear as full-width, `52pt`-minimum actions inside the scrolling content. The compact top chrome caps at the largest standard Dynamic Type size so profile, switcher, and add remain one usable row while the briefing continues to scale through the accessibility sizes. Text wraps vertically, update details retain conversation provenance, and controls preserve at least a `44pt` target without squeezing the briefing.
+At accessibility Dynamic Type sizes, the maker text wraps vertically and its input and action retain full width. The compact top chrome caps at the largest standard Dynamic Type size so the wordmark, profile, and overflow remain one usable row. Controls preserve at least a `44pt` target.
 
-**The Pinned Shell Rule.** Preserve the profile–switcher–add top line and More–agent command–chat bottom line. Keep settings inside the profile section. The complete conversation index belongs in the anchored searchable panel; Home may show at most seven recent Convo or agent shortcuts, never an unbounded replacement inbox.
+**The One-Product Shell Rule.** Preserve only the `@doc`–profile–overflow top line. Never restore a bottom dock, conversation shortcuts, personal-context cards, or agent-management controls to Home.
 
 **The Accessibility Reflow Rule.** When text reaches an accessibility size, move persistent bottom actions into the content flow rather than forcing them to compete with enlarged text.
 
@@ -207,21 +207,17 @@ Identity is circular: profile and conversation avatars, people, unread dots, and
 
 ### Persistent Shell Controls
 
-- **Profile:** A circular `40pt` avatar inside a `44pt` target with a subtle semantic border; it opens Your context and does not use glass.
-- **Switcher:** A flexible `44pt`-minimum capsule with a semibold body label and secondary chevron. It opens a right-aligned panel directly below the header, approximately 74% of the available content height. The panel keeps Your Space first, then search, then the complete recency-sorted convo list with unread state in `68pt`-minimum rows.
-- **Settings:** A gear inside Your context opens the existing app settings surface without adding another Home control.
-- **Add:** A circular interactive-glass control exposing exactly start and QR-join actions.
-- **More:** A circular interactive-glass `Menu` whose native popup opens Bring your own agent, Connections, Upload files, Files, Add a widget, and Connected convos directly—without an intermediate tools sheet.
-- **`@doc` command:** A centered flexible command bar with a Lava doc identity and “Make, edit, or find anything.” It opens voice or text input without exposing the selected engine.
-- **Chat:** A trailing `44pt` interactive-glass circle with a filled message symbol; it opens the private text input surface.
+- **`@doc` wordmark:** A Lava document well plus blunt black wordmark; it names the whole Home product without behaving like a destination picker.
+- **Profile:** A circular `40pt` avatar inside a `44pt` target with a subtle semantic border; it opens All my things.
+- **Overflow:** A circular interactive-glass native menu containing every secondary destination, including docs, convos, personal context, start/join, and settings.
 
 ### Product Promise
 
-The saturated Home card is the signature component. It says “Add `@doc` to any group in your life,” explains that it makes and maintains docs, sheets, and calendars, and ends in one full-width black **Add `@doc`** action. Dynamic catch-up copy may appear beneath the action, but it never replaces or weakens the promise.
+The saturated Home card is the signature component. It says “Turn anything into a group doc,” names screenshots, links, messages, and files as acceptable input, and ends in one full-width black **Make the doc** action. A white multiline input and black circular attachment action make the artifact feel immediate. The final line states the loop: “Share it. Anyone can text `@doc` to add more.”
 
-### Recent Groups and `@doc`
+### Your Docs
 
-Up to seven real recency-sorted entries combine group conversations with `@doc` updates. Rows stay flat on the canvas, use circular identity inside `72pt`-minimum targets, one-line previews, native dividers, explicit unread language, and a small Lava signal. Group rows push directly into the full-height Group surface; `@doc` rows open its group workspace. A single See all action exposes the longer list.
+Up to three real, recent document-like items appear as flat rows with rich `88pt` previews, source-group provenance, Open group, and Share anywhere. A single See all action opens the full access-aware doc roster. There is no recent-conversation feed on Home.
 
 ### Convo Surface Switcher
 
@@ -229,11 +225,11 @@ Every Convo is one full-screen shell with a compact **Group / Agent / Context** 
 
 ### Updated Things
 
-Directly below the launch card, Home shows up to three recently updated documents, sheets, links, files, or notes with real previews or clear identity, source-group provenance, relative time, Open group, and Share. Tapping the content opens a preview whose first element is a compact Lava **Made by Convos** invitation. Every external share includes the phone number +1 309-555-5555 exactly once. This is the core loop: the group gets a useful thing, shares it anywhere, and the document teaches the next person to text `@doc` directly or add it to another group.
+Directly below the maker, Home shows up to three recently updated documents, sheets, links, files, or notes with real previews or clear identity, source-group provenance, Open group, and Share anywhere. Tapping the content opens a preview whose first element is a compact Lava **Made by Convos** invitation. Every external share includes the phone number +1 309-555-5555 exactly once. This is the core loop: give `@doc` anything → receive one useful doc → share it → anyone can keep adding from the chat they already use.
 
 ### All My Things
 
-Home carries one generous **All my things** summary card with profile identity, counts for photos, links, files, and connections, a useful-details count, and a View all affordance. It never opens directly into edit mode. Its pushed destination begins with the personal card, followed by search, the category grid, compact Useful details filters, recent assets, and See all context. A distinct Edit toolbar action opens the contact-card editor, including bounded remembered fields and neutral recent-context suggestions. Every item preserves source-convo and sender provenance when available; private local items are labeled as such. Its final iMessage, WhatsApp, and Telegram actions route to agent setup rather than claiming external history is already mirrored.
+**All my things** is absent from Home and reachable through profile or overflow. Its destination begins with the personal card, followed by search, the category grid, compact Useful details filters, recent assets, and See all context. A distinct Edit toolbar action opens the contact-card editor, including bounded remembered fields and neutral recent-context suggestions. Every item preserves source-convo and sender provenance when available; private local items are labeled as such.
 
 Your `@docs` appears before All my things as one access-aware roster, clearly divided into **Docs you control** and **Docs shared with you**. Every doc detail begins with **Add `@doc` anywhere**: the published number, copy actions, iMessage/WhatsApp/Telegram instructions, and a Listen/Talk/Pause control. It then shows Connections and every group where that doc is available. Opening a group reveals permissions scoped to exactly that doc and group. Connected providers appear only under **Advanced engines**.
 
