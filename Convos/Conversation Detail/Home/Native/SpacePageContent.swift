@@ -36,8 +36,9 @@ struct SpacePageContent: View {
         VStack(alignment: .leading, spacing: SpaceTileStyle.extraSmall) {
             if let headline = node.string("headline") {
                 Text(headline)
-                    .font(.system(size: 32, weight: .bold))
+                    .font(SpaceTileStyle.headlineFont)
                     .kerning(-1)
+                    .foregroundStyle(SpaceTileStyle.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let body = SpaceNode(node.props["body"] ?? .null) {
@@ -64,8 +65,9 @@ struct SpacePageContent: View {
                     Image(systemName: "plus.square.fill")
                         .font(.system(size: 22))
                     Text(node.string("label") ?? "Add anything")
-                        .font(.system(size: 17))
+                        .font(SpaceTileStyle.pageFont)
                 }
+                .foregroundStyle(SpaceTileStyle.textPrimary)
                 .frame(maxWidth: .infinity)
                 .padding(SpaceTileStyle.small)
                 .background(
@@ -76,8 +78,8 @@ struct SpacePageContent: View {
             .buttonStyle(.plain)
             if let note = node.string("note") {
                 Text(note)
-                    .font(.system(size: 15))
-                    .foregroundStyle(SpaceTileStyle.textTertiary)
+                    .font(SpaceTileStyle.noteFont)
+                    .foregroundStyle(SpaceTileStyle.textSecondary)
                     .multilineTextAlignment(.center)
             }
         }
@@ -87,7 +89,8 @@ struct SpacePageContent: View {
     @ViewBuilder
     private var heading: some View {
         Text(node.string("text") ?? "")
-            .font(.system(size: 28, weight: .bold))
+            .font(.system(size: 28, weight: .bold).leading(.tight))
+            .foregroundStyle(SpaceTileStyle.textPrimary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -103,6 +106,7 @@ struct SpacePageContent: View {
             if let title = node.string("title") {
                 Text(title)
                     .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(SpaceTileStyle.textPrimary)
             }
             ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in
                 SpacePageContent(node: child, widgetGrid: widgetGrid, onAsk: onAsk)
@@ -116,7 +120,9 @@ struct SpacePageContent: View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
             ForEach(Array(node.strings("items").enumerated()), id: \.offset) { _, item in
                 Text(verbatim: "• \(item)")
-                    .font(.system(size: 17))
+                    .font(SpaceTileStyle.pageFont)
+                    .lineSpacing(SpaceTileStyle.pageLineSpacing)
+                    .foregroundStyle(SpaceTileStyle.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -126,8 +132,8 @@ struct SpacePageContent: View {
     @ViewBuilder
     private var hint: some View {
         Text(node.string("message") ?? "")
-            .font(.system(size: 15))
-            .foregroundStyle(SpaceTileStyle.textTertiary)
+            .font(SpaceTileStyle.noteFont)
+            .foregroundStyle(SpaceTileStyle.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -145,7 +151,9 @@ private struct MarkdownBody: View {
         VStack(alignment: .leading, spacing: SpaceTileStyle.small) {
             ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, paragraph in
                 Text(attributed(paragraph))
-                    .font(.system(size: 17))
+                    .font(SpaceTileStyle.pageFont)
+                    .lineSpacing(SpaceTileStyle.pageLineSpacing)
+                    .foregroundStyle(SpaceTileStyle.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

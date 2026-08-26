@@ -16,6 +16,14 @@ enum SpaceTileStyle {
     static let small: CGFloat = 16.0
     /// `--space-xs`
     static let extraSmall: CGFloat = 12.0
+    /// `--space-2xl`
+    static let extraLarge: CGFloat = 40.0
+    /// `.space-page` top padding: `calc(--space-2xl + --space-sm)`.
+    static let pageTop: CGFloat = extraLarge + small
+    /// `.space-page` bottom padding.
+    static let pageBottom: CGFloat = extraLarge
+    /// `--page-width`, the column the page centres in.
+    static let pageWidth: CGFloat = 402.0
     /// Row and header height.
     static let rowHeight: CGFloat = 41.0
     /// Avatar edge in the members grid.
@@ -32,7 +40,11 @@ enum SpaceTileStyle {
     /// `--color-border-subtle`, the rule between rows.
     static var borderSubtle: Color { Color(light: 0xEB_EB_EB, dark: 0x38_38_3A) }
     /// `--color-text-tertiary`, the hint under a short tile.
-    static var textTertiary: Color { Color(light: 0xB2_B2_B2, dark: 0x8E_8E_93) }
+    static var textTertiary: Color { Color(light: 0xB2_B2_B2, dark: 0x98_98_9D) }
+    /// `--color-text-primary`, the page's own text.
+    static var textPrimary: Color { Color(light: 0x00_00_00, dark: 0xFF_FF_FF) }
+    /// `--color-text-secondary`, the note under the ask-agent button.
+    static var textSecondary: Color { Color(light: 0x66_66_66, dark: 0xAE_AE_B2) }
     /// `--color-on-accent`
     static var onAccent: Color { .white }
     /// `--color-bg-surface`, the hairline that separates a tile from the page.
@@ -43,6 +55,16 @@ enum SpaceTileStyle {
     static let headerNameFont: Font = .system(size: 13, weight: .medium)
     /// `.space-tile-hint`
     static let hintFont: Font = .system(size: 12)
+
+    /// `body`: 17px over a 22px line.
+    static let pageFont: Font = .system(size: 17)
+    /// The extra leading that turns SF's own 17pt line into the page's 22px.
+    static let pageLineSpacing: CGFloat = 2.0
+    /// `.space-intro-headline`: 32px bold on a 32px line, so the leading is
+    /// tighter than SF's own — `.tight` is the nearest SwiftUI offers.
+    static let headlineFont: Font = .system(size: 32, weight: .bold).leading(.tight)
+    /// `.space-ask-agent-note`: 15px over a 20px line.
+    static let noteFont: Font = .system(size: 15)
 }
 
 private extension Color {

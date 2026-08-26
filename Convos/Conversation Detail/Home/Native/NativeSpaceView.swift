@@ -114,10 +114,17 @@ struct NativeSpaceView: View {
                     }
                 }
             }
+            // `.space-page`: a 402pt column, centred, with 24pt gutters.
+            //
+            // Its 56pt top band is deliberately not added on top of the chrome
+            // clearance. In the web view that band and the scroll inset overlap
+            // under the same floating bar; stacking both here put the first
+            // heading a clear 56pt below where the page puts it.
             .padding(.horizontal, Constant.gutter)
             .padding(.top, ConversationChromeMetrics.contentClearance)
-            .padding(.bottom, DesignConstants.Spacing.step12x)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, SpaceTileStyle.pageBottom)
+            .frame(maxWidth: SpaceTileStyle.pageWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 

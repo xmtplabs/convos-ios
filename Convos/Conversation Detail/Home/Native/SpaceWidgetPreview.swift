@@ -280,9 +280,12 @@ private struct TileHintRow: View {
     init(_ message: String) { self.message = message }
 
     var body: some View {
+        // `.space-tile-hint` sets no line clamp, so the hint wraps inside the
+        // room the tile has rather than truncating on its first line.
         Text(message)
             .font(SpaceTileStyle.hintFont)
             .foregroundStyle(SpaceTileStyle.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, SpaceTileStyle.small)
             .padding(.vertical, SpaceTileStyle.extraSmall)
