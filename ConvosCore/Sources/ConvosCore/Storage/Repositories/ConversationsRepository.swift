@@ -287,7 +287,6 @@ extension Database {
             )
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
-            .filter(DBConversation.Columns.isUnused == false)
             .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
             .filter(literal: memberPredicate)
             .detailedConversationQuery()

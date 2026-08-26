@@ -562,10 +562,14 @@ final class DocExperienceViewModel {
 
         var changedSnapshot = observeAgentCompatibility(messages, agentInboxId: agentInboxId)
         for message in messages.sorted(by: { $0.date < $1.date }) {
+            DocWireDebugLog.sentinelReceived(message, expectedSenderId: agentInboxId)
             guard !processedEventMessageIds.contains(message.id),
                   message.senderId == agentInboxId,
-                  case .text(let text) = message.content,
-                  let event = DocStateMessage.parseEvent(text) else {
+                  case .text(let text) = message.content else {
+                continue
+            }
+            guard let event = DocStateMessage.parseEvent(text) else {
+                DocWireDebugLog.decodeFailed(text: text, messageId: message.id)
                 continue
             }
             processedEventMessageIds.insert(message.id)
@@ -737,6 +741,7 @@ final class DocExperienceViewModel {
         )
         if let data = try? JSONEncoder().encode(snapshot) {
             defaults.set(data, forKey: Self.storageKey("snapshot", session: session))
+            DocWireDebugLog.snapshotPersisted(docCount: state?.docs.count ?? 0, itemCount: pendingItems.count, contentCount: docContentsById.count)
         }
     }
 

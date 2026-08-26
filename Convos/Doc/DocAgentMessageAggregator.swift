@@ -22,6 +22,37 @@ struct DocMessagePosition: Comparable {
     }
 }
 
+enum DocWireDebugLog {
+    static func sentinelReceived(_ message: AnyMessage, expectedSenderId: String) {
+        #if DEBUG
+        guard case .text(let text) = message.content,
+              DocStateMessage.isDataPlaneText(text) else {
+            return
+        }
+        Log.info(
+            "Doc wire sentinel received message=\(message.id) " +
+                "senderMatches=\(message.senderId == expectedSenderId)"
+        )
+        #endif
+    }
+
+    static func decodeFailed(text: String, messageId: String) {
+        #if DEBUG
+        guard DocStateMessage.isDataPlaneText(text) else { return }
+        Log.warning("Doc wire sentinel failed to decode message=\(messageId)")
+        #endif
+    }
+
+    static func snapshotPersisted(docCount: Int, itemCount: Int, contentCount: Int) {
+        #if DEBUG
+        Log.info(
+            "Doc wire snapshot persisted docs=\(docCount) " +
+                "items=\(itemCount) contents=\(contentCount)"
+        )
+        #endif
+    }
+}
+
 /// Folds every conversation containing one agent inbox into a single ordered
 /// message stream for Doc's inbound protocol. Sending remains owned by the
 /// explicitly selected agent-DM lane.
@@ -57,6 +88,9 @@ final class DocAgentMessageAggregator {
     ) {
         stop()
         self.onMessages = onMessages
+#if DEBUG
+        Log.info("Doc wire aggregator started for agent \(agentInboxId)")
+#endif
         conversationsCancellable = conversationsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversations in
@@ -88,6 +122,11 @@ final class DocAgentMessageAggregator {
                 .map(\.id)
         )
 
+#if DEBUG
+        let laneIds = matchingIds.sorted().joined(separator: ",")
+        Log.info("Doc wire lanes updated count=\(matchingIds.count) ids=\(laneIds)")
+#endif
+
         for conversationId in activeConversationIds.subtracting(matchingIds) {
             messageCancellables[conversationId] = nil
             messageRepositories[conversationId] = nil
@@ -116,6 +155,19 @@ final class DocAgentMessageAggregator {
         guard activeConversationIds.contains(conversationId) else { return }
         messagesByConversationId[conversationId] = messages
         receivedConversationIds.insert(conversationId)
+#if DEBUG
+        let sentinelCount = messages.reduce(into: 0) { count, message in
+            guard case .text(let text) = message.content,
+                  DocStateMessage.isDataPlaneText(text) else {
+                return
+            }
+            count += 1
+        }
+        Log.info(
+            "Doc wire lane receipt id=\(conversationId) messages=\(messages.count) " +
+                "sentinels=\(sentinelCount)"
+        )
+#endif
         emitIfReady()
     }
 
@@ -130,6 +182,19 @@ final class DocAgentMessageAggregator {
                 if lhs.date == rhs.date { return lhs.id < rhs.id }
                 return lhs.date < rhs.date
             }
+#if DEBUG
+        let sentinelCount = messages.reduce(into: 0) { count, message in
+            guard case .text(let text) = message.content,
+                  DocStateMessage.isDataPlaneText(text) else {
+                return
+            }
+            count += 1
+        }
+        Log.info(
+            "Doc wire aggregate emitted lanes=\(activeConversationIds.count) " +
+                "messages=\(messages.count) sentinels=\(sentinelCount)"
+        )
+#endif
         onMessages?(messages)
     }
 }
