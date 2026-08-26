@@ -65,6 +65,32 @@ final class FeatureFlags {
         }
     }
 
+    /// Dev-only shell switch for exercising the first-party Doc experience.
+    /// A selected Doc variant also enables the shell so a per-PR runtime can
+    /// be tested without maintaining a second configuration switch.
+    var isDocModeEnabled: Bool {
+        get {
+            access(keyPath: \.isDocModeEnabled)
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            if ProcessInfo.processInfo.arguments.contains("-DocMode") {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: Constant.docModeEnabledKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            withMutation(keyPath: \.isDocModeEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.docModeEnabledKey)
+            }
+        }
+    }
+
+    var isDocExperienceEnabled: Bool {
+        if isDocModeEnabled { return true }
+        guard let slug = effectiveAgentVariantSlug?.lowercased() else { return false }
+        return slug == "doc" || slug.hasPrefix("doc-") || slug.hasSuffix("-doc")
+    }
+
     /// Off by default -- opts libxmtp streams onto the shared bidi wire by
     /// exporting `XMTP_BIDI_STREAMS_ENABLED` at launch (see `ConvosApp.init`;
     /// flips take effect on the next launch). Deliberately not prod-locked
@@ -253,6 +279,7 @@ final class FeatureFlags {
         static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"
         static let selectedAgentVariantKey: String = "featureFlags.selectedAgentVariant"
         static let agentVariantSelectorEnabledKey: String = "featureFlags.agentVariantSelectorEnabled"
+        static let docModeEnabledKey: String = "featureFlags.docModeEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
         static let abilitiesV2EnabledKey: String = "featureFlags.abilitiesV2Enabled"
         static let spaceShareEnabledKey: String = "featureFlags.spaceShareEnabled"

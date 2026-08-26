@@ -214,8 +214,22 @@ struct MainTabView: View {
     }
 
     var body: some View {
+        Group {
+            if FeatureFlags.shared.isDocExperienceEnabled {
+                DocRootView(
+                    conversationsViewModel: conversationsViewModel,
+                    profileSettingsViewModel: profileSettingsViewModel,
+                    coreActions: coreActions
+                )
+            } else {
+                legacyRoot
+            }
+        }
+        .profilesRepository(conversationsViewModel.session.messagingServiceSync().profilesRepository())
+    }
+
+    private var legacyRoot: some View {
         bodyCore
-            .profilesRepository(conversationsViewModel.session.messagingServiceSync().profilesRepository())
             .onAppear {
                 handleAgentRelayEnabledChanged(FeatureFlags.shared.agentRelayEnabled)
                 ensureNavigators()

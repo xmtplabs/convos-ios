@@ -17,6 +17,8 @@ extension DBLastMessageWithSource {
         members: [DBConversationMemberProfileWithRole],
         contactNameResolver: (String) -> String? = { _ in nil }
     ) -> MessagePreview {
+        if let docDataPlanePreview { return docDataPlanePreview }
+
         let text: String
         let isCurrentUser = senderId == currentInboxId
         let senderProfile = members.first { $0.inboxId == senderId }
@@ -147,6 +149,12 @@ extension DBLastMessageWithSource {
             }
         }
         return .init(text: text, createdAt: date)
+    }
+
+    private var docDataPlanePreview: MessagePreview? {
+        let isDataPlane = (contentType == .text && DocStateMessage.isDataPlaneText(text ?? "")) ||
+            (messageType == .reaction && DocStateMessage.isDataPlaneText(sourceMessageText ?? ""))
+        return isDataPlane ? .init(text: "", createdAt: date) : nil
     }
 
     /// Resolves the sender's rendered name for a message preview row.

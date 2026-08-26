@@ -31,7 +31,8 @@ final class CloudConnectionGrantRequestSheetViewModel {
         serviceId: String,
         conversationId: String,
         conversation: Conversation?,
-        session: any SessionManagerProtocol
+        session: any SessionManagerProtocol,
+        previewingDisconnectedService: Bool = false
     ) {
         self.serviceId = serviceId
         self.conversationId = conversationId
@@ -43,6 +44,11 @@ final class CloudConnectionGrantRequestSheetViewModel {
             callbackURLScheme: callbackScheme
         )
         self.cloudConnectionRepository = session.cloudConnectionRepository()
+
+        if previewingDisconnectedService {
+            isLoading = false
+            return
+        }
 
         cancellable = cloudConnectionRepository.connectionsPublisher()
             .receive(on: DispatchQueue.main)
@@ -273,12 +279,12 @@ struct CloudConnectionGrantRequestSheet: View {
                 }
                 Text(title)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, DesignConstants.Spacing.step3x)
-            .background(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular).fill(Color.colorFillPrimary))
         }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .frame(minHeight: 44.0)
         .disabled(isLoading)
     }
 

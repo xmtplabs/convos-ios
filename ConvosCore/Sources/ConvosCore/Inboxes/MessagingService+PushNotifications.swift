@@ -641,6 +641,9 @@ extension MessagingService {
             guard let textContent = content as? String else {
                 return nil
             }
+            guard !DocStateMessage.isDataPlaneText(textContent) else {
+                return nil
+            }
             return shouldShowSenderName ? "\(senderName): \(textContent)" : textContent
 
         case ContentTypeReaction, ContentTypeReactionV2:
@@ -653,6 +656,9 @@ extension MessagingService {
             }
             let emoji = reaction.emoji
             let sourceMessageText = try await getSourceMessageText(messageId: reaction.reference, conversationId: conversationId)
+            guard !DocStateMessage.isDataPlaneText(sourceMessageText ?? "") else {
+                return nil
+            }
             let sourceText = sourceMessageText.formattedAsReactionSource()
             return shouldShowSenderName ? "\(senderName) \(emoji)'d \(sourceText)" : "\(emoji)'d \(sourceText)"
 
@@ -662,6 +668,9 @@ extension MessagingService {
                 return nil
             }
             if let textContent = reply.content as? String {
+                guard !DocStateMessage.isDataPlaneText(textContent) else {
+                    return nil
+                }
                 return shouldShowSenderName ? "\(senderName): \(textContent)" : textContent
             }
             return nil

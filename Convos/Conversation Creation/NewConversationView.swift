@@ -29,6 +29,10 @@ struct NewConversationView: View {
     /// indicator out of the status bar (mirrors the Chats tab's pushed
     /// conversation, which sets this on its own `ConversationPresenter`).
     var insetsTopSafeArea: Bool = false
+    /// Opens this presentation on the matching agent DM. The Doc home uses
+    /// this for its History sheet so the existing transcript remains the
+    /// record without exposing the origin group room first.
+    var initialAgentDmInboxId: String?
     @State private var hasShownScannerOnAppear: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
@@ -89,6 +93,7 @@ struct NewConversationView: View {
                             messagesTopBarTrailingItem: viewModel.messagesTopBarTrailingItem,
                             messagesTopBarTrailingItemEnabled: viewModel.messagesTopBarTrailingItemEnabled,
                             messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled,
+                            initialAgentDmInboxId: initialAgentDmInboxId,
                             onScannedInviteCode: viewModel.handleScannedCode,
                             onInviteShared: viewModel.markInviteShared,
                             onHomeBrowsingChanged: { isBrowsingHome = $0 },

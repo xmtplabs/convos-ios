@@ -84,6 +84,8 @@ public enum MessageContent: Hashable, Codable, Sendable {
 
     public var showsInMessagesList: Bool {
         switch self {
+        case .text(let text):
+            return !DocStateMessage.isDataPlaneText(text)
         case .update(let update):
             return update.showsInMessagesList
         default:

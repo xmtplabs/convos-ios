@@ -96,6 +96,7 @@ struct DebugViewSection: View {
         Section("Features") {
             Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
             agentVariantToggles
+            Toggle("Doc mode", isOn: Bindable(FeatureFlags.shared).isDocModeEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
             Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
             Toggle("Web inspector (space/browser web views)", isOn: Bindable(FeatureFlags.shared).isWebInspectorEnabled)
@@ -483,17 +484,10 @@ struct DebugViewSection: View {
     private func launchDocAgent(variantSlug: String?) {
         presentingDocAgent = NewConversationViewModel(
             session: session,
-            mode: .newConversationWithTemplate(
-                templateId: Constant.docAgentTemplateId,
-                optimisticIdentity: nil
-            ),
+            mode: .newConversation,
             coreActions: coreActions,
             agentVariantSlug: variantSlug
         )
-    }
-
-    private enum Constant {
-        static let docAgentTemplateId: String = "d0c00000-0000-4000-8000-000000000001"
     }
 }
 
