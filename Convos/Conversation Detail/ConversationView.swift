@@ -1572,15 +1572,21 @@ private extension ConversationView {
                 .ignoresSafeArea()
             }
             .accessibilityIdentifier("context-no-agent")
-        } else if FeatureFlags.shared.isNativeSpaceEnabled,
-                  let spaceURL = viewModel.conversation.spaceURL {
+        } else if FeatureFlags.shared.isNativeSpaceEnabled {
             // The document carries the same page the web surface would draw, so
             // a tapped tile still opens the real page in the browsing chain
             // rather than a second native screen that does not exist yet. A
             // Space whose deployment predates the document route falls back to
             // that page wholesale.
+            //
+            // Drawn with or without a URL. A Space is published only once it has
+            // been forked, built and activated, and the page it opens with is
+            // the same for every group — so the tab draws that page immediately
+            // and swaps to the served one when it lands, rather than holding a
+            // spinner over a wait a reader can do nothing about.
             NativeSpaceView(
-                spaceURL: spaceURL,
+                spaceURL: viewModel.conversation.spaceURL,
+                memberNames: viewModel.conversation.members.map(\.displayName),
                 onOpen: { url in
                     pushHomeBrowserPage(for: url)
                 },

@@ -210,3 +210,104 @@ struct SpaceDocument: Decodable, Equatable {
         rootNode?.flattened().compactMap(SpaceWidget.init) ?? []
     }
 }
+
+extension SpaceDocument {
+    /// The home page every Space opens with, drawn before that Space exists.
+    ///
+    /// A conversation's Space is forked, built and activated before its URL is
+    /// published, so the tab has nothing of its own to draw for as long as that
+    /// takes. It does not need to wait: the starter's home page is the same for
+    /// every Space, and the one part of it that differs — who is in the group —
+    /// is something the app already knows. So the tab draws the real page and
+    /// swaps to the served document when it arrives.
+    ///
+    /// Only what is actually known goes in. The notes tile draws its header and
+    /// no rows, because a brand-new Space's notes are the Space's to report, not
+    /// this file's to guess.
+    ///
+    /// Built as JSON and decoded, so it takes exactly the path a served document
+    /// takes. A second way of constructing a document would drift from the one
+    /// that matters.
+    static func firstRun(memberNames: [String]) -> SpaceDocument? {
+        let members = memberNames.map { name in
+            ["name": name] as [String: Any]
+        }
+        let page: [String: Any] = [
+            // No deployment has served this, and that is the point: any real
+            // document differs, so the first one to arrive replaces it.
+            "deploymentId": "",
+            "commitSha": "",
+            "route": "/",
+            "metadata": ["title": "Home", "description": "This group's space"],
+            "root": element("Page", statementId: "root", props: [
+                "children": [
+                    element("Intro", props: [
+                        "headline": "Welcome home",
+                        "body": element("Markdown", props: [
+                            "text": Constant.introBody
+                        ])
+                    ]),
+                    element("WidgetGrid", props: [
+                        "children": [
+                            element("Widget", props: [
+                                "title": "Notes",
+                                "route": "/notes",
+                                "size": "1x1",
+                                "children": [
+                                    element("NotesPreview", props: [
+                                        "count": 0,
+                                        "notes": []
+                                    ])
+                                ]
+                            ]),
+                            element("Widget", props: [
+                                "title": "Directory",
+                                "route": "/directory",
+                                "size": "1x1",
+                                "children": [
+                                    element("DirectoryPreview", props: [
+                                        "members": members
+                                    ])
+                                ]
+                            ])
+                        ]
+                    ]),
+                    element("AskAgentButton", props: [
+                        "label": "Add anything",
+                        "note": "Ask your agent to create a page, list, note, or app"
+                    ])
+                ]
+            ])
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: page) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(SpaceDocument.self, from: data)
+    }
+
+    /// One component, in the shape the document wire uses.
+    private static func element(
+        _ typeName: String,
+        statementId: String? = nil,
+        props: [String: Any]
+    ) -> [String: Any] {
+        var node: [String: Any] = [
+            "type": "element",
+            "typeName": typeName,
+            "props": props
+        ]
+        if let statementId {
+            node["statementId"] = statementId
+        }
+        return node
+    }
+
+    private enum Constant {
+        /// Verbatim from the starter's `pages/index.page`.
+        static let introBody: String =
+            "This is where your group's stuff lives — the plans, lists, and "
+            + "notes that would otherwise scroll away in the chat.\n\n"
+            + "It's yours and your agent's to shape together. Tell your agent "
+            + "what to add or change, and this is where it lands."
+    }
+}

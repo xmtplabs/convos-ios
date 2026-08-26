@@ -12,7 +12,11 @@ import SwiftUI
 /// Gated behind `FeatureFlags.isNativeSpaceEnabled`; the web surface remains
 /// the fallback for a Space that cannot serve documents.
 struct NativeSpaceView: View {
-    let spaceURL: URL
+    /// This conversation's Space, or nothing while one is still being made.
+    let spaceURL: URL?
+    /// Who is in the group, for the directory tile of the page drawn before the
+    /// Space can answer for itself.
+    let memberNames: [String]
     let onOpen: (URL) -> Void
     /// Opens the invite picker, for the directory tile's spare cell — the same
     /// affordance the web tile offers through the native bridge.
@@ -30,13 +34,15 @@ struct NativeSpaceView: View {
 
     @MainActor
     init(
-        spaceURL: URL,
+        spaceURL: URL?,
+        memberNames: [String],
         onOpen: @escaping (URL) -> Void,
         onInvite: @escaping () -> Void,
         onAsk: @escaping () -> Void,
         webFallback: AnyView
     ) {
         self.spaceURL = spaceURL
+        self.memberNames = memberNames
         self.onOpen = onOpen
         self.onInvite = onInvite
         self.onAsk = onAsk
@@ -44,16 +50,23 @@ struct NativeSpaceView: View {
         // Seeded rather than defaulted to `.loading`: this view is rebuilt from
         // scratch every time a page is pushed or popped, and starting from what
         // the Space last answered is what keeps that invisible.
-        _state = State(initialValue: Self.seed(for: spaceURL))
+        _state = State(initialValue: Self.seed(for: spaceURL, memberNames: memberNames))
     }
 
     /// The state a freshly built view starts in, given what this Space last said.
+    ///
+    /// A conversation with no Space yet starts on the page every Space opens
+    /// with rather than on a spinner: the wait is for a URL, not for anything a
+    /// reader would see change, so there is nothing to make them watch.
     @MainActor
-    private static func seed(for spaceURL: URL) -> LoadState {
+    private static func seed(for spaceURL: URL?, memberNames: [String]) -> LoadState {
+        let opening: LoadState = SpaceDocument.firstRun(memberNames: memberNames)
+            .map { LoadState.loaded($0) } ?? .loading
+        guard let spaceURL else { return opening }
         switch SpaceDocumentStore.shared.outcome(for: spaceURL) {
-        case let .loaded(document): .loaded(document)
-        case let .unsupported(reason): .unsupported(reason)
-        case nil: .loading
+        case let .loaded(document): return .loaded(document)
+        case let .unsupported(reason): return .unsupported(reason)
+        case nil: return opening
         }
     }
 
@@ -157,6 +170,7 @@ struct NativeSpaceView: View {
     /// than reloading, so the tab crossfades to the new document instead of
     /// emptying and drawing itself again.
     private func follow() async {
+        guard let spaceURL else { return }
         await SpaceEventsFollower.follow(base: spaceURL) { next in
             let replaced = next.activeDeploymentId != nil
                 && next.activeDeploymentId != currentDeploymentId
@@ -171,7 +185,7 @@ struct NativeSpaceView: View {
     /// foreground. Both have to re-open the held request, and neither should
     /// leave the previous one in flight.
     private struct FollowKey: Equatable {
-        let space: URL
+        let space: URL?
         let phase: ScenePhase
     }
 
@@ -182,7 +196,7 @@ struct NativeSpaceView: View {
 
     /// Where a committed asset path resolves against for this document.
     private func fileBase(_ document: SpaceDocument) -> URL? {
-        guard let path = document.fileBasePath else { return nil }
+        guard let spaceURL, let path = document.fileBasePath else { return nil }
         return URL(string: path, relativeTo: spaceURL)
     }
 
@@ -272,6 +286,10 @@ struct NativeSpaceView: View {
     }
 
     private func open(_ widget: SpaceWidget) {
+        // A tile drawn before the Space exists has no page behind it. Doing
+        // nothing is the honest answer; the tile becomes live when the document
+        // it stands in for arrives.
+        guard let spaceURL else { return }
         guard let url = SpaceDocumentLoader.documentURL(
             base: spaceURL,
             route: widget.destination
@@ -287,6 +305,9 @@ struct NativeSpaceView: View {
     }
 
     private func load() async {
+        // No Space yet: the first-run page stands until one is published, and
+        // this runs again when it is, because the task is keyed on the URL.
+        guard let spaceURL else { return }
         // Only an unseeded view shows the loading state. A rebuild, or a revisit
         // with something already cached, redraws what it had and quietly checks
         // for a newer document behind it.
@@ -325,7 +346,9 @@ struct NativeSpaceView: View {
     }
 
     private func record(_ outcome: SpaceDocumentStore.Outcome) {
-        SpaceDocumentStore.shared.record(outcome, for: spaceURL)
+        if let spaceURL {
+            SpaceDocumentStore.shared.record(outcome, for: spaceURL)
+        }
         switch outcome {
         case let .loaded(document): state = .loaded(document)
         case let .unsupported(reason): state = .unsupported(reason)
