@@ -2,13 +2,17 @@ import Combine
 import ConvosCore
 import Foundation
 
-struct DocMessagePosition: Comparable {
+struct DocMessagePosition: Comparable, Hashable {
     let date: Date
     let messageId: String
 
+    init(date: Date, messageId: String) {
+        self.date = date
+        self.messageId = messageId
+    }
+
     init(message: AnyMessage) {
-        self.date = message.date
-        self.messageId = message.id
+        self.init(date: message.date, messageId: message.id)
     }
 
     static func < (lhs: Self, rhs: Self) -> Bool {

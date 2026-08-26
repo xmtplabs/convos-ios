@@ -70,6 +70,17 @@ enum DocAgentStartupState: Equatable {
     case failed(String)
 }
 
+enum DocAgentStartupTimeoutPolicy {
+    static let deadline: Duration = .seconds(90)
+
+    static func shouldFail(
+        dmIsReady: Bool,
+        provisioningOrRebindIsActive: Bool
+    ) -> Bool {
+        !dmIsReady && !provisioningOrRebindIsActive
+    }
+}
+
 struct DocModeConvergenceResult {
     let conversationId: String?
     let canStart: Bool
@@ -595,9 +606,21 @@ final class DocExperienceViewModel {
 
     private func observeAgentCompatibility(_ messages: [AnyMessage], agentInboxId: String) -> Bool {
         var changed = false
-        for message in messages where message.senderId == agentInboxId {
+        for message in messages {
             guard case .text(let text) = message.content else { continue }
-            changed = compatibilityDetector.observe(text: text, isAgent: true) || changed
+            let sender: DocAgentCompatibilityDetector.Sender
+            if message.senderId == agentInboxId {
+                sender = .agent
+            } else if message.senderIsCurrentUser {
+                sender = .currentUser
+            } else {
+                continue
+            }
+            changed = compatibilityDetector.observe(
+                text: text,
+                sender: sender,
+                position: DocMessagePosition(message: message)
+            ) || changed
         }
         return changed
     }
@@ -1454,12 +1477,18 @@ extension DocExperienceViewModel {
     private func scheduleAgentStartupTimeout() {
         agentStartupTimeoutTask?.cancel()
         agentStartupTimeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(20))
+            try? await Task.sleep(for: DocAgentStartupTimeoutPolicy.deadline)
             guard !Task.isCancelled,
-                  let self,
-                  dmViewModel == nil else {
+                  let self else {
                 return
             }
+            let provisioningOrRebindIsActive = isStartingAgent ||
+                conversationViewModel != nil ||
+                agentDmSession != nil
+            guard DocAgentStartupTimeoutPolicy.shouldFail(
+                dmIsReady: dmViewModel != nil,
+                provisioningOrRebindIsActive: provisioningOrRebindIsActive
+            ) else { return }
             failAgentStartup("Doc is taking too long to start. Try again.")
         }
     }
@@ -1525,21 +1554,45 @@ extension DocExperienceViewModel {
 }
 
 struct DocAgentCompatibilityDetector {
+    enum Sender {
+        case currentUser
+        case agent
+    }
+
     fileprivate(set) var hasSeenDocSentinel: Bool = false
-    private(set) var hasSeenNormalAgentMessage: Bool = false
+    private var ordinarySourcePositions: Set<DocMessagePosition> = []
+    private var normalAgentMessagePositions: Set<DocMessagePosition> = []
 
     var shouldWarn: Bool {
-        hasSeenNormalAgentMessage && !hasSeenDocSentinel
+        guard !hasSeenDocSentinel,
+              let firstAgentMessage = normalAgentMessagePositions.min(),
+              let sourceMessage = ordinarySourcePositions
+              .filter({ $0 > firstAgentMessage })
+              .min(),
+              let latestAgentMessage = normalAgentMessagePositions.max() else {
+            return false
+        }
+        return latestAgentMessage > sourceMessage
     }
 
     @discardableResult
-    mutating func observe(text: String, isAgent: Bool) -> Bool {
-        guard isAgent else { return false }
+    mutating func observe(
+        text: String,
+        sender: Sender,
+        position: DocMessagePosition
+    ) -> Bool {
         let oldValue = self
-        if DocStateMessage.isDataPlaneText(text) {
-            hasSeenDocSentinel = true
-        } else if !DocWireMessage.isHiddenText(text) {
-            hasSeenNormalAgentMessage = true
+        switch sender {
+        case .agent:
+            if DocStateMessage.isDataPlaneText(text) {
+                hasSeenDocSentinel = true
+            } else if !DocWireMessage.isHiddenText(text) {
+                normalAgentMessagePositions.insert(position)
+            }
+        case .currentUser:
+            if !DocWireMessage.isHiddenText(text) {
+                ordinarySourcePositions.insert(position)
+            }
         }
         return self != oldValue
     }

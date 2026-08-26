@@ -4,26 +4,79 @@ import Foundation
 import Testing
 
 struct DocItemReconcilerTests {
-    @Test func compatibilityDetectorWarnsOnlyForNormalAgentRepliesWithoutDocEvents() {
+    @Test func compatibilityDetectorIgnoresSetupProseUntilAgentRepliesToSourceMaterial() {
         var detector = DocAgentCompatibilityDetector()
 
-        detector.observe(text: "A normal assistant reply", isAgent: false)
+        detector.observe(
+            text: "An older group message.",
+            sender: .currentUser,
+            position: position(0)
+        )
+        detector.observe(
+            text: "Google Docs access is approved.",
+            sender: .agent,
+            position: position(1)
+        )
         #expect(!detector.shouldWarn)
 
-        detector.observe(text: "A normal assistant reply", isAgent: true)
-        #expect(detector.shouldWarn)
+        detector.observe(
+            text: "Plan a team offsite in October.",
+            sender: .currentUser,
+            position: position(2)
+        )
+        #expect(!detector.shouldWarn)
 
-        detector.observe(text: "⟦doc⟧not-even-valid-json", isAgent: true)
+        detector.observe(
+            text: "I can help plan that.",
+            sender: .agent,
+            position: position(3)
+        )
+        #expect(detector.shouldWarn)
+    }
+
+    @Test func compatibilityDetectorDoesNotTreatAnswersAsSourceMaterial() {
+        var detector = DocAgentCompatibilityDetector()
+
+        detector.observe(
+            text: #"⟦ans⟧{"id":"question","choice":"Dec 14"}"#,
+            sender: .currentUser,
+            position: position(1)
+        )
+        detector.observe(
+            text: "A normal assistant reply",
+            sender: .agent,
+            position: position(2)
+        )
+
         #expect(!detector.shouldWarn)
     }
 
-    @Test func compatibilityDetectorIgnoresHiddenClientProtocolMessages() {
+    @Test func compatibilityDetectorSentinelDisarmsWrongAgentWarning() {
         var detector = DocAgentCompatibilityDetector()
 
-        detector.observe(text: #"⟦ans⟧{"id":"question","choice":"Dec 14"}"#, isAgent: true)
-        detector.observe(text: #"⟦req⟧{"t":"doc-content","docId":"trip"}"#, isAgent: true)
+        detector.observe(text: "Hello, I'm your assistant.", sender: .agent, position: position(0))
+        detector.observe(text: "Draft a launch plan.", sender: .currentUser, position: position(1))
+        detector.observe(text: "Working on it.", sender: .agent, position: position(2))
+        #expect(detector.shouldWarn)
 
+        detector.observe(text: "⟦doc⟧not-even-valid-json", sender: .agent, position: position(3))
         #expect(!detector.shouldWarn)
+    }
+
+    @Test func startupTimeoutWaitsForColdProvisioningAndKeepsActiveWorkNonTerminal() {
+        #expect(DocAgentStartupTimeoutPolicy.deadline == .seconds(90))
+        #expect(!DocAgentStartupTimeoutPolicy.shouldFail(
+            dmIsReady: false,
+            provisioningOrRebindIsActive: true
+        ))
+        #expect(!DocAgentStartupTimeoutPolicy.shouldFail(
+            dmIsReady: true,
+            provisioningOrRebindIsActive: false
+        ))
+        #expect(DocAgentStartupTimeoutPolicy.shouldFail(
+            dmIsReady: false,
+            provisioningOrRebindIsActive: false
+        ))
     }
 
     @MainActor
@@ -88,6 +141,13 @@ struct DocItemReconcilerTests {
             headline: headline,
             context: "Pick a date.",
             createdAt: Date(timeIntervalSince1970: 1)
+        )
+    }
+
+    private func position(_ seconds: TimeInterval) -> DocMessagePosition {
+        DocMessagePosition(
+            date: Date(timeIntervalSince1970: seconds),
+            messageId: "message-\(seconds)"
         )
     }
 }
