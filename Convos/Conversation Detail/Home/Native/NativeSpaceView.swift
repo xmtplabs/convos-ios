@@ -150,8 +150,8 @@ struct NativeSpaceView: View {
                 // Work the host could not tie to one route — an edited asset
                 // rather than a page, which is what most content edits are —
                 // belongs to the page rather than to any one tile.
-                if let site = events.siteWideWork {
-                    SiteWideWorkBanner(message: site.message)
+                if let announced = pageWork(document) {
+                    SiteWideWorkBanner(message: announced.message)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
                 if let root = document.rootNode {
@@ -189,6 +189,16 @@ struct NativeSpaceView: View {
         // A page that ends taller than the screen is not scrolled yet, and a
         // page swapped underneath a reader keeps whatever offset it had.
         .onDisappear { onScrollUnderChrome(0) }
+    }
+
+    /// What the page as a whole says the agent is doing.
+    ///
+    /// Site-wide work first, then anything no tile is already showing — a page
+    /// being added, or this page's own text being rewritten. A change a tile is
+    /// drawing is deliberately not repeated here.
+    private func pageWork(_ document: SpaceDocument) -> PendingChange? {
+        events.siteWideWork
+            ?? events.workNotShown(onTiles: document.widgets.map(\.route))
     }
 
     /// Follows the Space, applying each new state as an animated change.

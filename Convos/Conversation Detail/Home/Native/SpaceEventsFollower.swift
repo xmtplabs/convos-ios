@@ -18,13 +18,8 @@ struct SpaceEventsState: Equatable {
     /// Matching is by whole path segments, so `/note` never claims work on
     /// `/notebook`, and the freshest entry carrying a message wins.
     func work(at route: String) -> PendingChange? {
-        pendingChanges
-            .filter { $0.path == route || $0.path.hasPrefix(route == "/" ? "/" : "\(route)/") }
-            .filter { $0.path != PendingChange.siteWide }
-            .max { left, right in
-                (left.message == nil ? 0 : 1, left.lastSeenAt)
-                    < (right.message == nil ? 0 : 1, right.lastSeenAt)
-            }
+        freshest(pendingChanges.filter { $0.path != PendingChange.siteWide }
+            .filter { Self.route(route, covers: $0.path) })
     }
 
     /// Work the host could not tie to one route — an edited asset rather than a
@@ -34,6 +29,39 @@ struct SpaceEventsState: Equatable {
         pendingChanges
             .filter { $0.path == PendingChange.siteWide }
             .max { $0.lastSeenAt < $1.lastSeenAt }
+    }
+
+    /// Work that no tile on this page is already showing.
+    ///
+    /// A tile stands for a route, so work at that route is drawn on the tile
+    /// itself. Everything else has nowhere to go — and "everything else" is not
+    /// an edge case: adding a widget is work on a page that has no tile yet, by
+    /// definition, and editing the page's own prose is work on a route no tile
+    /// ever covers. Both are exactly when a reader has been told the agent is
+    /// changing this Space, so both belong on the page.
+    func workNotShown(onTiles routes: [String]) -> PendingChange? {
+        freshest(pendingChanges.filter { $0.path != PendingChange.siteWide }
+            .filter { change in
+                !routes.contains { Self.route($0, covers: change.path) }
+            })
+    }
+
+    /// Whether a tile's route stands for a changed path.
+    ///
+    /// Whole path segments, so `/note` never claims work on `/notebook`. A
+    /// route of `/` is not treated as covering the whole Space: it is the page
+    /// being drawn, not a tile on it, and letting it match everything would
+    /// leave every change looking like it had a tile.
+    private static func route(_ route: String, covers path: String) -> Bool {
+        guard route != "/" else { return path == "/" }
+        return path == route || path.hasPrefix("\(route)/")
+    }
+
+    private func freshest(_ changes: [PendingChange]) -> PendingChange? {
+        changes.max { left, right in
+            (left.message == nil ? 0 : 1, left.lastSeenAt)
+                < (right.message == nil ? 0 : 1, right.lastSeenAt)
+        }
     }
 }
 
