@@ -62,6 +62,41 @@ enum DocContentLoadState: Hashable {
     case failed
 }
 
+struct DocLaneRegistry: Codable, Equatable {
+    private(set) var conversationIds: [String: String] = [:]
+    private(set) var announcedDocIds: Set<String> = []
+
+    func conversationId(for docId: String) -> String? {
+        conversationIds[docId]
+    }
+
+    mutating func register(conversationId: String, for docId: String) {
+        conversationIds[docId] = conversationId
+    }
+
+    mutating func remove(docId: String) {
+        conversationIds[docId] = nil
+        announcedDocIds.remove(docId)
+    }
+
+    func hasAnnounced(docId: String) -> Bool {
+        announcedDocIds.contains(docId)
+    }
+
+    mutating func takeAnnouncement(for docId: String) -> String? {
+        guard !announcedDocIds.contains(docId),
+              let message = DocLaneMessage.encode(docId: docId) else {
+            return nil
+        }
+        announcedDocIds.insert(docId)
+        return message
+    }
+
+    mutating func restoreAnnouncement(for docId: String) {
+        announcedDocIds.remove(docId)
+    }
+}
+
 @MainActor @Observable
 final class DocExperienceViewModel {
     private(set) var conversationViewModel: NewConversationViewModel?
@@ -82,9 +117,11 @@ final class DocExperienceViewModel {
     var isPresentingGoogleConnect: Bool = false
     var isPresentingHistory: Bool = false
     var isPresentingShareNumber: Bool = false
+    var isPresentingShareDoc: Bool = false
     var presentedDraftItem: DocWaitingItem?
     var activeAnswerItemId: String?
     private(set) var sharedDocNumber: String?
+    private(set) var sharedDocText: String?
     var hasCompletedWelcome: Bool
 
     let previewStage: DocPreviewStage?
@@ -109,6 +146,9 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var notDocAgentNoticeTask: Task<Void, Never>?
     @ObservationIgnored private var compatibilityDetector: DocAgentCompatibilityDetector = .init()
     @ObservationIgnored private var didDismissNotDocAgentNotice: Bool = false
+    @ObservationIgnored private var docLaneRegistry: DocLaneRegistry = .init()
+    @ObservationIgnored private var docLaneViewModels: [String: ConversationViewModel] = [:]
+    @ObservationIgnored private var docLaneProvisionTasks: [String: Task<ConversationViewModel?, Never>] = [:]
 
     init(
         session: any SessionManagerProtocol,
@@ -120,6 +160,10 @@ final class DocExperienceViewModel {
         self.defaults = defaults
         self.previewStage = DocPreviewStage.current
         self.hasCompletedWelcome = defaults.bool(forKey: Self.storageKey("welcome", session: session))
+        if let data = defaults.data(forKey: Self.storageKey("docLanes", session: session)),
+           let registry = try? JSONDecoder().decode(DocLaneRegistry.self, from: data) {
+            docLaneRegistry = registry
+        }
 
         if let previewStage,
            [
@@ -328,64 +372,6 @@ final class DocExperienceViewModel {
         isShowingNotDocAgentNotice = false
     }
 
-    func didSend(screenshotCount: Int) {
-        guard screenshotCount > 0 else { return }
-        pendingScreenshotCount = screenshotCount
-        stateMessageIdAtLastSend = latestStateMessageId
-    }
-
-    func composerText(in scope: DocComposerScope) -> String {
-        composerTexts[scope] ?? ""
-    }
-
-    func setComposerText(_ text: String, in scope: DocComposerScope) {
-        composerTexts[scope] = text
-    }
-
-    func pendingPhotos(in scope: DocComposerScope) -> [DocPendingPhoto] {
-        composerPhotos[scope] ?? []
-    }
-
-    func addPendingPhoto(_ image: UIImage, in scope: DocComposerScope) {
-        var photos = composerPhotos[scope] ?? []
-        photos.append(DocPendingPhoto(image: image))
-        composerPhotos[scope] = photos
-    }
-
-    func removePendingPhoto(id: UUID, in scope: DocComposerScope) {
-        composerPhotos[scope]?.removeAll { $0.id == id }
-    }
-
-    func sendComposerDraft(in scope: DocComposerScope, doc: DocStatus? = nil) async -> Bool {
-        guard let dmViewModel else { return false }
-        let cleanText = composerText(in: scope).trimmingCharacters(in: .whitespacesAndNewlines)
-        let photos = pendingPhotos(in: scope)
-        guard !cleanText.isEmpty || !photos.isEmpty else { return false }
-
-        let outgoingText: String? = if let doc {
-            cleanText.isEmpty ? "\(doc.name):" : "\(doc.name): \(cleanText)"
-        } else {
-            cleanText.isEmpty ? nil : cleanText
-        }
-        if !photos.isEmpty { didSend(screenshotCount: photos.count) }
-
-        do {
-            try await dmViewModel.sendDocComposerDraft(
-                text: outgoingText,
-                photos: photos.map(\.image)
-            )
-            composerTexts[scope] = nil
-            composerPhotos[scope] = nil
-            return true
-        } catch {
-            if !photos.isEmpty {
-                pendingScreenshotCount = 0
-                stateMessageIdAtLastSend = nil
-            }
-            return false
-        }
-    }
-
     func presentShareNumber(for doc: DocStatus) {
         let directNumber = doc.binding.number.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackNumber = docs
@@ -418,8 +404,7 @@ final class DocExperienceViewModel {
     }
 
     func sendAnswer(_ answer: DocAnswer, for item: DocWaitingItem) {
-        guard let dmViewModel,
-              pendingItems.contains(where: { $0.id == item.id }),
+        guard pendingItems.contains(where: { $0.id == item.id }),
               let text = DocAnswerMessage.encode(itemId: item.id, answer: answer) else {
             return
         }
@@ -428,8 +413,18 @@ final class DocExperienceViewModel {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            let targetViewModel: ConversationViewModel?
+            if let docId = item.docId {
+                targetViewModel = await ensureDocLane(for: docId)
+            } else {
+                targetViewModel = dmViewModel
+            }
+            guard let targetViewModel else {
+                itemSendStates[item.id] = .failed(answer: answer)
+                return
+            }
             do {
-                try await dmViewModel.sendDocProtocolText(text, clientMessageId: clientMessageId)
+                try await targetViewModel.sendDocProtocolText(text, clientMessageId: clientMessageId)
                 try? await Task.sleep(for: .milliseconds(650))
                 guard itemSendStates[item.id] == .resolving(
                     answer: answer,
@@ -474,11 +469,17 @@ final class DocExperienceViewModel {
 
     func openRoom(for doc: DocStatus) {
         guard previewStage == nil else { return }
-        if let cachedDate = docContentsById[doc.id]?.updatedAt,
-           doc.updatedAt <= cachedDate {
-            return
+        Task { @MainActor [weak self] in
+            guard let self,
+                  await ensureDocLane(for: doc.id) != nil else {
+                return
+            }
+            if let cachedDate = docContentsById[doc.id]?.updatedAt,
+               doc.updatedAt <= cachedDate {
+                return
+            }
+            requestDocContent(for: doc.id)
         }
-        requestDocContent(for: doc.id)
     }
 
     func retryDocContent(for docId: String) {
@@ -488,7 +489,7 @@ final class DocExperienceViewModel {
     func sendScopedInstruction(_ instruction: String, for doc: DocStatus) async -> Bool {
         let cleanInstruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanInstruction.isEmpty else { return false }
-        return await sendProtocolText("\(doc.name): \(cleanInstruction)")
+        return await sendProtocolText(cleanInstruction, docId: doc.id)
     }
 
     func sendQuestion(_ question: String, excerpt: String, for doc: DocStatus) async -> Bool {
@@ -497,15 +498,14 @@ final class DocExperienceViewModel {
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
         guard !cleanQuestion.isEmpty, !cleanExcerpt.isEmpty else { return false }
-        return await sendProtocolText("Re \"\(cleanExcerpt)\" in \(doc.name): \(cleanQuestion)")
+        return await sendProtocolText(
+            "Re \"\(cleanExcerpt)\" in \(doc.name): \(cleanQuestion)",
+            docId: doc.id
+        )
     }
 
     private func requestDocContent(for docId: String) {
         guard docContentLoadStates[docId] != .loading else { return }
-        guard let dmViewModel else {
-            docContentLoadStates[docId] = .idle
-            return
-        }
         guard let request = DocContentRequestMessage.encode(docId: docId) else {
             docContentLoadStates[docId] = .failed
             return
@@ -523,24 +523,35 @@ final class DocExperienceViewModel {
         }
 
         Task { @MainActor [weak self] in
+            guard let self,
+                  let laneViewModel = await ensureDocLane(for: docId) else {
+                self?.docContentLoadStates[docId] = .idle
+                return
+            }
             do {
-                try await dmViewModel.sendDocProtocolText(
+                try await laneViewModel.sendDocProtocolText(
                     request,
                     clientMessageId: UUID().uuidString
                 )
             } catch {
-                self?.docContentTimeoutTasks[docId]?.cancel()
-                self?.docContentTimeoutTasks[docId] = nil
-                self?.docContentLoadStates[docId] = .failed
+                docContentTimeoutTasks[docId]?.cancel()
+                docContentTimeoutTasks[docId] = nil
+                docContentLoadStates[docId] = .failed
             }
         }
     }
 
-    private func sendProtocolText(_ text: String) async -> Bool {
+    private func sendProtocolText(_ text: String, docId: String? = nil) async -> Bool {
         if previewStage != nil { return true }
-        guard let dmViewModel else { return false }
+        let targetViewModel: ConversationViewModel?
+        if let docId {
+            targetViewModel = await ensureDocLane(for: docId)
+        } else {
+            targetViewModel = dmViewModel
+        }
+        guard let targetViewModel else { return false }
         do {
-            try await dmViewModel.sendDocProtocolText(
+            try await targetViewModel.sendDocProtocolText(
                 text,
                 clientMessageId: UUID().uuidString
             )
@@ -773,6 +784,187 @@ final class DocExperienceViewModel {
 }
 
 extension DocExperienceViewModel {
+    func composerText(in scope: DocComposerScope) -> String {
+        composerTexts[scope] ?? ""
+    }
+
+    func setComposerText(_ text: String, in scope: DocComposerScope) {
+        composerTexts[scope] = text
+    }
+
+    func pendingPhotos(in scope: DocComposerScope) -> [DocPendingPhoto] {
+        composerPhotos[scope] ?? []
+    }
+
+    func isComposerReady(in scope: DocComposerScope) -> Bool {
+        if previewStage != nil { return true }
+        switch scope {
+        case .home:
+            return dmViewModel != nil
+        case .room(let docId):
+            return docLaneViewModels[docId] != nil
+        }
+    }
+
+    func addPendingPhoto(_ image: UIImage, in scope: DocComposerScope) {
+        var photos = composerPhotos[scope] ?? []
+        photos.append(DocPendingPhoto(image: image))
+        composerPhotos[scope] = photos
+    }
+
+    func removePendingPhoto(id: UUID, in scope: DocComposerScope) {
+        composerPhotos[scope]?.removeAll { $0.id == id }
+    }
+
+    func sendComposerDraft(in scope: DocComposerScope) async -> Bool {
+        let targetViewModel: ConversationViewModel?
+        switch scope {
+        case .home:
+            targetViewModel = dmViewModel
+        case .room(let docId):
+            targetViewModel = await ensureDocLane(for: docId)
+        }
+        guard let targetViewModel else { return false }
+        let cleanText = composerText(in: scope).trimmingCharacters(in: .whitespacesAndNewlines)
+        let photos = pendingPhotos(in: scope)
+        guard !cleanText.isEmpty || !photos.isEmpty else { return false }
+
+        let outgoingText: String? = cleanText.isEmpty ? nil : cleanText
+        if !photos.isEmpty { didSend(screenshotCount: photos.count) }
+
+        do {
+            try await targetViewModel.sendDocComposerDraft(
+                text: outgoingText,
+                photos: photos.map(\.image)
+            )
+            composerTexts[scope] = nil
+            composerPhotos[scope] = nil
+            return true
+        } catch {
+            if !photos.isEmpty {
+                pendingScreenshotCount = 0
+                stateMessageIdAtLastSend = nil
+            }
+            return false
+        }
+    }
+
+    private func didSend(screenshotCount: Int) {
+        guard screenshotCount > 0 else { return }
+        pendingScreenshotCount = screenshotCount
+        stateMessageIdAtLastSend = latestStateMessageId
+    }
+}
+
+private extension DocExperienceViewModel {
+    func ensureDocLane(for docId: String) async -> ConversationViewModel? {
+        if let viewModel = docLaneViewModels[docId] {
+            return await announceLaneIfNeeded(docId: docId, on: viewModel) ? viewModel : nil
+        }
+        if let task = docLaneProvisionTasks[docId] {
+            return await task.value
+        }
+
+        let task = Task { @MainActor [weak self] () -> ConversationViewModel? in
+            guard let self else { return nil }
+            return await provisionDocLane(for: docId)
+        }
+        docLaneProvisionTasks[docId] = task
+        let viewModel = await task.value
+        docLaneProvisionTasks[docId] = nil
+        return viewModel
+    }
+
+    func provisionDocLane(for docId: String) async -> ConversationViewModel? {
+        if let conversationId = docLaneRegistry.conversationId(for: docId) {
+            if let conversation = try? session.conversationRepository(for: conversationId).fetchConversation() {
+                let viewModel = makeDocLaneViewModel(conversation: conversation)
+                docLaneViewModels[docId] = viewModel
+                return await announceLaneIfNeeded(docId: docId, on: viewModel) ? viewModel : nil
+            }
+            docLaneRegistry.remove(docId: docId)
+            persistDocLaneRegistry()
+        }
+
+        guard let agentInboxId else { return nil }
+        let messagingService = session.messagingService()
+        let stateManager = messagingService.conversationStateManager(
+            initialMemberInboxIds: [agentInboxId]
+        )
+        do {
+            try await stateManager.createConversation()
+            let conversationId = try await readyConversationId(from: stateManager)
+            guard let conversation = try session
+                .conversationRepository(for: conversationId)
+                .fetchConversation() else {
+                return nil
+            }
+            docLaneRegistry.register(conversationId: conversationId, for: docId)
+            persistDocLaneRegistry()
+            let viewModel = makeDocLaneViewModel(conversation: conversation)
+            docLaneViewModels[docId] = viewModel
+            return await announceLaneIfNeeded(docId: docId, on: viewModel) ? viewModel : nil
+        } catch {
+            Log.error("Doc lane creation failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    func readyConversationId(
+        from stateManager: any ConversationStateManagerProtocol
+    ) async throws -> String {
+        if case .ready(let result) = stateManager.currentState {
+            return result.conversationId
+        }
+        for await state in stateManager.stateSequence {
+            switch state {
+            case .ready(let result):
+                return result.conversationId
+            case .error(let error):
+                throw error
+            default:
+                continue
+            }
+        }
+        throw CancellationError()
+    }
+
+    func makeDocLaneViewModel(conversation: Conversation) -> ConversationViewModel {
+        ConversationViewModel.createSync(
+            conversation: conversation,
+            session: session,
+            coreActions: coreActions
+        )
+    }
+
+    func announceLaneIfNeeded(
+        docId: String,
+        on viewModel: ConversationViewModel
+    ) async -> Bool {
+        guard !docLaneRegistry.hasAnnounced(docId: docId) else { return true }
+        guard let message = docLaneRegistry.takeAnnouncement(for: docId) else { return false }
+        do {
+            try await viewModel.sendDocProtocolText(
+                message,
+                clientMessageId: UUID().uuidString
+            )
+            persistDocLaneRegistry()
+            return true
+        } catch {
+            docLaneRegistry.restoreAnnouncement(for: docId)
+            persistDocLaneRegistry()
+            Log.error("Doc lane announcement failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func persistDocLaneRegistry() {
+        guard let data = try? JSONEncoder().encode(docLaneRegistry) else { return }
+        defaults.set(data, forKey: Self.storageKey("docLanes", session: session))
+    }
+}
+
+extension DocExperienceViewModel {
     var contributionLine: String? {
         guard let line = state?.line?.trimmingCharacters(in: .whitespacesAndNewlines),
               !line.isEmpty else {
@@ -790,6 +982,24 @@ extension DocExperienceViewModel {
         guard let contributionLine else { return }
         sharedDocNumber = contributionLine
         isPresentingShareNumber = true
+    }
+
+    func shouldShowShareDoc(for doc: DocStatus) -> Bool {
+        DocShareAction.disposition(for: doc) != .hidden
+    }
+
+    @discardableResult
+    func shareDoc(_ doc: DocStatus) async -> Bool {
+        switch DocShareAction.disposition(for: doc) {
+        case .hidden:
+            return true
+        case .nativeShare(let text):
+            sharedDocText = text
+            isPresentingShareDoc = true
+            return true
+        case .askAgent(let text):
+            return await sendProtocolText(text, docId: doc.id)
+        }
     }
 
     func connectGoogleDocs() {
@@ -969,7 +1179,7 @@ extension DocExperienceViewModel {
         if let conversationId = storedOriginConversationId(session: session, defaults: defaults) {
             AgentJoinDiagnosticsStore.shared.clear(conversationId: conversationId)
         }
-        var components = ["originConversationId", "googleConnectHandled", "snapshot", "state"]
+        var components = ["originConversationId", "googleConnectHandled", "snapshot", "state", "docLanes"]
         if replayFirstRun {
             components.append("welcome")
         }
@@ -1021,9 +1231,15 @@ extension DocExperienceViewModel {
         isPresentingGoogleConnect = false
         isPresentingHistory = false
         isPresentingShareNumber = false
+        isPresentingShareDoc = false
         presentedDraftItem = nil
         activeAnswerItemId = nil
         sharedDocNumber = nil
+        sharedDocText = nil
+        docLaneProvisionTasks.values.forEach { $0.cancel() }
+        docLaneProvisionTasks = [:]
+        docLaneViewModels = [:]
+        docLaneRegistry = .init()
         hasCompletedWelcome = preservingWelcome ? completedWelcome : false
         latestStateMessageId = nil
         stateMessageIdAtLastSend = nil

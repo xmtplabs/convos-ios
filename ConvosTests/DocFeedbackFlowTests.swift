@@ -6,6 +6,21 @@ import UIKit
 
 @MainActor
 struct DocFeedbackFlowTests {
+    @Test("Doc composer fork includes the History action")
+    func composerForkIncludesHistory() {
+        #expect(DocComposerBar.renderedActionKinds == [.history, .photos, .send])
+    }
+
+    @Test("lane sentinel is emitted only once per document")
+    func laneSentinelEmitsOncePerDoc() {
+        var registry = DocLaneRegistry()
+        registry.register(conversationId: "doc-lane", for: "tahoe")
+
+        #expect(registry.takeAnnouncement(for: "tahoe") == #"⟦lane⟧{"docId":"tahoe"}"#)
+        #expect(registry.takeAnnouncement(for: "tahoe") == nil)
+        #expect(registry.conversationId(for: "tahoe") == "doc-lane")
+    }
+
     @Test("screenshot picker has no artificial selection cap")
     func screenshotPickerIsUnlimited() {
         #expect(DocScreenshotSelectionPolicy.maximumSelectionCount == nil)

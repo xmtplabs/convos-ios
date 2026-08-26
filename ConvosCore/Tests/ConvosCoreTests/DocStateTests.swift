@@ -6,7 +6,7 @@ import Testing
 struct DocStateTests {
     @Test("parses a version-one state snapshot")
     func parsesStateSnapshot() throws {
-        let message = #"⟦doc⟧{"v":1,"t":"state","line":"+16285550999","docs":[{"id":"tahoe","name":"Tahoe Trip","url":"https://docs.google.com/document/d/1","updatedAt":1787600000,"lastChange":{"who":"Sara","what":"added flight times","at":1787599000},"binding":{"state":"live","number":"+16285550123","group":"Tahoe"},"dates":"Dec 12–15","people":7}],"future":true}"#
+        let message = #"⟦doc⟧{"v":1,"t":"state","line":"+16285550999","docs":[{"id":"tahoe","name":"Tahoe Trip","url":"https://docs.google.com/document/d/1","updatedAt":1787600000,"lastChange":{"who":"Sara","what":"added flight times","at":1787599000},"binding":{"state":"live","number":"+16285550123","group":"Tahoe"},"dates":"Dec 12–15","people":7,"shared":false}],"future":true}"#
 
         let state = try #require(DocStateMessage.parse(message))
 
@@ -16,6 +16,7 @@ struct DocStateTests {
         #expect(state.docs[0].name == "Tahoe Trip")
         #expect(state.docs[0].binding.state == .live)
         #expect(state.docs[0].people == 7)
+        #expect(state.docs[0].shared == false)
     }
 
     @Test("accepts absent and null contribution lines")
@@ -128,6 +129,26 @@ struct DocStateTests {
         #expect(DocContentRequestMessage.encode(docId: "") == nil)
     }
 
+    @Test("encodes and hides per-document lane announcements")
+    func encodesDocLaneAnnouncement() throws {
+        let message = try #require(DocLaneMessage.encode(docId: "tahoe"))
+        #expect(message == #"⟦lane⟧{"docId":"tahoe"}"#)
+        #expect(DocLaneMessage.encode(docId: "  ") == nil)
+        #expect(DocWireMessage.isHiddenText(message))
+    }
+
+    @Test("chooses agent or native document sharing by binding")
+    func choosesDocumentSharePath() {
+        let live = docStatus(binding: .live, shared: false)
+        let unbound = docStatus(binding: .none, shared: false)
+        let alreadyShared = docStatus(binding: .live, shared: true)
+        let text = "here's a doc for us (https://docs.google.com/document/d/1)"
+
+        #expect(DocShareAction.disposition(for: live) == .askAgent(text))
+        #expect(DocShareAction.disposition(for: unbound) == .nativeShare(text))
+        #expect(DocShareAction.disposition(for: alreadyShared) == .hidden)
+    }
+
     @Test("encodes compact choice, text, and action answers")
     func encodesAnswers() throws {
         let choice = try #require(DocAnswerMessage.encode(itemId: "ask-1", answer: .choice("Dec 14")))
@@ -179,6 +200,7 @@ struct DocStateTests {
         #expect(!MessageContent.text("⟦doc⟧not-json").showsInMessagesList)
         #expect(!MessageContent.text("⟦ans⟧not-json").showsInMessagesList)
         #expect(!MessageContent.text("⟦req⟧not-json").showsInMessagesList)
+        #expect(!MessageContent.text("⟦lane⟧not-json").showsInMessagesList)
         #expect(MessageContent.text("A normal message").showsInMessagesList)
     }
 
@@ -266,5 +288,21 @@ struct DocStateTests {
         let payload = String(message.dropFirst(DocAnswerMessage.prefix.count))
         let data = try #require(payload.data(using: .utf8))
         return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func docStatus(binding: DocBinding.State, shared: Bool) -> DocStatus {
+        DocStatus(
+            id: "tahoe",
+            name: "Tahoe Trip",
+            url: "https://docs.google.com/document/d/1",
+            updatedAt: Date(timeIntervalSince1970: 1),
+            lastChange: DocLastChange(
+                who: "Sara",
+                what: "updated the plan",
+                at: Date(timeIntervalSince1970: 1)
+            ),
+            binding: DocBinding(state: binding, number: "+16285550123"),
+            shared: shared
+        )
     }
 }

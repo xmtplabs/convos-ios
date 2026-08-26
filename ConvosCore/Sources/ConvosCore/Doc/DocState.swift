@@ -27,6 +27,7 @@ public struct DocStatus: Codable, Hashable, Identifiable, Sendable {
     public let binding: DocBinding
     public let dates: String?
     public let people: Int?
+    public let shared: Bool?
 
     public init(
         id: String,
@@ -36,7 +37,8 @@ public struct DocStatus: Codable, Hashable, Identifiable, Sendable {
         lastChange: DocLastChange,
         binding: DocBinding,
         dates: String? = nil,
-        people: Int? = nil
+        people: Int? = nil,
+        shared: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -46,6 +48,7 @@ public struct DocStatus: Codable, Hashable, Identifiable, Sendable {
         self.binding = binding
         self.dates = dates
         self.people = people
+        self.shared = shared
     }
 
     public var googleURL: URL? {
@@ -194,7 +197,8 @@ public enum DocWireMessage {
     public static func isHiddenText(_ text: String) -> Bool {
         DocStateMessage.isDataPlaneText(text) ||
             DocAnswerMessage.isDataPlaneText(text) ||
-            DocContentRequestMessage.isDataPlaneText(text)
+            DocContentRequestMessage.isDataPlaneText(text) ||
+            DocLaneMessage.isDataPlaneText(text)
     }
 }
 
@@ -297,6 +301,7 @@ public enum DocStateMessage {
         let binding: RawBinding?
         let dates: String?
         let people: Int?
+        let shared: Bool?
 
         var status: DocStatus? {
             guard let id, !id.isEmpty,
@@ -315,7 +320,8 @@ public enum DocStateMessage {
                 lastChange: lastChange,
                 binding: binding,
                 dates: dates,
-                people: people
+                people: people,
+                shared: shared
             )
         }
     }
@@ -436,6 +442,42 @@ public enum DocContentRequestMessage {
             case type = "t"
             case docId
         }
+    }
+}
+
+public enum DocLaneMessage {
+    public static let prefix: String = "⟦lane⟧"
+
+    public static func isDataPlaneText(_ text: String) -> Bool {
+        text.hasPrefix(prefix)
+    }
+
+    public static func encode(docId: String) -> String? {
+        let cleanDocId = docId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanDocId.isEmpty,
+              let data = try? JSONEncoder().encode(LaneEnvelope(docId: cleanDocId)),
+              let payload = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return "\(prefix)\(payload)"
+    }
+
+    private struct LaneEnvelope: Encodable {
+        let docId: String
+    }
+}
+
+public enum DocShareDisposition: Hashable, Sendable {
+    case hidden
+    case askAgent(String)
+    case nativeShare(String)
+}
+
+public enum DocShareAction {
+    public static func disposition(for doc: DocStatus) -> DocShareDisposition {
+        guard doc.shared != true else { return .hidden }
+        let message = "here's a doc for us (\(doc.url))"
+        return doc.binding.state == .live ? .askAgent(message) : .nativeShare(message)
     }
 }
 

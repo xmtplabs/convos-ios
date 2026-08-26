@@ -38,9 +38,13 @@ struct DocRoomView: View {
                     .docRoomRow()
             }
 
-            DocActivationView(doc: doc) {
-                viewModel.presentShareNumber(for: doc)
-            }
+            DocActivationView(
+                doc: doc,
+                onShareNumber: { viewModel.presentShareNumber(for: doc) },
+                onShareDoc: {
+                    Task { await viewModel.shareDoc(doc) }
+                }
+            )
             .docRoomRow()
 
             if !forYouItems.isEmpty {
@@ -116,7 +120,11 @@ struct DocRoomView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            DocScopedComposer(viewModel: viewModel, doc: doc)
+            DocComposerBar(
+                viewModel: viewModel,
+                scope: .room(doc.id),
+                messagePlaceholder: "Tell Doc about this doc…"
+            )
         }
         .fullScreenCover(isPresented: $isReaderPresented) {
             DocReaderView(viewModel: viewModel, initialDoc: doc)
@@ -161,7 +169,8 @@ private extension View {
 
 private struct DocActivationView: View {
     let doc: DocStatus
-    let onShare: () -> Void
+    let onShareNumber: () -> Void
+    let onShareDoc: () -> Void
 
     var body: some View {
         if doc.binding.state == .live {
@@ -186,7 +195,7 @@ private struct DocActivationView: View {
                 Text("Add Doc to the group and this doc updates itself")
                     .font(.body)
                     .foregroundStyle(.colorTextSecondary)
-                Button("Share", systemImage: "square.and.arrow.up", action: onShare)
+                Button("Share", systemImage: "square.and.arrow.up", action: onShareNumber)
                     .convosButtonStyle(.rounded(fullWidth: false, backgroundColor: .colorLava))
                     .frame(minHeight: 44.0)
             }
@@ -194,6 +203,13 @@ private struct DocActivationView: View {
             .padding(DesignConstants.Spacing.step5x)
             .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
             .accessibilityIdentifier("doc-room-unbound-hero")
+        }
+
+        if doc.shared != true {
+            Button("Share doc", systemImage: "square.and.arrow.up", action: onShareDoc)
+                .convosButtonStyle(.outlineCapsule(fullWidth: false))
+                .frame(minHeight: 44.0)
+                .accessibilityIdentifier("doc-room-share-document")
         }
     }
 }
@@ -244,136 +260,6 @@ private struct DocChangesLedger: View {
         Text(docCompactRelativeTime(from: change.at))
             .font(.caption)
             .foregroundStyle(.colorTextSecondary)
-    }
-}
-
-private struct DocScopedComposer: View {
-    @Bindable var viewModel: DocExperienceViewModel
-    let doc: DocStatus
-
-    @State private var isSending: Bool = false
-    @State private var didFail: Bool = false
-    @FocusState private var isFocused: Bool
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
-
-    private var scope: DocComposerScope {
-        .room(doc.id)
-    }
-
-    private var text: Binding<String> {
-        Binding(
-            get: { viewModel.composerText(in: scope) },
-            set: { viewModel.setComposerText($0, in: scope) }
-        )
-    }
-
-    private var pendingPhotos: [DocPendingPhoto] {
-        viewModel.pendingPhotos(in: scope)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4.0) {
-            if didFail {
-                Text("Couldn't send. Try again.")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .accessibilityIdentifier("doc-room-send-error")
-            }
-            if !pendingPhotos.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: DesignConstants.Spacing.step2x) {
-                        ForEach(pendingPhotos) { photo in
-                            DocPhotoDraftThumbnail(photo: photo) {
-                                viewModel.removePendingPhoto(id: photo.id, in: scope)
-                            }
-                        }
-                    }
-                }
-            }
-            if dynamicTypeSize.isAccessibilitySize {
-                VStack(spacing: DesignConstants.Spacing.step2x) {
-                    messageField
-                    HStack {
-                        Spacer(minLength: 0)
-                        sendButton
-                    }
-                }
-            } else {
-                HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
-                    messageField
-                    sendButton
-                }
-            }
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step3x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
-        .background(.colorBackgroundRaisedSecondary)
-        .overlay(alignment: .top) { Divider() }
-    }
-
-    private var cleanText: String {
-        viewModel.composerText(in: scope).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var canSend: Bool {
-        (!cleanText.isEmpty || !pendingPhotos.isEmpty) &&
-            !isSending &&
-            viewModel.isDmReadyForDisplay
-    }
-
-    private var messageField: some View {
-        ZStack(alignment: .leading) {
-            if text.wrappedValue.isEmpty {
-                Text("Tell Doc about this doc…")
-                    .foregroundStyle(.colorTextSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .allowsHitTesting(false)
-            }
-            TextField("", text: text, axis: .vertical)
-                .lineLimit(1...5)
-                .textFieldStyle(.plain)
-                .focused($isFocused)
-        }
-        .padding(.horizontal, DesignConstants.Spacing.step3x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
-        .frame(minHeight: 44.0)
-        .background(
-            Color.colorFillMinimal,
-            in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
-        )
-            .disabled(isSending)
-            .submitLabel(.send)
-            .onSubmit(send)
-            .accessibilityLabel("Tell Doc about this doc")
-            .accessibilityIdentifier("doc-room-message-field")
-    }
-
-    private var sendButton: some View {
-        Button(action: send) {
-            if isSending {
-                ProgressView()
-                    .frame(width: 44.0, height: 44.0)
-            } else {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 32.0))
-                    .foregroundStyle(.colorLava)
-                    .frame(width: 44.0, height: 44.0)
-            }
-        }
-        .disabled(!canSend)
-        .accessibilityLabel("Send")
-        .accessibilityIdentifier("doc-room-send")
-    }
-
-    private func send() {
-        guard canSend else { return }
-        isSending = true
-        didFail = false
-        Task { @MainActor in
-            let sent = await viewModel.sendComposerDraft(in: scope, doc: doc)
-            didFail = !sent
-            isSending = false
-        }
     }
 }
 
