@@ -90,13 +90,16 @@ final class DocExperienceViewModel {
     @ObservationIgnored private let session: any SessionManagerProtocol
     @ObservationIgnored private let coreActions: any CoreActions
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private var messagesCancellable: AnyCancellable?
-    @ObservationIgnored private var dmMessagesRepository: (any MessagesRepositoryProtocol)?
+    @ObservationIgnored private var docMessageAggregator: DocAgentMessageAggregator?
     @ObservationIgnored private var googleStatusCancellable: AnyCancellable?
     @ObservationIgnored private var observedDmConversationId: String?
+    @ObservationIgnored private var observedDocAgentInboxId: String?
     @ObservationIgnored private var latestStateMessageId: String?
     @ObservationIgnored private var stateMessageIdAtLastSend: String?
     @ObservationIgnored private var processedEventMessageIds: Set<String> = []
+    @ObservationIgnored private var latestStatePosition: DocMessagePosition?
+    @ObservationIgnored private var latestItemPositions: [String: DocMessagePosition] = [:]
+    @ObservationIgnored private var latestContentPositions: [String: DocMessagePosition] = [:]
     @ObservationIgnored private var resolvedItemIds: Set<String> = []
     @ObservationIgnored private var itemsNeedingHistoryReconciliation: Set<String> = []
     @ObservationIgnored private var docContentTimeoutTasks: [String: Task<Void, Never>] = [:]
@@ -300,6 +303,7 @@ final class DocExperienceViewModel {
         }
         dmSession.updateOrigin(originViewModel)
         dmSession.setAgent(inboxId: agentInboxId)
+        observeDocAgentMessagesIfReady()
         await dmSession.refreshDefaultAgentProvisioning()
         await dmSession.rebindWhenDmAppears()
         observeDmIfReady()
@@ -550,30 +554,11 @@ final class DocExperienceViewModel {
         }
     }
 
-    private func observeDmIfReady() {
-        guard let dmViewModel,
-              dmViewModel.conversation.id != observedDmConversationId else {
-            showGoogleConnectIfNeeded()
-            return
-        }
-        observedDmConversationId = dmViewModel.conversation.id
-        let repository = session.messagesRepository(for: dmViewModel.conversation.id)
-        dmMessagesRepository = repository
-        messagesCancellable = repository
-            .messagesPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] messages in
-                guard let self else { return }
-                ingest(messages)
-                reconcilePersistedItemsIfNeeded()
-            }
-        observeGoogleStatus(conversationId: dmViewModel.conversation.id)
-        showGoogleConnectIfNeeded()
-    }
-
-    private func ingest(_ messages: [AnyMessage]) {
+    func ingestAggregatedMessages(
+        _ messages: [AnyMessage],
+        agentInboxId: String
+    ) {
         updateAnswerDeliveries(from: messages)
-        guard let agentInboxId else { return }
 
         var changedSnapshot = observeAgentCompatibility(messages, agentInboxId: agentInboxId)
         for message in messages.sorted(by: { $0.date < $1.date }) {
@@ -584,9 +569,12 @@ final class DocExperienceViewModel {
                 continue
             }
             processedEventMessageIds.insert(message.id)
+            let position = DocMessagePosition(message: message)
 
             switch event {
             case .state(let newState):
+                guard position.isNewer(than: latestStatePosition) else { continue }
+                latestStatePosition = position
                 latestStateMessageId = message.id
                 state = newState
                 changedSnapshot = true
@@ -595,17 +583,27 @@ final class DocExperienceViewModel {
                     pendingScreenshotCount = 0
                     stateMessageIdAtLastSend = nil
                 }
-            case .item, .itemResolved:
+            case .item(let item):
+                guard position.isNewer(than: latestItemPositions[item.id]) else { continue }
+                latestItemPositions[item.id] = position
                 changedSnapshot = DocItemReconciler.apply(
                     event,
                     pendingItems: &pendingItems,
                     resolvedItemIds: &resolvedItemIds
                 ) || changedSnapshot
-                if case .itemResolved(let id) = event {
-                    itemSendStates[id] = nil
-                    itemsNeedingHistoryReconciliation.remove(id)
-                }
+            case .itemResolved(let id):
+                guard position.isNewer(than: latestItemPositions[id]) else { continue }
+                latestItemPositions[id] = position
+                changedSnapshot = DocItemReconciler.apply(
+                    event,
+                    pendingItems: &pendingItems,
+                    resolvedItemIds: &resolvedItemIds
+                ) || changedSnapshot
+                itemSendStates[id] = nil
+                itemsNeedingHistoryReconciliation.remove(id)
             case .docContent(let content):
+                guard position.isNewer(than: latestContentPositions[content.docId]) else { continue }
+                latestContentPositions[content.docId] = position
                 let cached = docContentsById[content.docId]
                 let accepted = cached.map { content.updatedAt >= $0.updatedAt } ?? true
                 if accepted {
@@ -694,15 +692,16 @@ final class DocExperienceViewModel {
     private func reconcilePersistedItemsIfNeeded() {
         let currentIds = Set(pendingItems.map(\.id))
         itemsNeedingHistoryReconciliation.formIntersection(currentIds)
-        guard !itemsNeedingHistoryReconciliation.isEmpty,
-              let dmMessagesRepository else {
-            return
-        }
-        guard dmMessagesRepository.hasMoreMessages else {
+        guard !itemsNeedingHistoryReconciliation.isEmpty else { return }
+        let repositories = docMessageAggregator?.repositories ?? []
+        let repositoriesWithHistory = repositories.filter(\.hasMoreMessages)
+        guard !repositoriesWithHistory.isEmpty else {
             itemsNeedingHistoryReconciliation.removeAll()
             return
         }
-        try? dmMessagesRepository.fetchPrevious()
+        for repository in repositoriesWithHistory {
+            try? repository.fetchPrevious()
+        }
     }
 
     private func observeGoogleStatus(conversationId: String) {
@@ -771,6 +770,39 @@ final class DocExperienceViewModel {
 }
 
 extension DocExperienceViewModel {
+    private func observeDmIfReady() {
+        guard let dmViewModel,
+              dmViewModel.conversation.id != observedDmConversationId else {
+            showGoogleConnectIfNeeded()
+            return
+        }
+        observedDmConversationId = dmViewModel.conversation.id
+        observeGoogleStatus(conversationId: dmViewModel.conversation.id)
+        showGoogleConnectIfNeeded()
+    }
+
+    private func observeDocAgentMessagesIfReady() {
+        guard let agentInboxId,
+              agentInboxId != observedDocAgentInboxId else {
+            return
+        }
+        observedDocAgentInboxId = agentInboxId
+        let conversationsRepository = session.conversationsRepository(for: [.allowed, .unknown])
+        let aggregator = DocAgentMessageAggregator(
+            conversationsPublisher: conversationsRepository
+                .conversationsPublisher(containingMemberInboxId: agentInboxId),
+            repositoryProvider: { [session] conversationId in
+                session.messagesRepository(for: conversationId)
+            }
+        )
+        docMessageAggregator = aggregator
+        aggregator.start(agentInboxId: agentInboxId) { [weak self] messages in
+            guard let self else { return }
+            ingestAggregatedMessages(messages, agentInboxId: agentInboxId)
+            reconcilePersistedItemsIfNeeded()
+        }
+    }
+
     private func convergeDocModeIfNeeded(storedId: String?) async -> (
         conversationId: String?,
         canStart: Bool
@@ -869,10 +901,11 @@ extension DocExperienceViewModel {
 
     private func resetRuntimeState(preservingWelcome: Bool = false) {
         let completedWelcome = hasCompletedWelcome
-        messagesCancellable = nil
-        dmMessagesRepository = nil
+        docMessageAggregator?.stop()
+        docMessageAggregator = nil
         googleStatusCancellable = nil
         observedDmConversationId = nil
+        observedDocAgentInboxId = nil
         conversationViewModel = nil
         agentDmSession = nil
         state = nil
@@ -895,6 +928,9 @@ extension DocExperienceViewModel {
         latestStateMessageId = nil
         stateMessageIdAtLastSend = nil
         processedEventMessageIds = []
+        latestStatePosition = nil
+        latestItemPositions = [:]
+        latestContentPositions = [:]
         resolvedItemIds = []
         itemsNeedingHistoryReconciliation = []
         docContentTimeoutTasks.values.forEach { $0.cancel() }

@@ -85,6 +85,20 @@ struct AgentDmFoldTests {
         #expect(counter.count == 0, "the per-row one-to-one lookup must not run at all")
     }
 
+    @Test("Member publisher includes the agent DM lane")
+    func memberPublisherIncludesAgentDmLane() async throws {
+        let queue = try Self.migratedQueue()
+        try await queue.write { try Self.seed($0) }
+        let repository = ConversationsRepository(dbReader: queue, consent: [.allowed, .unknown])
+
+        let conversations = await repository
+            .conversationsPublisher(containingMemberInboxId: Self.agentInboxId)
+            .values
+            .first { !$0.isEmpty }
+
+        #expect(Set(conversations?.map(\.id) ?? []) == [Self.groupId, Self.dmId])
+    }
+
     // MARK: - Helpers
 
     /// Counts the one-to-one membership lookups the legacy fallback issues, so
