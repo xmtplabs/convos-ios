@@ -4,6 +4,24 @@ import PhotosUI
 import SwiftUI
 import UIKit
 
+struct DocPhotoLoadGate: Equatable {
+    private(set) var pendingCount: Int = 0
+
+    var isLoading: Bool { pendingCount > 0 }
+
+    mutating func begin(count: Int) {
+        pendingCount += max(0, count)
+    }
+
+    mutating func finishOne() {
+        pendingCount = max(0, pendingCount - 1)
+    }
+
+    func canSend(isReady: Bool, isSending: Bool, hasPayload: Bool) -> Bool {
+        isReady && !isSending && !isLoading && hasPayload
+    }
+}
+
 /// Doc's small fork of `ConversationComposerBar` / `MessagesBottomBar`.
 /// The input capsule, attachment placement, glass construction, spacing, and
 /// send treatment stay identical to the conversation composer; Doc adds only
@@ -25,6 +43,7 @@ struct DocComposerBar: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var isSending: Bool = false
     @State private var didFail: Bool = false
+    @State private var photoLoadGate: DocPhotoLoadGate = .init()
     @FocusState private var focusState: MessagesViewInputFocus?
     @Namespace private var namespace: Namespace.ID
 
@@ -52,7 +71,11 @@ struct DocComposerBar: View {
     private var canSend: Bool {
         let cleanText = viewModel.composerText(in: scope)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return isReady && !isSending && (!cleanText.isEmpty || !pendingPhotos.isEmpty)
+        return photoLoadGate.canSend(
+            isReady: isReady,
+            isSending: isSending,
+            hasPayload: !cleanText.isEmpty || !pendingPhotos.isEmpty
+        )
     }
 
     var body: some View {
@@ -90,6 +113,21 @@ struct DocComposerBar: View {
             .accessibilityIdentifier("doc-reading-progress")
         }
 
+        if photoLoadGate.isLoading {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(photoLoadingText)
+                    .font(.footnote.weight(.medium))
+            }
+            .foregroundStyle(.colorTextSecondary)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .frame(minHeight: 32.0)
+            .background(.colorFillMinimal, in: Capsule())
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .accessibilityIdentifier("doc-photo-loading")
+        }
+
         if didFail {
             Text("Couldn't send. Try again.")
                 .font(.caption)
@@ -102,6 +140,11 @@ struct DocComposerBar: View {
     private var progressText: String {
         let count = viewModel.pendingScreenshotCount
         return "Doc is reading \(count) screenshot\(count == 1 ? "" : "s")…"
+    }
+
+    private var photoLoadingText: String {
+        let count = photoLoadGate.pendingCount
+        return "Loading \(count) screenshot\(count == 1 ? "" : "s")…"
     }
 
     private var historyBubble: some View {
@@ -126,7 +169,7 @@ struct DocComposerBar: View {
         MessagesInputView(
             displayName: .constant(""),
             emptyDisplayNamePlaceholder: "",
-            messagePlaceholder: isReady ? messagePlaceholder : "Preparing Doc…",
+            messagePlaceholder: composerPlaceholder,
             messageText: messageText,
             pendingMediaAttachments: pendingMediaAttachments,
             pendingInviteConvoName: .constant(""),
@@ -163,7 +206,7 @@ struct DocComposerBar: View {
                 .foregroundStyle(Color.colorTextPrimary)
                 .frame(width: 32.0, height: 32.0)
         }
-        .disabled(!isReady || isSending)
+        .disabled(!isReady || isSending || photoLoadGate.isLoading)
         .accessibilityLabel("Choose screenshots")
         .accessibilityIdentifier("doc-photo-picker")
     }
@@ -173,6 +216,12 @@ struct DocComposerBar: View {
         case .home: "doc-send-error"
         case .room: "doc-room-send-error"
         }
+    }
+
+    private var composerPlaceholder: String {
+        if isReady { return messagePlaceholder }
+        if viewModel.agentStartupErrorMessage != nil { return "Doc needs attention" }
+        return "Preparing Doc…"
     }
 
     private func send() {
@@ -191,14 +240,15 @@ struct DocComposerBar: View {
 
     private func load(_ photos: [PhotosPickerItem]) {
         guard !photos.isEmpty else { return }
+        photoLoadGate.begin(count: photos.count)
         selectedPhotos = []
         Task { @MainActor in
             for photo in photos {
-                guard let data = try? await photo.loadTransferable(type: Data.self),
-                      let image = UIImage(data: data) else {
-                    continue
+                if let data = try? await photo.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data) {
+                    viewModel.addPendingPhoto(image, in: scope)
                 }
-                viewModel.addPendingPhoto(image, in: scope)
+                photoLoadGate.finishOne()
             }
         }
     }

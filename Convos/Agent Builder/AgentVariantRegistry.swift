@@ -143,6 +143,21 @@ enum DocModeVariantResolver {
     }
 }
 
+enum DocModeResolutionPolicy {
+    static func enablementError(
+        for resolution: DocModeVariantResolver.Resolution
+    ) -> String? {
+        switch resolution {
+        case .resolved:
+            nil
+        case .notRegistered:
+            "No Doc variant is registered. Try again after the preview is available."
+        case .unavailable:
+            "Couldn't load the Doc variant registry. Check your connection and try again."
+        }
+    }
+}
+
 enum DocAgentConvergenceAction: Equatable {
     case create
     case keep

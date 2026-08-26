@@ -143,6 +143,14 @@ final class AgentVariantResolutionTests: XCTestCase {
         XCTAssertNil(resolved)
     }
 
+    func testDocModeResolutionFailuresBlockEnablementWithRecoveryCopy() {
+        XCTAssertNotNil(DocModeResolutionPolicy.enablementError(for: .notRegistered))
+        XCTAssertNotNil(DocModeResolutionPolicy.enablementError(for: .unavailable))
+        XCTAssertNil(DocModeResolutionPolicy.enablementError(
+            for: .resolved(variant(slug: "doc", label: "Doc"))
+        ))
+    }
+
     func testDocModeKeepsAgentBoundToExpectedVariant() {
         let diagnostic = AgentJoinDiagnostic(
             conversationId: "conversation-1",

@@ -62,6 +62,19 @@ enum DocContentLoadState: Hashable {
     case failed
 }
 
+enum DocAgentStartupState: Equatable {
+    case idle
+    case preparing
+    case ready
+    case failed(String)
+}
+
+struct DocModeConvergenceResult {
+    let conversationId: String?
+    let canStart: Bool
+    let errorMessage: String?
+}
+
 struct DocLaneRegistry: Codable, Equatable {
     private(set) var conversationIds: [String: String] = [:]
     private(set) var announcedDocIds: Set<String> = []
@@ -114,6 +127,7 @@ final class DocExperienceViewModel {
     private(set) var isConnectingGoogleDocs: Bool = false
     private(set) var googleConnectErrorMessage: String?
     private(set) var isShowingNotDocAgentNotice: Bool = false
+    private(set) var agentStartupState: DocAgentStartupState = .idle
     var isPresentingGoogleConnect: Bool = false
     var isPresentingHistory: Bool = false
     var isPresentingShareNumber: Bool = false
@@ -129,6 +143,7 @@ final class DocExperienceViewModel {
     @ObservationIgnored private let session: any SessionManagerProtocol
     @ObservationIgnored private let coreActions: any CoreActions
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var storageAccountIdentifier: String
     @ObservationIgnored private var docMessageAggregator: DocAgentMessageAggregator?
     @ObservationIgnored private var googleStatusCancellable: AnyCancellable?
     @ObservationIgnored private var observedDmConversationId: String?
@@ -149,6 +164,8 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var docLaneRegistry: DocLaneRegistry = .init()
     @ObservationIgnored private var docLaneViewModels: [String: ConversationViewModel] = [:]
     @ObservationIgnored private var docLaneProvisionTasks: [String: Task<ConversationViewModel?, Never>] = [:]
+    @ObservationIgnored private var agentStartupTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var isStartingAgent: Bool = false
 
     init(
         session: any SessionManagerProtocol,
@@ -159,8 +176,14 @@ final class DocExperienceViewModel {
         self.coreActions = coreActions
         self.defaults = defaults
         self.previewStage = DocPreviewStage.current
-        self.hasCompletedWelcome = defaults.bool(forKey: Self.storageKey("welcome", session: session))
-        if let data = defaults.data(forKey: Self.storageKey("docLanes", session: session)),
+        let initialAccountIdentifier = Self.accountIdentifier(session: session)
+        self.storageAccountIdentifier = initialAccountIdentifier
+        self.hasCompletedWelcome = defaults.bool(
+            forKey: Self.storageKey("welcome", accountIdentifier: initialAccountIdentifier)
+        )
+        if let data = defaults.data(
+            forKey: Self.storageKey("docLanes", accountIdentifier: initialAccountIdentifier)
+        ),
            let registry = try? JSONDecoder().decode(DocLaneRegistry.self, from: data) {
             docLaneRegistry = registry
         }
@@ -203,7 +226,9 @@ final class DocExperienceViewModel {
                 presentedDraftItem = pendingItems.first { $0.register == .draft }
             }
         } else if previewStage == nil,
-                  let data = defaults.data(forKey: Self.storageKey("snapshot", session: session)),
+                  let data = defaults.data(
+                      forKey: Self.storageKey("snapshot", accountIdentifier: initialAccountIdentifier)
+                  ),
                   let snapshot = try? JSONDecoder().decode(PersistedSnapshot.self, from: data) {
             state = snapshot.state
             pendingItems = snapshot.pendingItems
@@ -215,7 +240,9 @@ final class DocExperienceViewModel {
             compatibilityDetector.hasSeenDocSentinel = snapshot.hasSeenDocSentinel ??
                 (snapshot.state != nil || !snapshot.pendingItems.isEmpty || !(snapshot.docContents ?? []).isEmpty)
         } else if previewStage == nil,
-                  let data = defaults.data(forKey: Self.storageKey("state", session: session)) {
+                  let data = defaults.data(
+                      forKey: Self.storageKey("state", accountIdentifier: initialAccountIdentifier)
+                  ) {
             state = try? JSONDecoder().decode(DocState.self, from: data)
             compatibilityDetector.hasSeenDocSentinel = state != nil
         }
@@ -287,7 +314,12 @@ final class DocExperienceViewModel {
     }
 
     var isPreparingAgent: Bool {
-        previewStage == nil && hasCompletedWelcome && dmViewModel == nil
+        agentStartupState == .preparing
+    }
+
+    var agentStartupErrorMessage: String? {
+        guard case .failed(let message) = agentStartupState else { return nil }
+        return message
     }
 
     var googleConnectConversation: Conversation? {
@@ -296,80 +328,6 @@ final class DocExperienceViewModel {
 
     private var originViewModel: ConversationViewModel? {
         conversationViewModel?.conversationViewModel
-    }
-
-    func completeWelcome() {
-        hasCompletedWelcome = true
-        guard previewStage == nil else { return }
-        defaults.set(true, forKey: Self.storageKey("welcome", session: session))
-        Task { await startAgentIfNeeded() }
-    }
-
-    func startAgentIfNeeded() async {
-        guard previewStage == nil, hasCompletedWelcome, conversationViewModel == nil else { return }
-
-        let convergence = await convergeDocModeIfNeeded(
-            storedId: Self.storedOriginConversationId(session: session, defaults: defaults)
-        )
-        guard convergence.canStart else { return }
-        let storedId = convergence.conversationId
-
-        let conversations = try? await session
-            .conversationsRepository(for: [.allowed, .unknown])
-            .fetchAll()
-        let existingId = storedId.flatMap { id in
-            conversations?.contains(where: { $0.id == id }) == true ? id : nil
-        }
-        let mode: NewConversationMode = if let existingId {
-            .existingConversation(conversationId: existingId)
-        } else {
-            .newConversation
-        }
-
-        conversationViewModel = NewConversationViewModel(
-            session: session,
-            mode: mode,
-            coreActions: coreActions,
-            agentVariantSlug: FeatureFlags.shared.effectiveAgentVariantSlug
-        )
-    }
-
-    func synchronizeAgentDm() async {
-        guard previewStage == nil, let originViewModel else { return }
-        persistOriginConversationId(originViewModel.conversation.id)
-
-        let dmSession = agentDmSession ?? AgentDmSession(originViewModel: originViewModel)
-        if agentDmSession == nil {
-            agentDmSession = dmSession
-        }
-        dmSession.updateOrigin(originViewModel)
-        dmSession.setAgent(inboxId: agentInboxId)
-        observeDocAgentMessagesIfReady()
-        await dmSession.refreshDefaultAgentProvisioning()
-        await dmSession.rebindWhenDmAppears()
-        observeDmIfReady()
-    }
-
-    func showGoogleConnectIfNeeded() {
-        guard previewStage == nil,
-              dmViewModel != nil,
-              !defaults.bool(forKey: Self.storageKey("googleConnectHandled", session: session)) else {
-            return
-        }
-        isPresentingGoogleConnect = true
-    }
-
-    func didDismissGoogleConnect() {
-        isPresentingGoogleConnect = false
-        guard previewStage == nil else { return }
-        defaults.set(true, forKey: Self.storageKey("googleConnectHandled", session: session))
-    }
-
-    func dismissNotDocAgentNotice() {
-        didDismissNotDocAgentNotice = true
-        notDocAgentNoticeTask?.cancel()
-        notDocAgentNoticeTask = nil
-        isShowingNotDocAgentNotice = false
     }
 
     func presentShareNumber(for doc: DocStatus) {
@@ -749,14 +707,14 @@ final class DocExperienceViewModel {
             hasSeenDocSentinel: compatibilityDetector.hasSeenDocSentinel
         )
         if let data = try? JSONEncoder().encode(snapshot) {
-            defaults.set(data, forKey: Self.storageKey("snapshot", session: session))
+            defaults.set(data, forKey: storageKey("snapshot"))
             DocWireDebugLog.snapshotPersisted(docCount: state?.docs.count ?? 0, itemCount: pendingItems.count, contentCount: docContentsById.count)
         }
     }
 
     private func persistOriginConversationId(_ id: String) {
         guard !id.hasPrefix("draft-") else { return }
-        defaults.set(id, forKey: Self.storageKey("originConversationId", session: session))
+        defaults.set(id, forKey: storageKey("originConversationId"))
     }
 
     private static func itemPrecedes(_ lhs: DocWaitingItem, _ rhs: DocWaitingItem) -> Bool {
@@ -780,6 +738,120 @@ final class DocExperienceViewModel {
         let resolvedItemIds: [String]
         let docContents: [DocContent]?
         let hasSeenDocSentinel: Bool?
+    }
+}
+
+extension DocExperienceViewModel {
+    func completeWelcome() {
+        hasCompletedWelcome = true
+        guard previewStage == nil else { return }
+        defaults.set(true, forKey: storageKey("welcome"))
+        Task { await startAgentIfNeeded() }
+    }
+
+    func startAgentIfNeeded() async {
+        guard previewStage == nil,
+              conversationViewModel == nil,
+              !isStartingAgent else {
+            return
+        }
+        isStartingAgent = true
+        defer { isStartingAgent = false }
+        if hasCompletedWelcome {
+            agentStartupState = .preparing
+            scheduleAgentStartupTimeout()
+        }
+        guard await activateAuthorizedStorage() else {
+            failAgentStartup("Couldn't authorize Doc. Check your connection and try again.")
+            return
+        }
+        guard hasCompletedWelcome else { return }
+        agentStartupState = .preparing
+        scheduleAgentStartupTimeout()
+
+        let convergence = await convergeDocModeIfNeeded(
+            storedId: defaults.string(forKey: storageKey("originConversationId"))
+        )
+        guard convergence.canStart else {
+            failAgentStartup(
+                convergence.errorMessage ?? "Doc couldn't start. Check Settings › Debug and try again."
+            )
+            return
+        }
+        agentStartupState = .preparing
+        scheduleAgentStartupTimeout()
+        let storedId = convergence.conversationId
+
+        let conversations = try? await session
+            .conversationsRepository(for: [.allowed, .unknown])
+            .fetchAll()
+        let existingId = storedId.flatMap { id in
+            conversations?.contains(where: { $0.id == id }) == true ? id : nil
+        }
+        let mode: NewConversationMode = if let existingId {
+            .existingConversation(conversationId: existingId)
+        } else {
+            .newConversation
+        }
+
+        conversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: mode,
+            coreActions: coreActions,
+            agentVariantSlug: FeatureFlags.shared.effectiveAgentVariantSlug
+        )
+    }
+
+    func retryAgentStartup() {
+        guard previewStage == nil else { return }
+        agentStartupState = .preparing
+        scheduleAgentStartupTimeout()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if conversationViewModel == nil {
+                await startAgentIfNeeded()
+            } else {
+                await synchronizeAgentDm()
+            }
+        }
+    }
+
+    func synchronizeAgentDm() async {
+        guard previewStage == nil, let originViewModel else { return }
+        persistOriginConversationId(originViewModel.conversation.id)
+
+        let dmSession = agentDmSession ?? AgentDmSession(originViewModel: originViewModel)
+        if agentDmSession == nil {
+            agentDmSession = dmSession
+        }
+        dmSession.updateOrigin(originViewModel)
+        dmSession.setAgent(inboxId: agentInboxId)
+        observeDocAgentMessagesIfReady()
+        await dmSession.refreshDefaultAgentProvisioning()
+        await dmSession.rebindWhenDmAppears()
+        observeDmIfReady()
+    }
+
+    func showGoogleConnectIfNeeded() {
+        guard previewStage == nil,
+              dmViewModel != nil,
+              !defaults.bool(forKey: storageKey("googleConnectHandled")) else {
+            return
+        }
+        isPresentingGoogleConnect = true
+    }
+
+    func didDismissGoogleConnect() {
+        isPresentingGoogleConnect = false
+        guard previewStage == nil else { return }
+        defaults.set(true, forKey: storageKey("googleConnectHandled"))
+    }
+
+    func dismissNotDocAgentNotice() {
+        didDismissNotDocAgentNotice = true
+        notDocAgentNoticeTask?.cancel()
+        notDocAgentNoticeTask = nil
+        isShowingNotDocAgentNotice = false
     }
 }
 
@@ -960,7 +1032,7 @@ private extension DocExperienceViewModel {
 
     func persistDocLaneRegistry() {
         guard let data = try? JSONEncoder().encode(docLaneRegistry) else { return }
-        defaults.set(data, forKey: Self.storageKey("docLanes", session: session))
+        defaults.set(data, forKey: storageKey("docLanes"))
     }
 }
 
@@ -1041,7 +1113,7 @@ extension DocExperienceViewModel {
                 )
                 isGoogleDocsReady = true
                 isGoogleStatusLoaded = true
-                defaults.set(true, forKey: Self.storageKey("googleConnectHandled", session: session))
+                defaults.set(true, forKey: storageKey("googleConnectHandled"))
             } catch let error as OAuthError {
                 if case .cancelled = error {
                     googleConnectErrorMessage = nil
@@ -1086,6 +1158,9 @@ extension DocExperienceViewModel {
             showGoogleConnectIfNeeded()
             return
         }
+        agentStartupTimeoutTask?.cancel()
+        agentStartupTimeoutTask = nil
+        agentStartupState = .ready
         observedDmConversationId = dmViewModel.conversation.id
         observeGoogleStatus(conversationId: dmViewModel.conversation.id)
         showGoogleConnectIfNeeded()
@@ -1113,20 +1188,40 @@ extension DocExperienceViewModel {
         }
     }
 
-    private func convergeDocModeIfNeeded(storedId: String?) async -> (
-        conversationId: String?,
-        canStart: Bool
-    ) {
-        guard FeatureFlags.shared.isDocModeEnabled else { return (storedId, true) }
+    private func convergeDocModeIfNeeded(storedId: String?) async -> DocModeConvergenceResult {
+        guard FeatureFlags.shared.isDocModeEnabled else {
+            return DocModeConvergenceResult(
+                conversationId: storedId,
+                canStart: true,
+                errorMessage: nil
+            )
+        }
         let resolution = await DocModeVariantResolver.resolve()
-        guard case .resolved(let variant) = resolution else { return (storedId, false) }
+        if let errorMessage = DocModeResolutionPolicy.enablementError(for: resolution) {
+            return DocModeConvergenceResult(
+                conversationId: storedId,
+                canStart: false,
+                errorMessage: errorMessage
+            )
+        }
+        guard case .resolved(let variant) = resolution else {
+            return DocModeConvergenceResult(
+                conversationId: storedId,
+                canStart: false,
+                errorMessage: "Doc couldn't resolve its preview runtime."
+            )
+        }
         let diagnostic = storedId.flatMap { AgentJoinDiagnosticsStore.shared.diagnostic(for: $0) }
         guard DocAgentConvergenceAction.resolve(
             conversationId: storedId,
             diagnostic: diagnostic,
             expectedVariantSlug: variant.slug
         ) == .replace else {
-            return (storedId, true)
+            return DocModeConvergenceResult(
+                conversationId: storedId,
+                canStart: true,
+                errorMessage: nil
+            )
         }
 
         Self.clearAgentBindingStorage(
@@ -1136,7 +1231,13 @@ extension DocExperienceViewModel {
             notify: false
         )
         resetRuntimeState(preservingWelcome: true)
-        return (nil, true)
+        agentStartupState = .preparing
+        scheduleAgentStartupTimeout()
+        return DocModeConvergenceResult(
+            conversationId: nil,
+            canStart: true,
+            errorMessage: nil
+        )
     }
 
     static func storedOriginConversationId(
@@ -1183,8 +1284,14 @@ extension DocExperienceViewModel {
         if replayFirstRun {
             components.append("welcome")
         }
-        components
-            .map { storageKey($0, session: session) }
+        let accountIdentifiers = Set([
+            accountIdentifier(session: session),
+            provisionalAccountIdentifier,
+        ])
+        accountIdentifiers
+            .flatMap { accountIdentifier in
+                components.map { storageKey($0, accountIdentifier: accountIdentifier) }
+            }
             .forEach { defaults.removeObject(forKey: $0) }
         guard notify else { return }
         NotificationCenter.default.post(
@@ -1195,19 +1302,123 @@ extension DocExperienceViewModel {
     }
 
     static func storageKey(_ component: String, session: any SessionManagerProtocol) -> String {
-        "doc.v1.\(accountIdentifier(session: session)).\(component)"
+        storageKey(component, accountIdentifier: accountIdentifier(session: session))
+    }
+
+    static func storageKey(_ component: String, accountIdentifier: String) -> String {
+        "doc.v1.\(accountIdentifier).\(component)"
     }
 
     private static func accountIdentifier(session: any SessionManagerProtocol) -> String {
-        switch session.messagingServiceSync().state {
-        case .authorized(let inboxId):
-            inboxId
-        case .registering:
-            "registering"
+        switch session.messagingServiceSync().sessionStateManager.currentState {
+        case .ready(let result), .backgrounded(let result):
+            result.client.inboxId
+        default:
+            provisionalAccountIdentifier
         }
     }
 
+    private static let persistedComponents: [String] = [
+        "welcome",
+        "originConversationId",
+        "googleConnectHandled",
+        "snapshot",
+        "state",
+        "docLanes",
+    ]
+    private static let provisionalAccountIdentifier: String = "registering"
     private static let preserveWelcomeUserInfoKey: String = "preserveWelcome"
+
+    private func storageKey(_ component: String) -> String {
+        Self.storageKey(component, accountIdentifier: storageAccountIdentifier)
+    }
+
+    private func activateAuthorizedStorage() async -> Bool {
+        do {
+            let result = try await session
+                .messagingService()
+                .sessionStateManager
+                .waitForInboxReadyResult()
+            adoptAuthorizedStorage(inboxId: result.client.inboxId)
+            return true
+        } catch {
+            Log.error("Doc storage authorization failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    func adoptAuthorizedStorage(inboxId: String) {
+        guard storageAccountIdentifier != inboxId else { return }
+        Self.adoptProvisionalStorage(inboxId: inboxId, defaults: defaults)
+        storageAccountIdentifier = inboxId
+        reloadPersistedState()
+    }
+
+    static func adoptProvisionalStorage(inboxId: String, defaults: UserDefaults) {
+        for component in persistedComponents {
+            let provisionalKey = storageKey(
+                component,
+                accountIdentifier: provisionalAccountIdentifier
+            )
+            let authorizedKey = storageKey(component, accountIdentifier: inboxId)
+            if defaults.object(forKey: authorizedKey) == nil,
+               let provisionalValue = defaults.object(forKey: provisionalKey) {
+                defaults.set(provisionalValue, forKey: authorizedKey)
+            }
+            defaults.removeObject(forKey: provisionalKey)
+        }
+    }
+
+    private func reloadPersistedState() {
+        hasCompletedWelcome = defaults.bool(forKey: storageKey("welcome"))
+        if let data = defaults.data(forKey: storageKey("docLanes")),
+           let registry = try? JSONDecoder().decode(DocLaneRegistry.self, from: data) {
+            docLaneRegistry = registry
+        } else {
+            docLaneRegistry = .init()
+        }
+
+        state = nil
+        pendingItems = []
+        docContentsById = [:]
+        resolvedItemIds = []
+        itemsNeedingHistoryReconciliation = []
+        compatibilityDetector = .init()
+        if let data = defaults.data(forKey: storageKey("snapshot")),
+           let snapshot = try? JSONDecoder().decode(PersistedSnapshot.self, from: data) {
+            state = snapshot.state
+            pendingItems = snapshot.pendingItems
+            docContentsById = Dictionary(
+                uniqueKeysWithValues: (snapshot.docContents ?? []).map { ($0.docId, $0) }
+            )
+            resolvedItemIds = Set(snapshot.resolvedItemIds)
+            itemsNeedingHistoryReconciliation = Set(snapshot.pendingItems.map(\.id))
+            compatibilityDetector.hasSeenDocSentinel = snapshot.hasSeenDocSentinel ??
+                (snapshot.state != nil || !snapshot.pendingItems.isEmpty || !(snapshot.docContents ?? []).isEmpty)
+        } else if let data = defaults.data(forKey: storageKey("state")) {
+            state = try? JSONDecoder().decode(DocState.self, from: data)
+            compatibilityDetector.hasSeenDocSentinel = state != nil
+        }
+    }
+
+    private func scheduleAgentStartupTimeout() {
+        agentStartupTimeoutTask?.cancel()
+        agentStartupTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            guard !Task.isCancelled,
+                  let self,
+                  dmViewModel == nil else {
+                return
+            }
+            failAgentStartup("Doc is taking too long to start. Try again.")
+        }
+    }
+
+    private func failAgentStartup(_ message: String) {
+        agentStartupTimeoutTask?.cancel()
+        agentStartupTimeoutTask = nil
+        agentStartupState = .failed(message)
+    }
 
     private func resetRuntimeState(preservingWelcome: Bool = false) {
         let completedWelcome = hasCompletedWelcome
@@ -1240,6 +1451,9 @@ extension DocExperienceViewModel {
         docLaneProvisionTasks = [:]
         docLaneViewModels = [:]
         docLaneRegistry = .init()
+        agentStartupTimeoutTask?.cancel()
+        agentStartupTimeoutTask = nil
+        agentStartupState = .idle
         hasCompletedWelcome = preservingWelcome ? completedWelcome : false
         latestStateMessageId = nil
         stateMessageIdAtLastSend = nil

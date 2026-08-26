@@ -58,6 +58,7 @@ struct DebugViewSection: View {
     @State private var docVariantResolution: DocModeVariantResolver.Resolution?
     @State private var isResolvingDocMode: Bool = false
     @State private var isDocModeEnabled: Bool = FeatureFlags.shared.isDocModeEnabled
+    @State private var docModeErrorMessage: String?
 
     var body: some View {
         Group {
@@ -137,6 +138,14 @@ struct DebugViewSection: View {
                 .onChange(of: isDocModeEnabled) { _, enabled in
                     setDocMode(enabled)
                 }
+
+            if let docModeErrorMessage {
+                Text(docModeErrorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("doc-mode-error")
+            }
 
             LabeledContent("Variant") {
                 Text(selectedDocVariantDescription)
@@ -561,14 +570,19 @@ struct DebugViewSection: View {
             return
         }
         guard !isResolvingDocMode else { return }
+        docModeErrorMessage = nil
         isResolvingDocMode = true
         Task {
             let resolution = await DocModeVariantResolver.resolve(forceRefresh: true)
             docVariantResolution = resolution
-            if case .resolved(let variant) = resolution {
+            if let errorMessage = DocModeResolutionPolicy.enablementError(for: resolution) {
+                docModeErrorMessage = errorMessage
+                FeatureFlags.shared.isDocModeEnabled = false
+                isDocModeEnabled = false
+            } else if case .resolved(let variant) = resolution {
                 convergeDocAgent(to: variant)
+                FeatureFlags.shared.isDocModeEnabled = true
             }
-            FeatureFlags.shared.isDocModeEnabled = true
             isResolvingDocMode = false
         }
     }

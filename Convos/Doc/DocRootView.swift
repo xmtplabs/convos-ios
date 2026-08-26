@@ -180,6 +180,14 @@ private struct DocHomeView: View {
                     .docHomeRow()
             }
 
+            if let startupError = viewModel.agentStartupErrorMessage {
+                DocAgentStartupErrorCard(
+                    message: startupError,
+                    onRetry: viewModel.retryAgentStartup
+                )
+                .docHomeRow()
+            }
+
             if !viewModel.docs.isEmpty, let line = viewModel.contributionLine {
                 DocContributionLine(number: line, onShare: viewModel.presentContributionLine)
                     .docHomeRow()
@@ -417,6 +425,34 @@ private struct DocEmptyState: View {
         .padding(.horizontal, DesignConstants.Spacing.step5x)
         .frame(maxWidth: .infinity)
         .accessibilityIdentifier("doc-empty-state")
+    }
+}
+
+private struct DocAgentStartupErrorCard: View {
+    let message: String
+    let onRetry: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: DesignConstants.Spacing.step3x) {
+            Image(systemName: "exclamationmark.circle")
+                .foregroundStyle(.colorTextSecondary)
+                .accessibilityHidden(true)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button("Try again", action: onRetry)
+                .convosButtonStyle(.outlineCapsule(fullWidth: false))
+                .frame(minHeight: 44.0)
+        }
+        .padding(DesignConstants.Spacing.step4x)
+        .background(
+            Color.colorFillMinimal,
+            in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("doc-agent-startup-error")
     }
 }
 
