@@ -26,7 +26,6 @@ struct NativeSpaceView: View {
 
     @State private var state: LoadState
     @State private var events: SpaceEventsState = .empty
-    @State private var follower: SpaceEventsFollower = SpaceEventsFollower()
     @Environment(\.scenePhase) private var scenePhase: ScenePhase
 
     @MainActor
@@ -81,11 +80,15 @@ struct NativeSpaceView: View {
                 await load()
             }
             // Following costs a held request, so it runs only while the reader
-            // is actually looking at it.
-            .onChange(of: scenePhase, initial: true) { _, phase in
-                if phase == .active { follow() } else { follower.stop() }
+            // is actually looking at it. `.task` is what makes that true in both
+            // directions: it cancels when the tab is left or the app is
+            // backgrounded, and starts again on the way back, keyed so a change
+            // of Space or scene phase restarts it rather than leaving the old
+            // one running.
+            .task(id: FollowKey(space: spaceURL, phase: scenePhase)) {
+                guard scenePhase == .active else { return }
+                await follow()
             }
-            .onDisappear { follower.stop() }
             .accessibilityIdentifier("native-space")
     }
 
@@ -153,8 +156,8 @@ struct NativeSpaceView: View {
     /// second is what says the page itself changed, and it refetches rather
     /// than reloading, so the tab crossfades to the new document instead of
     /// emptying and drawing itself again.
-    private func follow() {
-        follower.start(base: spaceURL) { next in
+    private func follow() async {
+        await SpaceEventsFollower.follow(base: spaceURL) { next in
             let replaced = next.activeDeploymentId != nil
                 && next.activeDeploymentId != currentDeploymentId
             withAnimation(.easeInOut(duration: 0.2)) { events = next }
@@ -162,6 +165,14 @@ struct NativeSpaceView: View {
                 Task { await load() }
             }
         }
+    }
+
+    /// What restarts following: a different Space, or a return to the
+    /// foreground. Both have to re-open the held request, and neither should
+    /// leave the previous one in flight.
+    private struct FollowKey: Equatable {
+        let space: URL
+        let phase: ScenePhase
     }
 
     private var currentDeploymentId: String? {

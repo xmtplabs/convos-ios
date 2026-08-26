@@ -48,70 +48,66 @@ struct PendingChange: Equatable {
     let lastSeenAt: Double
 }
 
-/// Follows one Space's live state.
+/// Follows one Space's live state for as long as its caller awaits it.
 ///
 /// The host streams it, but only a deployment's `/mcp` path may hold a
 /// connection open for minutes; every other Space route is cut at 15 seconds.
 /// So the Space server holds instead and answers the moment its state changes,
 /// and this loops — one short request per change, carrying back the marker it
 /// last saw.
+///
+/// Following has no lifetime of its own: it runs inside the caller's task and
+/// ends when that task is cancelled. In a view that means `.task`, which starts
+/// on appear, cancels on disappear, and starts again on the next appear — so
+/// leaving the tab and coming back resumes following, where a follower that
+/// stopped itself on disappear would have needed something to restart it.
 @MainActor
-final class SpaceEventsFollower {
-    private var task: Task<Void, Never>?
-
-    /// Starts following, delivering each new state until `stop` or deinit.
+enum SpaceEventsFollower {
+    /// Delivers each new state until the calling task is cancelled.
     ///
     /// `onState` is called on the main actor, only when the state actually
     /// changed, so a caller can animate every delivery without animating a
     /// redelivery of what it already drew.
-    func start(base: URL, session: URLSession = .shared, onState: @escaping (SpaceEventsState) -> Void) {
-        stop()
-        task = Task { [weak self] in
-            var marker: String?
-            var attempt = 0
-            var delivered: SpaceEventsState?
-            while !Task.isCancelled {
-                do {
-                    let answer = try await Self.poll(base: base, since: marker, session: session)
-                    // A valid answer clears the backoff, so the next change is
-                    // followed immediately however long the last outage was.
-                    attempt = 0
-                    marker = answer.marker
-                    if let state = answer.state, state != delivered {
-                        delivered = state
-                        onState(state)
-                    }
-                } catch is CancellationError {
-                    return
-                } catch FollowError.unsupported {
-                    // A deployment without the events route answers its page,
-                    // whatever the query says. That is a Space with nothing to
-                    // follow rather than one that is failing, so stop asking —
-                    // retrying forever would be a background request per backoff
-                    // window for the life of the screen.
-                    Log.info("Space at \(base.host() ?? "?") serves no events; not following")
-                    return
-                } catch {
-                    attempt += 1
-                    guard await self?.pause(attempt: attempt) == true else { return }
+    static func follow(
+        base: URL,
+        session: URLSession = .shared,
+        onState: @escaping (SpaceEventsState) -> Void
+    ) async {
+        var marker: String?
+        var attempt = 0
+        var delivered: SpaceEventsState?
+        while !Task.isCancelled {
+            do {
+                let answer = try await poll(base: base, since: marker, session: session)
+                // A valid answer clears the backoff, so the next change is
+                // followed immediately however long the last outage was.
+                attempt = 0
+                marker = answer.marker
+                if let state = answer.state, state != delivered {
+                    delivered = state
+                    onState(state)
                 }
+            } catch is CancellationError {
+                return
+            } catch FollowError.unsupported {
+                // A deployment without the events route answers its page,
+                // whatever the query says. That is a Space with nothing to
+                // follow rather than one that is failing, so stop asking —
+                // retrying forever would be a background request per backoff
+                // window for the life of the screen.
+                Log.info("Space at \(base.host() ?? "?") serves no events; not following")
+                return
+            } catch {
+                attempt += 1
+                guard await pause(attempt: attempt) else { return }
             }
         }
-    }
-
-    func stop() {
-        task?.cancel()
-        task = nil
-    }
-
-    deinit {
-        task?.cancel()
     }
 
     /// Full jitter, 250 ms doubling to a 10 s cap — every open page fails
     /// together when a Space runs out of waiter slots, so a fixed fraction of
     /// the window would send them all back in the same instant.
-    private func pause(attempt: Int) async -> Bool {
+    private static func pause(attempt: Int) async -> Bool {
         let ceiling = min(Constant.backoffCap, Constant.backoffFloor * pow(2, Double(attempt - 1)))
         let seconds = Double.random(in: 0...ceiling)
         do {
