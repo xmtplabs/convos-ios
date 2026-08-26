@@ -147,8 +147,17 @@ final class ConversationsViewModel {
                 }
             }
         } else {
-            if opensGroupTab, let previousViewModel = selectedConversationViewModel {
-                markConversationAsRead(previousViewModel.conversation)
+            if let previousViewModel = selectedConversationViewModel {
+                if opensGroupTab {
+                    markConversationAsRead(previousViewModel.conversation)
+                }
+                // A real open session is ending: reset the per-open tab overrides
+                // so a closed Agent-DM/Things session can't leave its intent on the
+                // view model. Gated on an actual view model (not just a nil id) so a
+                // select() whose conversation isn't in the loaded page yet - which
+                // also lands here - keeps the intent it just set for the pushed view.
+                selectedInitialTab = nil
+                selectedInitialAgentDmInboxId = nil
             }
             updateSelectionTask?.cancel()
             selectedConversationViewModel = nil
