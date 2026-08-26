@@ -1,3 +1,4 @@
+import ConvosComposer
 import ConvosCore
 import SwiftUI
 import UIKit
@@ -22,35 +23,29 @@ struct DocRoomView: View {
         viewModel.content(for: doc.id)
     }
 
-    private var waitingItems: [DocWaitingItem] {
+    private var forYouItems: [DocWaitingItem] {
         viewModel.pendingItems(for: doc.id)
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step5x) {
-                DocActivationView(doc: doc) {
-                    viewModel.presentShareNumber(for: doc)
-                }
+        List {
+            DocActivationView(doc: doc) {
+                viewModel.presentShareNumber(for: doc)
+            }
+            .docRoomRow()
 
-                if !waitingItems.isEmpty {
-                    roomSectionTitle("For you")
+            if !forYouItems.isEmpty {
+                DocForYouSection(viewModel: viewModel, items: forYouItems)
+            }
 
-                    ForEach(waitingItems) { item in
-                        DocWaitingItemCard(
-                            item: item,
-                            sendState: viewModel.sendState(for: item),
-                            isEnabled: viewModel.isDmReadyForDisplay,
-                            onAnswer: { viewModel.sendAnswer($0, for: item) },
-                            onRetry: { viewModel.retryAnswer(for: item) }
-                        )
-                    }
-                }
-
-                roomSectionTitle("History")
+            Section {
                 DocChangesLedger(changes: content?.changes ?? [])
+                    .docRoomRow()
+            } header: {
+                roomSectionTitle("History")
+            }
 
-                roomSectionTitle("Doc")
+            Section {
                 Button {
                     isReaderPresented = true
                 } label: {
@@ -81,10 +76,13 @@ struct DocRoomView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("doc-read-row")
+                .docRoomRow()
+            } header: {
+                roomSectionTitle("Doc")
             }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.vertical, DesignConstants.Spacing.step4x)
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -127,6 +125,21 @@ struct DocRoomView: View {
             .textCase(.uppercase)
             .foregroundStyle(.secondary)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+private extension View {
+    func docRoomRow() -> some View {
+        listRowInsets(
+            EdgeInsets(
+                top: DesignConstants.Spacing.step2x,
+                leading: DesignConstants.Spacing.step4x,
+                bottom: DesignConstants.Spacing.step2x,
+                trailing: DesignConstants.Spacing.step4x
+            )
+        )
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
     }
 }
 
@@ -211,6 +224,12 @@ private struct DocScopedComposer: View {
     @State private var text: String = ""
     @State private var isSending: Bool = false
     @State private var didFail: Bool = false
+    @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
+    @FocusState private var focus: MessagesViewInputFocus?
+
+    private var pendingAttachments: [PendingMediaAttachment] {
+        viewModel.dmViewModel?.pendingMediaAttachments ?? []
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4.0) {
@@ -220,10 +239,22 @@ private struct DocScopedComposer: View {
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("doc-room-send-error")
             }
+            if !pendingAttachments.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        ForEach(pendingAttachments) { attachment in
+                            DocAttachmentThumbnail(attachment: attachment) {
+                                viewModel.dmViewModel?.removeMediaAttachment(id: attachment.id)
+                            }
+                        }
+                    }
+                }
+            }
             HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
                 TextField("Tell Doc about this doc…", text: $text, axis: .vertical)
                     .lineLimit(1...5)
                     .textFieldStyle(.plain)
+                    .focused($focus, equals: .message)
                     .padding(.horizontal, DesignConstants.Spacing.step3x)
                     .frame(minHeight: 44.0)
                     .background(
@@ -243,7 +274,7 @@ private struct DocScopedComposer: View {
                             .frame(width: 44.0, height: 44.0)
                     }
                 }
-                .disabled(cleanText.isEmpty || isSending || !viewModel.isDmReadyForDisplay)
+                .disabled(!canSend)
                 .accessibilityLabel("Send")
                 .accessibilityIdentifier("doc-room-send")
             }
@@ -252,15 +283,34 @@ private struct DocScopedComposer: View {
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .background(.regularMaterial)
         .overlay(alignment: .top) { Divider() }
+        .focusCoordinatorSync(
+            focusState: $focus,
+            coordinator: focusCoordinator,
+            resetToken: viewModel.dmViewModel?.conversation.id
+        )
     }
 
     private var cleanText: String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var canSend: Bool {
+        (!cleanText.isEmpty || !pendingAttachments.isEmpty) &&
+            !isSending &&
+            viewModel.isDmReadyForDisplay
+    }
+
     private func send() {
         let instruction = cleanText
-        guard !instruction.isEmpty, !isSending else { return }
+        guard canSend else { return }
+        if !pendingAttachments.isEmpty, let dmViewModel = viewModel.dmViewModel {
+            dmViewModel.messageText = instruction.isEmpty ? "\(doc.name):" : "\(doc.name): \(instruction)"
+            let screenshotCount = pendingAttachments.count
+            dmViewModel.onSendMessage(focusCoordinator: focusCoordinator)
+            viewModel.didSend(screenshotCount: screenshotCount)
+            text = ""
+            return
+        }
         isSending = true
         didFail = false
         Task { @MainActor in

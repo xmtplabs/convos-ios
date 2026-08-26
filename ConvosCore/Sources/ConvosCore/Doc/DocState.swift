@@ -88,12 +88,22 @@ public struct DocBinding: Codable, Hashable, Sendable {
 public struct DocWaitingItem: Codable, Hashable, Identifiable, Sendable {
     public enum Register: String, Codable, Hashable, Sendable {
         case waiting
+        case draft
+        case ask
     }
 
     public enum Kind: String, Codable, Hashable, Sendable {
         case question
         case unknownContributor = "unknown_contributor"
         case noticeAsk = "notice_ask"
+        case structure
+        case cleanup
+        case gapFill = "gap_fill"
+        case reshare
+        case bindGroup = "bind_group"
+        case catchup
+        case staleCheck = "stale_check"
+        case nameContributors = "name_contributors"
     }
 
     public let id: String
@@ -102,6 +112,7 @@ public struct DocWaitingItem: Codable, Hashable, Identifiable, Sendable {
     public let headline: String
     public let context: String
     public let chips: [String]
+    public let draft: DocDraft?
     public let docId: String?
     public let createdAt: Date
 
@@ -112,6 +123,7 @@ public struct DocWaitingItem: Codable, Hashable, Identifiable, Sendable {
         headline: String,
         context: String,
         chips: [String] = [],
+        draft: DocDraft? = nil,
         docId: String? = nil,
         createdAt: Date
     ) {
@@ -121,8 +133,19 @@ public struct DocWaitingItem: Codable, Hashable, Identifiable, Sendable {
         self.headline = headline
         self.context = context
         self.chips = chips
+        self.draft = draft
         self.docId = docId
         self.createdAt = createdAt
+    }
+}
+
+public struct DocDraft: Codable, Hashable, Sendable {
+    public let text: String
+    public let anchor: String?
+
+    public init(text: String, anchor: String? = nil) {
+        self.text = text
+        self.anchor = anchor
     }
 }
 
@@ -157,6 +180,12 @@ public enum DocAgentEvent: Hashable, Sendable {
 public enum DocAnswer: Hashable, Sendable {
     case choice(String)
     case text(String)
+    case action(DocItemAction, edited: String?)
+}
+
+public enum DocItemAction: String, Codable, Hashable, Sendable {
+    case approve
+    case discard
 }
 
 public enum DocWireMessage {
@@ -318,6 +347,7 @@ public enum DocStateMessage {
         let headline: String?
         let context: String?
         let chips: [String]?
+        let draft: RawDraft?
         let docId: String?
         let createdAt: TimeInterval?
 
@@ -329,9 +359,12 @@ public enum DocStateMessage {
                   let kind = DocWaitingItem.Kind(rawValue: kind),
                   let headline, !headline.isEmpty,
                   let context, !context.isEmpty,
-                  let createdAt, createdAt.isFinite else {
+                  let createdAt, createdAt.isFinite,
+                  isValid(kind: kind, for: register) else {
                 return nil
             }
+            let parsedDraft = draft?.value
+            if register == .draft, parsedDraft == nil { return nil }
             let cleanChips: [String] = (chips ?? []).filter { !$0.isEmpty }
             return DocWaitingItem(
                 id: id,
@@ -340,9 +373,31 @@ public enum DocStateMessage {
                 headline: headline,
                 context: context,
                 chips: cleanChips,
+                draft: parsedDraft,
                 docId: docId,
                 createdAt: Date(timeIntervalSince1970: createdAt)
             )
+        }
+
+        private func isValid(kind: DocWaitingItem.Kind, for register: DocWaitingItem.Register) -> Bool {
+            switch register {
+            case .waiting:
+                return [.question, .unknownContributor, .noticeAsk].contains(kind)
+            case .draft:
+                return [.structure, .cleanup, .gapFill, .reshare].contains(kind)
+            case .ask:
+                return [.bindGroup, .catchup, .staleCheck, .nameContributors].contains(kind)
+            }
+        }
+    }
+
+    private struct RawDraft: Decodable {
+        let text: String?
+        let anchor: String?
+
+        var value: DocDraft? {
+            guard let text, !text.isEmpty else { return nil }
+            return DocDraft(text: text, anchor: anchor?.nilIfEmpty)
         }
     }
 }
@@ -399,6 +454,8 @@ public enum DocAnswerMessage {
             case id
             case choice
             case text
+            case action
+            case edited
         }
 
         func encode(to encoder: Encoder) throws {
@@ -409,7 +466,18 @@ public enum DocAnswerMessage {
                 try container.encode(choice, forKey: .choice)
             case .text(let text):
                 try container.encode(text, forKey: .text)
+            case let .action(action, edited):
+                try container.encode(action, forKey: .action)
+                if action == .approve, let edited {
+                    try container.encode(edited, forKey: .edited)
+                }
             }
         }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

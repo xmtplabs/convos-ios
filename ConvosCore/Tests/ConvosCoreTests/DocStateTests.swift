@@ -53,6 +53,36 @@ struct DocStateTests {
         #expect(DocStateMessage.parseEvent(#"⟦doc⟧{"v":1,"t":"item-resolved","id":""}"#) == nil)
     }
 
+    @Test("parses draft and ask registers defensively")
+    func parsesDraftAndAskRegisters() throws {
+        let draftMessage = ###"⟦doc⟧{"v":1,"t":"item","item":{"id":"draft-1","register":"draft","kind":"structure","headline":"Drafted a Decisions section","context":"Three choices are ready to add.","draft":{"text":"## Decisions\n- Stay in Tahoe","anchor":"Plan"},"docId":"tahoe","createdAt":1787600000}}"###
+        let draftEvent = try #require(DocStateMessage.parseEvent(draftMessage))
+        guard case .item(let draft) = draftEvent else {
+            Issue.record("Expected a draft item")
+            return
+        }
+        #expect(draft.register == .draft)
+        #expect(draft.kind == .structure)
+        #expect(draft.draft?.text == "## Decisions\n- Stay in Tahoe")
+        #expect(draft.draft?.anchor == "Plan")
+
+        let askMessage = #"⟦doc⟧{"v":1,"t":"item","item":{"id":"ask-2","register":"ask","kind":"stale_check","headline":"Is this trip still active?","context":"There have been no updates this month.","chips":["Keep active","Pause","Archive"],"docId":null,"createdAt":1787600001}}"#
+        let askEvent = try #require(DocStateMessage.parseEvent(askMessage))
+        guard case .item(let ask) = askEvent else {
+            Issue.record("Expected an ask item")
+            return
+        }
+        #expect(ask.register == .ask)
+        #expect(ask.kind == .staleCheck)
+        #expect(ask.chips == ["Keep active", "Pause", "Archive"])
+        #expect(ask.docId == nil)
+
+        let missingDraft = #"⟦doc⟧{"v":1,"t":"item","item":{"id":"draft-2","register":"draft","kind":"cleanup","headline":"Clean up","context":"Tighten the plan.","createdAt":1}}"#
+        let mismatchedKind = #"⟦doc⟧{"v":1,"t":"item","item":{"id":"ask-3","register":"ask","kind":"question","headline":"Question","context":"Context","createdAt":1}}"#
+        #expect(DocStateMessage.parseEvent(missingDraft) == nil)
+        #expect(DocStateMessage.parseEvent(mismatchedKind) == nil)
+    }
+
     @Test("parses document content with a defensive changes ledger")
     func parsesDocumentContent() throws {
         let message = ##"⟦doc⟧{"v":1,"t":"doc-content","docId":"tahoe","markdown":"# Tahoe\nBring boots.","changes":[{"who":"Noah","what":"added the cabin","at":1787590000},{"who":"Sara","what":"added flight times","at":1787600000},{"who":"","what":"broken","at":1}],"updatedAt":1787600100,"future":true}"##
@@ -88,7 +118,7 @@ struct DocStateTests {
         #expect(DocContentRequestMessage.encode(docId: "") == nil)
     }
 
-    @Test("encodes compact choice and text answers")
+    @Test("encodes compact choice, text, and action answers")
     func encodesAnswers() throws {
         let choice = try #require(DocAnswerMessage.encode(itemId: "ask-1", answer: .choice("Dec 14")))
         let choiceJSON = try decodedAnswer(choice)
@@ -101,6 +131,37 @@ struct DocStateTests {
         #expect(textJSON["id"] as? String == "ask-2")
         #expect(textJSON["text"] as? String == "Sara")
         #expect(textJSON["choice"] == nil)
+
+        let approved = try #require(
+            DocAnswerMessage.encode(
+                itemId: "draft-1",
+                answer: .action(.approve, edited: nil)
+            )
+        )
+        let approvedJSON = try decodedAnswer(approved)
+        #expect(approvedJSON["id"] as? String == "draft-1")
+        #expect(approvedJSON["action"] as? String == "approve")
+        #expect(approvedJSON["edited"] == nil)
+
+        let edited = try #require(
+            DocAnswerMessage.encode(
+                itemId: "draft-2",
+                answer: .action(.approve, edited: "## Decisions")
+            )
+        )
+        let editedJSON = try decodedAnswer(edited)
+        #expect(editedJSON["action"] as? String == "approve")
+        #expect(editedJSON["edited"] as? String == "## Decisions")
+
+        let discarded = try #require(
+            DocAnswerMessage.encode(
+                itemId: "draft-3",
+                answer: .action(.discard, edited: "ignored")
+            )
+        )
+        let discardedJSON = try decodedAnswer(discarded)
+        #expect(discardedJSON["action"] as? String == "discard")
+        #expect(discardedJSON["edited"] == nil)
     }
 
     @Test("hides every Doc-prefixed text message from transcripts")

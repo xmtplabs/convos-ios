@@ -16,6 +16,9 @@ enum DocPreviewStage: String {
     case roomUnbound
     case roomBound
     case docSheet
+    case forYouRegisters
+    case draftSheet
+    case askSet
 
     static var current: DocPreviewStage? {
         let arguments = ProcessInfo.processInfo.arguments
@@ -54,6 +57,8 @@ final class DocExperienceViewModel {
     var isPresentingGoogleConnect: Bool = false
     var isPresentingHistory: Bool = false
     var isPresentingShareNumber: Bool = false
+    var presentedDraftItem: DocWaitingItem?
+    var activeAnswerItemId: String?
     private(set) var sharedDocNumber: String?
     var hasCompletedWelcome: Bool
 
@@ -93,10 +98,17 @@ final class DocExperienceViewModel {
                .roomUnbound,
                .roomBound,
                .docSheet,
+               .forYouRegisters,
+               .draftSheet,
+               .askSet,
            ].contains(previewStage) {
             state = Self.previewState
             if [.forYou, .roomBound, .docSheet].contains(previewStage) {
                 pendingItems = Self.previewItems
+            } else if [.forYouRegisters, .draftSheet].contains(previewStage) {
+                pendingItems = Self.previewRegisterItems
+            } else if previewStage == .askSet {
+                pendingItems = Self.previewAskItems
             }
             if [.roomBound, .docSheet].contains(previewStage) {
                 docContentsById = Dictionary(
@@ -106,6 +118,9 @@ final class DocExperienceViewModel {
             if previewStage == .share {
                 sharedDocNumber = Self.previewNumber
                 isPresentingShareNumber = true
+            }
+            if previewStage == .draftSheet {
+                presentedDraftItem = pendingItems.first { $0.register == .draft }
             }
         } else if previewStage == nil,
                   let data = defaults.data(forKey: Self.key("snapshot", session: session)),
@@ -135,7 +150,7 @@ final class DocExperienceViewModel {
                 guard case .awaitingDelivery = itemSendStates[item.id] else { return true }
                 return false
             }
-            .sorted { $0.createdAt > $1.createdAt }
+            .sorted(by: Self.itemPrecedes)
     }
 
     var previewInitialDoc: DocStatus? {
@@ -268,6 +283,22 @@ final class DocExperienceViewModel {
         }
         sharedDocNumber = number
         isPresentingShareNumber = true
+    }
+
+    func presentShareNumber(for item: DocWaitingItem) {
+        if let docId = item.docId,
+           let doc = docs.first(where: { $0.id == docId }) {
+            presentShareNumber(for: doc)
+            return
+        }
+        guard let doc = docs.first(where: { !$0.binding.number.isEmpty }) else { return }
+        presentShareNumber(for: doc)
+    }
+
+    func presentDraft(_ item: DocWaitingItem) {
+        guard item.register == .draft, item.draft != nil else { return }
+        activeAnswerItemId = nil
+        presentedDraftItem = item
     }
 
     func sendAnswer(_ answer: DocAnswer, for item: DocWaitingItem) {
@@ -575,119 +606,25 @@ final class DocExperienceViewModel {
         return "doc.v1.\(account).\(component)"
     }
 
+    private static func itemPrecedes(_ lhs: DocWaitingItem, _ rhs: DocWaitingItem) -> Bool {
+        let lhsRank = registerRank(lhs.register)
+        let rhsRank = registerRank(rhs.register)
+        if lhsRank != rhsRank { return lhsRank < rhsRank }
+        return lhs.createdAt > rhs.createdAt
+    }
+
+    private static func registerRank(_ register: DocWaitingItem.Register) -> Int {
+        switch register {
+        case .waiting: 0
+        case .draft: 1
+        case .ask: 2
+        }
+    }
+
     private struct PersistedSnapshot: Codable {
         let state: DocState?
         let pendingItems: [DocWaitingItem]
         let resolvedItemIds: [String]
         let docContents: [DocContent]?
-    }
-
-    private static let previewNumber: String = "+16285550123"
-
-    private static var previewItems: [DocWaitingItem] {
-        let now = Date()
-        return [
-            DocWaitingItem(
-                id: "question-dates",
-                kind: .question,
-                headline: "Which weekend works for everyone?",
-                context: "Tahoe Trip needs a date before Doc can update the plan.",
-                chips: ["Dec 14", "Dec 21"],
-                docId: "tahoe-trip",
-                createdAt: now.addingTimeInterval(-4 * 60)
-            ),
-            DocWaitingItem(
-                id: "unknown-sender",
-                kind: .unknownContributor,
-                headline: "Who sent the cabin address?",
-                context: "Name the person so Doc can credit the update.",
-                docId: "tahoe-trip",
-                createdAt: now.addingTimeInterval(-8 * 60)
-            ),
-        ]
-    }
-
-    private static var previewState: DocState {
-        let now = Date()
-        return DocState(docs: [
-            DocStatus(
-                id: "tahoe-trip",
-                name: "Tahoe Trip",
-                url: "https://docs.google.com/document/d/example-tahoe",
-                updatedAt: now.addingTimeInterval(-12 * 60),
-                lastChange: DocLastChange(
-                    who: "Sara",
-                    what: "added flight times",
-                    at: now.addingTimeInterval(-12 * 60)
-                ),
-                binding: DocBinding(
-                    state: .live,
-                    number: previewNumber,
-                    group: "Tahoe Weekend"
-                ),
-                dates: "Dec 12–15",
-                people: 7
-            ),
-            DocStatus(
-                id: "house-projects",
-                name: "House Projects",
-                url: "https://docs.google.com/document/d/example-house",
-                updatedAt: now.addingTimeInterval(-3 * 60 * 60),
-                lastChange: DocLastChange(
-                    who: "Noah",
-                    what: "checked off paint samples",
-                    at: now.addingTimeInterval(-3 * 60 * 60)
-                ),
-                binding: DocBinding(
-                    state: .none,
-                    number: previewNumber
-                ),
-                people: 4
-            ),
-        ])
-    }
-
-    private static var previewContents: [DocContent] {
-        let now = Date()
-        return [
-            DocContent(
-                docId: "tahoe-trip",
-                markdown: """
-                # Tahoe Trip
-
-                ## Plan
-
-                Sara lands Friday at 4:30 PM. Meet at the cabin before dinner.
-
-                ## Bring
-
-                - Snow boots
-                - Warm layers
-                - Board games
-
-                ## Open questions
-
-                Confirm whether everyone prefers December 14 or December 21.
-                """,
-                changes: [
-                    DocLastChange(
-                        who: "Sara",
-                        what: "added flight times",
-                        at: now.addingTimeInterval(-12 * 60)
-                    ),
-                    DocLastChange(
-                        who: "Noah",
-                        what: "added the cabin address",
-                        at: now.addingTimeInterval(-48 * 60)
-                    ),
-                    DocLastChange(
-                        who: "Mina",
-                        what: "started a packing list",
-                        at: now.addingTimeInterval(-3 * 60 * 60)
-                    ),
-                ],
-                updatedAt: now.addingTimeInterval(-12 * 60)
-            ),
-        ]
     }
 }

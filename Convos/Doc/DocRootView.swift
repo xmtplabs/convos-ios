@@ -106,6 +106,15 @@ struct DocRootView: View {
             )
                 .presentationDetents([.medium])
         }
+        .sheet(item: $viewModel.presentedDraftItem) { item in
+            DocDraftSheet(
+                item: item,
+                startsEdited: viewModel.previewStage == .draftSheet,
+                isEnabled: viewModel.isDmReadyForDisplay && viewModel.sendState(for: item) == nil
+            ) { answer in
+                viewModel.sendAnswer(answer, for: item)
+            }
+        }
         .sheet(isPresented: $isPresentingSettings) {
             AppSettingsView(
                 viewModel: conversationsViewModel.appSettingsViewModel,
@@ -192,52 +201,41 @@ private struct DocHomeView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion: Bool
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
-                if viewModel.shouldShowGoogleConnectCard {
-                    DocGoogleConnectCard(onConnect: onConnectGoogle)
-                }
+        List {
+            if viewModel.shouldShowGoogleConnectCard {
+                DocGoogleConnectCard(onConnect: onConnectGoogle)
+                    .docHomeRow()
+            }
 
-                if !viewModel.visiblePendingItems.isEmpty {
-                    Text("For you")
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, DesignConstants.Spacing.step2x)
-                        .accessibilityAddTraits(.isHeader)
+            if !viewModel.visiblePendingItems.isEmpty {
+                DocForYouSection(
+                    viewModel: viewModel,
+                    items: viewModel.visiblePendingItems
+                )
+            }
 
-                    ForEach(viewModel.visiblePendingItems) { item in
-                        DocWaitingItemCard(
-                            item: item,
-                            sendState: viewModel.sendState(for: item),
-                            isEnabled: viewModel.isDmReadyForDisplay,
-                            onAnswer: { viewModel.sendAnswer($0, for: item) },
-                            onRetry: { viewModel.retryAnswer(for: item) }
-                        )
-                    }
-                }
-
-                if viewModel.docs.isEmpty {
-                    DocEmptyState(isPreparing: viewModel.isPreparingAgent)
-                } else {
-                    ForEach(viewModel.docs) { doc in
-                        DocStatusCard(
-                            doc: doc,
-                            onShare: { viewModel.presentShareNumber(for: doc) }
-                        )
-                        .transition(
-                            .opacity.combined(with: .move(edge: reduceMotion ? .bottom : .top))
-                        )
-                    }
+            if viewModel.docs.isEmpty {
+                DocEmptyState(isPreparing: viewModel.isPreparingAgent)
+                    .docHomeRow()
+            } else {
+                ForEach(viewModel.docs) { doc in
+                    DocStatusCard(
+                        doc: doc,
+                        onShare: { viewModel.presentShareNumber(for: doc) }
+                    )
+                    .docHomeRow()
+                    .transition(
+                        .opacity.combined(with: .move(edge: reduceMotion ? .bottom : .top))
+                    )
                 }
             }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.top, DesignConstants.Spacing.step2x)
-            .padding(.bottom, DesignConstants.Spacing.step6x)
-            .animation(
-                reduceMotion ? nil : .easeOut(duration: 0.3),
-                value: viewModel.docs.map(\.id)
-            )
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 0.3),
+            value: viewModel.docs.map(\.id)
+        )
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("Doc")
         .navigationBarTitleDisplayMode(.large)
@@ -255,6 +253,21 @@ private struct DocHomeView: View {
             DocComposer(viewModel: viewModel)
         }
         .accessibilityIdentifier("doc-home")
+    }
+}
+
+private extension View {
+    func docHomeRow() -> some View {
+        listRowInsets(
+            EdgeInsets(
+                top: DesignConstants.Spacing.step2x,
+                leading: DesignConstants.Spacing.step4x,
+                bottom: DesignConstants.Spacing.step2x,
+                trailing: DesignConstants.Spacing.step4x
+            )
+        )
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
     }
 }
 
@@ -606,7 +619,7 @@ private struct DocComposer: View {
     }
 }
 
-private struct DocAttachmentThumbnail: View {
+struct DocAttachmentThumbnail: View {
     let attachment: PendingMediaAttachment
     let onRemove: () -> Void
 

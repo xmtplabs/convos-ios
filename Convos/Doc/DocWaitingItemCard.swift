@@ -5,42 +5,26 @@ struct DocWaitingItemCard: View {
     let item: DocWaitingItem
     let sendState: DocItemSendState?
     let isEnabled: Bool
+    @Binding var activeAnswerItemId: String?
     let onAnswer: (DocAnswer) -> Void
     let onRetry: () -> Void
 
     @State private var answerText: String = ""
 
     var body: some View {
-        Group {
+        DocItemCardContainer(itemId: item.id) {
             if case .resolving = sendState {
-                resolvingCard
+                DocItemResolvingView(label: "Answer sent")
             } else {
-                waitingCard
+                content
             }
-        }
-        .background(
-            Color(uiColor: .secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 16.0)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 16.0)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1.0)
         }
         .accessibilityIdentifier("doc-waiting-\(item.id)")
     }
 
-    private var waitingCard: some View {
+    private var content: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Circle()
-                    .fill(.red)
-                    .frame(width: 8.0, height: 8.0)
-                    .accessibilityHidden(true)
-                Text(kindTitle)
-                    .font(.caption2.weight(.semibold).smallCaps())
-                    .foregroundStyle(.secondary)
-                    .tracking(0.5)
-            }
+            DocItemKindLine(title: kindTitle, systemImage: "circle.fill", color: .red)
 
             Text(item.headline)
                 .font(.headline.weight(.semibold))
@@ -52,25 +36,65 @@ struct DocWaitingItemCard: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if !item.chips.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: DesignConstants.Spacing.step2x) {
-                        ForEach(item.chips, id: \.self) { chip in
-                            Button(chip) {
-                                onAnswer(.choice(chip))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.regular)
-                            .frame(minHeight: 44.0)
-                            .disabled(!isEnabled)
-                        }
-                    }
+                DocAnswerChips(chips: item.chips, isEnabled: actionsAreEnabled) {
+                    onAnswer(.choice($0))
                 }
             }
 
+            DocInlineAnswerField(
+                itemId: item.id,
+                compactLabel: "Answer…",
+                placeholder: "Type an answer…",
+                text: $answerText,
+                activeItemId: $activeAnswerItemId,
+                isEnabled: actionsAreEnabled
+            ) {
+                onAnswer(.text($0))
+            }
+
+            if case .failed = sendState {
+                DocItemRetryView(label: "Couldn't send your answer", onRetry: onRetry)
+            }
+        }
+        .padding(DesignConstants.Spacing.step4x)
+    }
+
+    private var actionsAreEnabled: Bool {
+        isEnabled && sendState == nil
+    }
+
+    private var kindTitle: String {
+        switch item.kind {
+        case .question:
+            "Question"
+        case .unknownContributor:
+            "Unknown contributor"
+        case .noticeAsk:
+            "Needs review"
+        default:
+            "Waiting"
+        }
+    }
+}
+
+struct DocInlineAnswerField: View {
+    let itemId: String
+    let compactLabel: String
+    let placeholder: String
+    @Binding var text: String
+    @Binding var activeItemId: String?
+    let isEnabled: Bool
+    let onSend: (String) -> Void
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        if activeItemId == itemId {
             HStack(spacing: DesignConstants.Spacing.step2x) {
-                TextField("Type an answer…", text: $answerText, axis: .vertical)
+                TextField(placeholder, text: $text, axis: .vertical)
                     .lineLimit(1...3)
                     .textFieldStyle(.plain)
+                    .focused($isFocused)
                     .padding(.horizontal, DesignConstants.Spacing.step3x)
                     .frame(minHeight: 44.0)
                     .background(
@@ -78,65 +102,134 @@ struct DocWaitingItemCard: View {
                         in: RoundedRectangle(cornerRadius: 14.0)
                     )
                     .submitLabel(.send)
-                    .onSubmit(sendText)
+                    .onSubmit(send)
 
-                Button(action: sendText) {
+                Button(action: send) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 30.0))
                         .frame(width: 44.0, height: 44.0)
                 }
-                .disabled(!isEnabled || cleanAnswer.isEmpty)
+                .disabled(!isEnabled || cleanText.isEmpty)
                 .accessibilityLabel("Send answer")
             }
-
-            if case .failed = sendState {
-                HStack(spacing: DesignConstants.Spacing.step2x) {
-                    Label("Couldn't send your answer", systemImage: "exclamationmark.circle")
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                    Spacer(minLength: 0)
-                    Button("Retry", action: onRetry)
-                        .font(.footnote.weight(.semibold))
-                        .frame(minHeight: 44.0)
+            .onAppear { isFocused = true }
+            .onChange(of: isFocused) { _, focused in
+                if !focused, activeItemId == itemId {
+                    activeItemId = nil
                 }
-                .accessibilityIdentifier("doc-waiting-retry")
             }
+        } else {
+            Button {
+                activeItemId = itemId
+            } label: {
+                Label(compactLabel, systemImage: "square.and.pencil")
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(minHeight: 44.0)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+            .disabled(!isEnabled)
         }
-        .padding(DesignConstants.Spacing.step4x)
     }
 
-    private var resolvingCard: some View {
+    private var cleanText: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func send() {
+        let answer = cleanText
+        guard isEnabled, !answer.isEmpty else { return }
+        text = ""
+        activeItemId = nil
+        onSend(answer)
+    }
+}
+
+struct DocAnswerChips: View {
+    let chips: [String]
+    let isEnabled: Bool
+    let onAnswer: (String) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                ForEach(chips, id: \.self) { chip in
+                    Button(chip) { onAnswer(chip) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                        .frame(minHeight: 44.0)
+                        .disabled(!isEnabled)
+                }
+            }
+        }
+    }
+}
+
+struct DocItemKindLine: View {
+    let title: String
+    let systemImage: String
+    let color: Color
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption2.weight(.semibold).smallCaps())
+            .foregroundStyle(color)
+            .tracking(0.5)
+    }
+}
+
+struct DocItemCardContainer<Content: View>: View {
+    let itemId: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content
+            .background(
+                Color(uiColor: .secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: 16.0)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 16.0)
+                    .stroke(Color.primary.opacity(0.06), lineWidth: 1.0)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("doc-item-\(itemId)")
+    }
+}
+
+struct DocItemResolvingView: View {
+    let label: String
+
+    var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(Color.accentColor)
                 .font(.title3)
-            Text("Answer sent")
+            Text(label)
                 .font(.subheadline.weight(.semibold))
             Spacer(minLength: 0)
         }
         .padding(DesignConstants.Spacing.step4x)
         .transition(.opacity.combined(with: .scale(scale: 0.98)))
     }
+}
 
-    private var cleanAnswer: String {
-        answerText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+struct DocItemRetryView: View {
+    let label: String
+    let onRetry: () -> Void
 
-    private var kindTitle: String {
-        switch item.kind {
-        case .question:
-            return "Question"
-        case .unknownContributor:
-            return "Unknown contributor"
-        case .noticeAsk:
-            return "Needs review"
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Label(label, systemImage: "exclamationmark.circle")
+                .font(.footnote)
+                .foregroundStyle(.red)
+            Spacer(minLength: 0)
+            Button("Retry", action: onRetry)
+                .font(.footnote.weight(.semibold))
+                .frame(minHeight: 44.0)
         }
-    }
-
-    private func sendText() {
-        let text = cleanAnswer
-        guard isEnabled, !text.isEmpty else { return }
-        answerText = ""
-        onAnswer(.text(text))
+        .accessibilityIdentifier("doc-item-retry")
     }
 }
