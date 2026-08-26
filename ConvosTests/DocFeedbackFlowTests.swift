@@ -27,6 +27,16 @@ struct DocFeedbackFlowTests {
         #expect(DocContributionLinePolicy.number(stateLine: "+14155550100") == "+14155550100")
     }
 
+    @Test("Doc number copy excludes the share message")
+    func docNumberCopyExcludesShareMessage() {
+        let number = "+14155550100"
+        UIPasteboard.general.string = "I go by @doc at \(number)"
+
+        DocCopyNumberActivity.copy(number: number)
+
+        #expect(UIPasteboard.general.string == number)
+    }
+
     @Test("authorized Doc storage resumes after a registering launch")
     func authorizedStorageRestoresRelaunchWithoutReprovisioning() async throws {
         let suiteName = "DocAuthorizedStorageTests.\(UUID().uuidString)"

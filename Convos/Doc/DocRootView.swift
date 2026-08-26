@@ -420,33 +420,132 @@ private struct DocGoogleConnectCard: View {
 private struct DocContributionLine: View {
     let number: String
     let onShare: () -> Void
+    @State private var isPresentingAddContact: Bool = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
-            Image(systemName: "message.badge.waveform.fill")
-                .foregroundStyle(.colorLava)
-                .frame(width: 32.0, height: 32.0)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                Text("I go by @doc")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.colorTextPrimary)
-                Text(docDisplayPhoneNumber(number))
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.colorTextSecondary)
-                    .textSelection(.enabled)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Button("Share", systemImage: "square.and.arrow.up", action: onShare)
-                .convosButtonStyle(.outlineCapsule(fullWidth: false))
-                .labelStyle(.iconOnly)
-                .frame(minWidth: 44.0, minHeight: 44.0)
-                .accessibilityLabel("Share Doc's number")
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+            identityHeader
+            actionButtons
         }
-        .padding(DesignConstants.Spacing.step3x)
+        .padding(DesignConstants.Spacing.step4x)
         .background(Color.colorFillMinimal, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("doc-contribution-line")
+        .sheet(isPresented: $isPresentingAddContact) {
+            DocAddContactView(name: "@doc", phoneNumber: number)
+        }
+    }
+
+    @ViewBuilder
+    private var identityHeader: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+                avatar
+                identityText
+            }
+        } else {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                avatar
+                identityText
+            }
+        }
+    }
+
+    private var avatar: some View {
+        EmojiAvatarView(
+            emoji: DocPreviewConfiguration.avatarEmoji,
+            agentVerification: .verified(.convos),
+            size: Constant.avatarSize
+        )
+    }
+
+    private var identityText: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+            Text("@doc")
+                .font(.headline)
+                .foregroundStyle(.colorTextPrimary)
+            Text(docDisplayPhoneNumber(number))
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.colorTextSecondary)
+            Text("I go by @doc")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(spacing: DesignConstants.Spacing.step2x) {
+                addToContactsButton(labelStyle: .titleOnly, fullWidth: true)
+                copyButton(labelStyle: .titleOnly, fullWidth: true)
+                shareButton(labelStyle: .titleOnly, fullWidth: true)
+            }
+        } else {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                addToContactsButton(labelStyle: .titleAndIcon, fullWidth: true)
+                copyButton(labelStyle: .iconOnly, fullWidth: false)
+                shareButton(labelStyle: .iconOnly, fullWidth: false)
+            }
+        }
+    }
+
+    private func addToContactsButton(labelStyle: ButtonLabelStyle, fullWidth: Bool) -> some View {
+        Button {
+            isPresentingAddContact = true
+        } label: {
+            actionLabel("Add to Contacts", systemImage: "person.badge.plus", style: labelStyle)
+        }
+        .convosButtonStyle(.outlineCapsule(fullWidth: fullWidth))
+        .frame(minHeight: Constant.minimumTouchTarget)
+        .accessibilityIdentifier("doc-add-to-contacts")
+    }
+
+    private func copyButton(labelStyle: ButtonLabelStyle, fullWidth: Bool) -> some View {
+        Button {
+            DocCopyNumberActivity.copy(number: number)
+        } label: {
+            actionLabel("Copy Number", systemImage: "doc.on.doc", style: labelStyle)
+        }
+        .convosButtonStyle(.outlineCapsule(fullWidth: fullWidth))
+        .frame(minWidth: Constant.minimumTouchTarget, minHeight: Constant.minimumTouchTarget)
+        .accessibilityIdentifier("doc-copy-number")
+    }
+
+    private func shareButton(labelStyle: ButtonLabelStyle, fullWidth: Bool) -> some View {
+        Button(action: onShare) {
+            actionLabel("Share", systemImage: "square.and.arrow.up", style: labelStyle)
+        }
+        .convosButtonStyle(.outlineCapsule(fullWidth: fullWidth))
+        .frame(minWidth: Constant.minimumTouchTarget, minHeight: Constant.minimumTouchTarget)
+        .accessibilityLabel("Share Doc's number")
+    }
+
+    @ViewBuilder
+    private func actionLabel(_ title: String, systemImage: String, style: ButtonLabelStyle) -> some View {
+        if style == .iconOnly {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+        } else if style == .titleOnly {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.titleOnly)
+        } else {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.titleAndIcon)
+        }
+    }
+
+    private enum ButtonLabelStyle {
+        case iconOnly
+        case titleOnly
+        case titleAndIcon
+    }
+
+    private enum Constant {
+        static let avatarSize: CGFloat = 52.0
+        static let minimumTouchTarget: CGFloat = 44.0
     }
 }
 

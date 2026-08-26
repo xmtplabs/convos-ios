@@ -21,7 +21,11 @@ class DocCopyNumberActivity: UIActivity {
     override func canPerform(withActivityItems activityItems: [Any]) -> Bool { true }
 
     override func perform() {
-        UIPasteboard.general.string = number
+        Self.copy(number: number)
         activityDidFinish(true)
+    }
+
+    static func copy(number: String) {
+        UIPasteboard.general.string = number
     }
 }
