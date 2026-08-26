@@ -113,7 +113,13 @@ struct NativeSpaceView: View {
                 provenance(document)
             }
             .padding(.horizontal, Constant.gutter)
-            .padding(.top, ConversationChromeMetrics.contentClearance)
+            // The diagnostic floats above the content, so the page starts below
+            // it rather than under it.
+            .padding(
+                .top,
+                ConversationChromeMetrics.contentClearance
+                    + (diagnosticNote == nil ? 0 : Constant.diagnosticClearance)
+            )
             .padding(.bottom, DesignConstants.Spacing.step12x)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -276,6 +282,8 @@ struct NativeSpaceView: View {
         static let gutter: CGFloat = 24.0
         /// Two columns plus the gutter between them.
         static let gridMaximum: CGFloat = tileMaximum * 2 + gutter
+        /// Room for the floating diagnostic above the page.
+        static let diagnosticClearance: CGFloat = 28.0
     }
 }
 
@@ -296,10 +304,19 @@ private struct WidgetTile: View {
                         .strokeBorder(Color.colorBorderSubtle)
                 }
                 .overlay {
+                    // Most tiles carry no count — it is only set where the page
+                    // queried a collection — so the route stands in rather than
+                    // leaving a card that reads as failed to load.
                     if let count = widget.itemCount {
                         Text(verbatim: "\(count)")
                             .font(.title.weight(.semibold))
                             .foregroundStyle(.colorTextPrimary)
+                    } else {
+                        Text(widget.route)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.colorTextSecondary)
+                            .lineLimit(1)
+                            .padding(.horizontal, DesignConstants.Spacing.step2x)
                     }
                 }
                 .aspectRatio(widget.aspectRatio, contentMode: .fit)
