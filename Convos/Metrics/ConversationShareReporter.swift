@@ -35,10 +35,13 @@ enum ConversationShareReporter {
         completed: Bool,
         invite: Invite,
         conversation: Conversation?,
-        coreActions: any CoreActions
+        coreActions: any CoreActions,
+        session: any SessionManagerProtocol
     ) {
         // Nothing was shareable, so the sheet carried no invite.
         guard !invite.isEmpty else { return }
+
+        startJoinRequestPollingIfShared(completed: completed, session: session)
 
         let target: ShareTarget = shareTarget(for: activityType, completed: completed)
         let memberCount: Int = conversation?.members.count ?? 0
@@ -55,6 +58,29 @@ enum ConversationShareReporter {
                 expiresAfterUse: expiresAfterUse,
                 isSuccess: completed
             )
+        }
+    }
+
+    /// Starts the bounded join-request poll once an invite actually reaches
+    /// someone.
+    ///
+    /// The invite is out in the world now, so a join request may arrive over
+    /// the next couple of minutes. It reaches this device as a DM in a brand
+    /// new conversation - a topic with no push subscription - so the message
+    /// stream is the only live path that carries it. When that stream is
+    /// silently delivering nothing, the poll is what admits the joiner
+    /// instead of leaving them on "Verifying" until it times out.
+    ///
+    /// A cancelled share reached nobody, so it starts nothing.
+    static func startJoinRequestPollingIfShared(
+        completed: Bool,
+        session: any SessionManagerProtocol
+    ) {
+        guard completed else { return }
+        Task {
+            await session.messagingService()
+                .sessionStateManager
+                .startJoinRequestPolling(reason: .inviteShared)
         }
     }
 }

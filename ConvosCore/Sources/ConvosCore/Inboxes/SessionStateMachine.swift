@@ -392,9 +392,9 @@ public actor SessionStateMachine: SessionStateManagerProtocol {
         await syncingManager.requestDiscovery()
     }
 
-    public func startAgentJoinRequestPolling() async {
+    public func startJoinRequestPolling(reason: JoinRequestPollReason) async {
         guard let syncingManager else { return }
-        await syncingManager.startAgentJoinRequestPolling()
+        await syncingManager.startJoinRequestPolling(reason: reason)
     }
 
     /// `nonisolated` so the non-Sendable client obtained from

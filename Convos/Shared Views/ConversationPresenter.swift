@@ -97,7 +97,11 @@ struct ConversationPresenter<Content: View>: View {
         }
         .sheet(isPresented: inviteCodeBinding) {
             if let viewModel {
-                InviteCodeSheet(conversation: viewModel.conversation, invite: viewModel.invite)
+                InviteCodeSheet(
+                    conversation: viewModel.conversation,
+                    invite: viewModel.invite,
+                    session: viewModel.session
+                )
             }
         }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)

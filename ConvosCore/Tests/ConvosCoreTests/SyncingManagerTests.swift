@@ -1400,4 +1400,54 @@ struct SyncingManagerTests {
         await syncingManager.stop()
         try? await fixtures.cleanup()
     }
+
+    /// The invite-side wiring for the join-request poll. A join request lands
+    /// as a DM in a brand new conversation - a topic with no push
+    /// subscription - so the message stream is the only live path that
+    /// carries it. When the stream is silently delivering nothing, this poll
+    /// is what admits the joiner instead of leaving them on "Verifying".
+    ///
+    /// Asserts the loop actually runs: each tick syncs before scanning for
+    /// unprocessed join requests, so a rising sync count is the observable
+    /// proof the poll is wired and ticking.
+    @Test("Invite-shared polling keeps scanning while the session is ready")
+    func testInviteJoinRequestPollingRunsWhileReady() async throws {
+        let fixtures = TestFixtures()
+        let mockClient = TestableMockClient()
+        mockClient.streamBehavior = .neverClose
+        let mockAPIClient = TestableMockAPIClient()
+
+        let syncingManager = SyncingManager(
+            identityStore: fixtures.identityStore,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter(),
+            coreActions: NoOpCoreActions()
+        )
+
+        await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
+        try await waitUntil(timeout: .seconds(10)) {
+            await syncingManager.isSyncReady
+        }
+
+        let provider = mockClient.conversationsProvider as? TestableMockConversations
+        let syncsBeforePolling: Int = provider?.syncCallCount ?? 0
+
+        await syncingManager.startJoinRequestPolling(reason: .inviteShared)
+
+        try await waitUntil(timeout: .seconds(30)) {
+            (provider?.syncCallCount ?? 0) > syncsBeforePolling
+        }
+
+        let syncsAfterPolling: Int = provider?.syncCallCount ?? 0
+        #expect(
+            syncsAfterPolling > syncsBeforePolling,
+            "Each poll tick should sync before scanning for unprocessed join requests"
+        )
+
+        // Clean up
+        await syncingManager.stop()
+        try? await fixtures.cleanup()
+    }
 }

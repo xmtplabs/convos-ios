@@ -1272,7 +1272,8 @@ private extension ConversationView {
                 completed: completed,
                 invite: viewModel.invite,
                 conversation: viewModel.conversation,
-                coreActions: viewModel.coreActions
+                coreActions: viewModel.coreActions,
+                session: viewModel.session
             )
             guard completed else { return }
             onInviteShared?()
