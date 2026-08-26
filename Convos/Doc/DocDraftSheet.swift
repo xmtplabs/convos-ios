@@ -10,8 +10,8 @@ struct DocDraftSheet: View {
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
-    @State private var editedDraft: NSAttributedString
-    private let originalVisibleText: String
+    @State private var editedSource: String
+    private let originalSource: String
 
     init(
         item: DocWaitingItem,
@@ -25,9 +25,8 @@ struct DocDraftSheet: View {
         self.onAnswer = onAnswer
         let original = item.draft?.text ?? ""
         let startingMarkdown = startsEdited ? original + "\n- Dinner: Friday at 7 PM" : original
-        let originalDraft = DocDraftMarkdown.attributedString(from: original)
-        self.originalVisibleText = originalDraft.string
-        _editedDraft = State(initialValue: DocDraftMarkdown.attributedString(from: startingMarkdown))
+        self.originalSource = original
+        _editedSource = State(initialValue: startingMarkdown)
     }
 
     var body: some View {
@@ -42,7 +41,7 @@ struct DocDraftSheet: View {
                         .background(Color.secondary.opacity(0.1), in: Capsule())
                 }
 
-                DocEditableMarkdownView(text: $editedDraft)
+                DocEditableMarkdownView(source: $editedSource)
                     .padding(DesignConstants.Spacing.step2x)
                     .background(
                         Color(uiColor: .secondarySystemGroupedBackground),
@@ -70,7 +69,7 @@ struct DocDraftSheet: View {
     }
 
     private var cleanText: String {
-        editedDraft.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        editedSource.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @ViewBuilder
@@ -100,8 +99,10 @@ struct DocDraftSheet: View {
 
     private var approveButton: some View {
         Button("Approve") {
-            let edited = editedDraft.string == originalVisibleText ? nil : editedDraft.string
-            answer(.action(.approve, edited: edited))
+            answer(DocDraftSubmission.approvalAnswer(
+                originalSource: originalSource,
+                editedSource: editedSource
+            ))
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
@@ -115,17 +116,24 @@ struct DocDraftSheet: View {
     }
 }
 
+enum DocDraftSubmission {
+    static func approvalAnswer(originalSource: String, editedSource: String) -> DocAnswer {
+        let edited: String? = editedSource == originalSource ? nil : editedSource
+        return .action(.approve, edited: edited)
+    }
+}
+
 private struct DocEditableMarkdownView: UIViewRepresentable {
-    @Binding var text: NSAttributedString
+    @Binding var source: String
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(source: $source)
     }
 
     func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
+        let textView = DocMarkdownTextView()
         textView.delegate = context.coordinator
-        textView.attributedText = text
+        textView.attributedText = DocDraftMarkdown.attributedString(from: source)
         textView.backgroundColor = .clear
         textView.adjustsFontForContentSizeCategory = true
         textView.keyboardDismissMode = .interactive
@@ -137,135 +145,273 @@ private struct DocEditableMarkdownView: UIViewRepresentable {
     }
 
     func updateUIView(_ textView: UITextView, context: Context) {
-        guard !textView.attributedText.isEqual(to: text) else { return }
-        context.coordinator.isApplyingUpdate = true
-        let selectedRange = textView.selectedRange
-        textView.attributedText = text
-        textView.selectedRange = NSRange(
-            location: min(selectedRange.location, text.length),
-            length: 0
-        )
-        context.coordinator.isApplyingUpdate = false
+        guard textView.text != source else { return }
+        context.coordinator.apply(source: source, to: textView)
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
-        @Binding private var text: NSAttributedString
-        var isApplyingUpdate: Bool = false
+        @Binding private var source: String
+        private var isApplyingUpdate: Bool = false
 
-        init(text: Binding<NSAttributedString>) {
-            _text = text
+        init(source: Binding<String>) {
+            _source = source
         }
 
         func textViewDidChange(_ textView: UITextView) {
             guard !isApplyingUpdate else { return }
-            text = NSAttributedString(attributedString: textView.attributedText)
+            let updatedSource = textView.text ?? ""
+            source = updatedSource
+            applyStyles(to: textView)
+        }
+
+        func apply(source: String, to textView: UITextView) {
+            isApplyingUpdate = true
+            let selectedRange = textView.selectedRange
+            textView.attributedText = DocDraftMarkdown.attributedString(from: source)
+            restore(selectedRange: selectedRange, in: textView)
+            textView.typingAttributes = DocDraftMarkdown.bodyAttributes
+            textView.setNeedsDisplay()
+            isApplyingUpdate = false
+        }
+
+        private func applyStyles(to textView: UITextView) {
+            isApplyingUpdate = true
+            let selectedRange = textView.selectedRange
+            DocDraftMarkdown.applyStyles(to: textView.textStorage)
+            restore(selectedRange: selectedRange, in: textView)
+            textView.typingAttributes = DocDraftMarkdown.bodyAttributes
+            textView.setNeedsDisplay()
+            isApplyingUpdate = false
+        }
+
+        private func restore(selectedRange: NSRange, in textView: UITextView) {
+            let location = min(selectedRange.location, textView.textStorage.length)
+            let availableLength = textView.textStorage.length - location
+            textView.selectedRange = NSRange(
+                location: location,
+                length: min(selectedRange.length, availableLength)
+            )
         }
     }
 }
 
-private enum DocDraftMarkdown {
+private final class DocMarkdownTextView: UITextView {
+    override func draw(_ rect: CGRect) {
+        super.draw(rect)
+        let fullRange = NSRange(location: 0, length: textStorage.length)
+        let bulletFont = UIFont.preferredFont(forTextStyle: .body)
+        let bulletAttributes: [NSAttributedString.Key: Any] = [
+            .font: bulletFont,
+            .foregroundColor: UIColor.secondaryLabel,
+        ]
+        let bullet = "•" as NSString
+        let bulletSize = bullet.size(withAttributes: bulletAttributes)
+
+        textStorage.enumerateAttribute(.docDraftListMarker, in: fullRange) { value, range, _ in
+            guard value != nil, range.location < textStorage.length else { return }
+            let glyphIndex = layoutManager.glyphIndexForCharacter(at: range.location)
+            let lineRect = layoutManager.lineFragmentUsedRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            let origin = CGPoint(
+                x: textContainerInset.left + 2.0,
+                y: textContainerInset.top + lineRect.midY - bulletSize.height / 2.0
+            )
+            bullet.draw(at: origin, withAttributes: bulletAttributes)
+        }
+    }
+}
+
+enum DocDraftMarkdown {
     static var bodyAttributes: [NSAttributedString.Key: Any] {
         attributes(font: .preferredFont(forTextStyle: .body))
     }
 
     static func attributedString(from markdown: String) -> NSAttributedString {
-        let result = NSMutableAttributedString()
-        let lines = markdown.components(separatedBy: .newlines)
-
-        for (index, rawLine) in lines.enumerated() {
-            let line = styledLine(rawLine)
-            result.append(line)
-            if index < lines.count - 1 {
-                result.append(NSAttributedString(string: "\n", attributes: bodyAttributes))
-            }
-        }
+        let result = NSMutableAttributedString(string: markdown)
+        applyStyles(to: result)
         return result
     }
 
-    private static func styledLine(_ rawLine: String) -> NSAttributedString {
+    static func applyStyles(to result: NSMutableAttributedString) {
+        let fullRange = NSRange(location: 0, length: result.length)
+        guard fullRange.length > 0 else { return }
+        result.setAttributes(bodyAttributes, range: fullRange)
+        let source = result.string as NSString
+        var cursor = 0
+
+        while cursor < source.length {
+            var lineStart = 0
+            var lineEnd = 0
+            var contentsEnd = 0
+            source.getLineStart(
+                &lineStart,
+                end: &lineEnd,
+                contentsEnd: &contentsEnd,
+                for: NSRange(location: cursor, length: 0)
+            )
+            let lineRange = NSRange(location: lineStart, length: contentsEnd - lineStart)
+            let rawLine = source.substring(with: lineRange)
+            styleLine(rawLine, range: lineRange, source: source, result: result)
+            cursor = lineEnd
+        }
+    }
+
+    private static func styleLine(
+        _ rawLine: String,
+        range: NSRange,
+        source: NSString,
+        result: NSMutableAttributedString
+    ) {
         if rawLine.hasPrefix("### ") {
-            return inlineMarkdown(
-                String(rawLine.dropFirst(4)),
+            styleHeading(
+                markerLength: 4,
+                lineRange: range,
+                source: source,
+                result: result,
                 font: .preferredFont(forTextStyle: .headline),
                 paragraphSpacing: 5.0
             )
+            return
         }
         if rawLine.hasPrefix("## ") {
-            return inlineMarkdown(
-                String(rawLine.dropFirst(3)),
+            styleHeading(
+                markerLength: 3,
+                lineRange: range,
+                source: source,
+                result: result,
                 font: .preferredFont(forTextStyle: .title2),
                 paragraphSpacing: 8.0
             )
+            return
         }
         if rawLine.hasPrefix("# ") {
-            return inlineMarkdown(
-                String(rawLine.dropFirst(2)),
+            styleHeading(
+                markerLength: 2,
+                lineRange: range,
+                source: source,
+                result: result,
                 font: .preferredFont(forTextStyle: .title1),
                 paragraphSpacing: 10.0
             )
+            return
         }
         if rawLine.hasPrefix("- ") || rawLine.hasPrefix("* ") {
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.firstLineHeadIndent = 0
-            paragraph.headIndent = 22.0
-            paragraph.paragraphSpacing = 4.0
-            let line = inlineMarkdown(
-                "•  " + String(rawLine.dropFirst(2)),
-                font: .preferredFont(forTextStyle: .body),
-                paragraphSpacing: 4.0
-            ).mutableCopy() as? NSMutableAttributedString ?? NSMutableAttributedString()
-            line.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: line.length))
-            return line
+            styleListItem(lineRange: range, source: source, result: result)
+            return
         }
-        return inlineMarkdown(
-            rawLine,
-            font: .preferredFont(forTextStyle: .body),
-            paragraphSpacing: 4.0
+        applyInlineMarkdown(
+            in: range,
+            source: source,
+            result: result,
+            font: .preferredFont(forTextStyle: .body)
         )
     }
 
-    private static func inlineMarkdown(
-        _ source: String,
+    private static func styleHeading(
+        markerLength: Int,
+        lineRange: NSRange,
+        source: NSString,
+        result: NSMutableAttributedString,
         font: UIFont,
         paragraphSpacing: CGFloat
-    ) -> NSMutableAttributedString {
-        let result = NSMutableAttributedString()
-        let regularAttributes = attributes(font: font, paragraphSpacing: paragraphSpacing)
-        let boldAttributes = attributes(font: boldFont(from: font), paragraphSpacing: paragraphSpacing)
-        var remainder = source[...]
+    ) {
+        let contentRange = NSRange(
+            location: lineRange.location + markerLength,
+            length: lineRange.length - markerLength
+        )
+        result.addAttributes(attributes(font: font, paragraphSpacing: paragraphSpacing), range: lineRange)
+        applyInlineMarkdown(in: contentRange, source: source, result: result, font: font)
+        hideSyntax(
+            in: NSRange(location: lineRange.location, length: markerLength),
+            result: result
+        )
+    }
 
-        while let opening = remainder.range(of: "**") {
-            let prefix = String(remainder[..<opening.lowerBound])
-            result.append(NSAttributedString(string: prefix, attributes: regularAttributes))
-            let afterOpening = remainder[opening.upperBound...]
-            guard let closing = afterOpening.range(of: "**") else {
-                result.append(NSAttributedString(string: String(remainder[opening.lowerBound...]), attributes: regularAttributes))
-                return result
-            }
-            result.append(NSAttributedString(string: String(afterOpening[..<closing.lowerBound]), attributes: boldAttributes))
-            remainder = afterOpening[closing.upperBound...]
+    private static func styleListItem(
+        lineRange: NSRange,
+        source: NSString,
+        result: NSMutableAttributedString
+    ) {
+        let markerRange = NSRange(location: lineRange.location, length: 2)
+        let contentRange = NSRange(location: lineRange.location + 2, length: lineRange.length - 2)
+        let paragraph = paragraphStyle(paragraphSpacing: 4.0)
+        paragraph.firstLineHeadIndent = 22.0
+        paragraph.headIndent = 22.0
+        result.addAttribute(.paragraphStyle, value: paragraph, range: lineRange)
+        result.addAttribute(.docDraftListMarker, value: true, range: markerRange)
+        applyInlineMarkdown(
+            in: contentRange,
+            source: source,
+            result: result,
+            font: .preferredFont(forTextStyle: .body)
+        )
+        hideSyntax(in: markerRange, result: result)
+    }
+
+    private static func applyInlineMarkdown(
+        in range: NSRange,
+        source: NSString,
+        result: NSMutableAttributedString,
+        font: UIFont
+    ) {
+        var searchRange = range
+        while searchRange.length >= 4 {
+            let openingRange = source.range(of: "**", options: [], range: searchRange)
+            guard openingRange.location != NSNotFound else { return }
+            let afterOpeningLocation = NSMaxRange(openingRange)
+            let afterOpeningRange = NSRange(
+                location: afterOpeningLocation,
+                length: NSMaxRange(range) - afterOpeningLocation
+            )
+            let closingRange = source.range(of: "**", options: [], range: afterOpeningRange)
+            guard closingRange.location != NSNotFound else { return }
+
+            let boldRange = NSRange(
+                location: afterOpeningLocation,
+                length: closingRange.location - afterOpeningLocation
+            )
+            result.addAttribute(.font, value: boldFont(from: font), range: boldRange)
+            hideSyntax(in: openingRange, result: result)
+            hideSyntax(in: closingRange, result: result)
+
+            let nextLocation = NSMaxRange(closingRange)
+            searchRange = NSRange(location: nextLocation, length: NSMaxRange(range) - nextLocation)
         }
+    }
 
-        result.append(NSAttributedString(string: String(remainder), attributes: regularAttributes))
-        return result
+    private static func hideSyntax(in range: NSRange, result: NSMutableAttributedString) {
+        result.addAttributes([
+            .font: UIFont.systemFont(ofSize: 0.1),
+            .foregroundColor: UIColor.clear,
+            .kern: -0.1,
+        ], range: range)
     }
 
     private static func attributes(
         font: UIFont,
         paragraphSpacing: CGFloat = 4.0
     ) -> [NSAttributedString.Key: Any] {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 3.0
-        paragraph.paragraphSpacing = paragraphSpacing
         return [
             .font: font,
             .foregroundColor: UIColor.label,
-            .paragraphStyle: paragraph,
+            .paragraphStyle: paragraphStyle(paragraphSpacing: paragraphSpacing),
         ]
+    }
+
+    private static func paragraphStyle(paragraphSpacing: CGFloat) -> NSMutableParagraphStyle {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 3.0
+        paragraph.paragraphSpacing = paragraphSpacing
+        return paragraph
     }
 
     private static func boldFont(from font: UIFont) -> UIFont {
         guard let descriptor = font.fontDescriptor.withSymbolicTraits(.traitBold) else { return font }
         return UIFont(descriptor: descriptor, size: 0)
     }
+}
+
+private extension NSAttributedString.Key {
+    static let docDraftListMarker: NSAttributedString.Key = NSAttributedString.Key(
+        "org.convos.docDraftListMarker"
+    )
 }
