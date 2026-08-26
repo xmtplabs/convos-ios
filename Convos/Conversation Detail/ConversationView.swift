@@ -151,6 +151,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
         topChromeInsetOverride ?? windowSafeAreaInsets.top
     }
 
+    private var isDocTranscriptMode: Bool {
+        FeatureFlags.shared.isDocExperienceEnabled
+    }
+
+    private var conversationChromeContentClearance: CGFloat {
+        isDocTranscriptMode
+            ? ConversationChromeMetrics.identityContentClearance
+            : ConversationChromeMetrics.contentClearance
+    }
+
     /// Substitutes the user's contact (name + avatar) for any member's
     /// per-conversation profile when the inbox is a known contact. The
     /// chat surfaces this so the join-system row reads
@@ -313,7 +323,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             // twice. The invite cell is gone, so an inviter has no leading
             // cell and the first message came to rest inside the scrim's
             // full-strength band.
-            topContentInset: ConversationChromeMetrics.contentClearance,
+            topContentInset: conversationChromeContentClearance,
             // The transcript hosts its own composer as a bottom safe-area bar.
             // That is what puts the list at full height with content scrolling
             // under the bar and the keyboard: the controller only turns on
@@ -451,7 +461,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// shows its preparing state there, and a tab that appears once a Space
     /// arrives would resize the control mid-conversation.
     private var availableTabs: [ConversationTab] {
-        ConversationTab.allCases
+        ConversationTab.presentationTabs(docModeEnabled: isDocTranscriptMode)
     }
 
     /// The view model behind the transcript the selected tab is showing.
@@ -1363,13 +1373,18 @@ private extension ConversationView {
             pageHost
             // The wash is its own layer, not the chrome's background: it runs
             // taller than the chrome's frame and a background would clip it.
-            ConversationChromeScrim(topSafeAreaInset: topChromeInset)
-            ConversationTopChrome(topSafeAreaInset: topChromeInset) {
-                ConversationSegmentedControl(
-                    selectedTab: $selectedTab,
-                    tabs: availableTabs,
-                    badgedTabs: badgedTabs
-                )
+            ConversationChromeScrim(
+                topSafeAreaInset: topChromeInset,
+                showsSegmentedControl: !isDocTranscriptMode
+            )
+            if !isDocTranscriptMode {
+                ConversationTopChrome(topSafeAreaInset: topChromeInset) {
+                    ConversationSegmentedControl(
+                        selectedTab: $selectedTab,
+                        tabs: availableTabs,
+                        badgedTabs: badgedTabs
+                    )
+                }
             }
         }
         .overlay { messageContextMenuOverlay }
@@ -1497,6 +1512,7 @@ private extension ConversationView {
                 session: agentDmSession,
                 profileSettingsViewModel: profileSettingsViewModel,
                 extraBottomInset: 0,
+                topContentInset: conversationChromeContentClearance,
                 connectionsEnabled: composerConnectionsEnabled,
                 onConnectionsTap: handleComposerConnectionsTap,
                 isReadOnly: effectiveReadOnly,
@@ -1563,7 +1579,7 @@ private extension ConversationView {
                 accessibilityIdentifier: "context-add-agent-button"
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.top, ConversationChromeMetrics.contentClearance)
+            .padding(.top, conversationChromeContentClearance)
             .background {
                 ZStack {
                     Color.colorBackgroundSurfaceless

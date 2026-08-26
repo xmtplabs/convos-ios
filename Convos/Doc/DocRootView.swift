@@ -31,7 +31,9 @@ struct DocRootView: View {
 
     var body: some View {
         Group {
-            if viewModel.previewStage == .welcome ||
+            if viewModel.previewStage == .transcript {
+                DocTranscriptChromePreview()
+            } else if viewModel.previewStage == .welcome ||
                 (viewModel.previewStage == nil && !viewModel.hasCompletedWelcome) {
                 DocWelcomeView {
                     if reduceMotion {
@@ -113,6 +115,53 @@ struct DocRootView: View {
     }
 }
 
+private struct DocTranscriptChromePreview: View {
+    @State private var conversationViewModel: ConversationViewModel = makeDocTranscriptPreviewViewModel()
+    @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
+    @State private var profileSettingsViewModel: ProfileSettingsViewModel = .shared
+    @State private var sidebarColumnWidth: CGFloat = 0
+
+    var body: some View {
+        ConversationPresenter(
+            viewModel: conversationViewModel,
+            focusCoordinator: focusCoordinator,
+            insetsTopSafeArea: true,
+            sidebarColumnWidth: $sidebarColumnWidth
+        ) { focusBinding, coordinator in
+            ConversationView(
+                viewModel: conversationViewModel,
+                profileSettingsViewModel: profileSettingsViewModel,
+                focusState: focusBinding,
+                focusCoordinator: coordinator,
+                onScanInviteCode: {},
+                onDeleteConversation: {},
+                messagesTopBarTrailingItem: .share,
+                messagesTopBarTrailingItemEnabled: false,
+                messagesTextFieldEnabled: false,
+                bottomBarContent: { EmptyView() }
+            )
+        }
+        .accessibilityIdentifier("doc-transcript-preview")
+    }
+}
+
+@MainActor
+private func makeDocTranscriptPreviewViewModel() -> ConversationViewModel {
+    let conversation = Conversation.mock(
+        name: "Preview group",
+        members: [
+            .mock(isCurrentUser: true),
+            .mock(name: "Sara"),
+            .mock(name: "Doc", isAgent: true, agentVerification: .verified(.convos)),
+        ]
+    )
+    return ConversationViewModel(
+        conversation: conversation,
+        session: MockInboxesService(),
+        messagingService: MockMessagingService()
+    )
+}
+
 private struct DocWelcomeView: View {
     let onContinue: () -> Void
 
@@ -188,8 +237,8 @@ private struct DocHomeView: View {
                 .docHomeRow()
             }
 
-            if !viewModel.docs.isEmpty, let line = viewModel.contributionLine {
-                DocContributionLine(number: line, onShare: viewModel.presentContributionLine)
+            if !viewModel.docs.isEmpty {
+                DocContributionLine(number: viewModel.contributionLine, onShare: viewModel.presentContributionLine)
                     .docHomeRow()
             }
 
@@ -218,8 +267,8 @@ private struct DocHomeView: View {
                 }
             }
 
-            if viewModel.docs.isEmpty, let line = viewModel.contributionLine {
-                DocContributionLine(number: line, onShare: viewModel.presentContributionLine)
+            if viewModel.docs.isEmpty {
+                DocContributionLine(number: viewModel.contributionLine, onShare: viewModel.presentContributionLine)
                     .docHomeRow()
             }
         }
@@ -415,7 +464,7 @@ private struct DocEmptyState: View {
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(.colorTextPrimary)
                 .multilineTextAlignment(.center)
-            Text(isPreparing ? "Doc is getting ready. You can choose screenshots now." : "Choose one or more screenshots below to start your first doc.")
+            Text(emptyStateDescription)
                 .font(.body)
                 .foregroundStyle(.colorTextSecondary)
                 .multilineTextAlignment(.center)
@@ -425,6 +474,13 @@ private struct DocEmptyState: View {
         .padding(.horizontal, DesignConstants.Spacing.step5x)
         .frame(maxWidth: .infinity)
         .accessibilityIdentifier("doc-empty-state")
+    }
+
+    private var emptyStateDescription: String {
+        if isPreparing {
+            return "I'm getting ready. Share screenshots here to start, or add @doc to the group directly."
+        }
+        return "Share screenshots here to start, or add @doc to the group directly. Screenshots first works best: share the doc, then add me once it looks right."
     }
 }
 

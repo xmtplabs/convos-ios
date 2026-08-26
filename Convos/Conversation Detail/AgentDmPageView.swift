@@ -22,6 +22,7 @@ struct AgentDmPageView: View {
     /// Owned by ConversationView, which keeps it fed with the sheet's
     /// measured height.
     let extraBottomInset: CGFloat
+    var topContentInset: CGFloat = ConversationChromeMetrics.contentClearance
     /// Host gate for the composer `+` menu's Connections row.
     var connectionsEnabled: Bool = false
     /// Presents the host's Connections browser, scoped to this DM.
@@ -210,7 +211,7 @@ struct AgentDmPageView: View {
         // reader can see rather than behind the segmented control. The
         // background sits outside the inset, so the dark surface still fills
         // the whole page.
-        .padding(.top, ConversationChromeMetrics.contentClearance)
+        .padding(.top, topContentInset)
         .padding(.bottom, extraBottomInset)
         .background(.colorBackgroundSurfaceless)
     }
@@ -231,7 +232,7 @@ struct AgentDmPageView: View {
         // reader can see rather than behind the segmented control. The
         // background sits outside the inset, so the dark surface still fills
         // the whole page.
-        .padding(.top, ConversationChromeMetrics.contentClearance)
+        .padding(.top, topContentInset)
         .padding(.bottom, extraBottomInset)
         .background(.colorBackgroundSurfaceless)
         .task(id: isPreparing) {
@@ -410,7 +411,7 @@ struct AgentDmPageView: View {
             extraBottomInset: extraBottomInset,
             // Clearance for the conversation's floating top chrome, matching
             // the group transcript.
-            topContentInset: ConversationChromeMetrics.contentClearance,
+            topContentInset: topContentInset,
             // Same reason as the group transcript: the controller only adjusts
             // for safe area and tracks the keyboard when it owns its bottom bar.
             hostsBottomBar: true,

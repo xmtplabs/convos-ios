@@ -101,4 +101,14 @@ final class ConversationInitialTabTests: XCTestCase {
         XCTAssertEqual(ConversationTab.agent.title, "Agent")
         XCTAssertEqual(ConversationTab.context.title, "Things")
     }
+
+    func testDocModeHidesGroupAndThingsTabs() {
+        let tabs = ConversationTab.presentationTabs(docModeEnabled: true)
+
+        XCTAssertEqual(tabs, [.agent])
+        XCTAssertEqual(
+            ConversationTab.initial(available: tabs, agentDmRequested: false),
+            .agent
+        )
+    }
 }

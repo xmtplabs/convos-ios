@@ -50,6 +50,10 @@ enum ConversationChromeMetrics {
     static let contentClearance: CGFloat =
         capsuleRowHeight + capsuleControlSpacing + controlHeight + controlBottomPadding
 
+    /// Clearance for the Doc transcript identity pill when the segmented
+    /// conversation control is intentionally absent.
+    static let identityContentClearance: CGFloat = capsuleRowHeight + controlBottomPadding
+
     /// What the segmented control alone adds, for the transcripts.
     ///
     /// Deliberately not `contentClearance`. The chat transcript already keeps
@@ -65,10 +69,18 @@ enum ConversationChromeMetrics {
         topSafeAreaInset + capsuleRowHeight + capsuleControlSpacing + controlHeight
     }
 
+    static func chromeBottom(topSafeAreaInset: CGFloat, showsSegmentedControl: Bool) -> CGFloat {
+        guard showsSegmentedControl else { return topSafeAreaInset + capsuleRowHeight }
+        return controlBottom(topSafeAreaInset: topSafeAreaInset)
+    }
+
     /// Everything the scrim covers: the chrome down to the control, plus the
     /// ramp that fades out below it.
-    static func scrimHeight(topSafeAreaInset: CGFloat) -> CGFloat {
-        controlBottom(topSafeAreaInset: topSafeAreaInset) + scrimRampLength
+    static func scrimHeight(topSafeAreaInset: CGFloat, showsSegmentedControl: Bool = true) -> CGFloat {
+        chromeBottom(
+            topSafeAreaInset: topSafeAreaInset,
+            showsSegmentedControl: showsSegmentedControl
+        ) + scrimRampLength
     }
 }
 
@@ -127,10 +139,12 @@ struct ConversationTopChrome<Control: View>: View {
 struct ConversationChromeScrim: View {
     /// The window's top safe area, matching the value the chrome lays out to.
     var topSafeAreaInset: CGFloat
+    var showsSegmentedControl: Bool = true
 
     var body: some View {
         let height: CGFloat = ConversationChromeMetrics.scrimHeight(
-            topSafeAreaInset: topSafeAreaInset
+            topSafeAreaInset: topSafeAreaInset,
+            showsSegmentedControl: showsSegmentedControl
         )
         let hold: CGFloat = holdFraction(in: height)
         let tintBase: Color = .colorBackgroundSurfaceless
@@ -167,10 +181,11 @@ struct ConversationChromeScrim: View {
     /// height: the control's bottom edge.
     private func holdFraction(in height: CGFloat) -> CGFloat {
         guard height > 0 else { return 0.0 }
-        let controlBottom: CGFloat = ConversationChromeMetrics.controlBottom(
-            topSafeAreaInset: topSafeAreaInset
+        let chromeBottom: CGFloat = ConversationChromeMetrics.chromeBottom(
+            topSafeAreaInset: topSafeAreaInset,
+            showsSegmentedControl: showsSegmentedControl
         )
-        return min(max(controlBottom / height, 0.0), 1.0)
+        return min(max(chromeBottom / height, 0.0), 1.0)
     }
 }
 

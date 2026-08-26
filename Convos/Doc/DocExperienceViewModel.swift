@@ -39,6 +39,7 @@ enum DocPreviewStage: String {
     case finishRoom
     case finishDraft
     case notDocAgent
+    case transcript
 
     static var current: DocPreviewStage? {
         let arguments = ProcessInfo.processInfo.arguments
@@ -219,7 +220,7 @@ final class DocExperienceViewModel {
                 )
             }
             if previewStage == .share {
-                sharedDocNumber = Self.previewNumber
+                sharedDocNumber = DocPreviewConfiguration.contributionLine
                 isPresentingShareNumber = true
             }
             if [.draftSheet, .finishDraft].contains(previewStage) {
@@ -1037,12 +1038,8 @@ private extension DocExperienceViewModel {
 }
 
 extension DocExperienceViewModel {
-    var contributionLine: String? {
-        guard let line = state?.line?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !line.isEmpty else {
-            return nil
-        }
-        return line
+    var contributionLine: String {
+        DocContributionLinePolicy.number(stateLine: state?.line)
     }
 
     var shareText: String? {
@@ -1051,7 +1048,6 @@ extension DocExperienceViewModel {
     }
 
     func presentContributionLine() {
-        guard let contributionLine else { return }
         sharedDocNumber = contributionLine
         isPresentingShareNumber = true
     }

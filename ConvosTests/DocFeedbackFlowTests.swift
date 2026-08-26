@@ -6,6 +6,27 @@ import UIKit
 
 @MainActor
 struct DocFeedbackFlowTests {
+    @Test("null-state home always has the Doc preview contribution line")
+    func nullStateHomeHasContributionLine() throws {
+        let suiteName = "DocContributionLineTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let viewModel = DocExperienceViewModel(
+            session: MockInboxesService(),
+            coreActions: NoOpCoreActions(),
+            defaults: defaults
+        )
+
+        #expect(viewModel.docs.isEmpty)
+        #expect(viewModel.contributionLine == DocPreviewConfiguration.contributionLine)
+        #expect(docDisplayPhoneNumber(viewModel.contributionLine) == "+1 (628) 309-5734")
+    }
+
+    @Test("snapshot contribution line overrides the preview line")
+    func snapshotContributionLineOverridesPreviewLine() {
+        #expect(DocContributionLinePolicy.number(stateLine: "+14155550100") == "+14155550100")
+    }
+
     @Test("authorized Doc storage resumes after a registering launch")
     func authorizedStorageRestoresRelaunchWithoutReprovisioning() async throws {
         let suiteName = "DocAuthorizedStorageTests.\(UUID().uuidString)"

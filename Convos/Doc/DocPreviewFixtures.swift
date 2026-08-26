@@ -108,7 +108,7 @@ extension DocExperienceViewModel {
 
     static var previewState: DocState {
         let now = Date()
-        return DocState(line: previewNumber, docs: [
+        return DocState(line: DocPreviewConfiguration.contributionLine, docs: [
             DocStatus(
                 id: "tahoe-trip",
                 name: "Tahoe Trip",
@@ -121,7 +121,7 @@ extension DocExperienceViewModel {
                 ),
                 binding: DocBinding(
                     state: .live,
-                    number: previewNumber,
+                    number: DocPreviewConfiguration.contributionLine,
                     group: "Tahoe Weekend"
                 ),
                 dates: "Dec 12–15",
@@ -137,7 +137,7 @@ extension DocExperienceViewModel {
                     what: "checked off paint samples",
                     at: now.addingTimeInterval(-3 * 60 * 60)
                 ),
-                binding: DocBinding(state: .none, number: previewNumber),
+                binding: DocBinding(state: .none, number: DocPreviewConfiguration.contributionLine),
                 people: 4
             ),
         ])
@@ -186,6 +186,4 @@ extension DocExperienceViewModel {
             ),
         ]
     }
-
-    static let previewNumber: String = "+16285550123"
 }
