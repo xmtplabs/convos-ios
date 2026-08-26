@@ -8,6 +8,7 @@ struct DocRoomView: View {
     let initialDoc: DocStatus
 
     @State private var isReaderPresented: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
 
     init(viewModel: DocExperienceViewModel, initialDoc: DocStatus) {
         self.viewModel = viewModel
@@ -29,13 +30,25 @@ struct DocRoomView: View {
 
     var body: some View {
         List {
+            if dynamicTypeSize.isAccessibilitySize {
+                Text(freshnessLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .docRoomRow()
+            }
+
             DocActivationView(doc: doc) {
                 viewModel.presentShareNumber(for: doc)
             }
             .docRoomRow()
 
             if !forYouItems.isEmpty {
-                DocForYouSection(viewModel: viewModel, items: forYouItems)
+                DocForYouSection(
+                    viewModel: viewModel,
+                    items: forYouItems,
+                    composerScope: .room(doc.id)
+                )
             }
 
             Section {
@@ -82,6 +95,7 @@ struct DocRoomView: View {
             }
         }
         .listStyle(.plain)
+        .scrollDismissesKeyboard(.interactively)
         .scrollContentBackground(.hidden)
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)
@@ -90,11 +104,13 @@ struct DocRoomView: View {
                 VStack(spacing: 1.0) {
                     Text(doc.name)
                         .font(.headline)
-                        .lineLimit(1)
-                    Text(freshnessLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                    if !dynamicTypeSize.isAccessibilitySize {
+                        Text(freshnessLine)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 .accessibilityElement(children: .combine)
             }
@@ -196,14 +212,15 @@ private struct DocChangesLedger: View {
             } else {
                 ForEach(Array(changes.enumerated()), id: \.offset) { index, change in
                     if index > 0 { Divider().padding(.leading, DesignConstants.Spacing.step4x) }
-                    HStack(alignment: .firstTextBaseline, spacing: DesignConstants.Spacing.step3x) {
-                        Text("\(change.who) \(change.what)")
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(docCompactRelativeTime(from: change.at))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: DesignConstants.Spacing.step3x) {
+                            changeDescription(change)
+                            relativeTime(change)
+                        }
+                        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                            changeDescription(change)
+                            relativeTime(change)
+                        }
                     }
                     .padding(DesignConstants.Spacing.step4x)
                 }
@@ -215,20 +232,44 @@ private struct DocChangesLedger: View {
         )
         .accessibilityIdentifier("doc-room-history")
     }
+
+    private func changeDescription(_ change: DocLastChange) -> some View {
+        Text("\(change.who) \(change.what)")
+            .font(.subheadline)
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func relativeTime(_ change: DocLastChange) -> some View {
+        Text(docCompactRelativeTime(from: change.at))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
 }
 
 private struct DocScopedComposer: View {
     @Bindable var viewModel: DocExperienceViewModel
     let doc: DocStatus
 
-    @State private var text: String = ""
     @State private var isSending: Bool = false
     @State private var didFail: Bool = false
-    @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
-    @FocusState private var focus: MessagesViewInputFocus?
+    @FocusState private var isFocused: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
 
-    private var pendingAttachments: [PendingMediaAttachment] {
-        viewModel.dmViewModel?.pendingMediaAttachments ?? []
+    private var scope: DocComposerScope {
+        .room(doc.id)
+    }
+
+    private var text: Binding<String> {
+        Binding(
+            get: { viewModel.composerText(in: scope) },
+            set: { viewModel.setComposerText($0, in: scope) }
+        )
+    }
+
+    private var pendingPhotos: [DocPendingPhoto] {
+        viewModel.pendingPhotos(in: scope)
     }
 
     var body: some View {
@@ -239,87 +280,98 @@ private struct DocScopedComposer: View {
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("doc-room-send-error")
             }
-            if !pendingAttachments.isEmpty {
+            if !pendingPhotos.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
-                        ForEach(pendingAttachments) { attachment in
-                            DocAttachmentThumbnail(attachment: attachment) {
-                                viewModel.dmViewModel?.removeMediaAttachment(id: attachment.id)
+                        ForEach(pendingPhotos) { photo in
+                            DocPhotoDraftThumbnail(photo: photo) {
+                                viewModel.removePendingPhoto(id: photo.id, in: scope)
                             }
                         }
                     }
                 }
             }
-            HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
-                TextField("Tell Doc about this doc…", text: $text, axis: .vertical)
-                    .lineLimit(1...5)
-                    .textFieldStyle(.plain)
-                    .focused($focus, equals: .message)
-                    .padding(.horizontal, DesignConstants.Spacing.step3x)
-                    .frame(minHeight: 44.0)
-                    .background(
-                        Color(uiColor: .tertiarySystemFill),
-                        in: RoundedRectangle(cornerRadius: 18.0)
-                    )
-                    .submitLabel(.send)
-                    .onSubmit(send)
-                    .accessibilityIdentifier("doc-room-message-field")
-                Button(action: send) {
-                    if isSending {
-                        ProgressView()
-                            .frame(width: 44.0, height: 44.0)
-                    } else {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 32.0))
-                            .frame(width: 44.0, height: 44.0)
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: DesignConstants.Spacing.step2x) {
+                    messageField
+                    HStack {
+                        Spacer(minLength: 0)
+                        sendButton
                     }
                 }
-                .disabled(!canSend)
-                .accessibilityLabel("Send")
-                .accessibilityIdentifier("doc-room-send")
+            } else {
+                HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
+                    messageField
+                    sendButton
+                }
             }
         }
         .padding(.horizontal, DesignConstants.Spacing.step3x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .background(.regularMaterial)
         .overlay(alignment: .top) { Divider() }
-        .focusCoordinatorSync(
-            focusState: $focus,
-            coordinator: focusCoordinator,
-            resetToken: viewModel.dmViewModel?.conversation.id
-        )
     }
 
     private var cleanText: String {
-        text.trimmingCharacters(in: .whitespacesAndNewlines)
+        viewModel.composerText(in: scope).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var canSend: Bool {
-        (!cleanText.isEmpty || !pendingAttachments.isEmpty) &&
+        (!cleanText.isEmpty || !pendingPhotos.isEmpty) &&
             !isSending &&
             viewModel.isDmReadyForDisplay
     }
 
-    private func send() {
-        let instruction = cleanText
-        guard canSend else { return }
-        if !pendingAttachments.isEmpty, let dmViewModel = viewModel.dmViewModel {
-            dmViewModel.messageText = instruction.isEmpty ? "\(doc.name):" : "\(doc.name): \(instruction)"
-            let screenshotCount = pendingAttachments.count
-            dmViewModel.onSendMessage(focusCoordinator: focusCoordinator)
-            viewModel.didSend(screenshotCount: screenshotCount)
-            text = ""
-            return
+    private var messageField: some View {
+        ZStack(alignment: .leading) {
+            if text.wrappedValue.isEmpty {
+                Text("Tell Doc about this doc…")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .allowsHitTesting(false)
+            }
+            TextField("", text: text, axis: .vertical)
+                .lineLimit(1...5)
+                .textFieldStyle(.plain)
+                .focused($isFocused)
         }
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .frame(minHeight: 44.0)
+        .background(
+            Color(uiColor: .tertiarySystemFill),
+            in: RoundedRectangle(cornerRadius: 18.0)
+        )
+            .disabled(isSending)
+            .submitLabel(.send)
+            .onSubmit(send)
+            .accessibilityLabel("Tell Doc about this doc")
+            .accessibilityIdentifier("doc-room-message-field")
+    }
+
+    private var sendButton: some View {
+        Button(action: send) {
+            if isSending {
+                ProgressView()
+                    .frame(width: 44.0, height: 44.0)
+            } else {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 32.0))
+                    .frame(width: 44.0, height: 44.0)
+            }
+        }
+        .disabled(!canSend)
+        .accessibilityLabel("Send")
+        .accessibilityIdentifier("doc-room-send")
+    }
+
+    private func send() {
+        guard canSend else { return }
         isSending = true
         didFail = false
         Task { @MainActor in
-            let sent = await viewModel.sendScopedInstruction(instruction, for: doc)
-            if sent {
-                text = ""
-            } else {
-                didFail = true
-            }
+            let sent = await viewModel.sendComposerDraft(in: scope, doc: doc)
+            didFail = !sent
             isSending = false
         }
     }

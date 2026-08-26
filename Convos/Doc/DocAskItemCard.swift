@@ -16,6 +16,7 @@ struct DocAskItemCard: View {
 
     @State private var answerText: String = ""
     @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var isPhotoPickerPresented: Bool = false
 
     var body: some View {
         DocItemCardContainer(itemId: item.id) {
@@ -36,6 +37,15 @@ struct DocAskItemCard: View {
         }
         .onChange(of: selectedPhotos) { _, photos in
             load(photos)
+        }
+        .photosPicker(
+            isPresented: $isPhotoPickerPresented,
+            selection: $selectedPhotos,
+            maxSelectionCount: maxPendingMediaAttachments,
+            matching: .images
+        )
+        .accessibilityActions {
+            voiceOverActions
         }
         .accessibilityIdentifier("doc-ask-" + item.id)
     }
@@ -76,12 +86,9 @@ struct DocAskItemCard: View {
                 .frame(minHeight: 44.0)
                 .disabled(!actionsAreEnabled)
         case .catchup:
-            PhotosPicker(
-                selection: $selectedPhotos,
-                maxSelectionCount: maxPendingMediaAttachments,
-                matching: .images,
-                photoLibrary: .shared()
-            ) {
+            Button {
+                isPhotoPickerPresented = true
+            } label: {
                 Label("Choose screenshots", systemImage: "photo.on.rectangle.angled")
                     .frame(minHeight: 44.0)
             }
@@ -113,6 +120,44 @@ struct DocAskItemCard: View {
 
     private var actionsAreEnabled: Bool {
         isEnabled && sendState == nil
+    }
+
+    @ViewBuilder
+    private var voiceOverActions: some View {
+        switch item.kind {
+        case .bindGroup:
+            Button("Share Doc's number") {
+                guard actionsAreEnabled else { return }
+                onShareNumber()
+            }
+        case .catchup:
+            Button("Choose screenshots") {
+                guard actionsAreEnabled else { return }
+                isPhotoPickerPresented = true
+            }
+        case .staleCheck:
+            ForEach(
+                item.chips.isEmpty ? ["Keep active", "Pause", "Archive"] : item.chips,
+                id: \.self
+            ) { chip in
+                Button("Answer \(chip)") {
+                    guard actionsAreEnabled else { return }
+                    onAnswer(.choice(chip))
+                }
+            }
+        case .nameContributors:
+            Button("Name contributors") {
+                guard actionsAreEnabled else { return }
+                activeAnswerItemId = item.id
+            }
+        default:
+            EmptyView()
+        }
+
+        Button("Dismiss") {
+            guard actionsAreEnabled else { return }
+            onAnswer(.action(.discard, edited: nil))
+        }
     }
 
     private var kindTitle: String {

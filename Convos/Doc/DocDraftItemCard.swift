@@ -27,6 +27,18 @@ struct DocDraftItemCard: View {
             guard actionsAreEnabled else { return }
             onOpen()
         }
+        .accessibilityAction(named: "Approve draft") {
+            guard actionsAreEnabled else { return }
+            onAnswer(.action(.approve, edited: nil))
+        }
+        .accessibilityAction(named: "Edit draft") {
+            guard actionsAreEnabled else { return }
+            onOpen()
+        }
+        .accessibilityAction(named: "Discard draft") {
+            guard actionsAreEnabled else { return }
+            onAnswer(.action(.discard, edited: nil))
+        }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 onAnswer(.action(.approve, edited: nil))

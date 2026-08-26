@@ -4,6 +4,7 @@ import SwiftUI
 struct DocForYouSection: View {
     @Bindable var viewModel: DocExperienceViewModel
     let items: [DocWaitingItem]
+    let composerScope: DocComposerScope
 
     @State private var isExpanded: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion: Bool
@@ -12,6 +13,7 @@ struct DocForYouSection: View {
         Section {
             ForEach(visibleItems) { item in
                 itemCard(for: item)
+                    .transition(DocMotion.itemTransition(reduceMotion: reduceMotion))
                     .listRowInsets(rowInsets)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -19,12 +21,8 @@ struct DocForYouSection: View {
 
             if hiddenCount > 0 || isExpanded {
                 Button {
-                    if reduceMotion {
+                    withAnimation(DocMotion.arrival(reduceMotion: reduceMotion)) {
                         isExpanded.toggle()
-                    } else {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isExpanded.toggle()
-                        }
                     }
                 } label: {
                     HStack {
@@ -50,6 +48,10 @@ struct DocForYouSection: View {
                 .textCase(nil)
                 .accessibilityAddTraits(.isHeader)
         }
+        .animation(
+            DocMotion.collapse(reduceMotion: reduceMotion),
+            value: visibleItems.map(\.id)
+        )
     }
 
     private var rankedItems: [DocWaitingItem] {
@@ -108,7 +110,7 @@ struct DocForYouSection: View {
                 onShareNumber: { viewModel.presentShareNumber(for: item) },
                 onAnswer: { viewModel.sendAnswer($0, for: item) },
                 onRetry: { viewModel.retryAnswer(for: item) },
-                onPhoto: { viewModel.dmViewModel?.addPhotoAttachment($0) }
+                onPhoto: { viewModel.addPendingPhoto($0, in: composerScope) }
             )
         }
     }

@@ -4,6 +4,22 @@ import ConvosCore
 import ConvosCoreiOS
 import ConvosMetrics
 import Foundation
+import UIKit
+
+enum DocComposerScope: Hashable {
+    case home
+    case room(String)
+}
+
+struct DocPendingPhoto: Identifiable {
+    let id: UUID
+    let image: UIImage
+
+    init(id: UUID = UUID(), image: UIImage) {
+        self.id = id
+        self.image = image
+    }
+}
 
 enum DocPreviewStage: String {
     case welcome
@@ -19,6 +35,9 @@ enum DocPreviewStage: String {
     case forYouRegisters
     case draftSheet
     case askSet
+    case finishHome
+    case finishRoom
+    case finishDraft
 
     static var current: DocPreviewStage? {
         let arguments = ProcessInfo.processInfo.arguments
@@ -51,6 +70,8 @@ final class DocExperienceViewModel {
     private(set) var docContentsById: [String: DocContent] = [:]
     private(set) var docContentLoadStates: [String: DocContentLoadState] = [:]
     private(set) var itemSendStates: [String: DocItemSendState] = [:]
+    private(set) var composerTexts: [DocComposerScope: String] = [:]
+    private(set) var composerPhotos: [DocComposerScope: [DocPendingPhoto]] = [:]
     private(set) var pendingScreenshotCount: Int = 0
     private(set) var isGoogleStatusLoaded: Bool = false
     private(set) var isGoogleDocsReady: Bool = false
@@ -101,16 +122,20 @@ final class DocExperienceViewModel {
                .forYouRegisters,
                .draftSheet,
                .askSet,
+               .finishHome,
+               .finishRoom,
+               .finishDraft,
            ].contains(previewStage) {
             state = Self.previewState
             if [.forYou, .roomBound, .docSheet].contains(previewStage) {
                 pendingItems = Self.previewItems
-            } else if [.forYouRegisters, .draftSheet].contains(previewStage) {
+            } else if [.forYouRegisters, .draftSheet, .finishHome, .finishRoom, .finishDraft]
+                .contains(previewStage) {
                 pendingItems = Self.previewRegisterItems
             } else if previewStage == .askSet {
                 pendingItems = Self.previewAskItems
             }
-            if [.roomBound, .docSheet].contains(previewStage) {
+            if [.roomBound, .docSheet, .finishRoom].contains(previewStage) {
                 docContentsById = Dictionary(
                     uniqueKeysWithValues: Self.previewContents.map { ($0.docId, $0) }
                 )
@@ -119,7 +144,7 @@ final class DocExperienceViewModel {
                 sharedDocNumber = Self.previewNumber
                 isPresentingShareNumber = true
             }
-            if previewStage == .draftSheet {
+            if [.draftSheet, .finishDraft].contains(previewStage) {
                 presentedDraftItem = pendingItems.first { $0.register == .draft }
             }
         } else if previewStage == nil,
@@ -157,7 +182,7 @@ final class DocExperienceViewModel {
         switch previewStage {
         case .roomUnbound:
             return docs.first { $0.binding.state == .none }
-        case .roomBound, .docSheet:
+        case .roomBound, .docSheet, .finishRoom:
             return docs.first { $0.binding.state == .live }
         default:
             return nil
@@ -268,6 +293,59 @@ final class DocExperienceViewModel {
         guard screenshotCount > 0 else { return }
         pendingScreenshotCount = screenshotCount
         stateMessageIdAtLastSend = latestStateMessageId
+    }
+
+    func composerText(in scope: DocComposerScope) -> String {
+        composerTexts[scope] ?? ""
+    }
+
+    func setComposerText(_ text: String, in scope: DocComposerScope) {
+        composerTexts[scope] = text
+    }
+
+    func pendingPhotos(in scope: DocComposerScope) -> [DocPendingPhoto] {
+        composerPhotos[scope] ?? []
+    }
+
+    func addPendingPhoto(_ image: UIImage, in scope: DocComposerScope) {
+        var photos = composerPhotos[scope] ?? []
+        guard photos.count < maxPendingMediaAttachments else { return }
+        photos.append(DocPendingPhoto(image: image))
+        composerPhotos[scope] = photos
+    }
+
+    func removePendingPhoto(id: UUID, in scope: DocComposerScope) {
+        composerPhotos[scope]?.removeAll { $0.id == id }
+    }
+
+    func sendComposerDraft(in scope: DocComposerScope, doc: DocStatus? = nil) async -> Bool {
+        guard let dmViewModel else { return false }
+        let cleanText = composerText(in: scope).trimmingCharacters(in: .whitespacesAndNewlines)
+        let photos = pendingPhotos(in: scope)
+        guard !cleanText.isEmpty || !photos.isEmpty else { return false }
+
+        let outgoingText: String? = if let doc {
+            cleanText.isEmpty ? "\(doc.name):" : "\(doc.name): \(cleanText)"
+        } else {
+            cleanText.isEmpty ? nil : cleanText
+        }
+        if !photos.isEmpty { didSend(screenshotCount: photos.count) }
+
+        do {
+            try await dmViewModel.sendDocComposerDraft(
+                text: outgoingText,
+                photos: photos.map(\.image)
+            )
+            composerTexts[scope] = nil
+            composerPhotos[scope] = nil
+            return true
+        } catch {
+            if !photos.isEmpty {
+                pendingScreenshotCount = 0
+                stateMessageIdAtLastSend = nil
+            }
+            return false
+        }
     }
 
     func presentShareNumber(for doc: DocStatus) {
@@ -479,14 +557,16 @@ final class DocExperienceViewModel {
                     pendingScreenshotCount = 0
                     stateMessageIdAtLastSend = nil
                 }
-            case .item(let item):
-                guard !resolvedItemIds.contains(item.id) else { continue }
-                pendingItems.removeAll { $0.id == item.id }
-                pendingItems.append(item)
-                changedSnapshot = true
-            case .itemResolved(let id):
-                resolveItem(id: id)
-                changedSnapshot = true
+            case .item, .itemResolved:
+                changedSnapshot = DocItemReconciler.apply(
+                    event,
+                    pendingItems: &pendingItems,
+                    resolvedItemIds: &resolvedItemIds
+                ) || changedSnapshot
+                if case .itemResolved(let id) = event {
+                    itemSendStates[id] = nil
+                    itemsNeedingHistoryReconciliation.remove(id)
+                }
             case .docContent(let content):
                 let cached = docContentsById[content.docId]
                 let accepted = cached.map { content.updatedAt >= $0.updatedAt } ?? true
@@ -626,5 +706,28 @@ final class DocExperienceViewModel {
         let pendingItems: [DocWaitingItem]
         let resolvedItemIds: [String]
         let docContents: [DocContent]?
+    }
+}
+
+enum DocItemReconciler {
+    @discardableResult
+    static func apply(
+        _ event: DocAgentEvent,
+        pendingItems: inout [DocWaitingItem],
+        resolvedItemIds: inout Set<String>
+    ) -> Bool {
+        switch event {
+        case .item(let item):
+            guard !resolvedItemIds.contains(item.id) else { return false }
+            pendingItems.removeAll { $0.id == item.id }
+            pendingItems.append(item)
+            return true
+        case .itemResolved(let id):
+            pendingItems.removeAll { $0.id == id }
+            resolvedItemIds.insert(id)
+            return true
+        case .state, .docContent:
+            return false
+        }
     }
 }

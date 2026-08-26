@@ -109,7 +109,7 @@ struct DocRootView: View {
         .sheet(item: $viewModel.presentedDraftItem) { item in
             DocDraftSheet(
                 item: item,
-                startsEdited: viewModel.previewStage == .draftSheet,
+                startsEdited: [.draftSheet, .finishDraft].contains(viewModel.previewStage),
                 isEnabled: viewModel.isDmReadyForDisplay && viewModel.sendState(for: item) == nil
             ) { answer in
                 viewModel.sendAnswer(answer, for: item)
@@ -210,7 +210,8 @@ private struct DocHomeView: View {
             if !viewModel.visiblePendingItems.isEmpty {
                 DocForYouSection(
                     viewModel: viewModel,
-                    items: viewModel.visiblePendingItems
+                    items: viewModel.visiblePendingItems,
+                    composerScope: .home
                 )
             }
 
@@ -224,16 +225,15 @@ private struct DocHomeView: View {
                         onShare: { viewModel.presentShareNumber(for: doc) }
                     )
                     .docHomeRow()
-                    .transition(
-                        .opacity.combined(with: .move(edge: reduceMotion ? .bottom : .top))
-                    )
+                    .transition(DocMotion.docArrival(reduceMotion: reduceMotion))
                 }
             }
         }
         .listStyle(.plain)
+        .scrollDismissesKeyboard(.interactively)
         .scrollContentBackground(.hidden)
         .animation(
-            reduceMotion ? nil : .easeOut(duration: 0.3),
+            DocMotion.arrival(reduceMotion: reduceMotion),
             value: viewModel.docs.map(\.id)
         )
         .background(Color(uiColor: .systemGroupedBackground))
@@ -273,8 +273,28 @@ private extension View {
 
 private struct DocGoogleConnectCard: View {
     let onConnect: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
 
     var body: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+                    label
+                    connectButton
+                }
+            } else {
+                HStack(alignment: .center, spacing: DesignConstants.Spacing.step3x) {
+                    label
+                    connectButton
+                }
+            }
+        }
+        .padding(DesignConstants.Spacing.step3x)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14.0))
+        .accessibilityIdentifier("doc-google-connect-card")
+    }
+
+    private var label: some View {
         HStack(alignment: .center, spacing: DesignConstants.Spacing.step3x) {
             Image(systemName: "doc.text")
                 .font(.title3)
@@ -289,14 +309,14 @@ private struct DocGoogleConnectCard: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Button("Connect", action: onConnect)
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .frame(minHeight: 44.0)
         }
-        .padding(DesignConstants.Spacing.step3x)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14.0))
-        .accessibilityIdentifier("doc-google-connect-card")
+    }
+
+    private var connectButton: some View {
+        Button("Connect", action: onConnect)
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .frame(minHeight: 44.0)
     }
 }
 
@@ -447,29 +467,22 @@ private struct DocStatusCard: View {
 private struct DocComposer: View {
     @Bindable var viewModel: DocExperienceViewModel
     @State private var selectedPhotos: [PhotosPickerItem] = []
-    @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: .compact)
-    @FocusState private var focus: MessagesViewInputFocus?
+    @State private var isSending: Bool = false
+    @State private var didFail: Bool = false
+    @FocusState private var isFocused: Bool
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
 
-    private var dmViewModel: ConversationViewModel? {
-        viewModel.dmViewModel
-    }
+    private let scope: DocComposerScope = .home
 
     private var messageText: Binding<String> {
         Binding(
-            get: { dmViewModel?.messageText ?? "" },
-            set: { dmViewModel?.messageText = $0 }
+            get: { viewModel.composerText(in: scope) },
+            set: { viewModel.setComposerText($0, in: scope) }
         )
     }
 
-    private var pendingAttachments: [PendingMediaAttachment] {
-        dmViewModel?.pendingMediaAttachments ?? []
-    }
-
-    private var pendingPhotoCount: Int {
-        pendingAttachments.reduce(into: 0) { count, attachment in
-            if case .photo = attachment { count += 1 }
-        }
+    private var pendingPhotos: [DocPendingPhoto] {
+        viewModel.pendingPhotos(in: scope)
     }
 
     var body: some View {
@@ -489,12 +502,20 @@ private struct DocComposer: View {
                 .accessibilityIdentifier("doc-reading-progress")
             }
 
-            if !pendingAttachments.isEmpty {
+            if didFail {
+                Text("Couldn't send. Try again.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("doc-send-error")
+            }
+
+            if !pendingPhotos.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
-                        ForEach(pendingAttachments) { attachment in
-                            DocAttachmentThumbnail(attachment: attachment) {
-                                dmViewModel?.removeMediaAttachment(id: attachment.id)
+                        ForEach(pendingPhotos) { photo in
+                            DocPhotoDraftThumbnail(photo: photo) {
+                                viewModel.removePendingPhoto(id: photo.id, in: scope)
                             }
                         }
                     }
@@ -525,11 +546,6 @@ private struct DocComposer: View {
         .padding(.bottom, DesignConstants.Spacing.step2x)
         .background(.regularMaterial)
         .overlay(alignment: .top) { Divider() }
-        .focusCoordinatorSync(
-            focusState: $focus,
-            coordinator: focusCoordinator,
-            resetToken: dmViewModel?.conversation.id
-        )
         .onChange(of: selectedPhotos) { _, photos in
             load(photos)
         }
@@ -555,7 +571,7 @@ private struct DocComposer: View {
     private var photoPicker: some View {
         PhotosPicker(
             selection: $selectedPhotos,
-            maxSelectionCount: max(1, maxPendingMediaAttachments - pendingAttachments.count),
+            maxSelectionCount: max(1, maxPendingMediaAttachments - pendingPhotos.count),
             matching: .images,
             photoLibrary: .shared()
         ) {
@@ -563,45 +579,66 @@ private struct DocComposer: View {
                 .font(.system(size: 20.0))
                 .frame(width: 44.0, height: 44.0)
         }
-        .disabled(!viewModel.isDmReadyForDisplay || pendingAttachments.count >= maxPendingMediaAttachments)
+        .disabled(!viewModel.isDmReadyForDisplay || pendingPhotos.count >= maxPendingMediaAttachments || isSending)
         .accessibilityLabel("Choose screenshots")
         .accessibilityIdentifier("doc-photo-picker")
     }
 
     private var messageField: some View {
-        TextField(
-            viewModel.isDmReadyForDisplay ? "Add screenshots or tell Doc…" : "Preparing Doc…",
-            text: messageText,
-            axis: .vertical
-        )
-        .lineLimit(1...5)
-        .textFieldStyle(.plain)
-        .focused($focus, equals: .message)
+        ZStack(alignment: .leading) {
+            if messageText.wrappedValue.isEmpty {
+                Text(viewModel.isDmReadyForDisplay ? "Add screenshots or tell Doc…" : "Preparing Doc…")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .allowsHitTesting(false)
+            }
+            TextField("", text: messageText, axis: .vertical)
+                .lineLimit(1...5)
+                .textFieldStyle(.plain)
+                .focused($isFocused)
+        }
         .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
         .frame(minHeight: 44.0)
         .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 18.0))
-        .disabled(!viewModel.isDmReadyForDisplay)
+        .disabled(!viewModel.isDmReadyForDisplay || isSending)
         .submitLabel(.send)
         .onSubmit(send)
+        .accessibilityLabel(viewModel.isDmReadyForDisplay ? "Add screenshots or tell Doc" : "Preparing Doc")
         .accessibilityIdentifier("doc-message-field")
     }
 
     private var sendButton: some View {
         Button(action: send) {
-            Image(systemName: "arrow.up.circle.fill")
-                .font(.system(size: 32.0))
-                .frame(width: 44.0, height: 44.0)
+            if isSending {
+                ProgressView()
+                    .frame(width: 44.0, height: 44.0)
+            } else {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 32.0))
+                    .frame(width: 44.0, height: 44.0)
+            }
         }
-        .disabled(dmViewModel?.sendButtonEnabled != true)
+        .disabled(!canSend)
         .accessibilityLabel("Send")
         .accessibilityIdentifier("doc-send")
     }
 
+    private var canSend: Bool {
+        let cleanText = viewModel.composerText(in: scope)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return viewModel.isDmReadyForDisplay && !isSending && (!cleanText.isEmpty || !pendingPhotos.isEmpty)
+    }
+
     private func send() {
-        guard let dmViewModel, dmViewModel.sendButtonEnabled else { return }
-        let screenshotCount = pendingPhotoCount
-        dmViewModel.onSendMessage(focusCoordinator: focusCoordinator)
-        viewModel.didSend(screenshotCount: screenshotCount)
+        guard canSend else { return }
+        isSending = true
+        didFail = false
+        Task { @MainActor in
+            let sent = await viewModel.sendComposerDraft(in: scope)
+            didFail = !sent
+            isSending = false
+        }
     }
 
     private func load(_ photos: [PhotosPickerItem]) {
@@ -613,40 +650,23 @@ private struct DocComposer: View {
                       let image = UIImage(data: data) else {
                     continue
                 }
-                dmViewModel?.addPhotoAttachment(image)
+                viewModel.addPendingPhoto(image, in: scope)
             }
         }
     }
 }
 
-struct DocAttachmentThumbnail: View {
-    let attachment: PendingMediaAttachment
+struct DocPhotoDraftThumbnail: View {
+    let photo: DocPendingPhoto
     let onRemove: () -> Void
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            Group {
-                switch attachment {
-                case .photo(let photo):
-                    Image(uiImage: photo.image)
-                        .resizable()
-                        .scaledToFill()
-                case .video(let video):
-                    if let thumbnail = video.thumbnail {
-                        Image(uiImage: thumbnail)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        Color.secondary.opacity(0.12)
-                    }
-                case .file:
-                    Image(systemName: "doc.fill")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.secondary.opacity(0.12))
-                }
-            }
-            .frame(width: 64.0, height: 64.0)
-            .clipShape(RoundedRectangle(cornerRadius: 12.0))
+            Image(uiImage: photo.image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 64.0, height: 64.0)
+                .clipShape(RoundedRectangle(cornerRadius: 12.0))
 
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")

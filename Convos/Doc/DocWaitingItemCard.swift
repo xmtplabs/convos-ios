@@ -1,6 +1,30 @@
 import ConvosCore
 import SwiftUI
 
+enum DocMotion {
+    static func arrival(reduceMotion: Bool) -> Animation {
+        reduceMotion
+            ? .easeOut(duration: 0.16)
+            : .timingCurve(0.16, 1.0, 0.3, 1.0, duration: 0.32)
+    }
+
+    static func collapse(reduceMotion: Bool) -> Animation {
+        reduceMotion
+            ? .easeOut(duration: 0.16)
+            : .spring(duration: 0.34, bounce: 0.12)
+    }
+
+    static func itemTransition(reduceMotion: Bool) -> AnyTransition {
+        if reduceMotion { return .opacity }
+        return .opacity.combined(with: .offset(y: -8.0))
+    }
+
+    static func docArrival(reduceMotion: Bool) -> AnyTransition {
+        if reduceMotion { return .opacity }
+        return .opacity.combined(with: .offset(y: -10.0))
+    }
+}
+
 struct DocWaitingItemCard: View {
     let item: DocWaitingItem
     let sendState: DocItemSendState?
@@ -17,6 +41,18 @@ struct DocWaitingItemCard: View {
                 DocItemResolvingView(label: "Answer sent")
             } else {
                 content
+            }
+        }
+        .accessibilityActions {
+            ForEach(item.chips, id: \.self) { chip in
+                Button("Answer \(chip)") {
+                    guard actionsAreEnabled else { return }
+                    onAnswer(.choice(chip))
+                }
+            }
+            Button("Write answer") {
+                guard actionsAreEnabled else { return }
+                activeAnswerItemId = item.id
             }
         }
         .accessibilityIdentifier("doc-waiting-\(item.id)")
@@ -201,6 +237,7 @@ struct DocItemCardContainer<Content: View>: View {
 
 struct DocItemResolvingView: View {
     let label: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion: Bool
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
@@ -212,7 +249,7 @@ struct DocItemResolvingView: View {
             Spacer(minLength: 0)
         }
         .padding(DesignConstants.Spacing.step4x)
-        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        .transition(DocMotion.itemTransition(reduceMotion: reduceMotion))
     }
 }
 
