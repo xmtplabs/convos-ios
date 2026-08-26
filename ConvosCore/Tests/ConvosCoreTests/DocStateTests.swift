@@ -60,8 +60,42 @@ struct DocStateTests {
     @Test("ignores invalid waiting item envelopes")
     func ignoresInvalidWaitingItems() {
         #expect(DocStateMessage.parseEvent(#"⟦doc⟧{"v":1,"t":"item","item":{"id":"1","register":"done","kind":"question","headline":"H","context":"C","createdAt":1}}"#) == nil)
-        #expect(DocStateMessage.parseEvent(#"⟦doc⟧{"v":1,"t":"item","item":{"id":"1","register":"waiting","kind":"future_kind","headline":"H","context":"C","createdAt":1}}"#) == nil)
         #expect(DocStateMessage.parseEvent(#"⟦doc⟧{"v":1,"t":"item-resolved","id":""}"#) == nil)
+    }
+
+    @Test("parses and round-trips phone verification items")
+    func parsesVerifyNumberItem() throws {
+        let message = #"⟦doc⟧{"v":1,"t":"item","item":{"id":"verify-1","register":"waiting","kind":"verify_number","headline":"Verify your number","context":"Text this code from the phone you use with Doc.","code":"ABCD-2345-WXYZ","lineNumber":"+16283095734","smsBody":"VERIFY ABCD-2345-WXYZ","createdAt":1787600000}}"#
+        let event = try #require(DocStateMessage.parseEvent(message))
+        guard case .item(let item) = event else {
+            Issue.record("Expected a verification item")
+            return
+        }
+
+        #expect(item.kind == .verifyNumber)
+        #expect(item.code == "ABCD-2345-WXYZ")
+        #expect(item.lineNumber == "+16283095734")
+        #expect(item.smsBody == "VERIFY ABCD-2345-WXYZ")
+        #expect(item.chips.isEmpty)
+
+        let encoded = try JSONEncoder().encode(item)
+        let decoded = try JSONDecoder().decode(DocWaitingItem.self, from: encoded)
+        #expect(decoded == item)
+    }
+
+    @Test("requires the complete phone verification payload")
+    func rejectsIncompleteVerifyNumberItem() {
+        let missingBody = #"⟦doc⟧{"v":1,"t":"item","item":{"id":"verify-1","register":"waiting","kind":"verify_number","headline":"Verify","context":"Text the code.","code":"ABCD-2345-WXYZ","lineNumber":"+16283095734","createdAt":1}}"#
+        let mismatchedBody = #"⟦doc⟧{"v":1,"t":"item","item":{"id":"verify-2","register":"waiting","kind":"verify_number","headline":"Verify","context":"Text the code.","code":"ABCD-2345-WXYZ","lineNumber":"+16283095734","smsBody":"VERIFY WRONG-CODE-HERE","createdAt":1}}"#
+
+        #expect(DocStateMessage.parseEvent(missingBody) == nil)
+        #expect(DocStateMessage.parseEvent(mismatchedBody) == nil)
+    }
+
+    @Test("continues to drop genuinely unknown item kinds")
+    func dropsUnknownWaitingItemKind() {
+        let message = #"⟦doc⟧{"v":1,"t":"item","item":{"id":"1","register":"waiting","kind":"future_kind","headline":"H","context":"C","createdAt":1}}"#
+        #expect(DocStateMessage.parseEvent(message) == nil)
     }
 
     @Test("parses draft and ask registers defensively")

@@ -101,6 +101,7 @@ public struct DocWaitingItem: Codable, Hashable, Identifiable, Sendable {
         case question
         case unknownContributor = "unknown_contributor"
         case noticeAsk = "notice_ask"
+        case verifyNumber = "verify_number"
         case structure
         case cleanup
         case gapFill = "gap_fill"
@@ -119,6 +120,9 @@ public struct DocWaitingItem: Codable, Hashable, Identifiable, Sendable {
     public let chips: [String]
     public let draft: DocDraft?
     public let docId: String?
+    public let code: String?
+    public let lineNumber: String?
+    public let smsBody: String?
     public let createdAt: Date
 
     public init(
@@ -130,6 +134,9 @@ public struct DocWaitingItem: Codable, Hashable, Identifiable, Sendable {
         chips: [String] = [],
         draft: DocDraft? = nil,
         docId: String? = nil,
+        code: String? = nil,
+        lineNumber: String? = nil,
+        smsBody: String? = nil,
         createdAt: Date
     ) {
         self.id = id
@@ -140,6 +147,9 @@ public struct DocWaitingItem: Codable, Hashable, Identifiable, Sendable {
         self.chips = chips
         self.draft = draft
         self.docId = docId
+        self.code = code
+        self.lineNumber = lineNumber
+        self.smsBody = smsBody
         self.createdAt = createdAt
     }
 }
@@ -365,6 +375,9 @@ public enum DocStateMessage {
         let chips: [String]?
         let draft: RawDraft?
         let docId: String?
+        let code: String?
+        let lineNumber: String?
+        let smsBody: String?
         let createdAt: TimeInterval?
 
         var value: DocWaitingItem? {
@@ -381,6 +394,7 @@ public enum DocStateMessage {
             }
             let parsedDraft = draft?.value
             if register == .draft, parsedDraft == nil { return nil }
+            if kind == .verifyNumber, !hasValidVerificationPayload { return nil }
             let cleanChips: [String] = (chips ?? []).filter { !$0.isEmpty }
             return DocWaitingItem(
                 id: id,
@@ -388,17 +402,38 @@ public enum DocStateMessage {
                 kind: kind,
                 headline: headline,
                 context: context,
-                chips: cleanChips,
+                chips: kind == .verifyNumber ? [] : cleanChips,
                 draft: parsedDraft,
                 docId: docId,
+                code: kind == .verifyNumber ? code : nil,
+                lineNumber: kind == .verifyNumber ? lineNumber : nil,
+                smsBody: kind == .verifyNumber ? smsBody : nil,
                 createdAt: Date(timeIntervalSince1970: createdAt)
             )
+        }
+
+        private var hasValidVerificationPayload: Bool {
+            guard let code,
+                  code.range(
+                      of: #"^[A-Z2-9]{4}(?:-[A-Z2-9]{4}){2}$"#,
+                      options: .regularExpression
+                  ) != nil,
+                  let lineNumber,
+                  lineNumber.range(
+                      of: #"^\+[1-9][0-9]{7,14}$"#,
+                      options: .regularExpression
+                  ) != nil,
+                  let smsBody,
+                  smsBody == "VERIFY \(code)" else {
+                return false
+            }
+            return true
         }
 
         private func isValid(kind: DocWaitingItem.Kind, for register: DocWaitingItem.Register) -> Bool {
             switch register {
             case .waiting:
-                return [.question, .unknownContributor, .noticeAsk].contains(kind)
+                return [.question, .unknownContributor, .noticeAsk, .verifyNumber].contains(kind)
             case .draft:
                 return [.structure, .cleanup, .gapFill, .reshare].contains(kind)
             case .ask:

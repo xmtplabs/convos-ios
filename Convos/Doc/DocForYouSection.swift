@@ -59,6 +59,8 @@ struct DocForYouSection: View {
             let leftRank = rank(lhs.register)
             let rightRank = rank(rhs.register)
             if leftRank != rightRank { return leftRank < rightRank }
+            if lhs.kind == .verifyNumber, rhs.kind != .verifyNumber { return true }
+            if rhs.kind == .verifyNumber, lhs.kind != .verifyNumber { return false }
             return lhs.createdAt > rhs.createdAt
         }
     }
@@ -84,14 +86,18 @@ struct DocForYouSection: View {
     private func itemCard(for item: DocWaitingItem) -> some View {
         switch item.register {
         case .waiting:
-            DocWaitingItemCard(
-                item: item,
-                sendState: viewModel.sendState(for: item),
-                isEnabled: viewModel.isDmReadyForDisplay,
-                activeAnswerItemId: $viewModel.activeAnswerItemId,
-                onAnswer: { viewModel.sendAnswer($0, for: item) },
-                onRetry: { viewModel.retryAnswer(for: item) }
-            )
+            if item.kind == .verifyNumber {
+                DocVerifyNumberItemCard(item: item)
+            } else {
+                DocWaitingItemCard(
+                    item: item,
+                    sendState: viewModel.sendState(for: item),
+                    isEnabled: viewModel.isDmReadyForDisplay,
+                    activeAnswerItemId: $viewModel.activeAnswerItemId,
+                    onAnswer: { viewModel.sendAnswer($0, for: item) },
+                    onRetry: { viewModel.retryAnswer(for: item) }
+                )
+            }
         case .draft:
             DocDraftItemCard(
                 item: item,

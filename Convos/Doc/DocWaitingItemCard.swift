@@ -1,5 +1,7 @@
 import ConvosCore
+import MessageUI
 import SwiftUI
+import UIKit
 
 enum DocMotion {
     static func arrival(reduceMotion: Bool) -> Animation {
@@ -22,6 +24,198 @@ enum DocMotion {
     static func docArrival(reduceMotion: Bool) -> AnyTransition {
         if reduceMotion { return .opacity }
         return .opacity.combined(with: .offset(y: -10.0))
+    }
+}
+
+struct DocVerifyNumberItemCard: View {
+    let item: DocWaitingItem
+
+    @Environment(\.openURL) private var openURL: OpenURLAction
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
+    @State private var isComposerPresented: Bool = false
+    @State private var isWaitingForText: Bool = false
+    @State private var didCopyCode: Bool = false
+
+    var body: some View {
+        DocItemCardContainer(itemId: item.id) {
+            content
+        }
+        .sheet(isPresented: $isComposerPresented) {
+            messageComposerSheet
+        }
+        .accessibilityIdentifier("doc-verify-number-\(item.id)")
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+            Text(item.headline)
+                .font(.headline.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(item.context)
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Label {
+                Text("I go by @doc · \(verificationLineNumber)")
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+            } icon: {
+                Image(systemName: "message.fill")
+                    .foregroundStyle(.colorLava)
+            }
+            .accessibilityLabel("Text @doc at \(verificationLineNumber)")
+
+            if let code = item.code {
+                codeRow(code)
+            }
+
+            if isWaitingForText {
+                Label("Waiting for your text…", systemImage: "ellipsis.message")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.colorTextSecondary)
+                    .transition(.opacity)
+            }
+
+            Button("Text @doc to verify") {
+                beginVerification()
+            }
+            .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
+            .frame(minHeight: 44.0)
+        }
+        .padding(DesignConstants.Spacing.step4x)
+    }
+
+    @ViewBuilder
+    private var messageComposerSheet: some View {
+        if let lineNumber = item.lineNumber, let smsBody = item.smsBody {
+            DocMessageComposeView(recipient: lineNumber, body: smsBody) {
+                isComposerPresented = false
+                withAnimation(.easeOut(duration: 0.16)) {
+                    isWaitingForText = true
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func codeRow(_ code: String) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                codeText(code)
+                copyCodeButton(code)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .background(
+                Color.colorFillMinimal,
+                in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
+            )
+        } else {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                codeText(code)
+                Spacer(minLength: 0)
+                copyCodeButton(code)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .background(
+                Color.colorFillMinimal,
+                in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
+            )
+        }
+    }
+
+    private func codeText(_ code: String) -> some View {
+        Text(code)
+            .font(.title3.weight(.semibold).monospaced())
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .textSelection(.enabled)
+            .accessibilityLabel("Verification code \(code)")
+    }
+
+    private func copyCodeButton(_ code: String) -> some View {
+        Button {
+            UIPasteboard.general.string = code
+            didCopyCode = true
+        } label: {
+            Label(copyButtonTitle, systemImage: copyButtonImage)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+                .frame(minHeight: 44.0)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.colorLava)
+        .accessibilityHint("Copies the verification code for manual sending")
+    }
+
+    private var verificationLineNumber: String {
+        item.lineNumber ?? ""
+    }
+
+    private var copyButtonTitle: String {
+        didCopyCode ? "Copied" : "Copy"
+    }
+
+    private var copyButtonImage: String {
+        didCopyCode ? "checkmark" : "doc.on.doc"
+    }
+
+    private func beginVerification() {
+        guard let lineNumber = item.lineNumber, let smsBody = item.smsBody else { return }
+        if MFMessageComposeViewController.canSendText() {
+            isComposerPresented = true
+        } else {
+            withAnimation(.easeOut(duration: 0.16)) {
+                isWaitingForText = true
+            }
+            guard let url = smsURL(lineNumber: lineNumber, body: smsBody) else { return }
+            openURL(url)
+        }
+    }
+
+    private func smsURL(lineNumber: String, body: String) -> URL? {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=")
+        guard let encodedBody = body.addingPercentEncoding(withAllowedCharacters: allowed) else {
+            return nil
+        }
+        return URL(string: "sms:\(lineNumber)&body=\(encodedBody)")
+    }
+}
+
+private struct DocMessageComposeView: UIViewControllerRepresentable {
+    let recipient: String
+    let body: String
+    let onDismiss: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onDismiss: onDismiss)
+    }
+
+    func makeUIViewController(context: Context) -> MFMessageComposeViewController {
+        let controller = MFMessageComposeViewController()
+        controller.messageComposeDelegate = context.coordinator
+        controller.recipients = [recipient]
+        controller.body = body
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: MFMessageComposeViewController, context: Context) {}
+
+    final class Coordinator: NSObject, MFMessageComposeViewControllerDelegate {
+        private let onDismiss: () -> Void
+
+        init(onDismiss: @escaping () -> Void) {
+            self.onDismiss = onDismiss
+        }
+
+        func messageComposeViewController(
+            _ controller: MFMessageComposeViewController,
+            didFinishWith result: MessageComposeResult
+        ) {
+            onDismiss()
+        }
     }
 }
 

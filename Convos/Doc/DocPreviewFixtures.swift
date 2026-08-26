@@ -6,6 +6,16 @@ extension DocExperienceViewModel {
         let now = Date()
         return [
             DocWaitingItem(
+                id: "verify-number",
+                kind: .verifyNumber,
+                headline: "Verify your number",
+                context: "Text this code from the phone you use with Doc.",
+                code: "ABCD-2345-WXYZ",
+                lineNumber: "+16283095734",
+                smsBody: "VERIFY ABCD-2345-WXYZ",
+                createdAt: now
+            ),
+            DocWaitingItem(
                 id: "question-dates",
                 kind: .question,
                 headline: "Which weekend works for everyone?",
