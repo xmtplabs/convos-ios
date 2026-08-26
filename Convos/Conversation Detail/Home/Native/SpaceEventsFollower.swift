@@ -83,6 +83,14 @@ final class SpaceEventsFollower {
                     }
                 } catch is CancellationError {
                     return
+                } catch FollowError.unsupported {
+                    // A deployment without the events route answers its page,
+                    // whatever the query says. That is a Space with nothing to
+                    // follow rather than one that is failing, so stop asking —
+                    // retrying forever would be a background request per backoff
+                    // window for the life of the screen.
+                    Log.info("Space at \(base.host() ?? "?") serves no events; not following")
+                    return
                 } catch {
                     attempt += 1
                     guard await self?.pause(attempt: attempt) == true else { return }
@@ -114,6 +122,12 @@ final class SpaceEventsFollower {
         }
     }
 
+    /// Why following stopped, where stopping is the answer.
+    private enum FollowError: Error {
+        /// This deployment does not serve events at all.
+        case unsupported
+    }
+
     private struct Answer {
         let marker: String?
         let state: SpaceEventsState?
@@ -133,7 +147,17 @@ final class SpaceEventsFollower {
         request.timeoutInterval = Constant.requestTimeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+        guard let http = response as? HTTPURLResponse else {
+            throw URLError(.badServerResponse)
+        }
+        // A deployment that predates the route answers its page — 200, and HTML
+        // — so the status alone cannot tell "no events here" from "try again".
+        // The content type can.
+        let contentType = http.value(forHTTPHeaderField: "Content-Type") ?? ""
+        if http.statusCode == 404 || (http.statusCode == 200 && !contentType.contains("json")) {
+            throw FollowError.unsupported
+        }
+        guard http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
         return try decode(data)
