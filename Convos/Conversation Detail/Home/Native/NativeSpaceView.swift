@@ -17,12 +17,21 @@ struct NativeSpaceView: View {
     /// Who is in the group, for the directory tile of the page drawn before the
     /// Space can answer for itself.
     let memberNames: [String]
-    let onOpen: (URL) -> Void
+    let onOpen: (URL, String?) -> Void
     /// Opens the invite picker, for the directory tile's spare cell — the same
     /// affordance the web tile offers through the native bridge.
     let onInvite: () -> Void
     /// Takes the reader to the agent, for the page's "Add anything" action.
     let onAsk: () -> Void
+    /// The window's top safe area. The Context tab is laid out full-bleed, so
+    /// the chrome's own clearance — which is measured from below the safe area —
+    /// does not by itself put content under the control.
+    let topSafeAreaInset: CGFloat
+    /// How far the page has scrolled up under the chrome, so the wash behind
+    /// the segmented control can appear only once something is passing beneath
+    /// it. At rest there is nothing to separate, and a wash over a page that is
+    /// not moving just greys its own heading.
+    let onScrollUnderChrome: (CGFloat) -> Void
     /// What to draw when this Space cannot serve a document at all. A Space
     /// deployed before the document route existed answers the page itself, so
     /// the tab shows that page rather than an error a reader cannot act on.
@@ -36,16 +45,20 @@ struct NativeSpaceView: View {
     init(
         spaceURL: URL?,
         memberNames: [String],
-        onOpen: @escaping (URL) -> Void,
+        topSafeAreaInset: CGFloat,
+        onOpen: @escaping (URL, String?) -> Void,
         onInvite: @escaping () -> Void,
         onAsk: @escaping () -> Void,
+        onScrollUnderChrome: @escaping (CGFloat) -> Void,
         webFallback: AnyView
     ) {
         self.spaceURL = spaceURL
         self.memberNames = memberNames
+        self.topSafeAreaInset = topSafeAreaInset
         self.onOpen = onOpen
         self.onInvite = onInvite
         self.onAsk = onAsk
+        self.onScrollUnderChrome = onScrollUnderChrome
         self.webFallback = webFallback
         // Seeded rather than defaulted to `.loading`: this view is rebuilt from
         // scratch every time a page is pushed or popped, and starting from what
@@ -155,11 +168,22 @@ struct NativeSpaceView: View {
             // under the same floating bar; stacking both here put the first
             // heading a clear 56pt below where the page puts it.
             .padding(.horizontal, Constant.gutter)
-            .padding(.top, ConversationChromeMetrics.contentClearance)
+            .padding(.top, topSafeAreaInset + ConversationChromeMetrics.contentClearance)
             .padding(.bottom, SpaceTileStyle.pageBottom)
             .frame(maxWidth: SpaceTileStyle.pageWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
         }
+        // Reported rather than acted on here: the wash is a sibling of this
+        // view, drawn over every tab by the conversation's own layout, so what
+        // it does with this is the layout's business.
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top
+        } action: { _, offset in
+            onScrollUnderChrome(offset)
+        }
+        // A page that ends taller than the screen is not scrolled yet, and a
+        // page swapped underneath a reader keeps whatever offset it had.
+        .onDisappear { onScrollUnderChrome(0) }
     }
 
     /// Follows the Space, applying each new state as an animated change.
@@ -301,7 +325,7 @@ struct NativeSpaceView: View {
         }
         components.queryItems = nil
         guard let pageURL = components.url else { return }
-        onOpen(pageURL)
+        onOpen(pageURL, widget.title)
     }
 
     private func load() async {
