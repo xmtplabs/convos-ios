@@ -1632,10 +1632,11 @@ private extension ConversationView {
     }
 
     /// The single host seam for the composer's connections capability: the
-    /// `+` menu row and the browser modal both feed from this one read. No
-    /// composer surface consults the flag directly.
+    /// `+` menu row and the browser modal both feed from this one read.
+    /// Which services a conversation can actually use is decided per
+    /// environment by the backend and agent runtime, not the client.
     var composerConnectionsEnabled: Bool {
-        FeatureFlags.shared.isAbilitiesV2Enabled
+        true
     }
 
     /// Powerplug tap from the `+` menu row: presents the Connections
@@ -2122,11 +2123,10 @@ private extension ConversationView {
         "\(viewModel.conversation.id)-\(viewModel.conversation.hasAgent)"
     }
 
-    /// Builds the escalation view model when the Abilities V2 flag is on
-    /// and the conversation has an agent. The flag is read once and latched
-    /// -- same posture as `ConversationInfoView.AgentAccessMode`. Runs from
-    /// a `.task` keyed on `escalationTaskKey`, so re-appearance restarts
-    /// stream observation and a conversation change rebuilds the model.
+    /// Builds the escalation view model when the conversation has an agent.
+    /// Runs from a `.task` keyed on `escalationTaskKey`, so re-appearance
+    /// restarts stream observation and a conversation change rebuilds the
+    /// model.
     func prepareEscalationIfNeeded() {
         if let escalationViewModel, escalationViewModel.conversationId != viewModel.conversation.id {
             escalationViewModel.stopObserving()
@@ -2136,8 +2136,7 @@ private extension ConversationView {
             escalationViewModel.startObserving()
             return
         }
-        guard FeatureFlags.shared.isAbilitiesV2Enabled,
-              viewModel.conversation.hasAgent else {
+        guard viewModel.conversation.hasAgent else {
             return
         }
         let escalation = ConversationEscalationViewModel(
