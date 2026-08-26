@@ -424,7 +424,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
               conversationId == viewModel.conversation.id,
               let rawTab = note.userInfo?["tab"] as? String,
               let tab = ConversationTab(rawValue: rawTab),
-              availableTabs.contains(tab) else {
+              availableTabs.contains(tab),
+              tab != selectedTab else {
             return
         }
         selectTab(tab)
