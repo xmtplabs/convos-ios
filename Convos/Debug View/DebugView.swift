@@ -52,6 +52,10 @@ struct DebugViewSection: View {
     @State private var abilitiesV1ShimEnabled: Bool = AbilitiesServices.isV1AwarenessShimEnabled
     @State private var abilitiesEscalationMockEnabled: Bool = AbilitiesServices.isEscalationMockEnabled
     @State private var identity: DeviceIdentitySnapshot?
+    @State private var presentingDocAgentVariantPicker: Bool = false
+    @State private var presentingDocAgent: NewConversationViewModel?
+    @State private var selectedDocAgentVariantSlug: String?
+    @State private var shouldLaunchDocAgentAfterVariantPicker: Bool = false
 
     var body: some View {
         Group {
@@ -72,6 +76,19 @@ struct DebugViewSection: View {
             let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
             identity = await DeviceIdentitySnapshot.current(identityStore: identityStore)
         }
+        .selfSizingSheet(
+            isPresented: $presentingDocAgentVariantPicker,
+            onDismiss: handleDocAgentVariantPickerDismissed
+        ) {
+            AgentVariantPickerSheet(onContinue: handleDocAgentVariantSelected)
+        }
+        .sheet(item: $presentingDocAgent) { viewModel in
+            NewConversationView(
+                viewModel: viewModel,
+                profileSettingsViewModel: .shared
+            )
+            .background(.colorBackgroundSurfaceless)
+        }
     }
 
     @ViewBuilder
@@ -85,6 +102,12 @@ struct DebugViewSection: View {
             abilitiesFeatureToggles
             Toggle("Enable Relay (BYOA)", isOn: Bindable(FeatureFlags.shared).agentRelayEnabled)
             Toggle("Agent model picker", isOn: Bindable(FeatureFlags.shared).isAgentModelPickerEnabled)
+
+            let createDocAgentAction = { beginDocAgentLaunch() }
+            Button(action: createDocAgentAction) {
+                Text("Create Doc agent")
+                    .foregroundStyle(.colorTextPrimary)
+            }
 
             let showInfoAction = { showingAgentsInfoSheet = true }
             Button(action: showInfoAction) {
@@ -434,6 +457,43 @@ struct DebugViewSection: View {
                     .foregroundStyle(.colorTextPrimary)
             }
         }
+    }
+
+    private func beginDocAgentLaunch() {
+        guard FeatureFlags.shared.isAgentVariantSelectorEnabled else {
+            launchDocAgent(variantSlug: nil)
+            return
+        }
+        selectedDocAgentVariantSlug = nil
+        shouldLaunchDocAgentAfterVariantPicker = false
+        presentingDocAgentVariantPicker = true
+    }
+
+    private func handleDocAgentVariantSelected(_ slug: String?) {
+        selectedDocAgentVariantSlug = slug
+        shouldLaunchDocAgentAfterVariantPicker = true
+    }
+
+    private func handleDocAgentVariantPickerDismissed() {
+        guard shouldLaunchDocAgentAfterVariantPicker else { return }
+        shouldLaunchDocAgentAfterVariantPicker = false
+        launchDocAgent(variantSlug: selectedDocAgentVariantSlug)
+    }
+
+    private func launchDocAgent(variantSlug: String?) {
+        presentingDocAgent = NewConversationViewModel(
+            session: session,
+            mode: .newConversationWithTemplate(
+                templateId: Constant.docAgentTemplateId,
+                optimisticIdentity: nil
+            ),
+            coreActions: coreActions,
+            agentVariantSlug: variantSlug
+        )
+    }
+
+    private enum Constant {
+        static let docAgentTemplateId: String = "d0c00000-0000-4000-8000-000000000001"
     }
 }
 
