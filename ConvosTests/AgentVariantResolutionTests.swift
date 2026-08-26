@@ -117,10 +117,94 @@ final class AgentVariantResolutionTests: XCTestCase {
         XCTAssertEqual(AgentVariantAssignmentStore.shared.slug(for: prepared), "second-pick")
     }
 
-    private func variant(slug: String) -> ConvosAPI.AgentVariant {
+    func testDocModeChoosesNewestExactLabelMatchFromRegistryOrder() throws {
+        let newestDoc = variant(slug: "doc-newest", label: "Doc")
+        let variants = [
+            variant(slug: "other", label: "Other"),
+            newestDoc,
+            variant(slug: "doc-older", label: "Doc"),
+            variant(slug: "wrong-case", label: "doc"),
+        ]
+
+        let resolved = AgentVariantRegistry.mostRecentlyRegisteredVariant(
+            labeled: "Doc",
+            in: variants
+        )
+
+        XCTAssertEqual(try XCTUnwrap(resolved), newestDoc)
+    }
+
+    func testDocModeReportsNoVariantWhenRegistryHasNoExactLabelMatch() {
+        let resolved = AgentVariantRegistry.mostRecentlyRegisteredVariant(
+            labeled: "Doc",
+            in: [variant(slug: "wrong-case", label: "doc")]
+        )
+
+        XCTAssertNil(resolved)
+    }
+
+    func testDocModeKeepsAgentBoundToExpectedVariant() {
+        let diagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "doc-runtime", commit: "abc123"),
+            variantDropped: false
+        )
+
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: "conversation-1",
+                diagnostic: diagnostic,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .keep
+        )
+    }
+
+    func testDocModeReplacesAgentWithoutConfirmedExpectedVariant() {
+        let defaultDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: nil,
+            variant: nil,
+            variantDropped: false
+        )
+        let droppedDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "doc-runtime", commit: "abc123"),
+            variantDropped: true
+        )
+
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: "conversation-1",
+                diagnostic: defaultDiagnostic,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .replace
+        )
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: "conversation-1",
+                diagnostic: droppedDiagnostic,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .replace
+        )
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: nil,
+                diagnostic: nil,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .create
+        )
+    }
+
+    private func variant(slug: String, label: String? = nil) -> ConvosAPI.AgentVariant {
         ConvosAPI.AgentVariant(
             slug: slug,
-            label: slug,
+            label: label ?? slug,
             whatToTest: "",
             status: "ready"
         )

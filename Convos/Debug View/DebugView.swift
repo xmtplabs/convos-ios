@@ -55,6 +55,9 @@ struct DebugViewSection: View {
     @State private var docAgentBindingId: String?
     @State private var docAgentDiagnostic: AgentJoinDiagnostic?
     @State private var didResetDocAgent: Bool = false
+    @State private var docVariantResolution: DocModeVariantResolver.Resolution?
+    @State private var isResolvingDocMode: Bool = false
+    @State private var isDocModeEnabled: Bool = FeatureFlags.shared.isDocModeEnabled
 
     var body: some View {
         Group {
@@ -76,6 +79,7 @@ struct DebugViewSection: View {
             let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
             identity = await DeviceIdentitySnapshot.current(identityStore: identityStore)
             refreshDocAgentDiagnostic()
+            await refreshDocVariantResolution()
         }
         .onReceive(
             NotificationCenter.default
@@ -91,7 +95,6 @@ struct DebugViewSection: View {
         Section("Features") {
             Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
             agentVariantToggles
-            Toggle("Doc mode", isOn: Bindable(FeatureFlags.shared).isDocModeEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
             Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
             Toggle("Web inspector (space/browser web views)", isOn: Bindable(FeatureFlags.shared).isWebInspectorEnabled)
@@ -129,13 +132,20 @@ struct DebugViewSection: View {
     @ViewBuilder
     private var docSection: some View {
         Section("Doc") {
-            LabeledContent("Selected variant") {
+            Toggle("Doc mode", isOn: $isDocModeEnabled)
+                .disabled(isResolvingDocMode)
+                .onChange(of: isDocModeEnabled) { _, enabled in
+                    setDocMode(enabled)
+                }
+
+            LabeledContent("Variant") {
                 Text(selectedDocVariantDescription)
                     .foregroundStyle(.colorTextSecondary)
+                    .multilineTextAlignment(.trailing)
                     .textSelection(.enabled)
             }
 
-            LabeledContent("Doc agent variant") {
+            LabeledContent("Runtime") {
                 VStack(alignment: .trailing, spacing: DesignConstants.Spacing.stepHalf) {
                     Text(docAgentVariantDescription)
                         .foregroundStyle(.colorTextSecondary)
@@ -145,17 +155,6 @@ struct DebugViewSection: View {
                         .font(.caption)
                         .foregroundStyle(.colorTextSecondary)
                 }
-            }
-
-            NavigationLink {
-                DebugDocAgentLaunchFlow(
-                    session: session,
-                    coreActions: coreActions,
-                    startsWithVariantPicker: FeatureFlags.shared.isAgentVariantSelectorEnabled
-                )
-            } label: {
-                Text("Create Doc agent")
-                    .foregroundStyle(.colorTextPrimary)
             }
 
             let resetDocAgentAction = { resetDocAgent() }
@@ -503,10 +502,24 @@ struct DebugViewSection: View {
     private var selectedDocVariantDescription: String {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-DocDiagnosticPreview") {
-            return "pr-3655"
+            return "Doc · pr-3655"
         }
         #endif
-        return FeatureFlags.shared.effectiveAgentVariantSlug ?? "none"
+        if isResolvingDocMode { return "Checking registry…" }
+        switch docVariantResolution {
+        case .notRegistered:
+            return "No Doc variant registered"
+        case .unavailable:
+            return "Registry unavailable"
+        case .resolved(let variant):
+            return "\(variant.label) · \(variant.slug)"
+        case nil:
+            guard let variant = FeatureFlags.shared.selectedAgentVariant,
+                  variant.label == "Doc" else {
+                return "No Doc variant selected"
+            }
+            return "\(variant.label) · \(variant.slug)"
+        }
     }
 
     private var docAgentVariantDroppedDescription: String {
@@ -541,64 +554,58 @@ struct DebugViewSection: View {
         docAgentDiagnostic = nil
         didResetDocAgent = true
     }
-}
 
-/// The Debug create path stays inside one navigation destination. Swapping its
-/// content after Continue avoids coordinating two overlapping presentations.
-private struct DebugDocAgentLaunchFlow: View {
-    let session: any SessionManagerProtocol
-    let coreActions: any CoreActions
-    @State private var conversationViewModel: NewConversationViewModel?
-
-    init(
-        session: any SessionManagerProtocol,
-        coreActions: any CoreActions,
-        startsWithVariantPicker: Bool
-    ) {
-        self.session = session
-        self.coreActions = coreActions
-        if startsWithVariantPicker {
-            _conversationViewModel = State(initialValue: nil)
-        } else {
-            _conversationViewModel = State(initialValue: NewConversationViewModel(
-                session: session,
-                mode: .newConversation,
-                coreActions: coreActions,
-                agentVariantSlug: FeatureFlags.shared.effectiveAgentVariantSlug
-            ))
+    private func setDocMode(_ enabled: Bool) {
+        if !enabled {
+            FeatureFlags.shared.isDocModeEnabled = false
+            return
         }
-    }
-
-    var body: some View {
-        Group {
-            if let conversationViewModel {
-                NewConversationView(
-                    viewModel: conversationViewModel,
-                    profileSettingsViewModel: .shared,
-                    embedsNavigationStack: false
-                )
-                .background(.colorBackgroundSurfaceless)
-            } else {
-                AgentVariantPickerSheet(
-                    dismissesOnContinue: false,
-                    onContinue: continueWithVariant
-                )
+        guard !isResolvingDocMode else { return }
+        isResolvingDocMode = true
+        Task {
+            let resolution = await DocModeVariantResolver.resolve(forceRefresh: true)
+            docVariantResolution = resolution
+            if case .resolved(let variant) = resolution {
+                convergeDocAgent(to: variant)
             }
+            FeatureFlags.shared.isDocModeEnabled = true
+            isResolvingDocMode = false
         }
     }
 
-    private func continueWithVariant(_ slug: String?) {
-        if let variant = AgentVariantRegistry.shared.variant(withSlug: slug) {
-            FeatureFlags.shared.selectedAgentVariant = variant
-        } else if slug == nil {
-            FeatureFlags.shared.selectedAgentVariant = nil
+    private func refreshDocVariantResolution() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-DocDiagnosticPreview") {
+            return
         }
-        conversationViewModel = NewConversationViewModel(
-            session: session,
-            mode: .newConversation,
-            coreActions: coreActions,
-            agentVariantSlug: FeatureFlags.shared.effectiveAgentVariantSlug
+        #endif
+        if FeatureFlags.shared.isDocModeEnabled {
+            docVariantResolution = await DocModeVariantResolver.resolve()
+            return
+        }
+        await AgentVariantRegistry.shared.loadIfNeeded()
+        guard AgentVariantRegistry.shared.loadState == .loaded else {
+            docVariantResolution = .unavailable
+            return
+        }
+        if let variant = AgentVariantRegistry.shared.mostRecentlyRegisteredVariant(labeled: "Doc") {
+            docVariantResolution = .resolved(variant)
+        } else {
+            docVariantResolution = .notRegistered
+        }
+    }
+
+    private func convergeDocAgent(to variant: ConvosAPI.AgentVariant) {
+        let action = DocAgentConvergenceAction.resolve(
+            conversationId: docAgentBindingId,
+            diagnostic: docAgentDiagnostic,
+            expectedVariantSlug: variant.slug
         )
+        guard action == .replace else { return }
+        DocExperienceViewModel.resetAgentBindingForVariantConvergence(session: session)
+        docAgentBindingId = nil
+        docAgentDiagnostic = nil
+        didResetDocAgent = false
     }
 }
 

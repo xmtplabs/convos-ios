@@ -66,8 +66,9 @@ final class FeatureFlags {
     }
 
     /// Dev-only shell switch for exercising the first-party Doc experience.
-    /// A selected Doc variant also enables the shell so a per-PR runtime can
-    /// be tested without maintaining a second configuration switch.
+    /// Variant selection is configured as part of enabling this switch, so
+    /// turning it off always returns to the standard app without clearing the
+    /// selected runtime or any conversations.
     var isDocModeEnabled: Bool {
         get {
             access(keyPath: \.isDocModeEnabled)
@@ -86,9 +87,7 @@ final class FeatureFlags {
     }
 
     var isDocExperienceEnabled: Bool {
-        if isDocModeEnabled { return true }
-        guard let slug = effectiveAgentVariantSlug?.lowercased() else { return false }
-        return slug == "doc" || slug.hasPrefix("doc-") || slug.hasSuffix("-doc")
+        isDocModeEnabled
     }
 
     /// Off by default -- opts libxmtp streams onto the shared bidi wire by

@@ -183,7 +183,9 @@ final class DocExperienceViewModel {
                       notification.object as? String == Self.accountIdentifier(session: self.session) else {
                     return
                 }
-                self.resetRuntimeState()
+                self.resetRuntimeState(
+                    preservingWelcome: notification.userInfo?[Self.preserveWelcomeUserInfoKey] as? Bool == true
+                )
             }
     }
 
@@ -262,7 +264,12 @@ final class DocExperienceViewModel {
     func startAgentIfNeeded() async {
         guard previewStage == nil, hasCompletedWelcome, conversationViewModel == nil else { return }
 
-        let storedId = Self.storedOriginConversationId(session: session, defaults: defaults)
+        let convergence = await convergeDocModeIfNeeded(
+            storedId: Self.storedOriginConversationId(session: session, defaults: defaults)
+        )
+        guard convergence.canStart else { return }
+        let storedId = convergence.conversationId
+
         let conversations = try? await session
             .conversationsRepository(for: [.allowed, .unknown])
             .fetchAll()
@@ -764,6 +771,32 @@ final class DocExperienceViewModel {
 }
 
 extension DocExperienceViewModel {
+    private func convergeDocModeIfNeeded(storedId: String?) async -> (
+        conversationId: String?,
+        canStart: Bool
+    ) {
+        guard FeatureFlags.shared.isDocModeEnabled else { return (storedId, true) }
+        let resolution = await DocModeVariantResolver.resolve()
+        guard case .resolved(let variant) = resolution else { return (storedId, false) }
+        let diagnostic = storedId.flatMap { AgentJoinDiagnosticsStore.shared.diagnostic(for: $0) }
+        guard DocAgentConvergenceAction.resolve(
+            conversationId: storedId,
+            diagnostic: diagnostic,
+            expectedVariantSlug: variant.slug
+        ) == .replace else {
+            return (storedId, true)
+        }
+
+        Self.clearAgentBindingStorage(
+            session: session,
+            defaults: defaults,
+            replayFirstRun: false,
+            notify: false
+        )
+        resetRuntimeState(preservingWelcome: true)
+        return (nil, true)
+    }
+
     static func storedOriginConversationId(
         session: any SessionManagerProtocol,
         defaults: UserDefaults = .standard
@@ -775,15 +808,47 @@ extension DocExperienceViewModel {
         session: any SessionManagerProtocol,
         defaults: UserDefaults = .standard
     ) {
+        clearAgentBindingStorage(
+            session: session,
+            defaults: defaults,
+            replayFirstRun: true,
+            notify: true
+        )
+    }
+
+    static func resetAgentBindingForVariantConvergence(
+        session: any SessionManagerProtocol,
+        defaults: UserDefaults = .standard
+    ) {
+        clearAgentBindingStorage(
+            session: session,
+            defaults: defaults,
+            replayFirstRun: false,
+            notify: true
+        )
+    }
+
+    private static func clearAgentBindingStorage(
+        session: any SessionManagerProtocol,
+        defaults: UserDefaults,
+        replayFirstRun: Bool,
+        notify: Bool
+    ) {
         if let conversationId = storedOriginConversationId(session: session, defaults: defaults) {
             AgentJoinDiagnosticsStore.shared.clear(conversationId: conversationId)
         }
-        ["originConversationId", "welcome", "googleConnectHandled", "snapshot", "state"]
+        var components = ["originConversationId", "googleConnectHandled", "snapshot", "state"]
+        if replayFirstRun {
+            components.append("welcome")
+        }
+        components
             .map { storageKey($0, session: session) }
             .forEach { defaults.removeObject(forKey: $0) }
+        guard notify else { return }
         NotificationCenter.default.post(
             name: .docAgentResetRequested,
-            object: accountIdentifier(session: session)
+            object: accountIdentifier(session: session),
+            userInfo: [preserveWelcomeUserInfoKey: !replayFirstRun]
         )
     }
 
@@ -800,7 +865,10 @@ extension DocExperienceViewModel {
         }
     }
 
-    private func resetRuntimeState() {
+    private static let preserveWelcomeUserInfoKey: String = "preserveWelcome"
+
+    private func resetRuntimeState(preservingWelcome: Bool = false) {
+        let completedWelcome = hasCompletedWelcome
         messagesCancellable = nil
         dmMessagesRepository = nil
         googleStatusCancellable = nil
@@ -823,7 +891,7 @@ extension DocExperienceViewModel {
         presentedDraftItem = nil
         activeAnswerItemId = nil
         sharedDocNumber = nil
-        hasCompletedWelcome = false
+        hasCompletedWelcome = preservingWelcome ? completedWelcome : false
         latestStateMessageId = nil
         stateMessageIdAtLastSend = nil
         processedEventMessageIds = []

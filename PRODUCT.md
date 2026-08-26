@@ -26,10 +26,10 @@ Doc's agent is a native member of the group's *existing* iMessage thread — blu
 
 - The app today is Convos ("The Agentic Messenger"): a SwiftUI XMTP messenger whose home is `Convos/Conversations List`, with `Conversation Detail` and `Conversation Creation` as the other primary surfaces. Doc's flows currently ride it as a dev preview.
 - The agent platform (Worker, Hermes runtime, backend, Herald) lives in the separate `convos-assistants` monorepo; this app talks only to convos-backend.
-- Dev preview mechanics: a per-PR agent variant (Settings ▸ Debug ▸ Agent Variant ▸ Doc) binds at agent-create; on the Doc variant any newly created agent boots as Doc. A Debug "Create Doc agent" action uses the same bare agent join as first run so the selected variant supplies its hard-coded template.
+- Dev preview mechanics: Settings ▸ Debug ▸ Doc mode resolves the newest live variant labeled "Doc," persists it as the standard Agent Variant selection, and binds it during the silent first-run join. If the shell points at an unbound or mismatched agent, enabling Doc mode replaces only that local binding and creates the correctly bound agent.
 - First run proactively presents the existing native Google Docs connection and sharing sheet after the Doc agent DM is ready; OAuth and grants continue through existing app and backend APIs.
 - Home keeps Google Docs readiness visible after first run and returns to the same native connection and grant flow when access is absent or revoked.
-- Doc mode is production-locked and entered with the Debug toggle or a recognized Doc agent variant. Its first-run and home shell replace the legacy tab and conversation-list UI entirely.
+- Doc mode is production-locked and entered only with the Debug toggle. Its first-run and home shell replace the legacy tab and conversation-list UI entirely; turning it off leaves the selected runtime and existing agent conversation intact.
 - Home's **For you** register surfaces unresolved agent questions above doc status. Chip answers send immediately; free-text answers send in the same gesture and restore inline if delivery fails.
 - Each doc carries a fixture at the top: the contribution phone number and a CTA to text it.
 - Build conventions (schemes, Secrets.swift, environments) are documented in the repo's CLAUDE.md and ENVIRONMENTS.md.
