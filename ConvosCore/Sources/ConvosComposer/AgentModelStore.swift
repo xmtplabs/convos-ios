@@ -145,11 +145,46 @@ public struct ConversationAppDataAgentModelService: AgentModelServing {
         } catch {
             Log.warning("agent model appData write failed: \(error)")
         }
-        return try await controlPlane.writeModel(
-            model,
-            instanceId: instanceId,
-            variantId: variantId
-        )
+        do {
+            return try await controlPlane.writeModel(
+                model,
+                instanceId: instanceId,
+                variantId: variantId
+            )
+        } catch {
+            // The room is now naming a model the agent may never have been put
+            // on. A refusal the Worker saw it rolls back and republishes
+            // itself, but a call that never reached it leaves nothing to do
+            // that — so put back whatever the control plane still holds.
+            await restoreAppDataFromControlPlane(
+                instanceId: instanceId,
+                variantId: variantId
+            )
+            throw error
+        }
+    }
+
+    /// Re-writes appData from the model the control plane reports, after a
+    /// failed write left the room naming something else. Best-effort by
+    /// nature: it is repairing a write that already failed once, and the
+    /// Worker republishes on its own whenever its row moves.
+    private func restoreAppDataFromControlPlane(
+        instanceId: String,
+        variantId: String?
+    ) async {
+        do {
+            let snapshot = try await controlPlane.readModel(
+                instanceId: instanceId,
+                variantId: variantId
+            )
+            try await metadataWriter.updateAgentModel(
+                snapshot.model,
+                forAgent: agentInboxId,
+                in: conversationId
+            )
+        } catch {
+            Log.warning("agent model appData restore failed: \(error)")
+        }
     }
 }
 

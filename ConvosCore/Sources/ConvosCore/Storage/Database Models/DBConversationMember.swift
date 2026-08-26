@@ -109,7 +109,11 @@ extension DBConversationMember {
             role: role,
             consent: consent,
             createdAt: createdAt,
-            invitedByInboxId: invitedByInboxId
+            invitedByInboxId: invitedByInboxId,
+            // Carried over: a role change says nothing about the model the
+            // member is on, and dropping it here would blank the picker until
+            // the next full sync put it back.
+            agentModel: agentModel
         )
     }
 }

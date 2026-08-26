@@ -20,7 +20,6 @@ import XMTPiOS
 
 // MARK: - XMTPiOS.Group + CustomMetadata
 
-
 /// The mutation `XMTPGroup.updateAgentModel` performs, as a plain function so
 /// it can be exercised without a group.
 ///

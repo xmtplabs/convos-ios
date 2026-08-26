@@ -14,7 +14,12 @@ public final class MockConversationMetadataWriter: ConversationMetadataWriterPro
     public var updatedImages: [(image: ImageType, conversation: Conversation)] = []
     public var updatedExpiresAt: [(expiresAt: Date, conversationId: String)] = []
     public var updatedParticipationModes: [(mode: ConversationParticipationMode, conversationId: String)] = []
-    public var updatedAgentModels: [(model: String?, agentInboxId: String, conversationId: String)] = []
+    public struct RecordedAgentModel: Sendable {
+        public let model: String?
+        public let agentInboxId: String
+        public let conversationId: String
+    }
+    public var updatedAgentModels: [RecordedAgentModel] = []
     public var updatedSpaceURLs: [(urlString: String?, conversationId: String)] = []
     public var updatedIncludeInfoInPublicPreview: [(enabled: Bool, conversationId: String)] = []
     public var lockedConversations: [String] = []
@@ -79,7 +84,11 @@ public final class MockConversationMetadataWriter: ConversationMetadataWriterPro
         in conversationId: String
     ) async throws {
         updatedAgentModels.append(
-            (model: model, agentInboxId: agentInboxId, conversationId: conversationId)
+            RecordedAgentModel(
+                model: model,
+                agentInboxId: agentInboxId,
+                conversationId: conversationId
+            )
         )
     }
 
