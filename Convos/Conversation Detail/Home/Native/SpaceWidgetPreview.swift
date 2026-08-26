@@ -14,7 +14,8 @@ import SwiftUI
 ///
 /// 1. A preview this build knows, drawn as itself.
 /// 2. An unknown preview built from generic primitives — a list, a metric, a
-///    line of text — drawn generically. Most agent-invented tiles land here.
+///    line of text, a single note — drawn generically. Most agent-invented
+///    tiles land here.
 /// 3. Anything else: the route, which still opens the real page on tap.
 struct SpaceWidgetPreview: View {
     let widget: SpaceWidget
@@ -34,6 +35,7 @@ struct SpaceWidgetPreview: View {
         case "WidgetList": list
         case "WidgetMetric": metric
         case "WidgetText": text
+        case "WidgetNote": note
         default: unknown
         }
     }
@@ -58,6 +60,22 @@ struct SpaceWidgetPreview: View {
             }
             if shown.count < Constant.rowLimit {
                 TileHintRow("Agents draft notes for the group")
+            }
+        }
+    }
+
+    /// One note standing alone on its own tile.
+    ///
+    /// The agent writes this whenever a note gets a tile of its own, rather
+    /// than a `NotesPreview` of one, so it is common enough that falling
+    /// through to the route would show a reader a path where a title belongs.
+    /// The row is the same one the notes tile lists, because it is the same
+    /// component — `WidgetNote` draws `.space-tile-row` in both places.
+    @ViewBuilder
+    private var note: some View {
+        TileColumn {
+            if let title = preview?.string("title") {
+                TileTextRow(title)
             }
         }
     }
