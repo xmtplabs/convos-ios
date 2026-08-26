@@ -4933,26 +4933,6 @@ extension ConversationViewModel {
         session.agentFilesLinksRepository(for: conversation.id)
     }
 
-    func makeConversationConnectionsViewModel() -> ConversationConnectionsViewModel {
-        // Snapshot of agent inbox ids at view-model creation. Per-conversation toggles
-        // fan out one grant row per agent currently in the conversation; if membership
-        // changes mid-life of the view model, callers can recreate it (the view model is
-        // shaped per ConversationInfo presentation, so that already happens naturally).
-        let agentInboxIds = conversation.members
-            .filter { $0.isAgent }
-            .map { $0.profile.inboxId }
-        return ConversationConnectionsViewModel(
-            conversationId: conversation.id,
-            agentInboxIds: agentInboxIds,
-            cloudConnectionManager: session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme),
-            cloudConnectionRepository: session.cloudConnectionRepository(),
-            grantWriter: messagingService.connectionGrantWriter(),
-            connectionEventWriter: messagingService.connectionEventWriter(),
-            enablementStore: session.connectionEnablementStore(),
-            capabilityResolver: session.capabilityResolver()
-        )
-    }
-
     @MainActor
     func restoreInviteTagIfMissing(_ expectedTag: String) async throws {
         let trimmedTag = expectedTag.trimmingCharacters(in: .whitespacesAndNewlines)

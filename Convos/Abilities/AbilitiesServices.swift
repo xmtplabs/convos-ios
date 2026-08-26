@@ -36,9 +36,9 @@ struct AbilitiesSelection {
 /// state changes carry across surfaces (connecting an ability in settings
 /// is immediately visible in conversation info).
 ///
-/// `configure(...)` wires the live transport at app start; `useLiveBackend`
-/// picks which pair `selection` serves. Previews and tests never call
-/// `configure`, so they fall back to the mock, mirroring `CreditsServices`.
+/// `configure(...)` wires the live transport at app start. Previews and tests
+/// never call `configure`, so they fall back to the mock, mirroring
+/// `CreditsServices`.
 enum AbilitiesServices {
     /// Set once during `ConvosApp.init` before any surface can read them;
     /// the actor-based service handles its own concurrency.
@@ -63,7 +63,7 @@ enum AbilitiesServices {
     /// never read the halves at different times.
     @MainActor
     static var selection: AbilitiesSelection {
-        guard let liveService, useLiveBackend else {
+        guard let liveService else {
             return AbilitiesSelection(service: mockService, escalation: escalationService)
         }
         return AbilitiesSelection(
@@ -80,7 +80,7 @@ enum AbilitiesServices {
     /// source, so the screen never renders another account's rows.
     @MainActor
     static var connectionUsageSource: any ConnectionUsageSourcing {
-        guard useLiveBackend, let liveService else {
+        guard let liveService else {
             return PreviewConnectionUsageSource(service: mockService)
         }
         guard let conversationsProvider else { return EmptyConnectionUsageSource() }
@@ -123,10 +123,10 @@ enum AbilitiesServices {
     /// state. The service resolves its account scope (inbox readiness)
     /// before touching the network or the cache, so a cold-launch call
     /// simply waits for identity instead of writing an accountless
-    /// catalog. No-op in mock mode or before `configure`.
+    /// catalog. No-op before `configure`.
     @MainActor
     static func refreshCatalogInBackground() async {
-        guard useLiveBackend, let liveService else { return }
+        guard let liveService else { return }
         await liveService.refreshCatalog()
     }
 
@@ -156,26 +156,6 @@ enum AbilitiesServices {
         } else {
             Task { @MainActor in AbilitiesAccountEpoch.shared.advance() }
         }
-    }
-
-    /// Live backend versus the in-memory mock. Defaults to live; production
-    /// always reads live. The stored override currently has no UI writer;
-    /// non-production builds still honor a previously persisted value
-    /// (runtime-gated rather than `#if DEBUG` for the same reason
-    /// documented on `CreditsServices`).
-    @MainActor
-    static var useLiveBackend: Bool {
-        guard !ConfigManager.shared.currentEnvironment.isProduction else { return true }
-        if let stored = UserDefaults.standard.object(forKey: Constant.useLiveBackendKey) as? Bool {
-            return stored
-        }
-        return true
-    }
-
-    @MainActor
-    static func setUseLiveBackend(_ value: Bool) {
-        guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
-        UserDefaults.standard.set(value, forKey: Constant.useLiveBackendKey)
     }
 
     /// Debug sub-toggle for the V1 awareness shim (ProfileUpdate metadata
@@ -209,7 +189,6 @@ enum AbilitiesServices {
     }
 
     private enum Constant {
-        static let useLiveBackendKey: String = "abilitiesServices.useLiveBackend"
         static let v1AwarenessShimEnabledKey: String = "abilitiesServices.v1AwarenessShimEnabled"
         static let escalationMockEnabledKey: String = "abilitiesServices.escalationMockEnabled"
     }

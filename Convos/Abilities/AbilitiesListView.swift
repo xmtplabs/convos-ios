@@ -161,12 +161,10 @@ struct AbilitiesListScreen: View {
 /// entitlement state, with status badges and connect actions through
 /// `AbilitiesServiceProtocol`.
 ///
-/// Entry points (all flag-gated behind Abilities V2, all via
-/// `AbilitiesListScreen`, which owns the view models and takes the
-/// `ConnectionsBrowserMode` naming the caller):
+/// Entry points (all via `AbilitiesListScreen`, which owns the view models
+/// and takes the `ConnectionsBrowserMode` naming the caller):
 /// - App Settings connections row (`AppSettingsView.connectionsDestination`)
-///   pushes it in place of the V1 `ConnectionsListView`, in mode
-///   `.appSettings`; the row is titled "Abilities" under the flag. Account
+///   pushes it in mode `.appSettings`; the row is titled "Abilities". Account
 ///   level throughout: "Connected" / "All connections" / "Status unknown",
 ///   the `ellipsis` menu with Disconnect, and the detail push.
 /// - The agent composer's `+` menu presents it full-screen from
