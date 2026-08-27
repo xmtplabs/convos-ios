@@ -516,7 +516,7 @@ struct DebugViewSection: View {
     private var docAgentVariantDroppedDescription: String {
         guard let docAgentDiagnostic else { return "No join response recorded" }
         let requested = docAgentDiagnostic.requestedVariantId ?? "none"
-        let dropped = docAgentDiagnostic.variantDropped.map(String.init) ?? "unknown"
+        let dropped = docAgentDiagnostic.variantDropped ?? "none"
         return "requested: \(requested) · variantDropped: \(dropped)"
     }
 
@@ -528,7 +528,7 @@ struct DebugViewSection: View {
                 conversationId: "doc-preview-conversation",
                 requestedVariantId: "pr-3655",
                 variant: .init(slug: "pr-3655", commit: "abc123def456"),
-                variantDropped: false
+                variantDropped: nil
             )
             return
         }

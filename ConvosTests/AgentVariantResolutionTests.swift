@@ -182,7 +182,7 @@ final class AgentVariantResolutionTests: XCTestCase {
             conversationId: "conversation-1",
             requestedVariantId: "doc-runtime",
             variant: .init(slug: "doc-runtime", commit: "abc123"),
-            variantDropped: false
+            variantDropped: nil
         )
 
         XCTAssertEqual(
@@ -200,19 +200,19 @@ final class AgentVariantResolutionTests: XCTestCase {
             conversationId: "conversation-1",
             requestedVariantId: nil,
             variant: nil,
-            variantDropped: false
+            variantDropped: nil
         )
         let droppedDiagnostic = AgentJoinDiagnostic(
             conversationId: "conversation-1",
             requestedVariantId: "doc-runtime",
             variant: .init(slug: "doc-runtime", commit: "abc123"),
-            variantDropped: true
+            variantDropped: "pr-3655"
         )
         let wrongRequestDiagnostic = AgentJoinDiagnostic(
             conversationId: "conversation-1",
             requestedVariantId: "other-runtime",
             variant: .init(slug: "doc-runtime", commit: "abc123"),
-            variantDropped: false
+            variantDropped: nil
         )
         let unconfirmedDropDiagnostic = AgentJoinDiagnostic(
             conversationId: "conversation-1",
@@ -224,7 +224,7 @@ final class AgentVariantResolutionTests: XCTestCase {
             conversationId: "conversation-1",
             requestedVariantId: "doc-runtime",
             variant: .init(slug: "other-runtime", commit: "abc123"),
-            variantDropped: false
+            variantDropped: nil
         )
 
         XCTAssertEqual(
@@ -282,19 +282,19 @@ final class AgentVariantResolutionTests: XCTestCase {
             conversationId: "conversation-1",
             requestedVariantId: "doc-runtime",
             variant: .init(slug: "doc-runtime", commit: "abc123"),
-            variantDropped: true
+            variantDropped: "pr-3655"
         )
         let missingVariantDiagnostic = AgentJoinDiagnostic(
             conversationId: "conversation-2",
             requestedVariantId: "doc-runtime",
             variant: nil,
-            variantDropped: false
+            variantDropped: nil
         )
         let wrongRuntimeDiagnostic = AgentJoinDiagnostic(
             conversationId: "conversation-3",
             requestedVariantId: "doc-runtime",
             variant: .init(slug: "other-runtime", commit: "abc123"),
-            variantDropped: false
+            variantDropped: nil
         )
 
         XCTAssertEqual(
@@ -312,7 +312,7 @@ final class AgentVariantResolutionTests: XCTestCase {
                     conversationId: "conversation-3",
                     requestedVariantId: nil,
                     variant: nil,
-                    variantDropped: false
+                    variantDropped: nil
                 )
             )?.requestedSlug,
             "doc-runtime"
@@ -338,7 +338,7 @@ final class AgentVariantResolutionTests: XCTestCase {
             conversationId: "conversation-1",
             requestedVariantId: "doc-runtime",
             variant: .init(slug: "doc-runtime", commit: "abc123"),
-            variantDropped: false
+            variantDropped: nil
         )
 
         XCTAssertNil(DocRuntimeFallbackWarning.resolve(

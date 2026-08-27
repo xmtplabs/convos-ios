@@ -1416,7 +1416,7 @@ extension ConvosAPIClient {
             // client-visible proof the server adopted rather than re-provisioned.
             let matchSuffix = joinRequest.idempotencyKey.map { " idempotencyKey=\($0.rawValue) instanceIdMatchesKey=\(response.instanceId == $0.rawValue)" } ?? ""
             let responseVariant = response.variant.map { "\($0.slug)@\($0.commit)" } ?? "none"
-            let variantDropped = response.variantDropped.map(String.init) ?? "unknown"
+            let variantDropped = response.variantDropped ?? "none"
             Log.info(
                 "agents/join succeeded: instanceId=\(response.instanceId ?? "nil")\(matchSuffix) " +
                     "joined=\(response.joined) inboxIdPresent=\(response.inboxId != nil) " +

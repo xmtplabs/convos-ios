@@ -8,14 +8,14 @@ public struct AgentJoinDiagnostic: Codable, Sendable, Equatable {
     public let conversationId: String
     public let requestedVariantId: String?
     public let variant: ConvosAPI.AgentJoinResponse.Variant?
-    public let variantDropped: Bool?
+    public let variantDropped: String?
     public let recordedAt: Date
 
     public init(
         conversationId: String,
         requestedVariantId: String?,
         variant: ConvosAPI.AgentJoinResponse.Variant?,
-        variantDropped: Bool?,
+        variantDropped: String?,
         recordedAt: Date = Date()
     ) {
         self.conversationId = conversationId

@@ -330,10 +330,10 @@ public enum ConvosAPI {
         /// The variant the backend actually dispatched, rather than only the
         /// client request. Nil means the default runtime handled the join.
         public let variant: Variant?
-        /// True when a requested variant could not be used and the backend
-        /// deliberately fell back to the default runtime. Optional for
-        /// compatibility with older backend responses.
-        public let variantDropped: Bool?
+        /// The requested variant id when the backend could not use it and
+        /// deliberately fell back to the default runtime; nil when the variant
+        /// applied (or none was requested).
+        public let variantDropped: String?
 
         public init(
             success: Bool,
@@ -341,7 +341,7 @@ public enum ConvosAPI {
             instanceId: String? = nil,
             inboxId: String? = nil,
             variant: Variant? = nil,
-            variantDropped: Bool? = nil
+            variantDropped: String? = nil
         ) {
             self.success = success
             self.joined = joined

@@ -184,7 +184,7 @@ enum DocAgentConvergenceAction: Equatable {
         guard let diagnostic,
               diagnostic.conversationId.caseInsensitiveCompare(conversationId) == .orderedSame,
               diagnostic.requestedVariantId == expectedVariantSlug,
-              diagnostic.variantDropped == false,
+              diagnostic.variantDropped == nil,
               diagnostic.variant?.slug == expectedVariantSlug else {
             return .replace
         }

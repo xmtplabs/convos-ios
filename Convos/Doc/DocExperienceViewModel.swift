@@ -164,7 +164,7 @@ struct DocRuntimeFallbackWarning: Equatable {
         }
         let expectedSlug = configuredSlug ?? diagnostic.requestedVariantId
         guard diagnostic.requestedVariantId != expectedSlug ||
-            diagnostic.variantDropped != false ||
+            diagnostic.variantDropped != nil ||
             diagnostic.variant?.slug != expectedSlug else {
             return nil
         }

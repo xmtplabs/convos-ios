@@ -85,11 +85,11 @@ struct AgentVariantPlumbingTests {
 
     @Test("Join response decodes the backend-confirmed variant result")
     func joinResponseDecodesVariantResult() throws {
-        let data = Data(#"{"success":true,"joined":true,"variant":{"slug":"pr-3655","commit":"abc123"},"variantDropped":false}"#.utf8)
+        let data = Data(#"{"success":true,"joined":true,"variant":{"slug":"pr-3655","commit":"abc123"},"variantDropped":null}"#.utf8)
         let response = try JSONDecoder().decode(ConvosAPI.AgentJoinResponse.self, from: data)
 
         #expect(response.variant == .init(slug: "pr-3655", commit: "abc123"))
-        #expect(response.variantDropped == false)
+        #expect(response.variantDropped == nil)
     }
 
     @Test("Join diagnostics persist the actual result per conversation")
@@ -102,7 +102,7 @@ struct AgentVariantPlumbingTests {
             success: true,
             joined: true,
             variant: .init(slug: "pr-3655", commit: "abc123"),
-            variantDropped: false
+            variantDropped: nil
         )
 
         store.record(
@@ -114,7 +114,7 @@ struct AgentVariantPlumbingTests {
         let diagnostic = try #require(store.diagnostic(for: "conversation-1"))
         #expect(diagnostic.requestedVariantId == "pr-3655")
         #expect(diagnostic.variant == response.variant)
-        #expect(diagnostic.variantDropped == false)
+        #expect(diagnostic.variantDropped == nil)
 
         store.clear(conversationId: "CONVERSATION-1")
         #expect(store.diagnostic(for: "conversation-1") == nil)
