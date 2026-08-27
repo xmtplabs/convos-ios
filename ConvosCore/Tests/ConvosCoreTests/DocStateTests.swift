@@ -283,16 +283,20 @@ struct DocStateTests {
     }
 
     @Test("hides every Doc-prefixed text message from transcripts")
-    func hidesDataPlaneMessages() {
+    func hidesDataPlaneMessages() throws {
+        let verifyRequest = try #require(DocControlRequestMessage.verifyRequestText(number: "+14155550123"))
+        let verifySubmit = try #require(DocControlRequestMessage.verifySubmitText(code: "123456"))
+
         #expect(!MessageContent.text("⟦doc⟧not-json").showsInMessagesList)
         #expect(!MessageContent.text("⟦ans⟧not-json").showsInMessagesList)
-        #expect(!MessageContent.text("⟦req⟧not-json").showsInMessagesList)
+        #expect(!MessageContent.text(verifyRequest).showsInMessagesList)
+        #expect(!MessageContent.text(verifySubmit).showsInMessagesList)
         #expect(!MessageContent.text("⟦lane⟧not-json").showsInMessagesList)
         #expect(MessageContent.text("A normal message").showsInMessagesList)
     }
 
     @Test("hides Doc state from conversation previews")
-    func hidesDataPlaneMessagePreviews() {
+    func hidesDataPlaneMessagePreviews() throws {
         let row = DBLastMessageWithSource(
             id: "doc-state",
             clientMessageId: "doc-state",
@@ -345,6 +349,7 @@ struct DocStateTests {
         )
         #expect(answerPreview.text.isEmpty)
 
+        let verifyRequest = try #require(DocControlRequestMessage.verifyRequestText(number: "+14155550123"))
         let requestRow = DBLastMessageWithSource(
             id: "doc-request",
             clientMessageId: "doc-request",
@@ -355,7 +360,7 @@ struct DocStateTests {
             status: .published,
             messageType: .original,
             contentType: .text,
-            text: "⟦req⟧not-json",
+            text: verifyRequest,
             emoji: nil,
             invite: nil,
             linkPreview: nil,
@@ -369,6 +374,32 @@ struct DocStateTests {
             members: []
         )
         #expect(requestPreview.text.isEmpty)
+
+        let verifySubmit = try #require(DocControlRequestMessage.verifySubmitText(code: "123456"))
+        let submitRow = DBLastMessageWithSource(
+            id: "doc-submit",
+            clientMessageId: "doc-submit",
+            conversationId: "agent-dm",
+            senderId: "user",
+            dateNs: 4,
+            date: Date(timeIntervalSince1970: 4),
+            status: .published,
+            messageType: .original,
+            contentType: .text,
+            text: verifySubmit,
+            emoji: nil,
+            invite: nil,
+            linkPreview: nil,
+            sourceMessageId: nil,
+            attachmentUrls: [],
+            sourceMessageText: nil
+        )
+        let submitPreview = submitRow.hydrateMessagePreview(
+            conversationKind: .dm,
+            currentInboxId: "user",
+            members: []
+        )
+        #expect(submitPreview.text.isEmpty)
     }
 
     private func decodedAnswer(_ message: String) throws -> [String: Any] {

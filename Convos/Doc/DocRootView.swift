@@ -103,10 +103,22 @@ struct DocRootView: View {
                 DocWelcomeView(onContinue: viewModel.completeWelcome)
             case .verify:
                 DocVerifyFirstRunView(
+                    flowState: viewModel.verificationFlowState,
                     verification: viewModel.verificationControl,
+                    rememberedNumber: viewModel.rememberedVerificationNumber,
                     startupErrorMessage: viewModel.agentStartupErrorMessage,
+                    transportErrorMessage: viewModel.verificationTransportErrorMessage,
+                    onRequest: viewModel.requestPhoneVerification,
+                    onSubmit: viewModel.submitPhoneVerification,
+                    onShowFallback: viewModel.showPhoneVerificationFallback,
+                    onEditNumber: viewModel.editPhoneNumber,
                     onRenew: viewModel.renewVerification,
                     onRetryStartup: viewModel.retryAgentStartup
+                )
+            case .sayHello:
+                DocVerificationHelloView(
+                    lineNumber: viewModel.verificationLineNumber,
+                    onComplete: viewModel.completeVerificationHello
                 )
             case .connectGoogle:
                 DocGoogleFirstRunView(

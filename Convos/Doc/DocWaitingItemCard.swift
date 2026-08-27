@@ -148,6 +148,12 @@ struct DocVerificationControlCard: View {
             "Send the prefilled message from the phone number you use with Doc."
         case .expired:
             "That verification code expired. Get a new code, then text it to @doc."
+        case .sent:
+            "A verification code is on its way."
+        case .sendFailed:
+            "The verification code could not be sent."
+        case .attemptFailed:
+            "That verification code did not match."
         case .verified, .released:
             "Your phone number is verified."
         }
@@ -213,7 +219,7 @@ struct DocVerificationActionButton: View {
     }
 }
 
-private struct DocMessageComposeView: UIViewControllerRepresentable {
+struct DocMessageComposeView: UIViewControllerRepresentable {
     let recipient: String
     let body: String
     let onDismiss: () -> Void

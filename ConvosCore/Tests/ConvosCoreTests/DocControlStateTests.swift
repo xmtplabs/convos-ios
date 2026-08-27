@@ -23,6 +23,9 @@ struct DocControlStateTests {
 
         for (message, status) in [
             (Fixture.verificationPending, DocControlVerification.Status.pending),
+            (Fixture.verificationRequestSent, .sent),
+            (Fixture.verificationRequestFailed, .sendFailed),
+            (Fixture.verificationSubmitFailed, .attemptFailed),
             (Fixture.verificationVerified, .verified),
             (Fixture.verificationExpired, .expired),
             (Fixture.verificationReleased, .released),
@@ -137,6 +140,20 @@ struct DocControlStateTests {
         #expect(snapshot.verificationsByKey["verification:owner:+14155550123"]?.status == .verified)
     }
 
+    @Test("outbound verification clears its request fact")
+    func outboundVerificationClearsRequest() throws {
+        let sent = try #require(DocControlMessage.parseEvent(Fixture.verificationRequestSent))
+        let verified = try #require(DocControlMessage.parseEvent(Fixture.verificationOutboundVerified))
+        var snapshot = DocControlSnapshot(event: sent)
+
+        #expect(snapshot.verificationsByKey[DocControlMessage.verificationRequestKey]?.status == .sent)
+        let applied = snapshot.apply(verified)
+        #expect(applied)
+        #expect(snapshot.verificationsByKey[DocControlMessage.verificationRequestKey] == nil)
+        #expect(snapshot.latestSequencesByKey[DocControlMessage.verificationRequestKey] == 18)
+        #expect(snapshot.verificationsByKey["verification:owner:+14155550123"]?.status == .verified)
+    }
+
     @Test("rejects another epoch in the same projection")
     func rejectsAnotherEpoch() throws {
         let first = try #require(DocControlMessage.parseEvent(Fixture.lifecycleReady))
@@ -153,10 +170,23 @@ struct DocControlStateTests {
     }
 
     @Test("control requests match the Worker contract")
-    func controlRequestFixtures() {
+    func controlRequestFixtures() throws {
+        let verifyRequest = try #require(DocControlRequestMessage.verifyRequestText(number: "+14155550123"))
+        let verifySubmit = try #require(DocControlRequestMessage.verifySubmitText(code: "123456"))
+
         #expect(DocControlRequestMessage.resyncText == #"⟦req⟧{"v":1,"t":"control"}"#)
         #expect(DocControlRequestMessage.renewVerificationText == #"⟦req⟧{"v":1,"t":"control","action":"renew_verification"}"#)
+        #expect(verifyRequest == #"⟦req⟧{"v":1,"t":"verify_request","number":"+14155550123"}"#)
+        #expect(verifySubmit == #"⟦req⟧{"v":1,"t":"verify_submit","code":"123456"}"#)
+        #expect(DocControlRequestMessage.verifyRequestText(number: "4155550123") == nil)
+        #expect(DocControlRequestMessage.verifySubmitText(code: "12345") == nil)
         #expect(DocWireMessage.isHiddenText(DocControlRequestMessage.resyncText))
+        #expect(DocWireMessage.isHiddenText(verifyRequest))
+        #expect(DocWireMessage.isHiddenText(verifySubmit))
+        #expect(!MessageContent.text(verifyRequest).showsInMessagesList)
+        #expect(!MessageContent.text(verifySubmit).showsInMessagesList)
+        #expect(MessagingService.shouldSuppressNotificationText(verifyRequest))
+        #expect(MessagingService.shouldSuppressNotificationText(verifySubmit))
     }
 
     private enum Fixture {
@@ -169,6 +199,10 @@ struct DocControlStateTests {
         static let verificationVerified: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":12,"at":1787720500,"key":"verification:owner:+14155550123","kind":"verification","verification":{"status":"verified","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787724000,"verifiedAt":1787720500,"releasedAt":null,"clearsKey":"verification:challenge"}}"#
         static let verificationExpired: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":13,"at":1787724000,"key":"verification:challenge","kind":"verification","verification":{"status":"expired","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":null,"code":null,"smsBody":null,"expiresAt":1787724000,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
         static let verificationReleased: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":14,"at":1787725000,"key":"verification:owner:+14155550123","kind":"verification","verification":{"status":"released","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787724000,"verifiedAt":1787720500,"releasedAt":1787725000,"clearsKey":null}}"#
+        static let verificationRequestSent: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":15,"at":1787725010,"key":"verification:request","kind":"verification","verification":{"status":"sent","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787728610,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
+        static let verificationRequestFailed: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":16,"at":1787725020,"key":"verification:request","kind":"verification","verification":{"status":"send_failed","challengeId":null,"lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":0,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
+        static let verificationSubmitFailed: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":17,"at":1787725030,"key":"verification:request","kind":"verification","verification":{"status":"attempt_failed","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787728610,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
+        static let verificationOutboundVerified: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":18,"at":1787725040,"key":"verification:owner:+14155550123","kind":"verification","verification":{"status":"verified","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787728610,"verifiedAt":1787725040,"releasedAt":null,"clearsKey":"verification:request"}}"#
         static let bindingPending: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":20,"at":1787720300,"key":"binding:doc:tahoe-trip","kind":"binding","binding":{"status":"pending","lineNumber":"+16283095734","threadId":null,"conversationType":null,"groupName":null,"docId":"tahoe-trip","intentAt":1787720300,"boundAt":null,"releasedAt":null,"supersedesKey":null}}"#
         static let bindingLive: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":30,"at":1787720400,"key":"binding:thread:+16283095734:thread-1","kind":"binding","binding":{"status":"live","lineNumber":"+16283095734","threadId":"thread-1","conversationType":"group","groupName":"Tahoe","docId":"tahoe-trip","intentAt":1787720300,"boundAt":1787720400,"releasedAt":null,"supersedesKey":"binding:doc:tahoe-trip"}}"#
         static let bindingReleased: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":31,"at":1787720600,"key":"binding:thread:+16283095734:thread-1","kind":"binding","binding":{"status":"released","lineNumber":"+16283095734","threadId":"thread-1","conversationType":"group","groupName":"Tahoe","docId":"tahoe-trip","intentAt":1787720300,"boundAt":1787720400,"releasedAt":1787720600,"supersedesKey":null}}"#

@@ -11,30 +11,42 @@ struct DocControlViewModelTests {
             hasCompletedWelcome: false,
             hasCompletedFirstRun: false,
             hasVerifiedNumber: false,
+            hasCompletedVerificationHello: false,
             hasGrantedGoogleDocs: false
         ) == .welcome)
         #expect(DocFirstRunReducer.step(
             hasCompletedWelcome: true,
             hasCompletedFirstRun: false,
             hasVerifiedNumber: false,
+            hasCompletedVerificationHello: false,
             hasGrantedGoogleDocs: true
         ) == .verify)
         #expect(DocFirstRunReducer.step(
             hasCompletedWelcome: true,
             hasCompletedFirstRun: false,
             hasVerifiedNumber: true,
+            hasCompletedVerificationHello: false,
+            hasGrantedGoogleDocs: false
+        ) == .sayHello)
+        #expect(DocFirstRunReducer.step(
+            hasCompletedWelcome: true,
+            hasCompletedFirstRun: false,
+            hasVerifiedNumber: true,
+            hasCompletedVerificationHello: true,
             hasGrantedGoogleDocs: false
         ) == .connectGoogle)
         #expect(DocFirstRunReducer.step(
             hasCompletedWelcome: true,
             hasCompletedFirstRun: false,
             hasVerifiedNumber: true,
+            hasCompletedVerificationHello: true,
             hasGrantedGoogleDocs: true
         ) == .home)
         #expect(DocFirstRunReducer.step(
             hasCompletedWelcome: true,
             hasCompletedFirstRun: true,
             hasVerifiedNumber: false,
+            hasCompletedVerificationHello: false,
             hasGrantedGoogleDocs: false
         ) == .home)
     }
@@ -49,6 +61,8 @@ struct DocControlViewModelTests {
             [fixture.message(id: "verified", text: Fixture.verificationVerified, date: 10)],
             agentInboxId: Fixture.agentInboxId
         )
+        #expect(viewModel.firstRunStep == .sayHello)
+        viewModel.completeVerificationHello()
         #expect(viewModel.firstRunStep == .connectGoogle)
 
         viewModel.ingestAggregatedMessages(
@@ -78,6 +92,8 @@ struct DocControlViewModelTests {
             [fixture.message(id: "verified", text: Fixture.verificationVerified, date: 11)],
             agentInboxId: Fixture.agentInboxId
         )
+        #expect(viewModel.firstRunStep == .sayHello)
+        viewModel.completeVerificationHello()
         #expect(viewModel.firstRunStep == .home)
     }
 
@@ -96,8 +112,61 @@ struct DocControlViewModelTests {
         #expect(relaunched.verificationControl?.status == .pending)
     }
 
-    @Test("pre-verified number resumes at Google connect")
-    func preVerifiedNumberSkipsVerify() throws {
+    @Test("verification request and submit facts drive recovery states")
+    func verificationFactsDriveFlow() throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let viewModel = fixture.viewModel()
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "request-sent", text: Fixture.verificationRequestSent, date: 10)],
+            agentInboxId: Fixture.agentInboxId
+        )
+        #expect(viewModel.verificationFlowState == .enteringCode(
+            number: "+14155550123",
+            attemptFailed: false
+        ))
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "submit-failed", text: Fixture.verificationSubmitFailed, date: 11)],
+            agentInboxId: Fixture.agentInboxId
+        )
+        #expect(viewModel.verificationFlowState == .enteringCode(
+            number: "+14155550123",
+            attemptFailed: true
+        ))
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "request-failed", text: Fixture.verificationRequestFailed, date: 12)],
+            agentInboxId: Fixture.agentInboxId
+        )
+        #expect(viewModel.verificationFlowState == .fallback(number: "+14155550123"))
+    }
+
+    @Test("outbound verified fact completes phone verification")
+    func outboundVerifiedFactCompletesFlow() throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let viewModel = fixture.viewModel()
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "request-sent", text: Fixture.verificationRequestSent, date: 10)],
+            agentInboxId: Fixture.agentInboxId
+        )
+        #expect(viewModel.verificationFlowState == .enteringCode(
+            number: "+14155550123",
+            attemptFailed: false
+        ))
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "verified", text: Fixture.verificationOutboundVerified, date: 11)],
+            agentInboxId: Fixture.agentInboxId
+        )
+
+        #expect(viewModel.verificationFlowState == .verified(number: "+14155550123"))
+        #expect(viewModel.firstRunStep == .sayHello)
+    }
+
+    @Test("pre-verified number resumes at the optional hello")
+    func preVerifiedNumberShowsHello() throws {
         let fixture = try Fixture(hasCompletedWelcome: true)
         let firstLaunch = fixture.viewModel()
         firstLaunch.ingestAggregatedMessages(
@@ -107,6 +176,8 @@ struct DocControlViewModelTests {
 
         let relaunched = fixture.viewModel()
 
+        #expect(relaunched.firstRunStep == .sayHello)
+        relaunched.completeVerificationHello()
         #expect(relaunched.firstRunStep == .connectGoogle)
     }
 
@@ -121,6 +192,8 @@ struct DocControlViewModelTests {
             ],
             agentInboxId: Fixture.agentInboxId
         )
+        #expect(viewModel.firstRunStep == .sayHello)
+        viewModel.completeVerificationHello()
         #expect(viewModel.firstRunStep == .home)
 
         viewModel.ingestAggregatedMessages(
@@ -294,6 +367,10 @@ struct DocControlViewModelTests {
         static let verificationPending: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":10,"at":1787720400,"key":"verification:challenge","kind":"verification","verification":{"status":"pending","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":null,"code":"ABCD-EFGH-2345","smsBody":"VERIFY ABCD-EFGH-2345","expiresAt":1787724000,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
         static let verificationVerified: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":11,"at":1787720500,"key":"verification:owner:+14155550123","kind":"verification","verification":{"status":"verified","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787724000,"verifiedAt":1787720500,"releasedAt":null,"clearsKey":"verification:challenge"}}"#
         static let verificationRenewed: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":12,"at":1787720600,"key":"verification:challenge","kind":"verification","verification":{"status":"pending","challengeId":"53A5C46C-31C1-409E-B277-9C84AFA23C91","lineNumber":"+16283095734","ownerNumber":null,"code":"WXYZ-EFGH-2345","smsBody":"VERIFY WXYZ-EFGH-2345","expiresAt":1787725000,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
+        static let verificationRequestSent: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":13,"at":1787720610,"key":"verification:request","kind":"verification","verification":{"status":"sent","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787724210,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
+        static let verificationSubmitFailed: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":14,"at":1787720620,"key":"verification:request","kind":"verification","verification":{"status":"attempt_failed","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787724210,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
+        static let verificationRequestFailed: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":15,"at":1787720630,"key":"verification:request","kind":"verification","verification":{"status":"send_failed","challengeId":null,"lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":0,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
+        static let verificationOutboundVerified: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":16,"at":1787720640,"key":"verification:owner:+14155550123","kind":"verification","verification":{"status":"verified","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787724210,"verifiedAt":1787720640,"releasedAt":null,"clearsKey":"verification:request"}}"#
         static let googlePending: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":20,"at":1787720400,"key":"google:registering","kind":"google_docs","googleDocs":{"ownerInboxId":"registering","requestConversationId":null,"supersedesKey":null,"gate":{"status":"pending","requestId":"request-1","updatedAt":1787720400},"connection":{"status":"unknown","providerId":null,"updatedAt":1787720400}}}"#
         static let googleGranted: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":21,"at":1787720500,"key":"google:registering","kind":"google_docs","googleDocs":{"ownerInboxId":"registering","requestConversationId":null,"supersedesKey":null,"gate":{"status":"approved","requestId":"request-1","updatedAt":1787720500},"connection":{"status":"granted","providerId":"composio.googledocs","updatedAt":1787720500}}}"#
         static let googleRevoked: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":22,"at":1787720600,"key":"google:registering","kind":"google_docs","googleDocs":{"ownerInboxId":"registering","requestConversationId":null,"supersedesKey":null,"gate":{"status":"approved","requestId":"request-1","updatedAt":1787720500},"connection":{"status":"revoked","providerId":"composio.googledocs","updatedAt":1787720600}}}"#

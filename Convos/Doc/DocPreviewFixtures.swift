@@ -24,6 +24,42 @@ extension DocExperienceViewModel {
         ))
     }
 
+    static var previewVerificationSentSnapshot: DocControlSnapshot {
+        var snapshot = previewVerificationSnapshot
+        _ = snapshot.apply(previewOutboundVerification(status: .sent))
+        return snapshot
+    }
+
+    static var previewVerificationFallbackSnapshot: DocControlSnapshot {
+        var snapshot = previewVerificationSnapshot
+        _ = snapshot.apply(previewOutboundVerification(status: .sendFailed))
+        return snapshot
+    }
+
+    private static func previewOutboundVerification(
+        status: DocControlVerification.Status
+    ) -> DocControlEvent {
+        DocControlEvent(
+            instanceId: "F47AC10B-58CC-4372-A567-0E02B2C3D479",
+            epoch: "7D9E6679-7425-40DE-944B-E07FC1F90AE7",
+            sequence: 2,
+            occurredAt: 1_787_720_500,
+            key: DocControlMessage.verificationRequestKey,
+            payload: .verification(DocControlVerification(
+                status: status,
+                challengeId: status == .sendFailed ? nil : "B8098C1A-F86E-11DA-BD1A-00112444BE1E",
+                lineNumber: DocPreviewConfiguration.contributionLine,
+                ownerNumber: "+14155550123",
+                code: nil,
+                smsBody: nil,
+                expiresAt: status == .sendFailed ? 0 : 1_787_724_100,
+                verifiedAt: nil,
+                releasedAt: nil,
+                clearsKey: nil
+            ))
+        )
+    }
+
     static var previewItems: [DocWaitingItem] {
         let now = Date()
         return [

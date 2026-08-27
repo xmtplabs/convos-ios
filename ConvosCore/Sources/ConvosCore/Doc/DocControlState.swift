@@ -71,6 +71,9 @@ public struct DocControlLine: Codable, Hashable, Sendable {
 public struct DocControlVerification: Codable, Hashable, Sendable {
     public enum Status: String, Codable, Hashable, Sendable {
         case pending
+        case sent
+        case sendFailed = "send_failed"
+        case attemptFailed = "attempt_failed"
         case verified
         case expired
         case released
@@ -328,11 +331,26 @@ public struct DocControlSnapshot: Codable, Hashable, Sendable {
 public enum DocControlRequestMessage {
     public static let resyncText: String = #"⟦req⟧{"v":1,"t":"control"}"#
     public static let renewVerificationText: String = #"⟦req⟧{"v":1,"t":"control","action":"renew_verification"}"#
+
+    public static func verifyRequestText(number: String) -> String? {
+        guard isE164(number) else { return nil }
+        return #"⟦req⟧{"v":1,"t":"verify_request","number":"\#(number)"}"#
+    }
+
+    public static func verifySubmitText(code: String) -> String? {
+        guard code.range(of: #"^[0-9]{6}$"#, options: .regularExpression) != nil else { return nil }
+        return #"⟦req⟧{"v":1,"t":"verify_submit","code":"\#(code)"}"#
+    }
+
+    private static func isE164(_ value: String) -> Bool {
+        value.range(of: #"^\+[1-9][0-9]{7,14}$"#, options: .regularExpression) != nil
+    }
 }
 
 public enum DocControlMessage {
     public static let prefix: String = "⟦doc⟧"
     public static let verificationChallengeKey: String = "verification:challenge"
+    public static let verificationRequestKey: String = "verification:request"
 
     public static func parseEvent(_ text: String) -> DocControlEvent? {
         guard text.hasPrefix(prefix), text.utf8.count <= Constant.maximumWireBytes else { return nil }
@@ -412,7 +430,11 @@ public enum DocControlMessage {
     }
 
     private static func validate(_ value: DocControlVerification, key: String) -> Bool {
-        guard isE164(value.lineNumber), value.expiresAt >= 0 else { return false }
+        guard isE164(value.lineNumber),
+              value.expiresAt >= 0,
+              value.challengeId.map(isUUID) ?? true else {
+            return false
+        }
         switch value.status {
         case .pending:
             guard key == verificationChallengeKey,
@@ -427,8 +449,20 @@ public enum DocControlMessage {
                 return false
             }
             return true
+        case .sent, .sendFailed, .attemptFailed:
+            guard key == verificationRequestKey,
+                  let ownerNumber = value.ownerNumber,
+                  isE164(ownerNumber),
+                  value.code == nil,
+                  value.smsBody == nil,
+                  value.verifiedAt == nil,
+                  value.releasedAt == nil,
+                  value.clearsKey == nil else {
+                return false
+            }
+            return value.status == .sendFailed || value.challengeId.map(isUUID) == true
         case .verified:
-            guard value.challengeId.map(isUUID) == true,
+            guard value.challengeId != nil,
                   let ownerNumber = value.ownerNumber,
                   isE164(ownerNumber),
                   key == "verification:owner:\(ownerNumber)",
@@ -436,7 +470,8 @@ public enum DocControlMessage {
                   value.smsBody == nil,
                   value.verifiedAt.map({ $0 >= 0 }) == true,
                   value.releasedAt == nil,
-                  value.clearsKey == verificationChallengeKey else {
+                  let clearsKey = value.clearsKey,
+                  [verificationChallengeKey, verificationRequestKey].contains(clearsKey) else {
                 return false
             }
             return true

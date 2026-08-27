@@ -29,6 +29,9 @@ struct DocPendingPhoto: Identifiable {
 enum DocPreviewStage: String {
     case welcome
     case verify
+    case verifyCode
+    case verifyFallback
+    case verificationHello
     case connect
     case empty
     case cards
@@ -165,6 +168,8 @@ final class DocExperienceViewModel {
     private(set) var isGoogleDocsReady: Bool = false
     private(set) var isConnectingGoogleDocs: Bool = false
     private(set) var googleConnectErrorMessage: String?
+    private(set) var verificationFlowState: DocVerificationFlowState = .enteringNumber
+    private(set) var verificationTransportErrorMessage: String?
     private(set) var isShowingNotDocAgentNotice: Bool = false
     private(set) var agentStartupState: DocAgentStartupState = .idle
     var isPresentingGoogleConnect: Bool = false
@@ -179,6 +184,7 @@ final class DocExperienceViewModel {
     private(set) var sharedNumberDocName: String?
     private(set) var sharedDocText: String?
     var hasCompletedWelcome: Bool
+    private(set) var hasCompletedVerificationHello: Bool
     private(set) var hasCompletedFirstRun: Bool
 
     let previewStage: DocPreviewStage?
@@ -237,6 +243,9 @@ final class DocExperienceViewModel {
             previewStage: previewStage,
             defaults: defaults,
             accountIdentifier: initialAccountIdentifier
+        )
+        self.hasCompletedVerificationHello = defaults.bool(
+            forKey: Self.storageKey("verificationHello", accountIdentifier: initialAccountIdentifier)
         )
         self.hasCompletedFirstRun = defaults.bool(
             forKey: Self.storageKey("firstRun", accountIdentifier: initialAccountIdentifier)
@@ -318,6 +327,7 @@ final class DocExperienceViewModel {
         if previewStage == .notDocAgent {
             isShowingNotDocAgentNotice = true
         }
+        restoreVerificationFlow()
         refreshGoogleControlState()
         reconcileFirstRunCompletion()
 
@@ -345,8 +355,10 @@ final class DocExperienceViewModel {
         switch previewStage {
         case .welcome:
             return hasCompletedWelcome ? .verify : .welcome
-        case .verify:
+        case .verify, .verifyCode, .verifyFallback:
             return .verify
+        case .verificationHello:
+            return .sayHello
         case .connect:
             return .connectGoogle
         case .some:
@@ -356,6 +368,7 @@ final class DocExperienceViewModel {
                 hasCompletedWelcome: hasCompletedWelcome,
                 hasCompletedFirstRun: hasCompletedFirstRun,
                 hasVerifiedNumber: hasVerifiedNumber,
+                hasCompletedVerificationHello: hasCompletedVerificationHello,
                 hasGrantedGoogleDocs: hasGrantedGoogleDocs
             )
         }
@@ -381,6 +394,17 @@ final class DocExperienceViewModel {
             return nil
         }
         return verification
+    }
+
+    var verificationLineNumber: String {
+        if let verified = controlSnapshot?.verificationsByKey.values.first(where: { $0.status == .verified }) {
+            return verified.lineNumber
+        }
+        return verificationControl?.lineNumber ?? contributionLine
+    }
+
+    var rememberedVerificationNumber: String? {
+        defaults.string(forKey: storageKey(Self.verificationNumberComponent))
     }
 
     func controlBinding(for docId: String) -> DocControlBinding? {
@@ -957,10 +981,12 @@ private extension DocExperienceViewModel {
         }
         guard var snapshot = controlSnapshot else {
             controlSnapshot = DocControlSnapshot(event: event)
+            applyVerificationControlEvent(event)
             return true
         }
         guard snapshot.apply(event) else { return false }
         controlSnapshot = snapshot
+        applyVerificationControlEvent(event)
         return true
     }
 
@@ -970,6 +996,40 @@ private extension DocExperienceViewModel {
             return
         }
         defaults.set(data, forKey: storageKey(Self.controlComponent))
+    }
+
+    func applyVerificationControlEvent(_ event: DocControlEvent) {
+        let flowEvent: DocVerificationFlowEvent?
+        switch event.payload {
+        case .verification(let verification):
+            if let number = verification.ownerNumber {
+                rememberVerificationNumber(number)
+            }
+            switch verification.status {
+            case .verified:
+                flowEvent = .verified(number: verification.ownerNumber)
+            case .sent:
+                flowEvent = verification.ownerNumber.map(DocVerificationFlowEvent.requestSent)
+            case .sendFailed:
+                flowEvent = verification.ownerNumber.map(DocVerificationFlowEvent.requestFailed)
+            case .attemptFailed:
+                flowEvent = verification.ownerNumber.map(DocVerificationFlowEvent.submissionFailed)
+            case .pending, .expired, .released:
+                flowEvent = nil
+            }
+        case .binding, .googleDocs, .lifecycle, .line:
+            flowEvent = nil
+        }
+        guard let flowEvent else { return }
+        verificationTransportErrorMessage = nil
+        verificationFlowState = DocVerificationFlowReducer.reduce(
+            verificationFlowState,
+            event: flowEvent
+        )
+    }
+
+    func rememberVerificationNumber(_ number: String) {
+        defaults.set(number, forKey: storageKey(Self.verificationNumberComponent))
     }
 
     func refreshGoogleControlState() {
@@ -992,6 +1052,7 @@ private extension DocExperienceViewModel {
                   hasCompletedWelcome: hasCompletedWelcome,
                   hasCompletedFirstRun: false,
                   hasVerifiedNumber: hasVerifiedNumber,
+                  hasCompletedVerificationHello: hasCompletedVerificationHello,
                   hasGrantedGoogleDocs: hasGrantedGoogleDocs
               ) == .home else {
             return
@@ -1112,6 +1173,71 @@ extension DocExperienceViewModel {
         defaults.set(true, forKey: storageKey("welcome"))
         reconcileFirstRunCompletion()
         Task { await startAgentIfNeeded() }
+    }
+
+    func requestPhoneVerification(number: String) {
+        guard let text = DocControlRequestMessage.verifyRequestText(number: number) else { return }
+        verificationTransportErrorMessage = nil
+        rememberVerificationNumber(number)
+        verificationFlowState = DocVerificationFlowReducer.reduce(
+            verificationFlowState,
+            event: .request(number: number)
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let didSend = await sendProtocolText(text)
+            guard !didSend, verificationFlowState == .requesting(number: number) else { return }
+            verificationTransportErrorMessage = "Couldn't request a code. Check your connection and try again."
+            verificationFlowState = DocVerificationFlowReducer.reduce(
+                verificationFlowState,
+                event: .requestTransportFailed
+            )
+        }
+    }
+
+    func submitPhoneVerification(code: String) {
+        guard let number = verificationFlowState.number,
+              let text = DocControlRequestMessage.verifySubmitText(code: code) else {
+            return
+        }
+        verificationTransportErrorMessage = nil
+        verificationFlowState = DocVerificationFlowReducer.reduce(
+            verificationFlowState,
+            event: .submitCode
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let didSend = await sendProtocolText(text)
+            guard !didSend, verificationFlowState == .submitting(number: number) else { return }
+            verificationTransportErrorMessage = "Couldn't check that code. Check your connection and try again."
+            verificationFlowState = DocVerificationFlowReducer.reduce(
+                verificationFlowState,
+                event: .submissionTransportFailed(number: number)
+            )
+        }
+    }
+
+    func showPhoneVerificationFallback() {
+        verificationTransportErrorMessage = nil
+        verificationFlowState = DocVerificationFlowReducer.reduce(
+            verificationFlowState,
+            event: .showFallback
+        )
+    }
+
+    func editPhoneNumber() {
+        verificationTransportErrorMessage = nil
+        verificationFlowState = DocVerificationFlowReducer.reduce(
+            verificationFlowState,
+            event: .editNumber
+        )
+    }
+
+    func completeVerificationHello() {
+        hasCompletedVerificationHello = true
+        guard previewStage == nil else { return }
+        defaults.set(true, forKey: storageKey(Self.verificationHelloComponent))
+        reconcileFirstRunCompletion()
     }
 
     func startAgentIfNeeded() async {
@@ -1831,6 +1957,8 @@ extension DocExperienceViewModel {
         ]
         if replayFirstRun {
             components.append("welcome")
+            components.append(verificationHelloComponent)
+            components.append(verificationNumberComponent)
             components.append("firstRun")
         }
         let accountIdentifiers = Set([
@@ -1869,6 +1997,8 @@ extension DocExperienceViewModel {
 
     private static let persistedComponents: [String] = [
         "welcome",
+        verificationHelloComponent,
+        verificationNumberComponent,
         "firstRun",
         "originConversationId",
         "googleConnectHandled",
@@ -1882,6 +2012,8 @@ extension DocExperienceViewModel {
     private static let controlComponent: String = "control"
     private static let controlAgentInboxIdComponent: String = "controlAgentInboxId"
     private static let controlResyncMarkerComponent: String = "controlResyncSentAgentInboxId"
+    private static let verificationHelloComponent: String = "verificationHello"
+    private static let verificationNumberComponent: String = "verificationNumber"
     private static let provisionalAccountIdentifier: String = "registering"
     private static let preserveWelcomeUserInfoKey: String = "preserveWelcome"
 
@@ -1899,8 +2031,17 @@ extension DocExperienceViewModel {
         defaults: UserDefaults,
         accountIdentifier: String
     ) -> DocControlSnapshot? {
-        if let previewStage, [.welcome, .verify].contains(previewStage) {
-            return previewVerificationSnapshot
+        if let previewStage {
+            switch previewStage {
+            case .welcome, .verify, .verificationHello:
+                return previewVerificationSnapshot
+            case .verifyCode:
+                return previewVerificationSentSnapshot
+            case .verifyFallback:
+                return previewVerificationFallbackSnapshot
+            default:
+                break
+            }
         }
         guard let data = defaults.data(
             forKey: storageKey(controlComponent, accountIdentifier: accountIdentifier)
@@ -1908,6 +2049,33 @@ extension DocExperienceViewModel {
             return nil
         }
         return try? JSONDecoder().decode(DocControlSnapshot.self, from: data)
+    }
+
+    private func restoreVerificationFlow() {
+        guard let controlSnapshot else {
+            verificationFlowState = .enteringNumber
+            return
+        }
+        if let verified = controlSnapshot.verificationsByKey.values.first(where: { $0.status == .verified }) {
+            verificationFlowState = .verified(number: verified.ownerNumber)
+            return
+        }
+
+        if let request = controlSnapshot.verificationsByKey[DocControlMessage.verificationRequestKey],
+           let number = request.ownerNumber {
+            switch request.status {
+            case .sent:
+                verificationFlowState = .enteringCode(number: number, attemptFailed: false)
+            case .sendFailed:
+                verificationFlowState = .fallback(number: number)
+            case .attemptFailed:
+                verificationFlowState = .enteringCode(number: number, attemptFailed: true)
+            case .pending, .verified, .expired, .released:
+                verificationFlowState = .enteringNumber
+            }
+            return
+        }
+        verificationFlowState = .enteringNumber
     }
 
     private func storageKey(_ component: String) -> String {
@@ -1952,6 +2120,7 @@ extension DocExperienceViewModel {
 
     private func reloadPersistedState() {
         hasCompletedWelcome = defaults.bool(forKey: storageKey("welcome"))
+        hasCompletedVerificationHello = defaults.bool(forKey: storageKey(Self.verificationHelloComponent))
         hasCompletedFirstRun = defaults.bool(forKey: storageKey("firstRun"))
         if let data = defaults.data(forKey: storageKey("docLanes")),
            let registry = try? JSONDecoder().decode(DocLaneRegistry.self, from: data) {
@@ -1990,6 +2159,7 @@ extension DocExperienceViewModel {
         if controlSnapshot != nil {
             compatibilityDetector.hasSeenDocSentinel = true
         }
+        restoreVerificationFlow()
         reconcileFirstRunCompletion()
     }
 
@@ -2036,6 +2206,7 @@ extension DocExperienceViewModel {
         invalidatesStartup: Bool = true
     ) {
         let completedWelcome = hasCompletedWelcome
+        let completedVerificationHello = hasCompletedVerificationHello
         let completedFirstRun = hasCompletedFirstRun
         if invalidatesStartup {
             startupGeneration &+= 1
@@ -2066,6 +2237,8 @@ extension DocExperienceViewModel {
         isGoogleDocsReady = false
         isConnectingGoogleDocs = false
         googleConnectErrorMessage = nil
+        verificationFlowState = .enteringNumber
+        verificationTransportErrorMessage = nil
         isPresentingGoogleConnect = false
         isPresentingHistory = false
         isPresentingShareNumber = false
@@ -2087,6 +2260,7 @@ extension DocExperienceViewModel {
         hasObservedControlEvent = false
         isControlResyncInFlight = false
         hasCompletedWelcome = preservingWelcome ? completedWelcome : false
+        hasCompletedVerificationHello = preservingWelcome ? completedVerificationHello : false
         hasCompletedFirstRun = preservingWelcome ? completedFirstRun : false
         latestStateMessageId = nil
         stateMessageIdAtLastSend = nil
