@@ -5,6 +5,66 @@ import XCTest
 
 @MainActor
 final class DocAgentMessageAggregatorTests: XCTestCase {
+    func testLiveHiddenLaneAppliesStateItemMintAndItemResolution() async {
+        let defaults = makeDefaults()
+        let agent = agentMember()
+        let hiddenPrimary = conversation(id: "hidden-primary", agent: agent)
+        let repository = TestDocMessagesRepository(conversationId: hiddenPrimary.id)
+        let conversations = CurrentValueSubject<[Conversation], Never>([hiddenPrimary])
+        let viewModel = DocExperienceViewModel(
+            session: MockInboxesService(),
+            coreActions: NoOpCoreActions(),
+            defaults: defaults
+        )
+        let aggregator = makeAggregator(
+            conversations: conversations,
+            repositories: [hiddenPrimary.id: repository]
+        )
+        let state = stateMessage(id: "state-live", name: "Live State", date: 100, sender: agent)
+        let item = wireMessage(
+            id: "z-item-live",
+            text: #"⟦doc⟧{"v":1,"t":"item","item":{"id":"verify-live","register":"waiting","kind":"verify_number","headline":"Verify your phone number","context":"Send the prefilled message.","code":"ABCD-EFGH-2345","lineNumber":"+16283095734","smsBody":"VERIFY ABCD-EFGH-2345","docId":null,"createdAt":101}}"#,
+            date: 101,
+            sender: agent
+        )
+        let resolved = wireMessage(
+            id: "a-resolved-live",
+            text: #"⟦doc⟧{"v":1,"t":"item-resolved","id":"verify-live"}"#,
+            date: 101,
+            sender: agent
+        )
+        let stateArrived = expectation(description: "live state applied")
+        let itemArrived = expectation(description: "live item mint applied")
+        let resolutionArrived = expectation(description: "live item resolution applied")
+        var sawState = false
+        var sawItem = false
+        var sawResolution = false
+
+        aggregator.start(agentInboxId: agent.profile.inboxId) { messages in
+            viewModel.ingestAggregatedMessages(messages, agentInboxId: agent.profile.inboxId)
+            if !sawState, viewModel.docs.map(\.name) == ["Live State"] {
+                sawState = true
+                stateArrived.fulfill()
+            }
+            if !sawItem, viewModel.pendingItems.map(\.id) == ["verify-live"] {
+                sawItem = true
+                itemArrived.fulfill()
+            }
+            if sawItem, !sawResolution, viewModel.pendingItems.isEmpty {
+                sawResolution = true
+                resolutionArrived.fulfill()
+            }
+        }
+
+        repository.publish([state])
+        await fulfillment(of: [stateArrived], timeout: 1)
+        repository.publish([state, item])
+        await fulfillment(of: [itemArrived], timeout: 1)
+        repository.publish([state, item, resolved])
+        await fulfillment(of: [resolutionArrived], timeout: 1)
+        XCTAssertTrue(viewModel.pendingItems.isEmpty)
+    }
+
     func testCurrentPublisherStateAndVerificationItemReachHomeSnapshot() async {
         let defaults = makeDefaults()
         let agent = agentMember()
@@ -270,4 +330,8 @@ private final class TestDocMessagesRepository: MessagesRepositoryProtocol, @unch
     }
 
     func fetchPrevious() throws {}
+
+    func publish(_ messages: [AnyMessage]) {
+        subject.send(messages)
+    }
 }

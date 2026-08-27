@@ -681,8 +681,13 @@ final class DocExperienceViewModel {
                     resolvedItemIds: &resolvedItemIds
                 ) || changedSnapshot
             case .itemResolved(let id):
-                guard position.isNewer(than: latestItemPositions[id]) else { continue }
-                latestItemPositions[id] = position
+                // Resolution is terminal for an item ID. A live event may tie
+                // an earlier mint's timestamp (or arrive from a clock-skewed
+                // hidden lane), so its arrival must not be rejected by the
+                // historical ordering guard used for mutable item payloads.
+                if position.isNewer(than: latestItemPositions[id]) {
+                    latestItemPositions[id] = position
+                }
                 changedSnapshot = DocItemReconciler.apply(
                     event,
                     pendingItems: &pendingItems,
