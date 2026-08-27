@@ -285,6 +285,7 @@ struct DocVerifyFirstRunView: View {
     }
 
     private var numberAction: some View {
+        let canRequestCode: Bool = phoneFormatter.e164(from: phoneText) != nil && startupErrorMessage == nil
         let request = {
             guard let number = phoneFormatter.e164(from: phoneText) else { return }
             focusedField = nil
@@ -293,17 +294,20 @@ struct DocVerifyFirstRunView: View {
         return Button("Send code", action: request)
             .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
             .frame(minHeight: 44.0)
-            .disabled(phoneFormatter.e164(from: phoneText) == nil || startupErrorMessage != nil)
+            .disabled(!canRequestCode)
+            .docFirstRunButtonAvailability(isAvailable: canRequestCode)
             .accessibilityIdentifier("doc-first-run-send-code")
     }
 
     private var codeActions: some View {
-        VStack(spacing: DesignConstants.Spacing.step2x) {
+        let canSubmit: Bool = code.count == 6
+        return VStack(spacing: DesignConstants.Spacing.step2x) {
             let verify = { onSubmit(code) }
             Button("Verify", action: verify)
                 .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
                 .frame(minHeight: 44.0)
-                .disabled(code.count != 6)
+                .disabled(!canSubmit)
+                .docFirstRunButtonAvailability(isAvailable: canSubmit)
                 .accessibilityIdentifier("doc-first-run-submit-code")
 
             if isDelayedFallbackAvailable {
@@ -592,6 +596,7 @@ struct DocGoogleFirstRunView: View {
     let isConnecting: Bool
     let isWaitingForApproval: Bool
     let canConnect: Bool
+    let isPreparing: Bool
     let errorMessage: String?
     let startupErrorMessage: String?
     let onConnect: () -> Void
@@ -645,20 +650,35 @@ struct DocGoogleFirstRunView: View {
     }
 
     private var connectButton: some View {
-        Button(action: onConnect) {
-            if isConnecting {
-                ProgressView()
-                    .tint(.colorTextPrimaryInverted)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityLabel("Connecting Google")
-            } else {
-                Text(errorMessage == nil ? "Connect Google" : "Try again")
-            }
+        let isAvailable: Bool = canConnect && !isConnecting
+        return Button(action: onConnect) {
+            connectButtonLabel
         }
         .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
         .frame(minHeight: 44.0)
-        .disabled(!canConnect || isConnecting)
+        .disabled(isConnecting)
+        .docFirstRunButtonAvailability(isAvailable: isAvailable)
+        .accessibilityHint(isPreparing ? "Connects automatically when ready" : "")
         .accessibilityIdentifier("doc-first-run-google-connect")
+    }
+
+    @ViewBuilder
+    private var connectButtonLabel: some View {
+        if isConnecting {
+            ProgressView()
+                .tint(.colorTextPrimaryInverted)
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel("Connecting Google")
+        } else if isPreparing {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                ProgressView()
+                Text("Getting ready…")
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .combine)
+        } else {
+            Text(errorMessage == nil ? "Connect Google" : "Try again")
+        }
     }
 }
 
@@ -731,6 +751,12 @@ private struct DocFirstRunScaffold<Details: View, Action: View>: View {
             }
         }
         .background(Color.colorBackgroundSurfaceless)
+    }
+}
+
+private extension View {
+    func docFirstRunButtonAvailability(isAvailable: Bool) -> some View {
+        opacity(isAvailable ? 1.0 : 0.45)
     }
 }
 

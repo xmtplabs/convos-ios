@@ -75,6 +75,22 @@ struct DocAnswerSendTarget {
     }
 }
 
+enum DocGoogleConnectAvailability: Equatable {
+    case preparing
+    case ready
+    case unavailable
+}
+
+struct DocGoogleConnectTarget: Equatable {
+    let conversationId: String
+    let agentInboxIds: [String]
+}
+
+struct DocGoogleConnectEnvironment {
+    let target: @MainActor () -> DocGoogleConnectTarget?
+    let performConnect: @MainActor (DocGoogleConnectTarget) async throws -> Void
+}
+
 struct DocAnswerDeliveryPolicy {
     let awaitingDelay: Duration
     let deadline: Duration
@@ -167,6 +183,7 @@ final class DocExperienceViewModel {
     private(set) var isGoogleStatusLoaded: Bool = false
     private(set) var isGoogleDocsReady: Bool = false
     private(set) var isConnectingGoogleDocs: Bool = false
+    private(set) var isGoogleConnectQueued: Bool = false
     private(set) var googleConnectErrorMessage: String?
     private(set) var verificationFlowState: DocVerificationFlowState = .enteringNumber
     private(set) var verificationTransportErrorMessage: String?
@@ -223,19 +240,22 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var googleConnectRequestId: UUID?
     @ObservationIgnored private let answerSendTargetOverride: DocAnswerSendTarget?
     @ObservationIgnored private let answerDeliveryPolicy: DocAnswerDeliveryPolicy
+    @ObservationIgnored private let googleConnectEnvironment: DocGoogleConnectEnvironment?
 
     init(
         session: any SessionManagerProtocol,
         coreActions: any CoreActions,
         defaults: UserDefaults = .standard,
         answerSendTarget: DocAnswerSendTarget? = nil,
-        answerDeliveryPolicy: DocAnswerDeliveryPolicy = .live
+        answerDeliveryPolicy: DocAnswerDeliveryPolicy = .live,
+        googleConnectEnvironment: DocGoogleConnectEnvironment? = nil
     ) {
         self.session = session
         self.coreActions = coreActions
         self.defaults = defaults
         self.answerSendTargetOverride = answerSendTarget
         self.answerDeliveryPolicy = answerDeliveryPolicy
+        self.googleConnectEnvironment = googleConnectEnvironment
         self.previewStage = DocPreviewStage.current
         let initialAccountIdentifier = Self.accountIdentifier(session: session)
         self.storageAccountIdentifier = initialAccountIdentifier
@@ -464,7 +484,16 @@ final class DocExperienceViewModel {
 
     var canConnectGoogleDocs: Bool {
         if previewStage == .connect { return true }
-        return googleConnectConversation != nil && canRequestGoogleDocs
+        return googleConnectAvailability == .ready
+    }
+
+    var isPreparingGoogleConnect: Bool {
+        previewStage == nil && googleConnectAvailability == .preparing
+    }
+
+    var googleConnectAvailability: DocGoogleConnectAvailability {
+        guard canRequestGoogleDocs else { return .unavailable }
+        return googleConnectTarget == nil ? .preparing : .ready
     }
 
     var isDmReadyForDisplay: Bool {
@@ -495,6 +524,19 @@ final class DocExperienceViewModel {
 
     var googleConnectConversation: Conversation? {
         dmViewModel?.conversation
+    }
+
+    private var googleConnectTarget: DocGoogleConnectTarget? {
+        if let googleConnectEnvironment {
+            return googleConnectEnvironment.target()
+        }
+        guard let conversation = googleConnectConversation else { return nil }
+        let agentInboxIds = conversation.members.filter(\.isAgent).map { $0.profile.inboxId }
+        guard !agentInboxIds.isEmpty else { return nil }
+        return DocGoogleConnectTarget(
+            conversationId: conversation.id,
+            agentInboxIds: agentInboxIds
+        )
     }
 
     private var googleControl: DocControlGoogleDocs? {
@@ -1043,6 +1085,9 @@ private extension DocExperienceViewModel {
         isGoogleDocsReady = googleControl.connection.status == .granted
         isConnectingGoogleDocs = googleControl.gate.status == .pending ||
             googleConnectRequestId != nil
+        if isGoogleDocsReady || googleControl.gate.status == .pending {
+            isGoogleConnectQueued = false
+        }
     }
 
     func reconcileFirstRunCompletion() {
@@ -1659,11 +1704,12 @@ extension DocExperienceViewModel {
     }
 
     func connectGoogleDocs() {
-        guard previewStage == nil,
-              let conversation = googleConnectConversation,
-              canRequestGoogleDocs else {
+        guard previewStage == nil, canRequestGoogleDocs else { return }
+        guard let target = googleConnectTarget else {
+            isGoogleConnectQueued = true
             return
         }
+        isGoogleConnectQueued = false
         let requestId = UUID()
         googleConnectRequestId = requestId
         isConnectingGoogleDocs = true
@@ -1671,50 +1717,12 @@ extension DocExperienceViewModel {
         googleConnectTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let selection = AbilitiesServices.selection
-                let catalog = try await selection.service.fetchCatalog()
-                try ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
-                guard let ability = catalog.abilities.first(where: {
-                    $0.id == DocGoogleConnectionChain.abilityId
-                }) else {
-                    throw AbilitiesServiceError.unknownAbility(abilityId: DocGoogleConnectionChain.abilityId)
+                if let googleConnectEnvironment {
+                    try await googleConnectEnvironment.performConnect(target)
+                } else {
+                    try await performGoogleConnect(target: target, requestId: requestId)
                 }
-                let agents = conversation.members.filter(\.isAgent).map { $0.profile.inboxId }
-                let defaultBundles = ability.bundles.filter(\.defaultEnabled).map(\.id)
-                let bundleIds = defaultBundles.isEmpty ? ability.bundles.map(\.id) : defaultBundles
-                try await DocGoogleConnectionChain.connectAndExtend(
-                    entitlementIsActive: ability.entitlement?.status == .active,
-                    bundleIds: bundleIds,
-                    beginEntitlement: {
-                        try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
-                        return try await selection.service.beginEntitlement(
-                            abilityId: DocGoogleConnectionChain.abilityId
-                        )
-                    },
-                    authorize: { redirectUrl in
-                        try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
-                        guard let authorizer = selection.authorizer else {
-                            throw DocGoogleConnectionChain.Error.authorizationUnavailable
-                        }
-                        try await authorizer.authorize(redirectUrl: redirectUrl)
-                    },
-                    completeEntitlement: {
-                        try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
-                        try await selection.service.completeEntitlement(abilityId: DocGoogleConnectionChain.abilityId)
-                    },
-                    extend: { bundleIds in
-                        try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
-                        for agent in agents {
-                            try await selection.service.extendAbility(
-                                conversationId: conversation.id,
-                                abilityId: DocGoogleConnectionChain.abilityId,
-                                agentInboxId: agent,
-                                bundleIds: bundleIds
-                            )
-                        }
-                    }
-                )
-                try ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
+                try ensureGoogleConnectRequestIsCurrent(requestId, conversationId: target.conversationId)
                 defaults.set(true, forKey: storageKey("googleConnectHandled"))
             } catch let error as OAuthError {
                 guard googleConnectRequestId == requestId else { return }
@@ -1736,13 +1744,66 @@ extension DocExperienceViewModel {
         }
     }
 
+    func googleConnectTargetDidChange() {
+        guard isGoogleConnectQueued else { return }
+        connectGoogleDocs()
+    }
+
+    private func performGoogleConnect(
+        target: DocGoogleConnectTarget,
+        requestId: UUID
+    ) async throws {
+        let selection = AbilitiesServices.selection
+        let catalog = try await selection.service.fetchCatalog()
+        try ensureGoogleConnectRequestIsCurrent(requestId, conversationId: target.conversationId)
+        guard let ability = catalog.abilities.first(where: {
+            $0.id == DocGoogleConnectionChain.abilityId
+        }) else {
+            throw AbilitiesServiceError.unknownAbility(abilityId: DocGoogleConnectionChain.abilityId)
+        }
+        let defaultBundles = ability.bundles.filter(\.defaultEnabled).map(\.id)
+        let bundleIds = defaultBundles.isEmpty ? ability.bundles.map(\.id) : defaultBundles
+        try await DocGoogleConnectionChain.connectAndExtend(
+            entitlementIsActive: ability.entitlement?.status == .active,
+            bundleIds: bundleIds,
+            beginEntitlement: {
+                try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: target.conversationId)
+                return try await selection.service.beginEntitlement(
+                    abilityId: DocGoogleConnectionChain.abilityId
+                )
+            },
+            authorize: { redirectUrl in
+                try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: target.conversationId)
+                guard let authorizer = selection.authorizer else {
+                    throw DocGoogleConnectionChain.Error.authorizationUnavailable
+                }
+                try await authorizer.authorize(redirectUrl: redirectUrl)
+            },
+            completeEntitlement: {
+                try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: target.conversationId)
+                try await selection.service.completeEntitlement(abilityId: DocGoogleConnectionChain.abilityId)
+            },
+            extend: { bundleIds in
+                try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: target.conversationId)
+                for agentInboxId in target.agentInboxIds {
+                    try await selection.service.extendAbility(
+                        conversationId: target.conversationId,
+                        abilityId: DocGoogleConnectionChain.abilityId,
+                        agentInboxId: agentInboxId,
+                        bundleIds: bundleIds
+                    )
+                }
+            }
+        )
+    }
+
     private func ensureGoogleConnectRequestIsCurrent(
         _ requestId: UUID,
         conversationId: String
     ) throws {
         guard !Task.isCancelled,
               googleConnectRequestId == requestId,
-              googleConnectConversation?.id == conversationId else {
+              googleConnectTarget?.conversationId == conversationId else {
             throw CancellationError()
         }
     }
@@ -1829,6 +1890,7 @@ extension DocExperienceViewModel {
         if let agentInboxId {
             requestControlResyncIfNeeded(agentInboxId: agentInboxId)
         }
+        googleConnectTargetDidChange()
         showGoogleConnectIfNeeded()
     }
 
@@ -2236,6 +2298,7 @@ extension DocExperienceViewModel {
         isGoogleStatusLoaded = false
         isGoogleDocsReady = false
         isConnectingGoogleDocs = false
+        isGoogleConnectQueued = false
         googleConnectErrorMessage = nil
         verificationFlowState = .enteringNumber
         verificationTransportErrorMessage = nil

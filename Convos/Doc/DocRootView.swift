@@ -125,6 +125,7 @@ struct DocRootView: View {
                     isConnecting: viewModel.isConnectingGoogleDocs,
                     isWaitingForApproval: viewModel.isWaitingForGoogleApproval,
                     canConnect: viewModel.canConnectGoogleDocs,
+                    isPreparing: viewModel.isPreparingGoogleConnect,
                     errorMessage: viewModel.googleConnectErrorMessage,
                     startupErrorMessage: viewModel.agentStartupErrorMessage,
                     onConnect: viewModel.connectGoogleDocs,

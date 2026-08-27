@@ -97,6 +97,43 @@ struct DocControlViewModelTests {
         #expect(viewModel.firstRunStep == .home)
     }
 
+    @Test("Google connect queues until its approval conversation is ready")
+    func googleConnectQueuesUntilTargetIsReady() async throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let connectState = GoogleConnectTestState()
+        let environment = DocGoogleConnectEnvironment(
+            target: { connectState.target },
+            performConnect: { target in connectState.connectedTargets.append(target) }
+        )
+        let viewModel = fixture.viewModel(googleConnectEnvironment: environment)
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "verified", text: Fixture.verificationVerified, date: 10)],
+            agentInboxId: Fixture.agentInboxId
+        )
+        viewModel.completeVerificationHello()
+
+        #expect(viewModel.firstRunStep == .connectGoogle)
+        #expect(viewModel.googleConnectAvailability == .preparing)
+        #expect(!viewModel.canConnectGoogleDocs)
+
+        viewModel.connectGoogleDocs()
+        #expect(viewModel.isGoogleConnectQueued)
+
+        let target = DocGoogleConnectTarget(
+            conversationId: "approval-conversation",
+            agentInboxIds: [Fixture.agentInboxId]
+        )
+        connectState.target = target
+        #expect(viewModel.googleConnectAvailability == .ready)
+        #expect(viewModel.canConnectGoogleDocs)
+
+        viewModel.googleConnectTargetDidChange()
+        try await Task.sleep(for: .milliseconds(10))
+
+        #expect(connectState.connectedTargets == [target])
+        #expect(!viewModel.isGoogleConnectQueued)
+    }
+
     @Test("relaunch resumes a pending verification")
     func relaunchResumesVerification() throws {
         let fixture = try Fixture(hasCompletedWelcome: true)
@@ -407,11 +444,14 @@ struct DocControlViewModelTests {
         }
 
         @MainActor
-        func viewModel() -> DocExperienceViewModel {
+        func viewModel(
+            googleConnectEnvironment: DocGoogleConnectEnvironment? = nil
+        ) -> DocExperienceViewModel {
             DocExperienceViewModel(
                 session: session,
                 coreActions: NoOpCoreActions(),
-                defaults: defaults
+                defaults: defaults,
+                googleConnectEnvironment: googleConnectEnvironment
             )
         }
 
@@ -440,5 +480,11 @@ struct DocControlViewModelTests {
                 .existing
             )
         }
+    }
+
+    @MainActor
+    private final class GoogleConnectTestState {
+        var target: DocGoogleConnectTarget?
+        var connectedTargets: [DocGoogleConnectTarget] = []
     }
 }
