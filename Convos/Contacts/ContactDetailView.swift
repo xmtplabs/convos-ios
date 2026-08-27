@@ -51,6 +51,11 @@ struct ContactDetailView: View {
     /// the agent profile, mirroring the in-chat ribbon.
     let variantStamp: AgentVariantStamp?
     let mode: ContactDetailMode
+    /// The model this agent runs on as the conversation's synced state carries
+    /// it, passed from the live member row at the chat-side entry point (`nil`
+    /// elsewhere, and `nil` for an agent nobody has switched). A change here is
+    /// somebody else's pick arriving over sync, and the picker follows it.
+    let syncedAgentModel: String?
     /// True when the view should render its own X close button in the
     /// nav-bar's cancellation slot. Sheet entry points (where there is no
     /// system back button) keep this on; NavigationLink push entry points
@@ -122,6 +127,7 @@ struct ContactDetailView: View {
         contact: Contact,
         variantStamp: AgentVariantStamp? = nil,
         mode: ContactDetailMode = .standalone,
+        syncedAgentModel: String? = nil,
         contactsWriter: any ContactsWriterProtocol,
         contactsRepository: any ContactsRepositoryProtocol,
         session: (any SessionManagerProtocol)? = nil,
@@ -135,6 +141,7 @@ struct ContactDetailView: View {
         self.contact = contact
         self.variantStamp = variantStamp
         self.mode = mode
+        self.syncedAgentModel = syncedAgentModel
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
         self.session = session
@@ -390,6 +397,7 @@ struct ContactDetailView: View {
                     agentEmail: contact.agentEmail,
                     agentInstanceId: contact.agentInstanceId,
                     agentModelService: agentModelService,
+                    syncedAgentModel: syncedAgentModel,
                     // The displayed agent's own variant first: an agent built
                     // on a variant worker exists only there, so routing its
                     // switch by whatever the global selector happens to hold
@@ -937,6 +945,9 @@ private struct ContactDetailActions: View {
     /// name rather than the agent's. Nil outside a conversation, where there is
     /// no appData to write into and the Worker's own publish carries the switch.
     let agentModelService: (any AgentModelServing)?
+    /// What the room says this agent is on, followed by the picker so a switch
+    /// made on another device shows here too.
+    let syncedAgentModel: String?
     /// Dev-only variant routing key for the model picker. An agent built on a
     /// variant worker only exists there, so a switch that omits this lands on
     /// the default worker and changes nothing. Nil (and stripped in
@@ -977,7 +988,8 @@ private struct ContactDetailActions: View {
                     contactDisplayName: contactDisplayName,
                     instanceId: agentInstanceId,
                     variantId: agentVariantId,
-                    service: agentModelService
+                    service: agentModelService,
+                    syncedModel: syncedAgentModel
                 )
             }
             if showShare {
@@ -1125,6 +1137,10 @@ private struct ContactDetailModelRow: View {
     let contactDisplayName: String
     let instanceId: String
     let variantId: String?
+    /// The model the conversation's synced state names for this agent. Nil
+    /// where there is no synced state to read (the standalone card) and for an
+    /// agent nobody has switched.
+    let syncedModel: String?
 
     @State private var store: AgentModelStore
 
@@ -1132,11 +1148,13 @@ private struct ContactDetailModelRow: View {
         contactDisplayName: String,
         instanceId: String,
         variantId: String?,
-        service: (any AgentModelServing)?
+        service: (any AgentModelServing)?,
+        syncedModel: String? = nil
     ) {
         self.contactDisplayName = contactDisplayName
         self.instanceId = instanceId
         self.variantId = variantId
+        self.syncedModel = syncedModel
         _store = State(
             wrappedValue: service.map {
                 AgentModelStore(instanceId: instanceId, variantId: variantId, service: $0)
@@ -1158,7 +1176,17 @@ private struct ContactDetailModelRow: View {
                 .foregroundStyle(.colorTextSecondary)
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
         }
+        // Seeded before the read so the row opens on what the room already
+        // says rather than "Default"; `load()` follows with the catalogue and
+        // the control plane's own answer.
+        .onAppear { applySyncedModelIfKnown() }
         .task { await store.load() }
+        // Someone else's pick arrives as a change to this conversation's synced
+        // member row. Nothing here polls, and a write of this device's own is
+        // newer than any sync, which the store already knows.
+        .onChange(of: syncedModel) { _, model in
+            store.apply(syncedModel: model)
+        }
         .alert(
             "Model unchanged",
             isPresented: Binding(
@@ -1170,6 +1198,14 @@ private struct ContactDetailModelRow: View {
         } message: {
             Text(store.errorMessage ?? "")
         }
+    }
+
+    /// Only when the card is scoped to a conversation. A nil outside one means
+    /// "nothing synced to read", not "no model", and adopting it would claim
+    /// the agent is on its default before the control plane has answered.
+    private func applySyncedModelIfKnown() {
+        guard syncedModel != nil else { return }
+        store.apply(syncedModel: syncedModel)
     }
 
     @ViewBuilder

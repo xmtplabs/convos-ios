@@ -8,6 +8,9 @@ struct DBConversationMemberProfileWithRole: Codable, FetchableRecord, Hashable {
     let inboxId: String
     let role: MemberRole
     let createdAt: Date
+    /// Mirrored from the agent's profile in the group's appData. Nil for a
+    /// human member, and nil for a query that does not select the column.
+    let agentModel: String?
     let profile: DBProfile?
     let avatarSlot: DBProfileAvatarLatest?
     let inviterProfile: DBProfile?
@@ -57,7 +60,8 @@ extension DBConversationMemberProfileWithRole {
             isAgent: isAgent,
             agentVerification: agentVerification,
             invitedBy: invitedByProfile,
-            joinedAt: createdAt
+            joinedAt: createdAt,
+            agentModel: agentModel
         )
     }
 
@@ -74,6 +78,7 @@ extension DBConversationMemberProfileWithRole {
                 DBConversationMember.Columns.inboxId,
                 DBConversationMember.Columns.role,
                 DBConversationMember.Columns.createdAt,
+                DBConversationMember.Columns.agentModel,
             ])
             .including(optional: DBConversationMember.profile)
             .including(optional: DBConversationMember.avatarSlot)
@@ -97,6 +102,7 @@ extension DBConversationMemberProfileWithRole {
                 DBConversationMember.Columns.inboxId,
                 DBConversationMember.Columns.role,
                 DBConversationMember.Columns.createdAt,
+                DBConversationMember.Columns.agentModel,
             ])
             .including(optional: DBConversationMember.profile)
             .including(optional: DBConversationMember.avatarSlot)
