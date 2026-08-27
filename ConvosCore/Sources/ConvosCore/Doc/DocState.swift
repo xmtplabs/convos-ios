@@ -548,7 +548,9 @@ public enum DocShareAction {
     ) -> DocShareDisposition {
         guard doc.shared != true else { return .hidden }
         let message = "here's a doc for us (\(doc.url))"
-        return controlBinding?.status == .live ? .askAgent(message) : .nativeShare(message)
+        let isConnectedGroup = controlBinding?.status == .live &&
+            controlBinding?.conversationType == .group
+        return isConnectedGroup ? .askAgent(message) : .nativeShare(message)
     }
 }
 

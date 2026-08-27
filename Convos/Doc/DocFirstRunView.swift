@@ -29,10 +29,10 @@ struct DocWelcomeView: View {
     var body: some View {
         DocFirstRunScaffold(
             systemImage: "doc.text.fill",
-            title: "Doc",
-            message: "Doc turns your group's iMessage thread into a doc that stays up to date"
+            title: "Your group talks. I keep the doc current.",
+            message: "Start with screenshots or start in iMessage."
         ) {
-            EmptyView()
+            DocWelcomeTeaching()
         } action: {
             Button("Continue", action: onContinue)
                 .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
@@ -40,6 +40,50 @@ struct DocWelcomeView: View {
                 .accessibilityIdentifier("doc-welcome-continue")
         }
         .accessibilityIdentifier("doc-welcome")
+    }
+}
+
+private struct DocWelcomeTeaching: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+            teachingRow(
+                systemImage: "photo.on.rectangle.angled",
+                title: "Send screenshots",
+                detail: "I'll turn them into the first doc."
+            )
+            teachingRow(
+                systemImage: "bubble.left.and.bubble.right.fill",
+                title: "Add @doc to a group",
+                detail: "The first new text starts the doc."
+            )
+            Text("Connect later anytime—standalone docs work too.")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func teachingRow(systemImage: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step3x) {
+            Image(systemName: systemImage)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.colorLava)
+                .frame(width: 36.0, height: 36.0)
+                .background(Color.colorFillMinimal, in: RoundedRectangle(cornerRadius: 10.0))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.colorTextPrimary)
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.colorTextSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

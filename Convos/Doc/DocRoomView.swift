@@ -38,16 +38,28 @@ struct DocRoomView: View {
                     .docRoomRow()
             }
 
-            DocActivationView(
-                doc: doc,
-                binding: viewModel.controlBinding(for: doc.id),
-                contributionLine: viewModel.contributionLine,
-                onShareNumber: { viewModel.presentShareNumber(for: doc) },
-                onShareDoc: {
-                    Task { await viewModel.shareDoc(doc) }
+            Section {
+                DocGroupConnectionCard(
+                    doc: doc,
+                    relationship: viewModel.relationship(for: doc),
+                    isStarting: viewModel.isStartingGroupConnection(for: doc.id),
+                    onConnect: { viewModel.beginGroupConnection(for: doc) },
+                    onShareNumber: { viewModel.presentShareNumber(for: doc) }
+                )
+                .docRoomRow()
+
+                if doc.shared != true {
+                    Button("Share doc", systemImage: "square.and.arrow.up") {
+                        Task { await viewModel.shareDoc(doc) }
+                    }
+                    .convosButtonStyle(.outlineCapsule(fullWidth: false))
+                    .frame(minHeight: 44.0)
+                    .accessibilityIdentifier("doc-room-share-document")
+                    .docRoomRow()
                 }
-            )
-            .docRoomRow()
+            } header: {
+                roomSectionTitle("Connection")
+            }
 
             if !forYouItems.isEmpty {
                 DocForYouSection(
@@ -167,67 +179,6 @@ private extension View {
         )
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
-    }
-}
-
-private struct DocActivationView: View {
-    let doc: DocStatus
-    let binding: DocControlBinding?
-    let contributionLine: String
-    let onShareNumber: () -> Void
-    let onShareDoc: () -> Void
-
-    var body: some View {
-        if let binding, binding.status == .live {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .accessibilityHidden(true)
-                Text("In the group · \(docDisplayPhoneNumber(binding.lineNumber))")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .frame(minHeight: 44.0)
-            .accessibilityIdentifier("doc-room-bound-status")
-        } else if binding?.status == .pending {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Adding Doc to the group…")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .frame(minHeight: 44.0)
-            .accessibilityIdentifier("doc-room-binding-pending")
-        } else if !contributionLine.isEmpty {
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
-                Text(docDisplayPhoneNumber(contributionLine))
-                    .font(.title2.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(.colorTextPrimary)
-                    .textSelection(.enabled)
-                Text("Add Doc to the group and this doc updates itself")
-                    .font(.body)
-                    .foregroundStyle(.colorTextSecondary)
-                Button("Share", systemImage: "square.and.arrow.up", action: onShareNumber)
-                    .convosButtonStyle(.rounded(fullWidth: false, backgroundColor: .colorLava))
-                    .frame(minHeight: 44.0)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(DesignConstants.Spacing.step5x)
-            .background(.colorBackgroundRaisedSecondary, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
-            .accessibilityIdentifier("doc-room-unbound-hero")
-        }
-
-        if doc.shared != true {
-            Button("Share doc", systemImage: "square.and.arrow.up", action: onShareDoc)
-                .convosButtonStyle(.outlineCapsule(fullWidth: false))
-                .frame(minHeight: 44.0)
-                .accessibilityIdentifier("doc-room-share-document")
-        }
     }
 }
 

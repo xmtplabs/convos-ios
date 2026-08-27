@@ -160,6 +160,7 @@ final class DocExperienceViewModel {
     private(set) var composerTexts: [DocComposerScope: String] = [:]
     private(set) var composerPhotos: [DocComposerScope: [DocPendingPhoto]] = [:]
     private(set) var pendingScreenshotCount: Int = 0
+    private(set) var startingGroupConnectionDocIds: Set<String> = []
     private(set) var isGoogleStatusLoaded: Bool = false
     private(set) var isGoogleDocsReady: Bool = false
     private(set) var isConnectingGoogleDocs: Bool = false
@@ -175,6 +176,7 @@ final class DocExperienceViewModel {
     var activeAnswerItemId: String?
     private(set) var composerFocusRequest: DocComposerFocusRequest?
     private(set) var sharedDocNumber: String?
+    private(set) var sharedNumberDocName: String?
     private(set) var sharedDocText: String?
     var hasCompletedWelcome: Bool
     private(set) var hasCompletedFirstRun: Bool
@@ -488,9 +490,11 @@ final class DocExperienceViewModel {
     }
 
     func presentShareNumber(for doc: DocStatus) {
-        guard docs.contains(where: { $0.id == doc.id }), !contributionLine.isEmpty else { return }
-        let number = contributionLine
+        guard docs.contains(where: { $0.id == doc.id }) else { return }
+        let number = relationship(for: doc).lineNumber ?? contributionLine
+        guard !number.isEmpty else { return }
         sharedDocNumber = number
+        sharedNumberDocName = doc.name
         isPresentingShareNumber = true
     }
 
@@ -527,6 +531,11 @@ final class DocExperienceViewModel {
               let text = DocAnswerMessage.encode(itemId: item.id, answer: answer) else {
             return
         }
+        if item.kind == .bindGroup,
+           answer == .choice("Bind group"),
+           let docId = item.docId {
+            startingGroupConnectionDocIds.insert(docId)
+        }
         let clientMessageId = UUID().uuidString
         itemSendStates[item.id] = .resolving(answer: answer, clientMessageId: clientMessageId)
 
@@ -541,6 +550,7 @@ final class DocExperienceViewModel {
             }
             guard let answerSendTarget else {
                 itemSendStates[item.id] = .failed(answer: answer)
+                clearStartingGroupConnection(for: item)
                 return
             }
             do {
@@ -563,6 +573,7 @@ final class DocExperienceViewModel {
                 )
             } catch {
                 itemSendStates[item.id] = .failed(answer: answer)
+                clearStartingGroupConnection(for: item)
             }
         }
     }
@@ -940,6 +951,10 @@ private extension DocExperienceViewModel {
     }
 
     func applyControlEvent(_ event: DocControlEvent) -> Bool {
+        if case .binding(let binding) = event.payload,
+           let docId = binding.docId {
+            startingGroupConnectionDocIds.remove(docId)
+        }
         guard var snapshot = controlSnapshot else {
             controlSnapshot = DocControlSnapshot(event: event)
             return true
@@ -1012,6 +1027,85 @@ private extension DocExperienceViewModel {
 }
 
 extension DocExperienceViewModel {
+    func relationship(for doc: DocStatus) -> DocGroupRelationship {
+        DocGroupRelationship.project(
+            doc: doc,
+            controlBinding: controlBinding(for: doc.id),
+            isControlLoaded: controlSnapshot != nil || previewStage != nil,
+            content: content(for: doc.id)
+        )
+    }
+
+    var unmatchedGroupProgress: [DocUnmatchedGroupProgress] {
+        guard let controlSnapshot else { return [] }
+        let candidates: [(key: String, binding: DocControlBinding)] = controlSnapshot.bindingsByKey.compactMap { key, binding in
+            guard binding.status == .live,
+                  binding.conversationType == .group,
+                  binding.docId == nil else {
+                return nil
+            }
+            return (key: key, binding: binding)
+        }
+        let latest = candidates
+        .max { lhs, rhs in
+            let lhsDate = lhs.binding.boundAt ?? lhs.binding.intentAt
+            let rhsDate = rhs.binding.boundAt ?? rhs.binding.intentAt
+            return lhsDate == rhsDate ? lhs.key < rhs.key : lhsDate < rhsDate
+        }
+        guard let latest else { return [] }
+        return [DocUnmatchedGroupProgress(
+            id: latest.key,
+            groupName: latest.binding.groupName
+        )]
+    }
+
+    func isStartingGroupConnection(for docId: String) -> Bool {
+        startingGroupConnectionDocIds.contains(docId)
+    }
+
+    func observedGroupSenders(for docId: String?) -> [String] {
+        guard let docId,
+              let doc = docs.first(where: { $0.id == docId }) else {
+            return []
+        }
+        return DocGroupIdentity.observedMembers(doc: doc, content: content(for: docId))
+    }
+
+    func beginGroupConnection(for doc: DocStatus) {
+        guard docs.contains(where: { $0.id == doc.id }),
+              !startingGroupConnectionDocIds.contains(doc.id) else {
+            return
+        }
+        let relationship = relationship(for: doc)
+        let canStart: Bool
+        switch relationship {
+        case .standalone, .ended:
+            canStart = true
+        case .loading, .connecting, .connected:
+            canStart = false
+        }
+        guard canStart else { return }
+
+        startingGroupConnectionDocIds.insert(doc.id)
+        if let offer = visiblePendingItems.first(where: {
+            $0.register == .ask && $0.kind == .bindGroup && $0.docId == doc.id
+        }) {
+            sendAnswer(.choice("Bind group"), for: offer)
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let didSend = await sendScopedInstruction(
+                "Connect \(doc.name) to an iMessage group.",
+                for: doc
+            )
+            if !didSend {
+                startingGroupConnectionDocIds.remove(doc.id)
+            }
+        }
+    }
+
     func completeWelcome() {
         hasCompletedWelcome = true
         guard previewStage == nil else { return }
@@ -1257,7 +1351,15 @@ private extension DocExperienceViewModel {
             }
             answerDeliveryTimeoutTasks[itemId] = nil
             itemSendStates[itemId] = .failed(answer: answer)
+            if let item = pendingItems.first(where: { $0.id == itemId }) {
+                clearStartingGroupConnection(for: item)
+            }
         }
+    }
+
+    func clearStartingGroupConnection(for item: DocWaitingItem) {
+        guard item.kind == .bindGroup, let docId = item.docId else { return }
+        startingGroupConnectionDocIds.remove(docId)
     }
 
     func cancelAnswerDeliveryTimeout(for itemId: String) {
@@ -1384,12 +1486,19 @@ extension DocExperienceViewModel {
 
     var shareText: String? {
         guard let sharedDocNumber else { return nil }
-        return "Add Doc to our group so the doc stays updated: \(sharedDocNumber)"
+        guard let sharedNumberDocName else {
+            return "Add @doc to this iMessage group: \(docDisplayPhoneNumber(sharedDocNumber))"
+        }
+        return DocGroupShareCopy.text(
+            docName: sharedNumberDocName,
+            lineNumber: sharedDocNumber
+        )
     }
 
     func presentContributionLine() {
         guard !contributionLine.isEmpty else { return }
         sharedDocNumber = contributionLine
+        sharedNumberDocName = nil
         isPresentingShareNumber = true
     }
 
@@ -1855,6 +1964,7 @@ extension DocExperienceViewModel {
         controlSnapshot = nil
         pendingItems = []
         docContentsById = [:]
+        startingGroupConnectionDocIds = []
         resolvedItemIds = []
         itemsNeedingHistoryReconciliation = []
         compatibilityDetector = .init()
@@ -1951,6 +2061,7 @@ extension DocExperienceViewModel {
         composerTexts = [:]
         composerPhotos = [:]
         pendingScreenshotCount = 0
+        startingGroupConnectionDocIds = []
         isGoogleStatusLoaded = false
         isGoogleDocsReady = false
         isConnectingGoogleDocs = false
@@ -1964,6 +2075,7 @@ extension DocExperienceViewModel {
         activeAnswerItemId = nil
         composerFocusRequest = nil
         sharedDocNumber = nil
+        sharedNumberDocName = nil
         sharedDocText = nil
         docLaneProvisionTasks.values.forEach { $0.cancel() }
         docLaneProvisionTasks = [:]

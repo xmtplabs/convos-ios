@@ -9,7 +9,6 @@ struct DocAskItemCard: View {
     let sendState: DocItemSendState?
     let isEnabled: Bool
     @Binding var activeAnswerItemId: String?
-    let onShareNumber: () -> Void
     let onAnswer: (DocAnswer) -> Void
     let onRetry: () -> Void
     let onPhoto: (UIImage) -> Void
@@ -17,6 +16,7 @@ struct DocAskItemCard: View {
     @State private var answerText: String = ""
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var isPhotoPickerPresented: Bool = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
 
     var body: some View {
         DocItemCardContainer(itemId: item.id) {
@@ -80,19 +80,14 @@ struct DocAskItemCard: View {
     private var action: some View {
         switch item.kind {
         case .bindGroup:
-            Button("Share Doc's number", systemImage: "person.badge.plus", action: onShareNumber)
+            Button("Connect to a group", systemImage: "bubble.left.and.bubble.right.fill") {
+                onAnswer(.choice("Bind group"))
+            }
                 .convosButtonStyle(.rounded(fullWidth: false, backgroundColor: .colorLava))
                 .frame(minHeight: 44.0)
                 .disabled(!actionsAreEnabled)
         case .catchup:
-            Button {
-                isPhotoPickerPresented = true
-            } label: {
-                Label("Choose screenshots", systemImage: "photo.on.rectangle.angled")
-                    .frame(minHeight: 44.0)
-            }
-            .convosButtonStyle(.rounded(fullWidth: false, backgroundColor: .colorLava))
-            .disabled(!actionsAreEnabled)
+            catchupActions
         case .staleCheck:
             DocAnswerChips(
                 chips: item.chips.isEmpty ? ["Keep active", "Pause", "Archive"] : item.chips,
@@ -116,22 +111,67 @@ struct DocAskItemCard: View {
         }
     }
 
+    @ViewBuilder
+    private var catchupActions: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(spacing: DesignConstants.Spacing.step2x) {
+                chooseScreenshotsButton(fullWidth: true)
+                notNowButton(fullWidth: true)
+            }
+        } else {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                chooseScreenshotsButton(fullWidth: false)
+                notNowButton(fullWidth: false)
+            }
+        }
+    }
+
+    private func chooseScreenshotsButton(fullWidth: Bool) -> some View {
+        Button {
+            isPhotoPickerPresented = true
+        } label: {
+            Label("Choose screenshots", systemImage: "photo.on.rectangle.angled")
+        }
+        .convosButtonStyle(.rounded(fullWidth: fullWidth, backgroundColor: .colorLava))
+        .frame(minHeight: 44.0)
+        .disabled(!actionsAreEnabled)
+    }
+
+    private func notNowButton(fullWidth: Bool) -> some View {
+        Button("Not now") {
+            onAnswer(.action(.discard, edited: nil))
+        }
+        .convosButtonStyle(.outlineCapsule(fullWidth: fullWidth))
+        .frame(minHeight: 44.0)
+        .disabled(!actionsAreEnabled)
+    }
+
     private var actionsAreEnabled: Bool {
-        isEnabled && sendState == nil
+        guard isEnabled else { return false }
+        switch sendState {
+        case .resolving, .awaitingDelivery:
+            return false
+        case .failed, nil:
+            return true
+        }
     }
 
     @ViewBuilder
     private var voiceOverActions: some View {
         switch item.kind {
         case .bindGroup:
-            Button("Share Doc's number") {
+            Button("Connect to a group") {
                 guard actionsAreEnabled else { return }
-                onShareNumber()
+                onAnswer(.choice("Bind group"))
             }
         case .catchup:
             Button("Choose screenshots") {
                 guard actionsAreEnabled else { return }
                 isPhotoPickerPresented = true
+            }
+            Button("Not now") {
+                guard actionsAreEnabled else { return }
+                onAnswer(.action(.discard, edited: nil))
             }
         case .staleCheck:
             ForEach(
@@ -152,16 +192,18 @@ struct DocAskItemCard: View {
             EmptyView()
         }
 
-        Button("Dismiss") {
-            guard actionsAreEnabled else { return }
-            onAnswer(.action(.discard, edited: nil))
+        if item.kind != .catchup {
+            Button("Dismiss") {
+                guard actionsAreEnabled else { return }
+                onAnswer(.action(.discard, edited: nil))
+            }
         }
     }
 
     private var kindTitle: String {
         switch item.kind {
         case .bindGroup:
-            "Add to group"
+            "Connect group"
         case .catchup:
             "Catch up"
         case .staleCheck:

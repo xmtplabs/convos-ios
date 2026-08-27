@@ -38,11 +38,11 @@ extension DocExperienceViewModel {
                 createdAt: now
             ),
             DocWaitingItem(
-                id: "question-dates",
+                id: "connect-tahoe",
                 kind: .question,
-                headline: "Which weekend works for everyone?",
-                context: "Tahoe Trip needs a date before Doc can update the plan.",
-                chips: ["Dec 14", "Dec 21"],
+                headline: "Is “Tahoe Weekend” your Tahoe Trip group?",
+                context: "If you connect it, new texts from Tahoe Weekend will update this doc.",
+                chips: ["Yes, bind it", "No"],
                 docId: "tahoe-trip",
                 createdAt: now.addingTimeInterval(-4 * 60)
             ),
@@ -102,8 +102,8 @@ extension DocExperienceViewModel {
                 id: "ask-bind",
                 register: .ask,
                 kind: .bindGroup,
-                headline: "Keep Tahoe updated automatically",
-                context: "Add Doc's number to the group.",
+                headline: "Connect Tahoe Trip to a group",
+                context: "New texts from the group will update this doc.",
                 docId: "tahoe-trip",
                 createdAt: now
             ),
@@ -111,8 +111,8 @@ extension DocExperienceViewModel {
                 id: "ask-catchup",
                 register: .ask,
                 kind: .catchup,
-                headline: "Catch Doc up",
-                context: "Send recent screenshots from the group.",
+                headline: "Want me to catch up on Tahoe Weekend?",
+                context: "I only see texts sent after @doc joined. Add earlier screenshots for the full context.",
                 docId: "tahoe-trip",
                 createdAt: now.addingTimeInterval(-60)
             ),
@@ -217,5 +217,73 @@ extension DocExperienceViewModel {
                 updatedAt: now.addingTimeInterval(-12 * 60)
             ),
         ]
+    }
+
+    static var previewConnectingSnapshot: DocControlSnapshot {
+        previewBindingSnapshot(
+            status: .pending,
+            groupName: nil,
+            docId: "house-projects"
+        )
+    }
+
+    static var previewConnectedNamedSnapshot: DocControlSnapshot {
+        previewBindingSnapshot(
+            status: .live,
+            groupName: "Tahoe Weekend",
+            docId: "tahoe-trip"
+        )
+    }
+
+    static var previewConnectedUnnamedSnapshot: DocControlSnapshot {
+        previewBindingSnapshot(
+            status: .live,
+            groupName: nil,
+            docId: "tahoe-trip"
+        )
+    }
+
+    static var previewEndedSnapshot: DocControlSnapshot {
+        previewBindingSnapshot(
+            status: .released,
+            groupName: "Tahoe Weekend",
+            docId: "tahoe-trip"
+        )
+    }
+
+    static var previewUnmatchedGroupSnapshot: DocControlSnapshot {
+        previewBindingSnapshot(
+            status: .live,
+            groupName: nil,
+            docId: nil
+        )
+    }
+
+    private static func previewBindingSnapshot(
+        status: DocControlBinding.Status,
+        groupName: String?,
+        docId: String?
+    ) -> DocControlSnapshot {
+        let isPending = status == .pending
+        let binding = DocControlBinding(
+            status: status,
+            lineNumber: DocPreviewConfiguration.contributionLine,
+            threadId: isPending ? nil : "preview-thread",
+            conversationType: isPending ? nil : .group,
+            groupName: groupName,
+            docId: docId,
+            intentAt: 1_787_720_300,
+            boundAt: isPending ? nil : 1_787_720_400,
+            releasedAt: status == .released ? 1_787_720_600 : nil,
+            supersedesKey: nil
+        )
+        return DocControlSnapshot(event: DocControlEvent(
+            instanceId: "F47AC10B-58CC-4372-A567-0E02B2C3D479",
+            epoch: "7D9E6679-7425-40DE-944B-E07FC1F90AE7",
+            sequence: 2,
+            occurredAt: 1_787_720_400,
+            key: docId.map { "binding:doc:\($0)" } ?? "binding:thread:preview",
+            payload: .binding(binding)
+        ))
     }
 }

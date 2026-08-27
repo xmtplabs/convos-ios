@@ -220,11 +220,6 @@ private struct DocHomeView: View {
                 .docHomeRow()
             }
 
-            if !viewModel.docs.isEmpty, !viewModel.contributionLine.isEmpty {
-                DocContributionLine(number: viewModel.contributionLine, onShare: viewModel.presentContributionLine)
-                    .docHomeRow()
-            }
-
             if viewModel.verificationControl != nil || !viewModel.visiblePendingItems.isEmpty {
                 DocForYouSection(
                     viewModel: viewModel,
@@ -234,15 +229,24 @@ private struct DocHomeView: View {
                 )
             }
 
-            if viewModel.docs.isEmpty {
-                DocEmptyState(lifecycle: viewModel.controlLifecycle)
+            ForEach(viewModel.unmatchedGroupProgress) { progress in
+                DocUnmatchedGroupProgressCard(progress: progress)
                     .docHomeRow()
+            }
+
+            if viewModel.docs.isEmpty {
+                if viewModel.unmatchedGroupProgress.isEmpty {
+                    DocEmptyState(lifecycle: viewModel.controlLifecycle)
+                        .docHomeRow()
+                }
             } else {
                 Section {
                     ForEach(viewModel.docs) { doc in
                         DocStatusCard(
                             doc: doc,
-                            binding: viewModel.controlBinding(for: doc.id),
+                            relationship: viewModel.relationship(for: doc),
+                            isStartingConnection: viewModel.isStartingGroupConnection(for: doc.id),
+                            onConnectGroup: { viewModel.beginGroupConnection(for: doc) },
                             onShareNumber: { viewModel.presentShareNumber(for: doc) },
                             onShareDoc: {
                                 Task { await viewModel.shareDoc(doc) }
@@ -256,7 +260,9 @@ private struct DocHomeView: View {
                 }
             }
 
-            if viewModel.docs.isEmpty, !viewModel.contributionLine.isEmpty {
+            if viewModel.docs.isEmpty,
+               viewModel.unmatchedGroupProgress.isEmpty,
+               !viewModel.contributionLine.isEmpty {
                 DocContributionLine(number: viewModel.contributionLine, onShare: viewModel.presentContributionLine)
                     .docHomeRow()
             }
@@ -542,13 +548,13 @@ private struct DocEmptyState: View {
     let lifecycle: DocControlLifecycle?
 
     var body: some View {
-        VStack(spacing: DesignConstants.Spacing.step4x) {
-            Spacer(minLength: 72.0)
+        VStack(spacing: DesignConstants.Spacing.step5x) {
+            Spacer(minLength: 48.0)
             Image(systemName: "photo.on.rectangle.angled")
                 .font(.system(size: 42.0, weight: .medium))
                 .foregroundStyle(.colorLava)
                 .accessibilityHidden(true)
-            Text("Screenshot your group's thread and send it here")
+            Text("Start a doc")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(.colorTextPrimary)
                 .multilineTextAlignment(.center)
@@ -556,7 +562,23 @@ private struct DocEmptyState: View {
                 .font(.body)
                 .foregroundStyle(.colorTextSecondary)
                 .multilineTextAlignment(.center)
-            Spacer(minLength: 72.0)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
+                hint(
+                    systemImage: "photo.on.rectangle.angled",
+                    text: "Tap + below to choose screenshots."
+                )
+                hint(
+                    systemImage: "person.badge.plus",
+                    text: "Add @doc, then send a message in the group."
+                )
+            }
+            Text("Screenshots make the first version. A connected group keeps it current with new texts.")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 48.0)
         }
         .frame(maxWidth: 420.0)
         .padding(.horizontal, DesignConstants.Spacing.step5x)
@@ -564,16 +586,29 @@ private struct DocEmptyState: View {
         .accessibilityIdentifier("doc-empty-state")
     }
 
+    private func hint(systemImage: String, text: String) -> some View {
+        Label {
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.colorTextPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            Image(systemName: systemImage)
+                .foregroundStyle(.colorLava)
+                .frame(width: 28.0)
+        }
+    }
+
     private var emptyStateDescription: String {
         switch lifecycle?.status {
         case .provisioned, .joined:
-            return "I'm getting ready. Share screenshots here to start, or add @doc to the group directly."
+            return "I'm getting ready. Send group screenshots here, or add @doc to an iMessage group."
         case .failed:
             return "I couldn't get ready. Try again, or reset the Doc agent in Settings."
         case .destroyed:
             return "This Doc agent is no longer available. Reset it in Settings to start again."
         case .ready, nil:
-            return "Share screenshots here to start, or add @doc to the group directly. Screenshots first works best: share the doc, then add me once it looks right."
+            return "Send group screenshots here, or add @doc to an iMessage group."
         }
     }
 }
@@ -608,7 +643,9 @@ private struct DocAgentStartupErrorCard: View {
 
 private struct DocStatusCard: View {
     let doc: DocStatus
-    let binding: DocControlBinding?
+    let relationship: DocGroupRelationship
+    let isStartingConnection: Bool
+    let onConnectGroup: () -> Void
     let onShareNumber: () -> Void
     let onShareDoc: () -> Void
 
@@ -625,10 +662,6 @@ private struct DocStatusCard: View {
                             .font(.headline)
                             .foregroundStyle(.colorTextPrimary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        Image(systemName: "chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                            .accessibilityHidden(true)
                     }
 
                     Text("\(doc.lastChange.who) \(doc.lastChange.what) · \(compactRelativeTime(from: doc.lastChange.at))")
@@ -640,14 +673,18 @@ private struct DocStatusCard: View {
             }
             .buttonStyle(.plain)
 
+            DocGroupRelationshipRow(
+                relationship: relationship,
+                isStarting: isStartingConnection,
+                onConnect: onConnectGroup,
+                onShareNumber: onShareNumber
+            )
+
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: DesignConstants.Spacing.step2x) {
-                    bindingPill
                     metadataPills
                 }
-
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                    bindingPill
                     metadataPills
                 }
             }
@@ -672,32 +709,6 @@ private struct DocStatusCard: View {
         }
         if let people = doc.people {
             metadataPill(systemImage: "person.2", text: "\(people)")
-        }
-    }
-
-    @ViewBuilder
-    private var bindingPill: some View {
-        if binding?.status == .live {
-            Label("In the group", systemImage: "checkmark.circle.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.green)
-                .padding(.horizontal, DesignConstants.Spacing.step3x)
-                .frame(minHeight: 28.0)
-                .background(Color.green.opacity(0.12), in: Capsule())
-        } else if binding?.status == .pending {
-            Label("Adding to group…", systemImage: "clock")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.colorTextSecondary)
-                .padding(.horizontal, DesignConstants.Spacing.step3x)
-                .frame(minHeight: 28.0)
-                .background(.colorFillMinimal, in: Capsule())
-        } else {
-            Button(action: onShareNumber) {
-                Label("Share Doc's number", systemImage: "person.badge.plus")
-            }
-            .convosButtonStyle(.outlineCapsule(fullWidth: false))
-            .frame(minHeight: 44.0)
-            .accessibilityIdentifier("doc-share-number")
         }
     }
 

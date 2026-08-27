@@ -90,8 +90,16 @@ struct DocForYouSection: View {
 
     @ViewBuilder
     private func itemCard(for item: DocWaitingItem) -> some View {
-        switch item.register {
-        case .waiting:
+        if DocGroupConfirmationPresentation.matches(item) {
+            DocGroupConfirmationCard(
+                item: item,
+                observedSenders: viewModel.observedGroupSenders(for: item.docId),
+                sendState: viewModel.sendState(for: item),
+                isEnabled: viewModel.isDmReadyForDisplay,
+                onAnswer: { viewModel.sendAnswer($0, for: item) },
+                onRetry: { viewModel.retryAnswer(for: item) }
+            )
+        } else if item.register == .waiting {
             DocWaitingItemCard(
                 item: item,
                 sendState: viewModel.sendState(for: item),
@@ -100,7 +108,7 @@ struct DocForYouSection: View {
                 onAnswer: { viewModel.sendAnswer($0, for: item) },
                 onRetry: { viewModel.retryAnswer(for: item) }
             )
-        case .draft:
+        } else if item.register == .draft {
             DocDraftItemCard(
                 item: item,
                 sendState: viewModel.sendState(for: item),
@@ -109,13 +117,12 @@ struct DocForYouSection: View {
                 onAnswer: { viewModel.sendAnswer($0, for: item) },
                 onRetry: { viewModel.retryAnswer(for: item) }
             )
-        case .ask:
+        } else {
             DocAskItemCard(
                 item: item,
                 sendState: viewModel.sendState(for: item),
                 isEnabled: viewModel.isDmReadyForDisplay,
                 activeAnswerItemId: $viewModel.activeAnswerItemId,
-                onShareNumber: { viewModel.presentShareNumber(for: item) },
                 onAnswer: { viewModel.sendAnswer($0, for: item) },
                 onRetry: { viewModel.retryAnswer(for: item) },
                 onPhoto: { viewModel.addPendingPhoto($0, in: composerScope) }
