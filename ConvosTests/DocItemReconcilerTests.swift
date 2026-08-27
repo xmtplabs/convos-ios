@@ -94,7 +94,15 @@ struct DocItemReconcilerTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let session = MockInboxesService()
-        let docKeys = ["originConversationId", "welcome", "googleConnectHandled", "snapshot", "state"]
+        let docKeys = [
+            "originConversationId",
+            "welcome",
+            "googleConnectHandled",
+            "snapshot",
+            "state",
+            DocExperienceViewModel.bootstrapPendingOriginConversationIdComponent,
+            DocExperienceViewModel.bootstrapSentBindingsComponent,
+        ]
             .map { DocExperienceViewModel.storageKey($0, session: session) }
         docKeys.forEach { defaults.set("stored", forKey: $0) }
         defaults.set("keep", forKey: "unrelated")

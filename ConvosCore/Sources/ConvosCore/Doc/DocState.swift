@@ -213,6 +213,10 @@ public enum DocWireMessage {
     }
 }
 
+public enum DocBootstrapMessage {
+    public static let text: String = #"⟦req⟧{"v":1,"t":"bootstrap"}"#
+}
+
 public enum DocStateMessage {
     public static let prefix: String = "⟦doc⟧"
 

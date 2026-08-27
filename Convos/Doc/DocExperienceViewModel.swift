@@ -111,6 +111,57 @@ struct DocModeConvergenceResult {
     let errorMessage: String?
 }
 
+@MainActor
+final class DocAgentBootstrapSender {
+    struct Binding {
+        let originConversationId: String
+        let agentInboxId: String
+        let dmConversationId: String
+    }
+
+    enum Result: Equatable {
+        case alreadySent
+        case inFlight
+        case notPending
+        case sent
+    }
+
+    private var bindingsInFlight: Set<String> = []
+
+    func sendIfNeeded(
+        binding: Binding,
+        defaults: UserDefaults,
+        pendingOriginKey: String,
+        sentBindingsKey: String,
+        send: (String, String) async throws -> Void
+    ) async throws -> Result {
+        guard defaults.string(forKey: pendingOriginKey) == binding.originConversationId else {
+            return .notPending
+        }
+        let bindingId = "\(binding.agentInboxId)|\(binding.dmConversationId)"
+        var sentBindings = Set(defaults.stringArray(forKey: sentBindingsKey) ?? [])
+        guard !sentBindings.contains(bindingId) else {
+            defaults.removeObject(forKey: pendingOriginKey)
+            return .alreadySent
+        }
+
+        let inFlightId = "\(sentBindingsKey)|\(bindingId)"
+        guard bindingsInFlight.insert(inFlightId).inserted else { return .inFlight }
+        defer { bindingsInFlight.remove(inFlightId) }
+
+        try await send(DocBootstrapMessage.text, UUID().uuidString)
+        try Task.checkCancellation()
+        guard defaults.string(forKey: pendingOriginKey) == binding.originConversationId else {
+            return .sent
+        }
+        sentBindings = Set(defaults.stringArray(forKey: sentBindingsKey) ?? [])
+        sentBindings.insert(bindingId)
+        defaults.set(sentBindings.sorted(), forKey: sentBindingsKey)
+        defaults.removeObject(forKey: pendingOriginKey)
+        return .sent
+    }
+}
+
 struct DocLaneRegistry: Codable, Equatable {
     private(set) var conversationIds: [String: String] = [:]
     private(set) var announcedDocIds: Set<String> = []
@@ -207,6 +258,8 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var isStartingAgent: Bool = false
     @ObservationIgnored private var agentStartupProgressRevision: Int = 0
     @ObservationIgnored private var startupGeneration: Int = 0
+    @ObservationIgnored private var isCreatingAgentForBootstrap: Bool = false
+    @ObservationIgnored private let bootstrapSender: DocAgentBootstrapSender = .init()
     @ObservationIgnored private var googleConnectTask: Task<Void, Never>?
     @ObservationIgnored private var googleConnectRequestId: UUID?
     @ObservationIgnored private let answerSendTargetOverride: DocAnswerSendTarget?
@@ -902,6 +955,7 @@ extension DocExperienceViewModel {
         } else {
             .newConversation
         }
+        isCreatingAgentForBootstrap = existingId == nil
 
         conversationViewModel = NewConversationViewModel(
             session: session,
@@ -928,6 +982,7 @@ extension DocExperienceViewModel {
     func synchronizeAgentDm() async {
         guard previewStage == nil, let originViewModel else { return }
         markAgentStartupProgress()
+        markBootstrapPendingForNewAgent(originConversationId: originViewModel.conversation.id)
         persistOriginConversationId(originViewModel.conversation.id)
 
         let dmSession = agentDmSession ?? AgentDmSession(originViewModel: originViewModel)
@@ -943,7 +998,7 @@ extension DocExperienceViewModel {
             self?.markAgentStartupProgress()
         }
         markAgentStartupProgress()
-        observeDmIfReady()
+        await observeDmIfReady()
     }
 
     func showGoogleConnectIfNeeded() {
@@ -1379,18 +1434,62 @@ enum DocGoogleConnectionChain {
 }
 
 extension DocExperienceViewModel {
-    private func observeDmIfReady() {
-        guard let dmViewModel,
-              dmViewModel.conversation.id != observedDmConversationId else {
+    private func observeDmIfReady() async {
+        guard let dmViewModel else {
             showGoogleConnectIfNeeded()
             return
         }
-        agentStartupTimeoutTask?.cancel()
-        agentStartupTimeoutTask = nil
-        agentStartupState = .ready
-        observedDmConversationId = dmViewModel.conversation.id
-        observeGoogleStatus(conversationId: dmViewModel.conversation.id)
+        if dmViewModel.conversation.id != observedDmConversationId {
+            agentStartupTimeoutTask?.cancel()
+            agentStartupTimeoutTask = nil
+            agentStartupState = .ready
+            observedDmConversationId = dmViewModel.conversation.id
+            observeGoogleStatus(conversationId: dmViewModel.conversation.id)
+        }
+        await sendBootstrapIfNeeded(to: dmViewModel)
         showGoogleConnectIfNeeded()
+    }
+
+    private func markBootstrapPendingForNewAgent(originConversationId: String) {
+        guard isCreatingAgentForBootstrap,
+              !originConversationId.hasPrefix("draft-") else {
+            return
+        }
+        defaults.set(
+            originConversationId,
+            forKey: storageKey(Self.bootstrapPendingOriginConversationIdComponent)
+        )
+        isCreatingAgentForBootstrap = false
+    }
+
+    private func sendBootstrapIfNeeded(to dmViewModel: ConversationViewModel) async {
+        guard let originConversationId = originViewModel?.conversation.id,
+              let agentInboxId else {
+            return
+        }
+        let pendingOriginKey = storageKey(Self.bootstrapPendingOriginConversationIdComponent)
+        let sentBindingsKey = storageKey(Self.bootstrapSentBindingsComponent)
+        do {
+            _ = try await bootstrapSender.sendIfNeeded(
+                binding: .init(
+                    originConversationId: originConversationId,
+                    agentInboxId: agentInboxId,
+                    dmConversationId: dmViewModel.conversation.id
+                ),
+                defaults: defaults,
+                pendingOriginKey: pendingOriginKey,
+                sentBindingsKey: sentBindingsKey
+            ) { text, clientMessageId in
+                try await dmViewModel.sendDocProtocolText(
+                    text,
+                    clientMessageId: clientMessageId
+                )
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            Log.error("Doc bootstrap send failed: \(error.localizedDescription)")
+        }
     }
 
     private func observeDocAgentMessagesIfReady() {
@@ -1506,7 +1605,15 @@ extension DocExperienceViewModel {
         if let conversationId = storedOriginConversationId(session: session, defaults: defaults) {
             AgentJoinDiagnosticsStore.shared.clear(conversationId: conversationId)
         }
-        var components = ["originConversationId", "googleConnectHandled", "snapshot", "state", "docLanes"]
+        var components = [
+            "originConversationId",
+            "googleConnectHandled",
+            "snapshot",
+            "state",
+            "docLanes",
+            bootstrapPendingOriginConversationIdComponent,
+            bootstrapSentBindingsComponent,
+        ]
         if replayFirstRun {
             components.append("welcome")
         }
@@ -1551,7 +1658,12 @@ extension DocExperienceViewModel {
         "snapshot",
         "state",
         "docLanes",
+        bootstrapPendingOriginConversationIdComponent,
+        bootstrapSentBindingsComponent,
     ]
+    static let bootstrapPendingOriginConversationIdComponent: String =
+        "bootstrapPendingOriginConversationId"
+    static let bootstrapSentBindingsComponent: String = "bootstrapSentBindings"
     private static let provisionalAccountIdentifier: String = "registering"
     private static let preserveWelcomeUserInfoKey: String = "preserveWelcome"
 
@@ -1716,6 +1828,7 @@ extension DocExperienceViewModel {
         agentStartupTimeoutTask?.cancel()
         agentStartupTimeoutTask = nil
         agentStartupState = .idle
+        isCreatingAgentForBootstrap = false
         hasCompletedWelcome = preservingWelcome ? completedWelcome : false
         latestStateMessageId = nil
         stateMessageIdAtLastSend = nil

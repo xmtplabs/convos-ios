@@ -212,6 +212,12 @@ struct DocStateTests {
         #expect(DocWireMessage.isHiddenText(message))
     }
 
+    @Test("bootstrap request matches the agent contract and stays hidden")
+    func bootstrapRequestMatchesContract() {
+        #expect(DocBootstrapMessage.text == #"⟦req⟧{"v":1,"t":"bootstrap"}"#)
+        #expect(DocWireMessage.isHiddenText(DocBootstrapMessage.text))
+    }
+
     @Test("chooses agent or native document sharing by binding")
     func choosesDocumentSharePath() {
         let live = docStatus(binding: .live, shared: false)
