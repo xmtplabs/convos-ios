@@ -477,7 +477,11 @@ extension DocExperienceViewModel {
     }
 
     var verificationControl: DocControlVerification? {
-        guard let verification = controlSnapshot?.verificationChallenge,
+        guard let controlSnapshot,
+              !controlSnapshot.verificationsByKey.contains(where: { key, verification in
+                  key.hasPrefix("verification:owner:") && verification.status == .verified
+              }),
+              let verification = controlSnapshot.verificationChallenge,
               [.pending, .expired].contains(verification.status) else {
             return nil
         }

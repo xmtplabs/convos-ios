@@ -532,7 +532,7 @@ struct DocControlViewModelTests {
         )
 
         #expect(viewModel.firstRunStep == .home)
-        #expect(viewModel.verificationControl?.status == .pending)
+        #expect(viewModel.verificationControl == nil)
         #expect(viewModel.shouldShowGoogleConnectCard)
     }
 
@@ -575,6 +575,62 @@ struct DocControlViewModelTests {
         #expect(viewModel.verificationControl == nil)
         #expect(viewModel.pendingItems.map(\.kind) == [.verifyNumber])
         #expect(viewModel.visiblePendingItems.isEmpty)
+    }
+
+    @Test("verified owner suppresses an expired verification challenge")
+    func verifiedOwnerSuppressesExpiredChallenge() throws {
+        let fixture = try Fixture()
+        let viewModel = fixture.viewModel()
+
+        viewModel.ingestAggregatedMessages(
+            [
+                fixture.message(id: "verified", text: Fixture.verificationOutboundVerified, date: 10),
+                fixture.message(id: "expired", text: Fixture.verificationExpired, date: 11),
+            ],
+            agentInboxId: Fixture.agentInboxId
+        )
+
+        #expect(viewModel.controlSnapshot?.verificationChallenge?.status == .expired)
+        #expect(viewModel.controlSnapshot?.verificationsByKey["verification:owner:+14155550123"]?.status == .verified)
+        #expect(viewModel.verificationControl == nil)
+    }
+
+    @Test("released owner restores an expired verification challenge")
+    func releasedOwnerRestoresExpiredChallenge() throws {
+        let fixture = try Fixture()
+        let viewModel = fixture.viewModel()
+        viewModel.ingestAggregatedMessages(
+            [
+                fixture.message(id: "verified", text: Fixture.verificationOutboundVerified, date: 10),
+                fixture.message(id: "expired", text: Fixture.verificationExpired, date: 11),
+            ],
+            agentInboxId: Fixture.agentInboxId
+        )
+        #expect(viewModel.verificationControl == nil)
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "released", text: Fixture.verificationReleased, date: 12)],
+            agentInboxId: Fixture.agentInboxId
+        )
+
+        #expect(viewModel.controlSnapshot?.verificationsByKey["verification:owner:+14155550123"]?.status == .released)
+        #expect(viewModel.verificationControl?.status == .expired)
+    }
+
+    @Test("pending verification challenge remains visible without owner facts")
+    func pendingChallengeRemainsVisibleWithoutOwnerFacts() throws {
+        let fixture = try Fixture()
+        let viewModel = fixture.viewModel()
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "pending", text: Fixture.verificationPending, date: 10)],
+            agentInboxId: Fixture.agentInboxId
+        )
+
+        #expect(viewModel.controlSnapshot?.verificationsByKey.keys.contains(where: {
+            $0.hasPrefix("verification:owner:")
+        }) == false)
+        #expect(viewModel.verificationControl?.status == .pending)
     }
 
     @Test("pending Google control suppresses another request")
@@ -698,6 +754,8 @@ struct DocControlViewModelTests {
         static let verificationSubmitFailed: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":14,"at":1787720620,"key":"verification:request","kind":"verification","verification":{"status":"attempt_failed","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787724210,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
         static let verificationRequestFailed: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":15,"at":1787720630,"key":"verification:request","kind":"verification","verification":{"status":"send_failed","challengeId":null,"lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":0,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
         static let verificationOutboundVerified: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":16,"at":1787720640,"key":"verification:owner:+14155550123","kind":"verification","verification":{"status":"verified","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787724210,"verifiedAt":1787720640,"releasedAt":null,"clearsKey":"verification:request"}}"#
+        static let verificationExpired: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":17,"at":1787724240,"key":"verification:challenge","kind":"verification","verification":{"status":"expired","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":null,"code":null,"smsBody":null,"expiresAt":1787724210,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
+        static let verificationReleased: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":18,"at":1787724300,"key":"verification:owner:+14155550123","kind":"verification","verification":{"status":"released","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787724210,"verifiedAt":1787720640,"releasedAt":1787724300,"clearsKey":null}}"#
         static let googlePending: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":20,"at":1787720400,"key":"google:registering","kind":"google_docs","googleDocs":{"ownerInboxId":"registering","requestConversationId":null,"supersedesKey":null,"gate":{"status":"pending","requestId":"request-1","updatedAt":1787720400},"connection":{"status":"unknown","providerId":null,"updatedAt":1787720400}}}"#
         static let googleGranted: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":21,"at":1787720500,"key":"google:registering","kind":"google_docs","googleDocs":{"ownerInboxId":"registering","requestConversationId":null,"supersedesKey":null,"gate":{"status":"approved","requestId":"request-1","updatedAt":1787720500},"connection":{"status":"granted","providerId":"composio.googledocs","updatedAt":1787720500}}}"#
         static let googleRevoked: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":22,"at":1787720600,"key":"google:registering","kind":"google_docs","googleDocs":{"ownerInboxId":"registering","requestConversationId":null,"supersedesKey":null,"gate":{"status":"approved","requestId":"request-1","updatedAt":1787720500},"connection":{"status":"revoked","providerId":"composio.googledocs","updatedAt":1787720600}}}"#
