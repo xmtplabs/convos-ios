@@ -106,7 +106,7 @@ struct DocRootView: View {
                     flowState: viewModel.verificationFlowState,
                     verification: viewModel.verificationControl,
                     rememberedNumber: viewModel.rememberedVerificationNumber,
-                    startupErrorMessage: viewModel.agentStartupErrorMessage,
+                    agentStartupState: viewModel.verificationAgentStartupState,
                     transportErrorMessage: viewModel.verificationTransportErrorMessage,
                     onRequest: viewModel.requestPhoneVerification,
                     onSubmit: viewModel.submitPhoneVerification,

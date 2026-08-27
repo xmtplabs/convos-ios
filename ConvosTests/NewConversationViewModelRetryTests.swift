@@ -62,6 +62,15 @@ final class NewConversationViewModelRetryTests: XCTestCase {
         XCTAssertEqual(ConversationStateMachineError.failedVerifyingSignature.title, "Invalid invite")
         XCTAssertEqual(ConversationStateMachineError.invalidInviteCodeFormat("bad").title, "Invalid code")
     }
+
+    func testDocStartupRetriesTwoTransientCreationFailures() {
+        let policy = AutomaticConversationCreationRetryPolicy.docStartup
+
+        XCTAssertTrue(policy.shouldRetry(failureCount: 0, isTransient: true))
+        XCTAssertTrue(policy.shouldRetry(failureCount: 1, isTransient: true))
+        XCTAssertFalse(policy.shouldRetry(failureCount: 2, isTransient: true))
+        XCTAssertFalse(policy.shouldRetry(failureCount: 0, isTransient: false))
+    }
 }
 
 // MARK: - Test helpers

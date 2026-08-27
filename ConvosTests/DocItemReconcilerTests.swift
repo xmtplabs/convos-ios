@@ -3,6 +3,7 @@ import ConvosCore
 import Foundation
 import Testing
 
+@Suite(.serialized)
 struct DocItemReconcilerTests {
     @Test func compatibilityDetectorIgnoresSetupProseUntilAgentRepliesToSourceMaterial() {
         var detector = DocAgentCompatibilityDetector()
@@ -112,6 +113,80 @@ struct DocItemReconcilerTests {
 
         #expect(docKeys.allSatisfy { defaults.object(forKey: $0) == nil })
         #expect(defaults.string(forKey: "unrelated") == "keep")
+    }
+
+    @MainActor
+    @Test func resetDiscardsTheOldCreationWrapperBeforeStartingAgain() async throws {
+        let suiteName = "DocAgentCreationResetTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let session = MockInboxesService()
+        defaults.set(
+            true,
+            forKey: DocExperienceViewModel.storageKey("welcome", session: session)
+        )
+        let wasDocModeEnabled = FeatureFlags.shared.isDocModeEnabled
+        FeatureFlags.shared.isDocModeEnabled = false
+        defer { FeatureFlags.shared.isDocModeEnabled = wasDocModeEnabled }
+        let viewModel = DocExperienceViewModel(
+            session: session,
+            coreActions: NoOpCoreActions(),
+            defaults: defaults
+        )
+
+        await viewModel.startAgentIfNeeded()
+        let firstWrapper = try #require(viewModel.conversationViewModel)
+
+        DocExperienceViewModel.resetAgentBinding(session: session, defaults: defaults)
+        try await Task.sleep(for: .milliseconds(10))
+
+        #expect(viewModel.conversationViewModel == nil)
+        #expect(viewModel.agentStartupState == .idle)
+        #expect(viewModel.firstRunStep == .welcome)
+
+        viewModel.completeWelcome()
+        for _ in 0..<20 where viewModel.conversationViewModel == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let secondWrapper = try #require(viewModel.conversationViewModel)
+
+        #expect(firstWrapper !== secondWrapper)
+        #expect(viewModel.agentStartupState == .preparing)
+    }
+
+    @MainActor
+    @Test func verificationQueuesTheTapUntilTheAgentDmIsReady() throws {
+        let suiteName = "DocVerificationQueueTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let viewModel = DocExperienceViewModel(
+            session: MockInboxesService(),
+            coreActions: NoOpCoreActions(),
+            defaults: defaults
+        )
+
+        viewModel.requestPhoneVerification(number: "+14155550123")
+
+        #expect(viewModel.isPhoneVerificationRequestQueued)
+        #expect(viewModel.verificationFlowState == .enteringNumber)
+        #expect(viewModel.verificationAgentStartupState == .preparing)
+    }
+
+    @Test func verificationStartupFailureReplacesTheSendSurface() {
+        let message = "I couldn't open our private chat. Check your connection and try again."
+
+        #expect(DocAgentStartupSurfaceState.resolve(
+            startupState: .idle,
+            dmIsReady: false
+        ) == .preparing)
+        #expect(DocAgentStartupSurfaceState.resolve(
+            startupState: .failed(message),
+            dmIsReady: false
+        ) == .failed(message))
+        #expect(DocAgentStartupSurfaceState.resolve(
+            startupState: .failed(message),
+            dmIsReady: true
+        ) == .ready)
     }
 
     @Test func resolvedTombstonePreventsColdHistoryFromRestoringItem() throws {

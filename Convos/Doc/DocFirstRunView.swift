@@ -95,7 +95,7 @@ private struct DocWelcomeTeaching: View {
 struct DocVerifyFirstRunView: View {
     let flowState: DocVerificationFlowState
     let verification: DocControlVerification?
-    let startupErrorMessage: String?
+    let agentStartupState: DocAgentStartupSurfaceState
     let transportErrorMessage: String?
     let onRequest: (String) -> Void
     let onSubmit: (String) -> Void
@@ -114,7 +114,7 @@ struct DocVerifyFirstRunView: View {
         flowState: DocVerificationFlowState,
         verification: DocControlVerification?,
         rememberedNumber: String?,
-        startupErrorMessage: String?,
+        agentStartupState: DocAgentStartupSurfaceState,
         transportErrorMessage: String?,
         regionCode: String = Locale.current.region?.identifier ?? "US",
         onRequest: @escaping (String) -> Void,
@@ -126,7 +126,7 @@ struct DocVerifyFirstRunView: View {
     ) {
         self.flowState = flowState
         self.verification = verification
-        self.startupErrorMessage = startupErrorMessage
+        self.agentStartupState = agentStartupState
         self.transportErrorMessage = transportErrorMessage
         self.onRequest = onRequest
         self.onSubmit = onSubmit
@@ -145,12 +145,15 @@ struct DocVerifyFirstRunView: View {
             title: title,
             message: message
         ) {
-            details
+            surfaceDetails
         } action: {
-            actionContent
+            surfaceAction
         }
         .accessibilityIdentifier("doc-first-run-verify")
         .task(id: flowState) {
+            await prepareForCurrentState()
+        }
+        .task(id: agentStartupState) {
             await prepareForCurrentState()
         }
         .onChange(of: phoneText) { _, newValue in
@@ -162,6 +165,64 @@ struct DocVerifyFirstRunView: View {
         .onChange(of: code) { _, newValue in
             handleCodeChange(newValue)
         }
+    }
+
+    @ViewBuilder
+    private var surfaceDetails: some View {
+        switch agentStartupState {
+        case .preparing:
+            startupStatus(
+                systemImage: nil,
+                text: "Opening our private chat…",
+                identifier: "doc-first-run-agent-preparing"
+            )
+        case .failed:
+            startupStatus(
+                systemImage: "exclamationmark.triangle.fill",
+                text: "Your number hasn't been sent.",
+                identifier: "doc-first-run-agent-startup-error"
+            )
+        case .ready:
+            details
+        }
+    }
+
+    @ViewBuilder
+    private var surfaceAction: some View {
+        switch agentStartupState {
+        case .preparing:
+            EmptyView()
+        case .failed:
+            Button("Try again", action: onRetryStartup)
+                .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
+                .frame(minHeight: 44.0)
+                .accessibilityIdentifier("doc-first-run-agent-startup-retry")
+        case .ready:
+            actionContent
+        }
+    }
+
+    private func startupStatus(
+        systemImage: String?,
+        text: String,
+        identifier: String
+    ) -> some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .foregroundStyle(.colorLava)
+            } else {
+                ProgressView()
+            }
+            Text(text)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .frame(maxWidth: .infinity, minHeight: 52.0)
+        .background(.colorFillMinimal, in: RoundedRectangle(cornerRadius: 14.0))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(identifier)
     }
 
     @ViewBuilder
@@ -188,14 +249,7 @@ struct DocVerifyFirstRunView: View {
             }
             switch flowState {
             case .enteringNumber:
-                if let startupErrorMessage {
-                    errorText(startupErrorMessage, identifier: "doc-first-run-verify-startup-error")
-                    Button("Try again", action: onRetryStartup)
-                        .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
-                        .frame(minHeight: 44.0)
-                } else {
-                    numberAction
-                }
+                numberAction
             case .requesting:
                 waitingButton(label: "Sending code…")
             case .enteringCode:
@@ -267,13 +321,6 @@ struct DocVerifyFirstRunView: View {
                     .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
                     .frame(minHeight: 44.0)
             }
-        } else if let startupErrorMessage {
-            VStack(spacing: DesignConstants.Spacing.step3x) {
-                errorText(startupErrorMessage, identifier: "doc-first-run-fallback-startup-error")
-                Button("Try again", action: onRetryStartup)
-                    .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
-                    .frame(minHeight: 44.0)
-            }
         } else {
             VStack(spacing: DesignConstants.Spacing.step3x) {
                 ProgressView("Preparing text verification…")
@@ -285,7 +332,7 @@ struct DocVerifyFirstRunView: View {
     }
 
     private var numberAction: some View {
-        let canRequestCode: Bool = phoneFormatter.e164(from: phoneText) != nil && startupErrorMessage == nil
+        let canRequestCode: Bool = phoneFormatter.e164(from: phoneText) != nil
         let request = {
             guard let number = phoneFormatter.e164(from: phoneText) else { return }
             focusedField = nil
@@ -347,37 +394,61 @@ struct DocVerifyFirstRunView: View {
     }
 
     private var systemImage: String {
+        switch agentStartupState {
+        case .preparing:
+            return "ellipsis.message.fill"
+        case .failed:
+            return "exclamationmark.bubble.fill"
+        case .ready:
+            break
+        }
         switch flowState {
         case .fallback:
-            "message.fill"
+            return "message.fill"
         default:
-            "checkmark.shield.fill"
+            return "checkmark.shield.fill"
         }
     }
 
     private var title: String {
+        switch agentStartupState {
+        case .preparing:
+            return "Getting our chat ready"
+        case .failed:
+            return "I couldn't get ready"
+        case .ready:
+            break
+        }
         switch flowState {
         case .enteringNumber, .requesting:
-            "What's your number?"
+            return "What's your number?"
         case .enteringCode, .submitting, .awaitingVerification:
-            "Enter your code"
+            return "Enter your code"
         case .fallback:
-            "Verify by text instead"
+            return "Verify by text instead"
         case .verified:
-            "Number verified"
+            return "Number verified"
         }
     }
 
     private var message: String {
+        switch agentStartupState {
+        case .preparing:
+            return "I'm opening our private chat. Verification will start as soon as it's ready."
+        case .failed(let message):
+            return message
+        case .ready:
+            break
+        }
         switch flowState {
         case .enteringNumber, .requesting:
-            "I'll text you a six-digit code. Your number is how @doc knows which groups are yours."
+            return "I'll text you a six-digit code. Your number is how @doc knows which groups are yours."
         case .enteringCode, .submitting, .awaitingVerification:
-            "Enter the six digits I just texted you."
+            return "Enter the six digits I just texted you."
         case .fallback:
-            "Text the backup code to @doc. I'll recognize your number from the message."
+            return "Text the backup code to @doc. I'll recognize your number from the message."
         case .verified:
-            "You're all set."
+            return "You're all set."
         }
     }
 
@@ -388,6 +459,10 @@ struct DocVerifyFirstRunView: View {
     }
 
     private func prepareForCurrentState() async {
+        guard agentStartupState == .ready else {
+            focusedField = nil
+            return
+        }
         switch flowState {
         case .enteringNumber:
             focusedField = .phone

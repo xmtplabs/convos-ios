@@ -29,6 +29,8 @@ struct DocPendingPhoto: Identifiable {
 enum DocPreviewStage: String {
     case welcome
     case verify
+    case verifyPreparing
+    case verifyStartupFailure
     case verifyCode
     case verifyFallback
     case verificationHello
@@ -112,6 +114,25 @@ enum DocAgentStartupState: Equatable {
     case preparing
     case ready
     case failed(String)
+}
+
+enum DocAgentStartupSurfaceState: Hashable {
+    case preparing
+    case ready
+    case failed(String)
+
+    static func resolve(
+        startupState: DocAgentStartupState,
+        dmIsReady: Bool
+    ) -> Self {
+        if dmIsReady { return .ready }
+        guard case .failed(let message) = startupState else { return .preparing }
+        return .failed(message)
+    }
+}
+
+enum DocAgentProvisionRetryPolicy {
+    static let attemptDelays: [Duration] = [.zero, .seconds(2)]
 }
 
 enum DocAgentStartupTimeoutPolicy {
@@ -236,6 +257,8 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var startupGeneration: Int = 0
     @ObservationIgnored private var hasObservedControlEvent: Bool = false
     @ObservationIgnored private var isControlResyncInFlight: Bool = false
+    @ObservationIgnored private var queuedVerificationNumber: String?
+    @ObservationIgnored private var needsDeterministicAgentProvision: Bool = false
     @ObservationIgnored private var googleConnectTask: Task<Void, Never>?
     @ObservationIgnored private var googleConnectRequestId: UUID?
     @ObservationIgnored private let answerSendTargetOverride: DocAnswerSendTarget?
@@ -375,7 +398,7 @@ final class DocExperienceViewModel {
         switch previewStage {
         case .welcome:
             return hasCompletedWelcome ? .verify : .welcome
-        case .verify, .verifyCode, .verifyFallback:
+        case .verify, .verifyPreparing, .verifyStartupFailure, .verifyCode, .verifyFallback:
             return .verify
         case .verificationHello:
             return .sayHello
@@ -1133,6 +1156,21 @@ private extension DocExperienceViewModel {
 }
 
 extension DocExperienceViewModel {
+    var verificationAgentStartupState: DocAgentStartupSurfaceState {
+        if previewStage == .verifyPreparing { return .preparing }
+        if previewStage == .verifyStartupFailure {
+            return .failed("I couldn't open our private chat. Check your connection and try again.")
+        }
+        return .resolve(
+            startupState: agentStartupState,
+            dmIsReady: dmViewModel != nil || previewStage != nil
+        )
+    }
+
+    var isPhoneVerificationRequestQueued: Bool {
+        queuedVerificationNumber != nil
+    }
+
     func relationship(for doc: DocStatus) -> DocGroupRelationship {
         DocGroupRelationship.project(
             doc: doc,
@@ -1224,6 +1262,16 @@ extension DocExperienceViewModel {
         guard let text = DocControlRequestMessage.verifyRequestText(number: number) else { return }
         verificationTransportErrorMessage = nil
         rememberVerificationNumber(number)
+        guard dmViewModel != nil || previewStage != nil else {
+            queuedVerificationNumber = number
+            markAgentStartupProgress()
+            return
+        }
+        queuedVerificationNumber = nil
+        performPhoneVerificationRequest(number: number, text: text)
+    }
+
+    private func performPhoneVerificationRequest(number: String, text: String) {
         verificationFlowState = DocVerificationFlowReducer.reduce(
             verificationFlowState,
             event: .request(number: number)
@@ -1271,6 +1319,7 @@ extension DocExperienceViewModel {
     }
 
     func editPhoneNumber() {
+        queuedVerificationNumber = nil
         verificationTransportErrorMessage = nil
         verificationFlowState = DocVerificationFlowReducer.reduce(
             verificationFlowState,
@@ -1350,12 +1399,23 @@ extension DocExperienceViewModel {
         } else {
             .newConversation
         }
-        conversationViewModel = NewConversationViewModel(
+        needsDeterministicAgentProvision = existingId == nil
+        let newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: mode,
             coreActions: coreActions,
-            agentVariantSlug: FeatureFlags.shared.effectiveAgentVariantSlug
+            agentVariantSlug: FeatureFlags.shared.effectiveAgentVariantSlug,
+            automaticCreationRetryPolicy: .docStartup
         )
+        newConversationViewModel.onCreationFailed = { [weak self, weak newConversationViewModel] _ in
+            guard let self,
+                  let newConversationViewModel,
+                  self.conversationViewModel === newConversationViewModel else {
+                return
+            }
+            self.failAgentStartup("I couldn't open our private chat. Check your connection and try again.")
+        }
+        conversationViewModel = newConversationViewModel
         markAgentStartupProgress()
     }
 
@@ -1366,6 +1426,8 @@ extension DocExperienceViewModel {
             guard let self else { return }
             if conversationViewModel == nil {
                 await startAgentIfNeeded()
+            } else if conversationViewModel?.currentError != nil {
+                conversationViewModel?.retryConversationCreation()
             } else {
                 await synchronizeAgentDm()
             }
@@ -1376,6 +1438,13 @@ extension DocExperienceViewModel {
         guard previewStage == nil, let originViewModel else { return }
         markAgentStartupProgress()
         persistOriginConversationId(originViewModel.conversation.id)
+
+        if needsDeterministicAgentProvision,
+           agentInboxId == nil,
+           !originViewModel.conversation.isDraft {
+            await ensureDocAgentProvisioned(conversationId: originViewModel.conversation.id)
+            guard originViewModel.conversation.id == self.originViewModel?.conversation.id else { return }
+        }
 
         let dmSession = agentDmSession ?? AgentDmSession(originViewModel: originViewModel)
         if agentDmSession == nil {
@@ -1884,6 +1953,7 @@ extension DocExperienceViewModel {
             agentStartupTimeoutTask?.cancel()
             agentStartupTimeoutTask = nil
             agentStartupState = .ready
+            needsDeterministicAgentProvision = false
             observedDmConversationId = dmViewModel.conversation.id
         }
         refreshGoogleControlState()
@@ -1892,6 +1962,28 @@ extension DocExperienceViewModel {
         }
         googleConnectTargetDidChange()
         showGoogleConnectIfNeeded()
+        sendQueuedPhoneVerificationIfNeeded()
+    }
+
+    private func ensureDocAgentProvisioned(conversationId: String) async {
+        for delay in DocAgentProvisionRetryPolicy.attemptDelays {
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+            }
+            await session.ensureDefaultAgentConversationReady(id: conversationId)
+            if agentInboxId != nil { return }
+        }
+    }
+
+    private func sendQueuedPhoneVerificationIfNeeded() {
+        guard dmViewModel != nil,
+              let number = queuedVerificationNumber,
+              let text = DocControlRequestMessage.verifyRequestText(number: number) else {
+            return
+        }
+        queuedVerificationNumber = nil
+        performPhoneVerificationRequest(number: number, text: text)
     }
 
     private func observeDocAgentMessagesIfReady() {
@@ -2095,7 +2187,7 @@ extension DocExperienceViewModel {
     ) -> DocControlSnapshot? {
         if let previewStage {
             switch previewStage {
-            case .welcome, .verify, .verificationHello:
+            case .welcome, .verify, .verifyPreparing, .verifyStartupFailure, .verificationHello:
                 return previewVerificationSnapshot
             case .verifyCode:
                 return previewVerificationSentSnapshot
@@ -2274,6 +2366,8 @@ extension DocExperienceViewModel {
             startupGeneration &+= 1
             isStartingAgent = false
         }
+        conversationViewModel?.onCreationFailed = nil
+        conversationViewModel?.cleanUpIfNeeded()
         docMessageAggregator?.stop()
         docMessageAggregator = nil
         googleConnectTask?.cancel()
@@ -2302,6 +2396,8 @@ extension DocExperienceViewModel {
         googleConnectErrorMessage = nil
         verificationFlowState = .enteringNumber
         verificationTransportErrorMessage = nil
+        queuedVerificationNumber = nil
+        needsDeterministicAgentProvision = false
         isPresentingGoogleConnect = false
         isPresentingHistory = false
         isPresentingShareNumber = false
