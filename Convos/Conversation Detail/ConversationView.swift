@@ -1909,6 +1909,14 @@ struct MemberContactDetailSheetContent: View {
     @Bindable var profileSettingsViewModel: ProfileSettingsViewModel
     var onStartAgentDm: ((String) -> Void)?
 
+    /// This member's model as the live conversation carries it, falling back to
+    /// the presented copy while the roster is still loading.
+    private var syncedAgentModel: String? {
+        viewModel.conversation.members
+            .first { $0.profile.inboxId == member.profile.inboxId }?
+            .agentModel ?? member.agentModel
+    }
+
     var body: some View {
         let messagingService = viewModel.messagingService
         let contactsRepository = messagingService.contactsRepository()
@@ -1933,6 +1941,12 @@ struct MemberContactDetailSheetContent: View {
                     invitedBy: member.invitedBy,
                     joinedAt: member.joinedAt
                 ),
+                // Read from the conversation the view model observes, not from
+                // the member captured when this sheet was presented: a switch
+                // another device makes lands as a change to that row, and the
+                // captured copy would hold the value from the moment of the tap
+                // forever.
+                syncedAgentModel: syncedAgentModel,
                 contactsWriter: contactsWriter,
                 contactsRepository: contactsRepository,
                 session: viewModel.session,

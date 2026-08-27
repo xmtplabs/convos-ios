@@ -17,6 +17,8 @@ import XMTPiOS
 struct AgentModelSyncTests {
     private static let agentInboxId = "aa".repeat(32)
     private static let otherAgentInboxId = "bb".repeat(32)
+    private static let currentInboxId = "cc".repeat(32)
+    private static let conversationId = "convo-agent-model"
 
     // MARK: - Migration
 
@@ -287,6 +289,112 @@ struct AgentModelSyncTests {
         )
 
         #expect(change.field != ConversationUpdate.MetadataChange.Field.agentModel.rawValue)
+    }
+
+    // MARK: - Reaching the surface that renders it
+
+    @Test("a stored model reaches the hydrated member the picker reads")
+    func storedModelReachesHydratedMember() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try dbManager.dbWriter.write { db in
+            try Self.seedConversationWithAgent(db: db, model: "anthropic/claude-sonnet-5")
+        }
+
+        let repo = ConversationsRepository(dbReader: dbManager.dbReader, consent: [.allowed])
+        let conversation = try repo.findOneToOne(with: Self.agentInboxId, excluding: nil)
+
+        let agent = conversation?.membersWithoutCurrent.first { $0.profile.inboxId == Self.agentInboxId }
+        #expect(agent?.agentModel == "anthropic/claude-sonnet-5")
+    }
+
+    @Test("a member nobody has switched hydrates with no model rather than a guessed one")
+    func unswitchedMemberHydratesWithoutAModel() throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        try dbManager.dbWriter.write { db in
+            try Self.seedConversationWithAgent(db: db, model: nil)
+        }
+
+        let repo = ConversationsRepository(dbReader: dbManager.dbReader, consent: [.allowed])
+        let conversation = try repo.findOneToOne(with: Self.agentInboxId, excluding: nil)
+
+        let agent = conversation?.membersWithoutCurrent.first { $0.profile.inboxId == Self.agentInboxId }
+        #expect(agent != nil)
+        #expect(agent?.agentModel == nil)
+    }
+
+    /// A 1:1 between the current user and the agent, carrying every row the
+    /// detailed conversation query joins as required.
+    private static func seedConversationWithAgent(db: Database, model: String?) throws {
+        let now = Date()
+        try DBMember(inboxId: currentInboxId).save(db, onConflict: .ignore)
+        try DBInbox(inboxId: currentInboxId, clientId: "client-current", createdAt: now)
+            .save(db, onConflict: .ignore)
+        try DBMember(inboxId: agentInboxId).save(db, onConflict: .ignore)
+
+        try DBConversation(
+            id: conversationId,
+            clientConversationId: "client-\(conversationId)",
+            inviteTag: "tag-\(conversationId)",
+            creatorId: currentInboxId,
+            kind: .group,
+            consent: .allowed,
+            createdAt: now,
+            name: nil,
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: false,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: nil,
+            imageLastRenewed: nil,
+            isUnused: false,
+            hasHadVerifiedAgent: true
+        ).insert(db)
+
+        try ConversationLocalState(
+            conversationId: conversationId,
+            isPinned: false,
+            isUnread: false,
+            isUnreadUpdatedAt: now,
+            isMuted: false,
+            pinnedOrder: nil,
+            hidesInviteCard: false,
+            leftHostedInviteSession: false,
+            wasRemoved: false,
+            hasHadOtherMembers: true,
+            hasSharedInvite: false
+        ).insert(db)
+
+        try seedMember(db: db, inboxId: currentInboxId, role: .superAdmin, model: nil)
+        try seedMember(db: db, inboxId: agentInboxId, role: .member, model: model)
+    }
+
+    private static func seedMember(
+        db: Database,
+        inboxId: String,
+        role: MemberRole,
+        model: String?
+    ) throws {
+        try DBConversationMember(
+            conversationId: conversationId,
+            inboxId: inboxId,
+            role: role,
+            consent: .allowed,
+            createdAt: Date(),
+            invitedByInboxId: nil,
+            agentModel: model
+        ).insert(db)
+        try DBMemberProfile(
+            conversationId: conversationId,
+            inboxId: inboxId,
+            name: inboxId,
+            avatar: nil
+        ).insert(db, onConflict: .ignore)
     }
 }
 
