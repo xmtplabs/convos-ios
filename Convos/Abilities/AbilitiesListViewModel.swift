@@ -158,10 +158,15 @@ final class AbilitiesListViewModel {
     /// Connect opens a fresh round - the only action that can actually
     /// finish the job.
     ///
-    /// Everything else that is entitled stays Connected: `expired`,
-    /// `needsReauth` and `revoked` all describe a connection that did exist
-    /// and can be repaired in place, and the badge beside them is what
-    /// tells the member what to fix.
+    /// `revoked` joins it in Discover for the mirror-image reason: the
+    /// connection was intentionally severed, so there is nothing to repair
+    /// in place. Re-adding runs through Connect, a fresh authorization,
+    /// exactly as it would for a connection that never existed - which is
+    /// also why it carries no repair affordance and no Disconnect.
+    ///
+    /// `expired` and `needsReauth` stay Connected: both describe a
+    /// connection that did exist and can be repaired in place, and the badge
+    /// beside them is what tells the member what to fix.
     static func section(for ability: AbilitiesAPI.Ability) -> BrowserSection {
         switch ability.entitlementState {
         case .notEntitled:
@@ -170,9 +175,9 @@ final class AbilitiesListViewModel {
             return .statusUnknown
         case .entitled(let entitlement):
             switch entitlement.status {
-            case .pendingAuth:
+            case .pendingAuth, .revoked:
                 return .discover
-            case .active, .expired, .needsReauth, .revoked:
+            case .active, .expired, .needsReauth:
                 return .connected
             }
         }
@@ -253,9 +258,9 @@ final class AbilitiesListViewModel {
     }
 
     /// Starts the entitlement, or restarts it for every state that can
-    /// reach this method with one already on file (`pendingAuth` from a
-    /// Discover row, `expired` / `needsReauth` / `revoked` from a Connected
-    /// row's Reconnect).
+    /// reach this method with one already on file (`pendingAuth` / `revoked`
+    /// from a Discover row, `expired` / `needsReauth` from a Connected row's
+    /// Reconnect).
     ///
     /// A restart never re-serves the previous consent URL -- that link
     /// session has its own expiry, and re-opening it is what walks the
