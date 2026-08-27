@@ -89,6 +89,105 @@ public struct ControlPlaneAgentModelService: AgentModelServing {
     }
 }
 
+/// Writes the pick into the group's appData from the picking member's device,
+/// then mirrors it to the control plane.
+///
+/// The order and the split both matter. The Assistant Worker signs its own
+/// commits, so a model it publishes reads in the transcript as the agent having
+/// switched itself; written from here, the row carries the name of the member
+/// who actually chose it — the same reason the participation mode is written
+/// client-side. The control plane still owns the value: it validates the choice
+/// against the agent's own catalogue, applies it to the runtime, and
+/// republishes into appData whenever its row moves, so a refused model is
+/// rolled back for everyone rather than left standing here.
+///
+/// The appData write is best-effort. A member whose commit fails still gets the
+/// switch, because the control-plane call is the one that changes what the
+/// agent runs; the Worker's own publish is what carries it to the room.
+public struct ConversationAppDataAgentModelService: AgentModelServing {
+    private let metadataWriter: any ConversationMetadataWriterProtocol
+    private let conversationId: String
+    private let agentInboxId: String
+    private let controlPlane: any AgentModelServing
+
+    public init(
+        metadataWriter: any ConversationMetadataWriterProtocol,
+        conversationId: String,
+        agentInboxId: String,
+        controlPlane: any AgentModelServing = ControlPlaneAgentModelService()
+    ) {
+        self.metadataWriter = metadataWriter
+        self.conversationId = conversationId
+        self.agentInboxId = agentInboxId
+        self.controlPlane = controlPlane
+    }
+
+    public func readModel(
+        instanceId: String,
+        variantId: String?
+    ) async throws -> AgentModelSnapshot {
+        // Read from the control plane, not from appData: the picker needs the
+        // catalogue too, and only the agent can name what it can run.
+        try await controlPlane.readModel(instanceId: instanceId, variantId: variantId)
+    }
+
+    public func writeModel(
+        _ model: String,
+        instanceId: String,
+        variantId: String?
+    ) async throws -> AgentModelSnapshot {
+        do {
+            try await metadataWriter.updateAgentModel(
+                model,
+                forAgent: agentInboxId,
+                in: conversationId
+            )
+        } catch {
+            Log.warning("agent model appData write failed: \(error)")
+        }
+        do {
+            return try await controlPlane.writeModel(
+                model,
+                instanceId: instanceId,
+                variantId: variantId
+            )
+        } catch {
+            // The room is now naming a model the agent may never have been put
+            // on. A refusal the Worker saw it rolls back and republishes
+            // itself, but a call that never reached it leaves nothing to do
+            // that — so put back whatever the control plane still holds.
+            await restoreAppDataFromControlPlane(
+                instanceId: instanceId,
+                variantId: variantId
+            )
+            throw error
+        }
+    }
+
+    /// Re-writes appData from the model the control plane reports, after a
+    /// failed write left the room naming something else. Best-effort by
+    /// nature: it is repairing a write that already failed once, and the
+    /// Worker republishes on its own whenever its row moves.
+    private func restoreAppDataFromControlPlane(
+        instanceId: String,
+        variantId: String?
+    ) async {
+        do {
+            let snapshot = try await controlPlane.readModel(
+                instanceId: instanceId,
+                variantId: variantId
+            )
+            try await metadataWriter.updateAgentModel(
+                snapshot.model,
+                forAgent: agentInboxId,
+                in: conversationId
+            )
+        } catch {
+            Log.warning("agent model appData restore failed: \(error)")
+        }
+    }
+}
+
 /// Owns one agent's model for the picker that renders it.
 ///
 /// Same shape as `AgentParticipationStore`, and for the same reasons: a tap has
@@ -137,6 +236,13 @@ public final class AgentModelStore {
     /// the order the member tapped in is the order the server sees.
     private var writeChain: Task<Void, Never>?
 
+    /// The newest synced value that arrived while a write was outstanding, held
+    /// so a failed write can roll back to it instead of to the older value the
+    /// server acknowledged before the sync. Double-optional on purpose: the
+    /// outer nil means "nothing arrived", the inner nil means "the room says no
+    /// model", and those are different answers.
+    private var deferredSyncedModel: String??
+
     public init(
         instanceId: String,
         variantId: String? = nil,
@@ -155,6 +261,31 @@ public final class AgentModelStore {
     public var selectedTitle: String? {
         guard let selectedId else { return nil }
         return options.first { $0.id == selectedId }?.name ?? selectedId
+    }
+
+    /// Adopts a model that arrived over the network — someone switched this
+    /// agent on another device and the synced conversation carries their value.
+    ///
+    /// The counterpart of `AgentParticipationStore.apply(syncedLevel:)`, and
+    /// ignored under the same condition: a write outstanding on this device is
+    /// newer than anything the sync can be carrying, and this device's own
+    /// change arrives back here as a synced value a moment later anyway.
+    ///
+    /// Does not touch `options`. The catalogue is what this agent *can* run and
+    /// lives in its container; only the choice travels in group state.
+    public func apply(syncedModel: String?) {
+        hasLoaded = true
+        guard writesInFlight == 0 else {
+            // Held, not discarded. If the write now in flight fails it rolls
+            // back to what the server last acknowledged — and without this the
+            // rollback would restore a model the room has since moved off,
+            // leaving the picker on a value nothing will correct.
+            deferredSyncedModel = .some(syncedModel)
+            return
+        }
+        deferredSyncedModel = nil
+        confirmedId = syncedModel
+        selectedId = syncedModel
     }
 
     /// Reads the agent's model and catalogue. Safe to call on every appearance.
@@ -215,15 +346,23 @@ public final class AgentModelStore {
             )
             if !snapshot.available.isEmpty { options = snapshot.available }
             confirmedId = option.id
+            // This tap is what the server holds now, so anything that synced
+            // while it was in flight is older than it and must not survive to
+            // be restored by a later rollback.
+            deferredSyncedModel = nil
             Log.info("agent model set to \(option.id)")
         } catch {
             Log.error("agent model update failed: \(error)")
             // Roll back only while this is still the newest tap — a newer one
             // already owns what the picker shows.
             guard writeGeneration == generation else { return }
-            selectedId = previous
-            confirmedId = previous
-            let previousName = previous.map { id in
+            // A synced value that landed while this write was out is newer than
+            // what the server acknowledged before it, so it wins the rollback.
+            let target = deferredSyncedModel ?? previous
+            deferredSyncedModel = nil
+            selectedId = target
+            confirmedId = target
+            let previousName = target.map { id in
                 options.first { $0.id == id }?.name ?? id
             }
             errorMessage = previousName.map {

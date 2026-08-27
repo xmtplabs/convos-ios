@@ -20,6 +20,55 @@ import XMTPiOS
 
 // MARK: - XMTPiOS.Group + CustomMetadata
 
+/// The mutation `XMTPGroup.updateAgentModel` performs, as a plain function so
+/// it can be exercised without a group.
+///
+/// Authors the agent's profile when the room carries none, because profiles
+/// travel as ProfileUpdate messages and appData holds one only for a member who
+/// has published an avatar — so there is usually nothing to hang a model on.
+func applyAgentModel(
+    _ model: String?,
+    to metadata: inout ConversationCustomMetadata,
+    forAgent inboxId: String,
+    name: String? = nil
+) {
+    let key = inboxId.lowercased()
+    if let index = metadata.profiles.firstIndex(where: {
+        $0.inboxIdString.lowercased() == key
+    }) {
+        if let model {
+            metadata.profiles[index].model = model
+        } else {
+            metadata.profiles[index].clearModel()
+        }
+        return
+    }
+    // Nothing to author for a clear: with no profile there is no model recorded
+    // to take back.
+    guard let model, let inboxIdData = Data(hexString: key) else { return }
+    var profile = ConversationProfile()
+    profile.inboxID = inboxIdData
+    if let name, !name.isEmpty { profile.name = name }
+    profile.model = model
+    metadata.profiles.append(profile)
+}
+
+/// Whether `metadata` already says what `applyAgentModel` was asked to write.
+func agentModelMatches(
+    _ model: String?,
+    in metadata: ConversationCustomMetadata,
+    forAgent inboxId: String
+) -> Bool {
+    let key = inboxId.lowercased()
+    let profile = metadata.profiles.first { $0.inboxIdString.lowercased() == key }
+    if let model {
+        return profile?.model == model
+    }
+    // A cleared model and a profile that was never authored both read as the
+    // agent carrying no model, which is the state asked for.
+    return profile?.hasModel != true
+}
+
 extension XMTPiOS.Group {
     private static let appDataByteLimit: Int = 8 * 1024
 
@@ -101,6 +150,65 @@ extension XMTPiOS.Group {
             metadata.participationMode = mode.proto
         } verify: { metadata in
             metadata.conversationParticipationMode == mode
+        }
+    }
+
+    /// The model each agent in the conversation runs on, keyed by lowercase hex
+    /// inbox id, for the agents that carry one.
+    ///
+    /// Read from synced group state, like the participation mode, so a member
+    /// sees what every other member's agent was switched to without asking a
+    /// server. Unlike the mode, this is per agent: a room holding several
+    /// carries one entry each, and an agent nobody has switched carries none —
+    /// it runs whatever its own template shipped, which only it can name.
+    ///
+    /// Written by the member who picks it, the way the participation mode is,
+    /// so the commit carries that member's name into the transcript. The
+    /// Assistant Worker still owns the value: it validates a choice against the
+    /// agent's own catalogue and republishes here whenever the row moves on its
+    /// side — a refused model, one dropped from the catalogue, or one chosen
+    /// before the agent had a conversation to publish into.
+    /// Nil means the appData said nothing about models, which is not the same as
+    /// saying there are none. `currentCustomMetadata` turns an unreadable blob
+    /// into empty metadata rather than throwing, so an empty profile list is
+    /// indistinguishable from a failed read — and the models hang off those
+    /// profiles, so with none present this carries no information either way.
+    /// Callers must preserve what they already hold rather than clear it.
+    public var agentModels: [String: String]? {
+        get throws {
+            let metadata = try currentCustomMetadata
+            guard !metadata.profiles.isEmpty else { return nil }
+            return metadata.profiles.reduce(into: [:]) { models, profile in
+                guard profile.hasModel, !profile.model.isEmpty else { return }
+                models[profile.inboxIdString.lowercased()] = profile.model
+            }
+        }
+    }
+
+    /// Sets the model one agent runs on, or clears it when nil, leaving every
+    /// other agent's entry alone.
+    ///
+    /// Optimistic, and deliberately so. The member's pick is written here first
+    /// and confirmed with the control plane after, which is what puts that
+    /// member's name on the transcript row rather than the agent's — the
+    /// Assistant Worker signs its own commits. If the runtime refuses the
+    /// model, the Worker rolls its row back and republishes, so the room
+    /// converges on what the agent actually runs.
+    ///
+    /// Authors a profile for the agent when the room carries none: profiles
+    /// travel as ProfileUpdate messages and appData holds one only for a member
+    /// who has published an avatar, so there is often nothing to hang a model
+    /// on. `name` is carried in when known so the entry cannot present the
+    /// agent as nameless to a client reading appData.
+    public func updateAgentModel(
+        _ model: String?,
+        forAgent inboxId: String,
+        name: String? = nil
+    ) async throws {
+        try await atomicUpdateMetadata(operation: "updateAgentModel") { metadata in
+            applyAgentModel(model, to: &metadata, forAgent: inboxId, name: name)
+        } verify: { metadata in
+            agentModelMatches(model, in: metadata, forAgent: inboxId)
         }
     }
 

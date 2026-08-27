@@ -20,6 +20,11 @@ public protocol ConversationMetadataWriterProtocol: Sendable {
     func updateImage(_ image: ImageType, for conversation: Conversation) async throws
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws
     func updateParticipationMode(_ mode: ConversationParticipationMode, for conversationId: String) async throws
+    func updateAgentModel(
+        _ model: String?,
+        forAgent agentInboxId: String,
+        in conversationId: String
+    ) async throws
     func updateSpaceURL(_ urlString: String?, for conversationId: String) async throws
     func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws
     func lockConversation(for conversationId: String) async throws
@@ -161,6 +166,49 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         Log.info("Updated conversation participation mode for \(conversationId): \(mode.rawValue)")
         QAEvent.emit(.conversation, "participation_mode_updated", ["id": conversationId, "mode": mode.rawValue])
+    }
+
+    /// Publishes the model a member just picked for one agent into the group's
+    /// appData, so every other member's client can name it.
+    ///
+    /// Written from the picking member's device, like the participation mode,
+    /// which is what puts their name on the transcript row: the Assistant
+    /// Worker signs its own commits, so a row it wrote reads as the agent
+    /// switching itself. The Worker remains the value's authority and
+    /// republishes here whenever its row moves — including rolling back a model
+    /// the runtime refused.
+    ///
+    /// The agent's name is carried in from the local member row when we have
+    /// it, because writing the model may have to author the agent's appData
+    /// profile from nothing.
+    func updateAgentModel(
+        _ model: String?,
+        forAgent agentInboxId: String,
+        in conversationId: String
+    ) async throws {
+        let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
+
+        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
+              case .group(let group) = conversation else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+
+        let agentName: String? = try? await databaseWriter.read { db in
+            try DBMemberProfile
+                .filter(DBMemberProfile.Columns.conversationId == conversationId)
+                .filter(DBMemberProfile.Columns.inboxId == agentInboxId)
+                .fetchOne(db)?
+                .name
+        }
+
+        try await group.updateAgentModel(model, forAgent: agentInboxId, name: agentName)
+
+        Log.info("Updated agent model for \(agentInboxId) in \(conversationId): \(model ?? "default")")
+        QAEvent.emit(
+            .conversation,
+            "agent_model_updated",
+            ["id": conversationId, "agent": agentInboxId, "model": model ?? "default"]
+        )
     }
 
     /// Debug override for the Space web URL. The Assistant Worker is the

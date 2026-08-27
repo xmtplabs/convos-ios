@@ -13,6 +13,7 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
         static let consent: Column = Column(CodingKeys.consent)
         static let createdAt: Column = Column(CodingKeys.createdAt)
         static let invitedByInboxId: Column = Column(CodingKeys.invitedByInboxId)
+        static let agentModel: Column = Column(CodingKeys.agentModel)
     }
 
     let conversationId: String
@@ -21,6 +22,16 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
     let consent: Consent
     let createdAt: Date
     var invitedByInboxId: String?
+
+    /// The model this member runs on, when the member is an agent, mirrored
+    /// from its profile in the group's appData. Nil for a human member, and nil
+    /// for an agent nobody has switched — which is not a model the client can
+    /// name, since an unswitched agent runs whatever its own template shipped.
+    ///
+    /// Mirrored, never authored here: a pick is written into the group's
+    /// appData and this column follows the sync, so the value a device shows is
+    /// the one the room agreed on.
+    var agentModel: String?
 
     static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMember.Columns.inboxId])
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
@@ -98,7 +109,11 @@ extension DBConversationMember {
             role: role,
             consent: consent,
             createdAt: createdAt,
-            invitedByInboxId: invitedByInboxId
+            invitedByInboxId: invitedByInboxId,
+            // Carried over: a role change says nothing about the model the
+            // member is on, and dropping it here would blank the picker until
+            // the next full sync put it back.
+            agentModel: agentModel
         )
     }
 }

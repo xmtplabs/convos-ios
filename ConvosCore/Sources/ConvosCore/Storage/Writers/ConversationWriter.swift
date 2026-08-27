@@ -259,6 +259,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let dbConversation: DBConversation
         let dbMembers: [DBConversationMember]
         let memberProfiles: [DBMemberProfile]
+        /// Whether the appData this was prepared from actually spoke about agent
+        /// models. False means stored values must be preserved rather than
+        /// overwritten with the nils in `dbMembers`.
+        let agentModelsAreAuthoritative: Bool
         /// The DM's parent group id, when this conversation is an agent DM that
         /// recorded one; persisted to `agent_dm_origin` in `persist`.
         var originConversationId: String?
@@ -287,7 +291,16 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         try await denyConsentIfInviteWasLocallyDeleted(for: conversation)
         let metadata = try await extractConversationMetadata(from: conversation)
         let members = try await conversation.members
-        let dbMembers = members.map { $0.dbRepresentation(conversationId: conversation.id) }
+        // The roster knows the members; the appData knows which of them is an
+        // agent that has been switched, and to what. Joined here, while both
+        // are in hand, so the row that gets saved already carries the model.
+        // A nil map means the appData told us nothing, and the rows carry nil so
+        // `saveMembers` keeps whatever is already stored.
+        let dbMembers = members.map { member -> DBConversationMember in
+            var row = member.dbRepresentation(conversationId: conversation.id)
+            row.agentModel = metadata.agentModels?[member.inboxId.lowercased()]
+            return row
+        }
         let memberProfiles = try conversation.memberProfiles
         let dbConversation = try await createDBConversation(
             from: conversation,
@@ -300,6 +313,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             dbConversation: dbConversation,
             dbMembers: dbMembers,
             memberProfiles: memberProfiles,
+            agentModelsAreAuthoritative: metadata.agentModels != nil,
             originConversationId: metadata.originConversationId
         )
     }
@@ -422,7 +436,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             in: db
         )
 
-        try saveMembers(activeMembers, in: db)
+        try saveMembers(
+            activeMembers,
+            agentModelsAreAuthoritative: prepared.agentModelsAreAuthoritative,
+            in: db
+        )
 
         // Fill gaps from the group's app-data profiles. The canonical write is
         // what rendering reads; the legacy `DBMemberProfile` write is kept
@@ -813,6 +831,15 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         /// The deployed Space web URL carried in the group's appData; the
         /// Assistant Worker is the sole authority. Nil until one is published.
         let spaceURLString: String?
+        /// The model each agent in this conversation runs on, keyed by
+        /// lowercase hex inbox id, for the agents carrying one. The Assistant
+        /// Worker publishes these; clients only read.
+        ///
+        /// Nil when the appData carried no profiles at all, which is what an
+        /// unreadable blob also looks like — it says nothing about models, so
+        /// stored values are kept rather than cleared. Empty (non-nil) is a real
+        /// answer: profiles are present and none names a model.
+        let agentModels: [String: String]?
         let memberCount: Int
     }
 
@@ -864,6 +891,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             originConversationId: originConversationId,
             participationMode: try? conversation.participationMode,
             spaceURLString: (try? conversation.spaceURL).flatMap { $0 },
+            agentModels: (try? conversation.agentModels).flatMap { $0 },
             memberCount: memberCount
         )
     }
@@ -1283,7 +1311,15 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             .fetchOne(db)
     }
 
-    private func saveMembers(_ dbMembers: [DBConversationMember], in db: Database) throws {
+    /// `agentModelsAreAuthoritative` says whether the appData this batch came
+    /// from actually spoke about models. When it did not, stored values are kept
+    /// — clearing them on an unreadable read would blank every switched agent in
+    /// the conversation at once.
+    private func saveMembers(
+        _ dbMembers: [DBConversationMember],
+        agentModelsAreAuthoritative: Bool,
+        in db: Database
+    ) throws {
         for member in dbMembers {
             try DBMember(inboxId: member.inboxId).save(db)
             let existing = try DBConversationMember
@@ -1296,7 +1332,18 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 role: member.role,
                 consent: member.consent,
                 createdAt: existing?.createdAt ?? member.createdAt,
-                invitedByInboxId: existing?.invitedByInboxId ?? member.invitedByInboxId
+                invitedByInboxId: existing?.invitedByInboxId ?? member.invitedByInboxId,
+                // Coalesced only when the appData did not speak. When it did,
+                // the incoming value is the whole answer and nil means "no model
+                // for this member" — falling back there would make clearing a
+                // model impossible, leaving the agent reporting the one it was
+                // switched away from with nothing left to correct it. When it
+                // did not speak, the opposite risk applies and the stored value
+                // is the only thing standing between a bad read and every
+                // switched agent in the room going blank.
+                agentModel: agentModelsAreAuthoritative
+                    ? member.agentModel
+                    : (member.agentModel ?? existing?.agentModel)
             )
             try memberToSave.save(db)
             let memberProfile = DBMemberProfile(

@@ -389,6 +389,7 @@ struct ContactDetailView: View {
                     contactDisplayName: contact.resolvedDisplayName,
                     agentEmail: contact.agentEmail,
                     agentInstanceId: contact.agentInstanceId,
+                    agentModelService: agentModelService,
                     // The displayed agent's own variant first: an agent built
                     // on a variant worker exists only there, so routing its
                     // switch by whatever the global selector happens to hold
@@ -637,6 +638,20 @@ struct ContactDetailView: View {
     /// want a different chat, so falling through to the picker is the
     /// right move. Multiple 1:1s with the same person are allowed; the
     /// SQL ordering picks the most-recently-active alternative.
+    /// The picker's write path, when this detail is open inside a conversation
+    /// with the agent. Writing the pick into that conversation's appData from
+    /// this device is what puts the picking member's name on the transcript row
+    /// — the Assistant Worker signs its own commits, so a switch it publishes
+    /// reads as the agent having switched itself.
+    private var agentModelService: (any AgentModelServing)? {
+        guard let session, let conversationId = mode.conversationId else { return nil }
+        return ConversationAppDataAgentModelService(
+            metadataWriter: session.messagingService().conversationMetadataWriter(),
+            conversationId: conversationId,
+            agentInboxId: contact.inboxId
+        )
+    }
+
     private func findExistingOneToOne(session: any SessionManagerProtocol) -> Conversation? {
         try? session
             .conversationsRepository(for: [.allowed, .unknown])
@@ -917,6 +932,11 @@ private struct ContactDetailActions: View {
     /// Always plumbed through when the contact has one. Display gate
     /// is `showsInstanceIdRow`, not nullability of this field.
     let agentInstanceId: String?
+    /// Writes a pick into this conversation's appData before mirroring it to
+    /// the control plane, so the transcript row carries the picking member's
+    /// name rather than the agent's. Nil outside a conversation, where there is
+    /// no appData to write into and the Worker's own publish carries the switch.
+    let agentModelService: (any AgentModelServing)?
     /// Dev-only variant routing key for the model picker. An agent built on a
     /// variant worker only exists there, so a switch that omits this lands on
     /// the default worker and changes nothing. Nil (and stripped in
@@ -956,7 +976,8 @@ private struct ContactDetailActions: View {
                 ContactDetailModelRow(
                     contactDisplayName: contactDisplayName,
                     instanceId: agentInstanceId,
-                    variantId: agentVariantId
+                    variantId: agentVariantId,
+                    service: agentModelService
                 )
             }
             if showShare {
@@ -1107,12 +1128,19 @@ private struct ContactDetailModelRow: View {
 
     @State private var store: AgentModelStore
 
-    init(contactDisplayName: String, instanceId: String, variantId: String?) {
+    init(
+        contactDisplayName: String,
+        instanceId: String,
+        variantId: String?,
+        service: (any AgentModelServing)?
+    ) {
         self.contactDisplayName = contactDisplayName
         self.instanceId = instanceId
         self.variantId = variantId
         _store = State(
-            wrappedValue: AgentModelStore(instanceId: instanceId, variantId: variantId)
+            wrappedValue: service.map {
+                AgentModelStore(instanceId: instanceId, variantId: variantId, service: $0)
+            } ?? AgentModelStore(instanceId: instanceId, variantId: variantId)
         )
     }
 

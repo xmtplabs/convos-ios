@@ -360,6 +360,33 @@ public extension ConversationUpdate {
     }
 }
 
+/// Renders a model id the way a member should read it: `openai/gpt-5.6-luna`
+/// becomes `GPT 5.6 Luna`.
+///
+/// The provider is dropped because it names who hosts the model, not which
+/// model it is, and every row in the picker already belongs to one catalogue.
+/// The id is all a transcript row has to work from — the catalogue that carries
+/// friendly names lives inside the agent's container, and a member whose device
+/// never read it still has to see something legible.
+func displayNameForModelId(_ modelId: String) -> String {
+    // A leading `~` marks an auxiliary entry in the agent's own catalogue; it
+    // is bookkeeping, not part of the name.
+    let withoutMarker = modelId.hasPrefix("~") ? String(modelId.dropFirst()) : modelId
+    let name = withoutMarker.split(separator: "/").last.map(String.init) ?? withoutMarker
+    let words = name.split(separator: "-").map { word -> String in
+        let lowered = word.lowercased()
+        // Initialisms a title-cased word would mangle into "Gpt" and "Glm".
+        if ["gpt", "glm", "ai", "llm"].contains(lowered) {
+            return lowered.uppercased()
+        }
+        // A version fragment stays as it is: "4.6" has no case to fix.
+        guard let first = word.first, first.isLetter else { return String(word) }
+        return first.uppercased() + word.dropFirst()
+    }
+    // An id with nothing left to render is better shown raw than blank.
+    return words.isEmpty ? modelId : words.joined(separator: " ")
+}
+
 /// Resolves a member's rendered display name with the precedence:
 /// contact-list override, then per-conversation profile name, then
 /// "Agent" for known agents or "Somebody" for unnamed humans.
@@ -419,6 +446,20 @@ private func summaryFromFirstMetadataChange(
             return "\(creatorDisplayName) paused agents, so they'll never see the following messages"
         }
         return "\(creatorDisplayName) set agents to \(mode.transcriptTitle)"
+    case .agentModel:
+        // The picking member writes this into appData themselves, so the name
+        // in front of the row is theirs. It says "the agent" rather than naming
+        // one because the commit carries the model alone — which agent it
+        // belongs to lives in the profile the value hangs off, not in the
+        // change. A row the Assistant Worker published (a refused model rolled
+        // back, one dropped from the catalogue) reads as the agent's own name
+        // instead, which is honest: that one really was its doing.
+        guard let newValue = metadataChange.newValue else {
+            // No new model means the agent went back to its own default, which
+            // this side cannot name — so the row says what happened instead.
+            return "\(creatorDisplayName) switched the agent back to its default model"
+        }
+        return "\(creatorDisplayName) switched the agent to \(displayNameForModelId(newValue))"
     case .metadata, .unknown:
         return nil
     }

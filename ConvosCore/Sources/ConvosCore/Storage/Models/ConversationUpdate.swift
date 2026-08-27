@@ -12,6 +12,12 @@ public struct ConversationUpdate: Hashable, Codable, Sendable {
                  // carries every custom field, and only a mode change in it
                  // earns a transcript row.
                  participationMode = "participation_mode",
+                 // Also synthesized while decoding an `app_data` change: the
+                 // model lives on an agent's profile inside that same blob.
+                 // Carries the model id, not a member-facing name — the
+                 // catalogue that names it lives in the agent's container, and
+                 // the transcript must render from the commit alone.
+                 agentModel = "agent_model",
                  unknown
 
             var showsInMessagesList: Bool {

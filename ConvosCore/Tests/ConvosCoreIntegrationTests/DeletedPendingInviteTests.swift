@@ -33,7 +33,8 @@ struct DeletedPendingInviteTests {
         let prepared = ConversationWriter.PreparedConversation(
             dbConversation: incoming,
             dbMembers: [],
-            memberProfiles: []
+            memberProfiles: [],
+            agentModelsAreAuthoritative: false
         )
         let saveResult = try await dbManager.dbWriter.write { db in
             try writer.persist(prepared, in: db)
@@ -70,7 +71,8 @@ struct DeletedPendingInviteTests {
         let prepared = ConversationWriter.PreparedConversation(
             dbConversation: incoming,
             dbMembers: [],
-            memberProfiles: []
+            memberProfiles: [],
+            agentModelsAreAuthoritative: false
         )
         let saveResult = try await dbManager.dbWriter.write { db in
             try writer.persist(prepared, in: db)
