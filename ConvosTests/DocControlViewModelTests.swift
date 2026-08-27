@@ -111,6 +111,40 @@ struct DocControlViewModelTests {
         #expect(viewModel.firstRunStep == .home)
     }
 
+    @Test("an existing Google grant remains reconnectable from home")
+    func existingGoogleGrantRemainsReconnectable() async throws {
+        let fixture = try Fixture(hasCompletedWelcome: true, hasCompletedFirstRun: true)
+        let connectState = GoogleConnectTestState()
+        let target = DocGoogleConnectTarget(
+            conversationId: "canonical-conversation",
+            connectionEventConversationId: "approval-conversation",
+            agentInboxIds: [Fixture.agentInboxId]
+        )
+        connectState.target = target
+        let environment = DocGoogleConnectEnvironment(
+            target: { connectState.target },
+            performConnect: { connectedTarget in connectState.connectedTargets.append(connectedTarget) }
+        )
+        let viewModel = fixture.viewModel(googleConnectEnvironment: environment)
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "granted", text: Fixture.googleGranted, date: 10)],
+            agentInboxId: Fixture.agentInboxId
+        )
+
+        #expect(viewModel.firstRunStep == .home)
+        #expect(viewModel.isGoogleDocsReady)
+        #expect(viewModel.shouldShowGoogleConnectCard)
+        #expect(viewModel.canConnectGoogleDocs)
+
+        viewModel.connectGoogleDocs()
+        try await waitUntil {
+            connectState.connectedTargets == [target] && !viewModel.isConnectingGoogleDocs
+        }
+
+        #expect(!viewModel.isConnectingGoogleDocs)
+        #expect(viewModel.googleConnectErrorMessage == nil)
+    }
+
     @Test("Google connect queues until its approval conversation is ready")
     func googleConnectQueuesUntilTargetIsReady() async throws {
         let fixture = try Fixture(hasCompletedWelcome: true)
@@ -134,7 +168,8 @@ struct DocControlViewModelTests {
         #expect(viewModel.isGoogleConnectQueued)
 
         let target = DocGoogleConnectTarget(
-            conversationId: "approval-conversation",
+            conversationId: "canonical-conversation",
+            connectionEventConversationId: "approval-conversation",
             agentInboxIds: [Fixture.agentInboxId]
         )
         connectState.target = target
@@ -153,7 +188,8 @@ struct DocControlViewModelTests {
         let fixture = try Fixture(hasCompletedWelcome: true)
         let connectState = GoogleConnectTestState()
         let initialTarget = DocGoogleConnectTarget(
-            conversationId: "approval-conversation",
+            conversationId: "canonical-conversation",
+            connectionEventConversationId: "approval-conversation",
             agentInboxIds: [Fixture.agentInboxId]
         )
         connectState.target = initialTarget
@@ -172,7 +208,8 @@ struct DocControlViewModelTests {
         viewModel.connectGoogleDocs()
         try await waitUntil { connectState.connectedTargets == [initialTarget] }
         connectState.target = DocGoogleConnectTarget(
-            conversationId: "remounted-conversation",
+            conversationId: "remounted-canonical-conversation",
+            connectionEventConversationId: "remounted-conversation",
             agentInboxIds: [Fixture.agentInboxId]
         )
         connectState.resumeConnect()
@@ -197,7 +234,8 @@ struct DocControlViewModelTests {
     func googleConnectAcknowledgmentTimeoutYieldsToLateSuccess() async throws {
         let fixture = try Fixture(hasCompletedWelcome: true)
         let target = DocGoogleConnectTarget(
-            conversationId: "approval-conversation",
+            conversationId: "canonical-conversation",
+            connectionEventConversationId: "approval-conversation",
             agentInboxIds: [Fixture.agentInboxId]
         )
         let environment = DocGoogleConnectEnvironment(
@@ -232,7 +270,8 @@ struct DocControlViewModelTests {
     func googleConnectCancellationIsVisible() async throws {
         let fixture = try Fixture(hasCompletedWelcome: true)
         let target = DocGoogleConnectTarget(
-            conversationId: "approval-conversation",
+            conversationId: "canonical-conversation",
+            connectionEventConversationId: "approval-conversation",
             agentInboxIds: [Fixture.agentInboxId]
         )
         let environment = DocGoogleConnectEnvironment(
@@ -258,7 +297,8 @@ struct DocControlViewModelTests {
         let fixture = try Fixture(hasCompletedWelcome: true)
         let connectState = GoogleConnectTestState()
         let target = DocGoogleConnectTarget(
-            conversationId: "approval-conversation",
+            conversationId: "canonical-conversation",
+            connectionEventConversationId: "approval-conversation",
             agentInboxIds: [Fixture.agentInboxId]
         )
         let environment = DocGoogleConnectEnvironment(
@@ -286,7 +326,8 @@ struct DocControlViewModelTests {
     func googleConnectOAuthPresentationFailureIsVisible() async throws {
         let fixture = try Fixture(hasCompletedWelcome: true)
         let target = DocGoogleConnectTarget(
-            conversationId: "approval-conversation",
+            conversationId: "canonical-conversation",
+            connectionEventConversationId: "approval-conversation",
             agentInboxIds: [Fixture.agentInboxId]
         )
         let environment = DocGoogleConnectEnvironment(
@@ -311,7 +352,8 @@ struct DocControlViewModelTests {
     func googleConnectServiceFailureIsVisible() async throws {
         let fixture = try Fixture(hasCompletedWelcome: true)
         let target = DocGoogleConnectTarget(
-            conversationId: "approval-conversation",
+            conversationId: "canonical-conversation",
+            connectionEventConversationId: "approval-conversation",
             agentInboxIds: [Fixture.agentInboxId]
         )
         let environment = DocGoogleConnectEnvironment(

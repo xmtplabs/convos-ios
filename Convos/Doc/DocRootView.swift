@@ -291,6 +291,7 @@ private struct DocHomeView: View {
         List {
             if viewModel.shouldShowGoogleConnectCard {
                 DocGoogleConnectCard(
+                    isConnected: viewModel.isGoogleDocsReady,
                     isConnecting: viewModel.isConnectingGoogleDocs,
                     isFinishing: viewModel.isFinishingGoogleConnect,
                     isWaitingForApproval: viewModel.isWaitingForGoogleApproval,
@@ -435,6 +436,7 @@ private extension View {
 }
 
 private struct DocGoogleConnectCard: View {
+    let isConnected: Bool
     let isConnecting: Bool
     let isFinishing: Bool
     let isWaitingForApproval: Bool
@@ -492,7 +494,7 @@ private struct DocGoogleConnectCard: View {
                 ProgressView().frame(minWidth: 60.0)
                     .accessibilityLabel("Connecting Google")
             } else {
-                Text(errorMessage == nil ? "Connect" : "Retry")
+                Text(connectButtonTitle)
             }
         }
             .convosButtonStyle(.outlineCapsule(fullWidth: false))
@@ -503,12 +505,21 @@ private struct DocGoogleConnectCard: View {
 
     private var title: String {
         if isFinishing { return "Connecting Google Docs" }
-        return isWaitingForApproval ? "Google Docs requested" : "Connect Google Docs"
+        if isWaitingForApproval { return "Google Docs requested" }
+        if errorMessage != nil { return "Reconnect Google Docs" }
+        return isConnected ? "Google Docs connected" : "Connect Google Docs"
     }
 
     private var detail: String {
         if isFinishing { return "Finishing up…" }
-        return isWaitingForApproval ? "Waiting for approval" : "Doc needs it to write your docs"
+        if isWaitingForApproval { return "Waiting for approval" }
+        if errorMessage != nil { return "Doc couldn't refresh access" }
+        return isConnected ? "Reconnect if Doc can't write your docs" : "Doc needs it to write your docs"
+    }
+
+    private var connectButtonTitle: String {
+        if errorMessage != nil { return "Retry" }
+        return isConnected ? "Reconnect" : "Connect"
     }
 
     @ViewBuilder

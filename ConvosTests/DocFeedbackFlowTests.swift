@@ -179,6 +179,24 @@ struct DocFeedbackFlowTests {
         #expect(gate.canSend(isReady: true, isSending: false, hasPayload: true))
     }
 
+    @Test("Google connect separates the canonical grant from the member DM event")
+    func googleConnectSeparatesGrantAndEventConversations() throws {
+        let agent = ConversationMember.mock(isAgent: true)
+        let memberDm = Conversation.mock(
+            id: "member-dm",
+            members: [.mock(isCurrentUser: true), agent]
+        )
+
+        let target = try #require(DocGoogleConnectTarget.resolve(
+            canonicalConversationId: "canonical-conversation",
+            connectionEventConversation: memberDm
+        ))
+
+        #expect(target.conversationId == "canonical-conversation")
+        #expect(target.connectionEventConversationId == "member-dm")
+        #expect(target.agentInboxIds == [agent.profile.inboxId])
+    }
+
     @Test("Google connect chains V2 entitlement into conversation extension")
     func googleConnectChainsV2EntitlementAndExtension() async throws {
         var calls: [String] = []
@@ -241,7 +259,8 @@ struct DocFeedbackFlowTests {
     func googleConnectSendsGrantedEventsPerAgentAndAttempt() async throws {
         let writer = RecordingDocConnectionEventWriter()
         let target = DocGoogleConnectTarget(
-            conversationId: "doc-dm",
+            conversationId: "canonical-conversation",
+            connectionEventConversationId: "doc-dm",
             agentInboxIds: ["doc-agent-1", "doc-agent-2"]
         )
 

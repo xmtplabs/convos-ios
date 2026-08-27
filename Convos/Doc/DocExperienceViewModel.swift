@@ -85,7 +85,26 @@ enum DocGoogleConnectAvailability: Equatable {
 
 struct DocGoogleConnectTarget: Equatable {
     let conversationId: String
+    let connectionEventConversationId: String
     let agentInboxIds: [String]
+
+    static func resolve(
+        canonicalConversationId: String?,
+        connectionEventConversation: Conversation?
+    ) -> Self? {
+        guard let canonicalConversationId,
+              !canonicalConversationId.isEmpty,
+              let connectionEventConversation else {
+            return nil
+        }
+        let agentInboxIds = connectionEventConversation.members.filter(\.isAgent).map { $0.profile.inboxId }
+        guard !agentInboxIds.isEmpty else { return nil }
+        return Self(
+            conversationId: canonicalConversationId,
+            connectionEventConversationId: connectionEventConversation.id,
+            agentInboxIds: agentInboxIds
+        )
+    }
 }
 
 struct DocGoogleConnectEnvironment {
@@ -536,10 +555,10 @@ extension DocExperienceViewModel {
         if previewStage == .disconnected { return true }
         guard previewStage == nil,
               hasCompletedFirstRun,
-              let googleControl else {
+              googleControl != nil else {
             return false
         }
-        return googleControl.connection.status != .granted
+        return true
     }
 
     var isWaitingForGoogleApproval: Bool {
@@ -547,8 +566,7 @@ extension DocExperienceViewModel {
     }
 
     var canRequestGoogleDocs: Bool {
-        guard googleControl?.gate.status != .pending,
-              googleControl?.connection.status != .granted else {
+        guard googleControl?.gate.status != .pending else {
             return false
         }
         return !isConnectingGoogleDocs
@@ -579,12 +597,9 @@ extension DocExperienceViewModel {
         if let googleConnectEnvironment {
             return googleConnectEnvironment.target()
         }
-        guard let conversation = googleConnectConversation else { return nil }
-        let agentInboxIds = conversation.members.filter(\.isAgent).map { $0.profile.inboxId }
-        guard !agentInboxIds.isEmpty else { return nil }
-        return DocGoogleConnectTarget(
-            conversationId: conversation.id,
-            agentInboxIds: agentInboxIds
+        return DocGoogleConnectTarget.resolve(
+            canonicalConversationId: controlLifecycle?.conversationId,
+            connectionEventConversation: googleConnectConversation
         )
     }
 
@@ -900,6 +915,7 @@ extension DocExperienceViewModel {
             persistControlSnapshot()
             refreshGoogleControlState()
             reconcileFirstRunCompletion()
+            googleConnectTargetDidChange()
         }
         requestControlResyncIfNeeded(agentInboxId: agentInboxId)
         updateNotDocAgentNotice()
@@ -2192,7 +2208,7 @@ enum DocGoogleConnectionChain {
             providerIds: [providerId],
             capability: nil,
             grantedToInboxIds: target.agentInboxIds,
-            in: target.conversationId
+            in: target.connectionEventConversationId
         )
     }
 
