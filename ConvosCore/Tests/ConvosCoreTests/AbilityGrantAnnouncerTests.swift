@@ -28,13 +28,17 @@ struct AbilityGrantAnnouncerTests {
         )
     }
 
-    private static func recordedGrant(connectionId: String = "conn-a") -> CloudConnectionGrant {
+    private static func recordedGrant(
+        connectionId: String = "conn-a",
+        bundleIds: [String]? = nil
+    ) -> CloudConnectionGrant {
         CloudConnectionGrant(
             connectionId: connectionId,
             conversationId: conversationId,
             serviceId: "googlecalendar",
             grantedToInboxId: agentInboxId,
-            grantedAt: Date(timeIntervalSince1970: 0)
+            grantedAt: Date(timeIntervalSince1970: 0),
+            bundleIds: bundleIds
         )
     }
 
@@ -135,15 +139,58 @@ struct AbilityGrantAnnouncerTests {
         #expect(events.isEmpty, "no transcript line for a grant that never landed")
     }
 
-    @Test("An already-recorded grant announces nothing")
-    func alreadyRecordedIsIdempotent() async throws {
+    @Test("An already-recorded grant with the same scope announces nothing")
+    func sameScopeIsIdempotent() async throws {
         // Mirrors AgentBuilderConnectionGrantReplayer's repository-based
         // idempotency: no duplicate backend push, no duplicate transcript
-        // line for a grant the card path (or an earlier toggle) already
-        // announced.
+        // line for a scope the card path (or an earlier toggle) already
+        // announced. Order-insensitive: the same set is the same scope.
         let env = Self.makeEnv()
         await env.repository.setConnections([Self.connection()])
-        await env.repository.setGrants([Self.recordedGrant()])
+        await env.repository.setGrants(
+            [Self.recordedGrant(bundleIds: ["calendar.freebusy", "calendar.events"])]
+        )
+
+        await env.announcer.announceEnabled(
+            conversationId: Self.conversationId,
+            agentInboxId: Self.agentInboxId,
+            abilityId: "googlecalendar",
+            bundleIds: ["calendar.events", "calendar.freebusy"]
+        )
+
+        let grants = await env.grantWriter.grantedCalls()
+        #expect(grants.isEmpty)
+        let events = await env.eventWriter.grantedEvents()
+        #expect(events.isEmpty)
+    }
+
+    @Test("Full-service consent over a recorded full-service grant announces nothing")
+    func fullServiceOverFullServiceIsIdempotent() async throws {
+        let env = Self.makeEnv()
+        await env.repository.setConnections([Self.connection()])
+        await env.repository.setGrants([Self.recordedGrant(bundleIds: nil)])
+
+        await env.announcer.announceEnabled(
+            conversationId: Self.conversationId,
+            agentInboxId: Self.agentInboxId,
+            abilityId: "googlecalendar",
+            bundleIds: []
+        )
+
+        let grants = await env.grantWriter.grantedCalls()
+        #expect(grants.isEmpty)
+    }
+
+    @Test("A recorded grant with a different scope is re-granted without a transcript line")
+    func differentScopeRegrantsSilently() async throws {
+        // The legacy entitlement fallback authorizes from the backend
+        // consent record; skipping here would let a stale wider scope
+        // outlive the member's narrower re-selection. But a scope
+        // correction is not a new connection, so no GRANTED event —
+        // matching the card path's diff-based broadcasting.
+        let env = Self.makeEnv()
+        await env.repository.setConnections([Self.connection()])
+        await env.repository.setGrants([Self.recordedGrant(bundleIds: ["calendar.events", "calendar.freebusy"])])
 
         await env.announcer.announceEnabled(
             conversationId: Self.conversationId,
@@ -153,7 +200,31 @@ struct AbilityGrantAnnouncerTests {
         )
 
         let grants = await env.grantWriter.grantedCalls()
-        #expect(grants.isEmpty)
+        #expect(grants.count == 1)
+        #expect(grants.first?.bundleIds == ["calendar.events"])
+        let events = await env.eventWriter.grantedEvents()
+        #expect(events.isEmpty, "a scope correction is not a new connection")
+    }
+
+    @Test("A legacy full-service record compared against an explicit selection re-grants")
+    func legacyNilScopeVersusExplicitRegrants() async throws {
+        // Nil-vs-explicit cannot be compared locally (nil materializes
+        // from the live catalog inside the writer), so the conservative
+        // direction is to re-push the explicit scope.
+        let env = Self.makeEnv()
+        await env.repository.setConnections([Self.connection()])
+        await env.repository.setGrants([Self.recordedGrant(bundleIds: nil)])
+
+        await env.announcer.announceEnabled(
+            conversationId: Self.conversationId,
+            agentInboxId: Self.agentInboxId,
+            abilityId: "googlecalendar",
+            bundleIds: ["calendar.events"]
+        )
+
+        let grants = await env.grantWriter.grantedCalls()
+        #expect(grants.count == 1)
+        #expect(grants.first?.bundleIds == ["calendar.events"])
         let events = await env.eventWriter.grantedEvents()
         #expect(events.isEmpty)
     }

@@ -54,9 +54,20 @@ public protocol AbilityGrantAnnouncing: Sendable {
 /// never a delete-and-reinsert that would cascade grants away.
 ///
 /// Idempotent by repository check, mirroring
-/// `AgentBuilderConnectionGrantReplayer`: an already-recorded grant for
-/// (service, agent, conversation) announces nothing - no duplicate backend
-/// push, no duplicate transcript line.
+/// `AgentBuilderConnectionGrantReplayer` - but scope-aware: an
+/// already-recorded grant for (service, agent, conversation) whose bundle
+/// set matches the request announces nothing (no duplicate backend push,
+/// no duplicate transcript line), while a recorded grant with a
+/// *different* bundle set is re-granted so the corrected scope reaches
+/// the metadata payload and the backend consent record - the legacy
+/// entitlement fallback authorizes from that record, so a stale wider
+/// scope there would outlive the member's narrower re-selection. A scope
+/// correction is not a new connection, so it broadcasts no transcript
+/// event (matching the card path's diff-based
+/// `newlyApprovedProviderIds` broadcasting). A recorded nil bundle set
+/// (legacy full-service) compared against an explicit selection is
+/// treated as different - the conservative direction is to re-push the
+/// explicit scope.
 public final class CloudAbilityGrantAnnouncer: AbilityGrantAnnouncing {
     private let repository: any CloudConnectionRepositoryProtocol
     private let grantWriter: @Sendable () -> any CloudConnectionGrantWriterProtocol
@@ -82,10 +93,16 @@ public final class CloudAbilityGrantAnnouncer: AbilityGrantAnnouncing {
         bundleIds: [String]
     ) async {
         do {
-            let alreadyRecorded = try await repository.grants(for: conversationId).contains {
+            // An empty explicit selection is never pushed (the writer fails
+            // closed on it); nil means full-service consent materialized
+            // from the catalog, which matches a toggle with no picker.
+            let requestedBundles: [String]? = bundleIds.isEmpty ? nil : bundleIds
+            let recorded = try await repository.grants(for: conversationId).first {
                 $0.serviceId == abilityId && $0.grantedToInboxId == agentInboxId
             }
-            guard !alreadyRecorded else { return }
+            if let recorded, Self.scopeMatches(recorded: recorded.bundleIds, requested: requestedBundles) {
+                return
+            }
 
             guard let connection = try await resolveActiveConnection(serviceId: abilityId) else {
                 Log.warning(
@@ -94,16 +111,18 @@ public final class CloudAbilityGrantAnnouncer: AbilityGrantAnnouncing {
                 )
                 return
             }
-            // An empty explicit selection is never pushed (the writer fails
-            // closed on it); nil means full-service consent materialized
-            // from the catalog, which matches a toggle with no picker.
             try await grantWriter().grantConnection(
                 connection.id,
                 to: conversationId,
                 grantedToInboxId: agentInboxId,
-                bundleIds: bundleIds.isEmpty ? nil : bundleIds
+                bundleIds: requestedBundles
             )
-            await broadcast(.granted, abilityId: abilityId, agentInboxId: agentInboxId, in: conversationId)
+            // Only a NEW grant puts a "connected" line in the transcript; a
+            // scope correction over an existing grant is not a new
+            // connection (see the class doc).
+            if recorded == nil {
+                await broadcast(.granted, abilityId: abilityId, agentInboxId: agentInboxId, in: conversationId)
+            }
         } catch is CancellationError {
             return
         } catch {
@@ -189,6 +208,22 @@ public final class CloudAbilityGrantAnnouncer: AbilityGrantAnnouncing {
             return
         } catch {
             Log.warning("[abilities] \(action) broadcast failed for \(abilityId) in \(conversationId): \(error)")
+        }
+    }
+
+    /// Whether the recorded grant's bundle scope already covers exactly
+    /// what the caller is announcing. Nil on both sides is full-service
+    /// consent twice - a match. Nil on one side only cannot be compared
+    /// locally (the writer materializes nil from the live catalog), so it
+    /// reads as different and the explicit scope is re-pushed.
+    private static func scopeMatches(recorded: [String]?, requested: [String]?) -> Bool {
+        switch (recorded, requested) {
+        case (nil, nil):
+            return true
+        case let (recorded?, requested?):
+            return Set(recorded) == Set(requested)
+        default:
+            return false
         }
     }
 
