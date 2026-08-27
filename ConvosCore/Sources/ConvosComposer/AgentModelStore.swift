@@ -222,6 +222,13 @@ public final class AgentModelStore {
     /// clobbered by the older server value the read was already fetching.
     private var writeGeneration: Int = 0
 
+    /// Bumped whenever a synced value is adopted. A `load()` started before it
+    /// is reading from before the room moved, so its answer is already stale
+    /// when it returns — without this, a switch someone else made while the
+    /// read was in flight is overwritten by the model the control plane held a
+    /// moment earlier, and the picker stays wrong until the next refresh.
+    private var syncGeneration: Int = 0
+
     /// Writes issued and not yet answered. A read overlapping one is reading
     /// from before it lands, so its value is already behind the member's tap
     /// even though no generation changed while it was in flight.
@@ -284,6 +291,7 @@ public final class AgentModelStore {
             return
         }
         deferredSyncedModel = nil
+        syncGeneration += 1
         confirmedId = syncedModel
         selectedId = syncedModel
     }
@@ -291,6 +299,7 @@ public final class AgentModelStore {
     /// Reads the agent's model and catalogue. Safe to call on every appearance.
     public func load() async {
         let generation = writeGeneration
+        let sync = syncGeneration
         let inFlight = writesInFlight
         do {
             let snapshot = try await service.readModel(
@@ -300,9 +309,12 @@ public final class AgentModelStore {
             // The catalogue is not a member's choice, so it applies regardless
             // of a tap that raced this read.
             if !snapshot.available.isEmpty { options = snapshot.available }
-            // A tap landed while this was in flight; its value is newer than
-            // anything this read can be carrying.
-            guard writeGeneration == generation, writesInFlight == inFlight else {
+            // A tap landed while this was in flight, or the room moved under
+            // it. Either is newer than anything this read can be carrying.
+            guard writeGeneration == generation,
+                  syncGeneration == sync,
+                  writesInFlight == inFlight
+            else {
                 hasLoaded = true
                 return
             }
