@@ -262,16 +262,20 @@ private struct DocHomeView: View {
                 DocEmptyState(isPreparing: viewModel.isPreparingAgent)
                     .docHomeRow()
             } else {
-                ForEach(viewModel.docs) { doc in
-                    DocStatusCard(
-                        doc: doc,
-                        onShareNumber: { viewModel.presentShareNumber(for: doc) },
-                        onShareDoc: {
-                            Task { await viewModel.shareDoc(doc) }
-                        }
-                    )
-                    .docHomeRow()
-                    .transition(DocMotion.docArrival(reduceMotion: reduceMotion))
+                Section {
+                    ForEach(viewModel.docs) { doc in
+                        DocStatusCard(
+                            doc: doc,
+                            onShareNumber: { viewModel.presentShareNumber(for: doc) },
+                            onShareDoc: {
+                                Task { await viewModel.shareDoc(doc) }
+                            }
+                        )
+                        .docHomeRow()
+                        .transition(DocMotion.docArrival(reduceMotion: reduceMotion))
+                    }
+                } header: {
+                    DocSectionHeader(title: "Docs")
                 }
             }
 

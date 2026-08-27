@@ -42,11 +42,7 @@ struct DocForYouSection: View {
                 .accessibilityIdentifier("doc-for-you-more")
             }
         } header: {
-            Text("For you")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.colorTextPrimary)
-                .textCase(nil)
-                .accessibilityAddTraits(.isHeader)
+            DocSectionHeader(title: "For you")
         }
         .animation(
             DocMotion.collapse(reduceMotion: reduceMotion),
@@ -127,5 +123,17 @@ struct DocForYouSection: View {
         case .draft: 1
         case .ask: 2
         }
+    }
+}
+
+struct DocSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.title3.weight(.semibold))
+            .foregroundStyle(.colorTextPrimary)
+            .textCase(nil)
+            .accessibilityAddTraits(.isHeader)
     }
 }
