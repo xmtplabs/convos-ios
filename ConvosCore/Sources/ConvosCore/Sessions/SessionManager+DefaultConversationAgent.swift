@@ -1,6 +1,22 @@
 import Foundation
 import GRDB
 
+public struct DefaultAgentProvisionFailure: Equatable, Sendable {
+    public let conversationId: String
+    public let reason: String?
+
+    public init(conversationId: String, reason: String?) {
+        self.conversationId = conversationId
+        self.reason = reason
+    }
+}
+
+public extension Notification.Name {
+    static let defaultAgentProvisionDidFail: Notification.Name = Notification.Name(
+        "org.convos.defaultAgentProvisionDidFail"
+    )
+}
+
 /// Per-conversation bookkeeping for the default-agent flow: dedupes concurrent
 /// provisions (cache-time vs claim-time) by sharing one task per conversation
 /// and keeps the join's idempotency key stable across retries.
@@ -157,8 +173,9 @@ extension SessionManager {
             }
             let variantId = await Self.defaultAgentVariantIdProvider?(conversationId)
             let ownerProfileName = await currentOwnerProfileName()
+            let response: ConvosAPI.AgentJoinResponse
             do {
-                try await provisionDefaultAgent(
+                response = try await provisionDefaultAgent(
                     conversationId: conversationId,
                     variantId: variantId,
                     ownerProfileName: ownerProfileName
@@ -172,13 +189,18 @@ extension SessionManager {
                     await defaultAgentCoordinator.clearJoinKey(for: conversationId)
                 }
                 Log.error("Default agent: provision attempt failed for conversation \(conversationId), retrying once: \(error)")
-                try await provisionDefaultAgent(
+                response = try await provisionDefaultAgent(
                     conversationId: conversationId,
                     variantId: variantId,
                     ownerProfileName: ownerProfileName
                 )
             }
             await defaultAgentCoordinator.clearJoinKey(for: conversationId)
+            monitorDefaultAgentJoinCompletion(
+                response: response,
+                conversationId: conversationId,
+                variantId: variantId
+            )
             Log.info("Default agent: provisioned into conversation \(conversationId)")
         } catch {
             // An ambiguous terminal failure keeps the join key so a later
@@ -191,6 +213,7 @@ extension SessionManager {
             }
             Log.error("Default agent: provisioning failed for conversation \(conversationId): \(error)")
             await defaultAgentCoordinator.clearProvisionTask(for: conversationId)
+            publishDefaultAgentProvisionFailure(conversationId: conversationId, error: error)
         }
     }
 
@@ -198,9 +221,9 @@ extension SessionManager {
         conversationId: String,
         variantId: String?,
         ownerProfileName: String?
-    ) async throws {
+    ) async throws -> ConvosAPI.AgentJoinResponse {
         let idempotencyKey = await defaultAgentCoordinator.joinKey(for: conversationId)
-        _ = try await addAgentToConversation(
+        return try await addAgentToConversation(
             conversationId: conversationId,
             templateId: nil,
             options: .defaultConversationAgent(variantId: variantId),
@@ -209,6 +232,46 @@ extension SessionManager {
             ownerProfileName: ownerProfileName,
             grantAdmin: true
         )
+    }
+
+    private func monitorDefaultAgentJoinCompletion(
+        response: ConvosAPI.AgentJoinResponse,
+        conversationId: String,
+        variantId: String?
+    ) {
+        guard !response.joined, let instanceId = response.instanceId else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await awaitAgentJoinCompletion(
+                    instanceId: instanceId,
+                    variantId: variantId
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                await defaultAgentCoordinator.clearJoinKey(for: conversationId)
+                await defaultAgentCoordinator.clearProvisionTask(for: conversationId)
+                publishDefaultAgentProvisionFailure(conversationId: conversationId, error: error)
+            }
+        }
+    }
+
+    private func publishDefaultAgentProvisionFailure(
+        conversationId: String,
+        error: Error
+    ) {
+        let reason: String?
+        if case APIError.agentProvisionFailed(let failureReason) = error {
+            reason = failureReason
+        } else {
+            reason = nil
+        }
+        let failure = DefaultAgentProvisionFailure(
+            conversationId: conversationId,
+            reason: reason
+        )
+        NotificationCenter.default.post(name: .defaultAgentProvisionDidFail, object: failure)
     }
 
     /// The user's own profile name, nil when unset or unreadable. A brand-new

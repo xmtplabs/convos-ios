@@ -209,6 +209,67 @@ final class AgentVariantResolutionTests: XCTestCase {
         )
     }
 
+    func testDocRuntimeWarningSurfacesDroppedOrMissingVariants() {
+        let droppedDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "doc-runtime", commit: "abc123"),
+            variantDropped: true
+        )
+        let missingVariantDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-2",
+            requestedVariantId: "doc-runtime",
+            variant: nil,
+            variantDropped: false
+        )
+
+        XCTAssertEqual(
+            DocRuntimeFallbackWarning.resolve(
+                isDocModeEnabled: true,
+                diagnostic: droppedDiagnostic
+            )?.requestedSlug,
+            "doc-runtime"
+        )
+        XCTAssertEqual(
+            DocRuntimeFallbackWarning.resolve(
+                isDocModeEnabled: true,
+                configuredSlug: "doc-runtime",
+                diagnostic: .init(
+                    conversationId: "conversation-3",
+                    requestedVariantId: nil,
+                    variant: nil,
+                    variantDropped: false
+                )
+            )?.requestedSlug,
+            "doc-runtime"
+        )
+        XCTAssertEqual(
+            DocRuntimeFallbackWarning.resolve(
+                isDocModeEnabled: true,
+                diagnostic: missingVariantDiagnostic
+            )?.requestedSlug,
+            "doc-runtime"
+        )
+    }
+
+    func testDocRuntimeWarningStaysHiddenForTheRequestedRuntime() {
+        let diagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "doc-runtime", commit: "abc123"),
+            variantDropped: false
+        )
+
+        XCTAssertNil(DocRuntimeFallbackWarning.resolve(
+            isDocModeEnabled: true,
+            diagnostic: diagnostic
+        ))
+        XCTAssertNil(DocRuntimeFallbackWarning.resolve(
+            isDocModeEnabled: false,
+            diagnostic: diagnostic
+        ))
+    }
+
     private func variant(slug: String, label: String? = nil) -> ConvosAPI.AgentVariant {
         ConvosAPI.AgentVariant(
             slug: slug,

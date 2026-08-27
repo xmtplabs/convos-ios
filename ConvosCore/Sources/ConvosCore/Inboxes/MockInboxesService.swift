@@ -127,7 +127,7 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
     ) async throws -> ConvosAPI.AgentJoinResponse {
         if let forceErrorCode {
             switch forceErrorCode {
-            case 502: throw APIError.agentProvisionFailed
+            case 502: throw APIError.agentProvisionFailed(nil)
             case 503: throw APIError.noAgentsAvailable
             case 504: throw APIError.agentPoolTimeout
             default: throw APIError.serverError("Mock forced error \(forceErrorCode)")

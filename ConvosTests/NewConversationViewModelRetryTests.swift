@@ -71,6 +71,40 @@ final class NewConversationViewModelRetryTests: XCTestCase {
         XCTAssertFalse(policy.shouldRetry(failureCount: 2, isTransient: true))
         XCTAssertFalse(policy.shouldRetry(failureCount: 0, isTransient: false))
     }
+
+    func testDefaultAgentProvisionFailureRoutesToOwningCreationFlow() async {
+        let conversationId = "doc-provision-failure"
+        let stateManager = MockConversationStateManager(
+            conversationId: conversationId,
+            draftConversationRepository: MockDraftConversationRepository(
+                conversation: .empty(id: conversationId)
+            )
+        )
+        let messagingService = MockMessagingService(conversationStateManager: stateManager)
+        let session = MockInboxesService(mockMessagingService: messagingService)
+        let viewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversation
+        )
+        let routed = expectation(description: "Provision failure routed")
+        var receivedFailure: DefaultAgentProvisionFailure?
+        viewModel.onAgentProvisionFailed = { failure in
+            receivedFailure = failure
+            routed.fulfill()
+        }
+        for _ in 0..<50 where viewModel.conversationState == .uninitialized {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        let failure = DefaultAgentProvisionFailure(
+            conversationId: conversationId,
+            reason: "workflow stopped"
+        )
+        NotificationCenter.default.post(name: .defaultAgentProvisionDidFail, object: failure)
+        await fulfillment(of: [routed], timeout: 1)
+
+        XCTAssertEqual(receivedFailure, failure)
+    }
 }
 
 // MARK: - Test helpers

@@ -186,7 +186,7 @@ struct DocItemReconcilerTests {
         #expect(DocAgentStartupSurfaceState.resolve(
             startupState: .failed(message),
             dmIsReady: true
-        ) == .ready)
+        ) == .failed(message))
     }
 
     @Test func resolvedTombstonePreventsColdHistoryFromRestoringItem() throws {

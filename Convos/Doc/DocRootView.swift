@@ -30,7 +30,7 @@ struct DocRootView: View {
     }
 
     var body: some View {
-        rootContent
+        rootContentWithFirstRunDebugAccess
         .tint(.colorLava)
         .animation(firstRunAnimation, value: viewModel.firstRunStep)
         .task(id: viewModel.hasCompletedWelcome) {
@@ -93,6 +93,26 @@ struct DocRootView: View {
         )
     }
 
+    private var rootContentWithFirstRunDebugAccess: some View {
+        rootContent
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if showsFirstRunDebugAccess {
+                    DocFirstRunDebugHeader(
+                        runtimeWarning: viewModel.runtimeFallbackWarning,
+                        onSettings: { isPresentingSettings = true }
+                    )
+                }
+            }
+    }
+
+    private var showsFirstRunDebugAccess: Bool {
+        guard viewModel.firstRunStep != .home,
+              viewModel.previewStage != .transcript else {
+            return false
+        }
+        return DebugMenuGate.showsFullDebugMenu(for: ConfigManager.shared.currentEnvironment)
+    }
+
     @ViewBuilder
     private var rootContent: some View {
         if viewModel.previewStage == .transcript {
@@ -152,6 +172,59 @@ struct DocRootView: View {
 
     private var firstRunAnimation: Animation? {
         reduceMotion ? nil : .easeInOut(duration: 0.25)
+    }
+}
+
+private struct DocFirstRunDebugHeader: View {
+    let runtimeWarning: DocRuntimeFallbackWarning?
+    let onSettings: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
+            if let runtimeWarning {
+                warningBanner(runtimeWarning)
+            } else {
+                Spacer()
+            }
+
+            let settingsAction = { onSettings() }
+            Button(action: settingsAction) {
+                Image(systemName: "gearshape")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextSecondary)
+                    .frame(width: 44.0, height: 44.0)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open Settings")
+            .accessibilityIdentifier("doc-first-run-debug-settings")
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .background(Color.colorBackgroundSurfaceless)
+    }
+
+    private func warningBanner(_ warning: DocRuntimeFallbackWarning) -> some View {
+        HStack(alignment: .top, spacing: DesignConstants.Spacing.step2x) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.colorLava)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                Text("Running on the default runtime — Doc features unavailable")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                Text("Requested: \(warning.requestedSlug)")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.colorFillMinimal, in: RoundedRectangle(cornerRadius: 14.0))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("doc-first-run-runtime-warning")
     }
 }
 

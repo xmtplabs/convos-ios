@@ -46,6 +46,41 @@ struct DocVerificationFlowTests {
         #expect(state == .submitting(number: Fixture.number))
     }
 
+    @Test("late request acknowledgments cannot restore an older attempt")
+    func ignoresLateRequestAcknowledgments() {
+        var state: DocVerificationFlowState = .enteringNumber
+
+        state = reduce(state, .request(number: Fixture.number))
+        state = reduce(state, .requestAcknowledgmentTimedOut(number: Fixture.number))
+        #expect(state == .requestTimedOut(number: Fixture.number))
+
+        state = reduce(state, .requestSent(number: Fixture.number))
+        #expect(state == .requestTimedOut(number: Fixture.number))
+
+        state = reduce(state, .request(number: Fixture.otherNumber))
+        state = reduce(state, .requestSent(number: Fixture.number))
+        #expect(state == .requesting(number: Fixture.otherNumber))
+
+        state = reduce(state, .requestSent(number: Fixture.otherNumber))
+        state = reduce(state, .requestSent(number: Fixture.otherNumber))
+        #expect(state == .enteringCode(number: Fixture.otherNumber, attemptFailed: false))
+    }
+
+    @Test("late submit failures cannot overwrite an enabled retry")
+    func ignoresLateSubmitFailure() {
+        var state: DocVerificationFlowState = .enteringCode(
+            number: Fixture.number,
+            attemptFailed: false
+        )
+
+        state = reduce(state, .submitCode)
+        state = reduce(state, .submissionAcknowledgmentTimedOut(number: Fixture.number))
+        #expect(state == .submissionTimedOut(number: Fixture.number))
+
+        state = reduce(state, .submissionFailed(number: Fixture.number))
+        #expect(state == .submissionTimedOut(number: Fixture.number))
+    }
+
     @Test("normalizes locale-aware entry to E.164")
     func normalizesPhoneNumbers() {
         let unitedStates = DocPhoneNumberFormatter(regionCode: "US")
@@ -67,5 +102,6 @@ struct DocVerificationFlowTests {
 
     private enum Fixture {
         static let number: String = "+14155550123"
+        static let otherNumber: String = "+442079460958"
     }
 }

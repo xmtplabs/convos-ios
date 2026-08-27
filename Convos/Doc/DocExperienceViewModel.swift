@@ -103,6 +103,16 @@ struct DocAnswerDeliveryPolicy {
     )
 }
 
+struct DocVerificationAcknowledgmentPolicy {
+    let deadline: Duration
+
+    static let live: Self = .init(deadline: .seconds(25))
+}
+
+struct DocVerificationSendTarget {
+    let performSend: @MainActor (String) async -> Bool
+}
+
 enum DocContentLoadState: Hashable {
     case idle
     case loading
@@ -125,14 +135,30 @@ enum DocAgentStartupSurfaceState: Hashable {
         startupState: DocAgentStartupState,
         dmIsReady: Bool
     ) -> Self {
-        if dmIsReady { return .ready }
-        guard case .failed(let message) = startupState else { return .preparing }
-        return .failed(message)
+        if case .failed(let message) = startupState { return .failed(message) }
+        return dmIsReady ? .ready : .preparing
     }
 }
 
 enum DocAgentProvisionRetryPolicy {
     static let attemptDelays: [Duration] = [.zero, .seconds(2)]
+}
+
+struct DocRuntimeFallbackWarning: Equatable {
+    let requestedSlug: String
+
+    static func resolve(
+        isDocModeEnabled: Bool,
+        configuredSlug: String? = nil,
+        diagnostic: AgentJoinDiagnostic?
+    ) -> Self? {
+        guard isDocModeEnabled,
+              let diagnostic,
+              diagnostic.variantDropped == true || diagnostic.variant == nil else {
+            return nil
+        }
+        return Self(requestedSlug: diagnostic.requestedVariantId ?? configuredSlug ?? "unknown")
+    }
 }
 
 enum DocAgentStartupTimeoutPolicy {
@@ -210,6 +236,7 @@ final class DocExperienceViewModel {
     private(set) var verificationTransportErrorMessage: String?
     private(set) var isShowingNotDocAgentNotice: Bool = false
     private(set) var agentStartupState: DocAgentStartupState = .idle
+    private(set) var agentJoinDiagnostic: AgentJoinDiagnostic?
     var isPresentingGoogleConnect: Bool = false
     var isPresentingHistory: Bool = false
     var isPresentingShareNumber: Bool = false
@@ -245,6 +272,7 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var docContentTimeoutTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var answerDeliveryTimeoutTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var resetCancellable: AnyCancellable?
+    @ObservationIgnored private var diagnosticCancellable: AnyCancellable?
     @ObservationIgnored private var notDocAgentNoticeTask: Task<Void, Never>?
     @ObservationIgnored private var compatibilityDetector: DocAgentCompatibilityDetector = .init()
     @ObservationIgnored private var didDismissNotDocAgentNotice: Bool = false
@@ -259,11 +287,16 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var isControlResyncInFlight: Bool = false
     @ObservationIgnored private var queuedVerificationNumber: String?
     @ObservationIgnored private var needsDeterministicAgentProvision: Bool = false
+    @ObservationIgnored private var requiresAgentRecreationAfterFailure: Bool = false
+    @ObservationIgnored private var verificationAcknowledgmentTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var verificationAttemptId: UUID?
     @ObservationIgnored private var googleConnectTask: Task<Void, Never>?
     @ObservationIgnored private var googleConnectRequestId: UUID?
     @ObservationIgnored private let answerSendTargetOverride: DocAnswerSendTarget?
     @ObservationIgnored private let answerDeliveryPolicy: DocAnswerDeliveryPolicy
     @ObservationIgnored private let googleConnectEnvironment: DocGoogleConnectEnvironment?
+    @ObservationIgnored private let verificationAcknowledgmentPolicy: DocVerificationAcknowledgmentPolicy
+    @ObservationIgnored private let verificationSendTarget: DocVerificationSendTarget?
 
     init(
         session: any SessionManagerProtocol,
@@ -271,7 +304,9 @@ final class DocExperienceViewModel {
         defaults: UserDefaults = .standard,
         answerSendTarget: DocAnswerSendTarget? = nil,
         answerDeliveryPolicy: DocAnswerDeliveryPolicy = .live,
-        googleConnectEnvironment: DocGoogleConnectEnvironment? = nil
+        googleConnectEnvironment: DocGoogleConnectEnvironment? = nil,
+        verificationAcknowledgmentPolicy: DocVerificationAcknowledgmentPolicy = .live,
+        verificationSendTarget: DocVerificationSendTarget? = nil
     ) {
         self.session = session
         self.coreActions = coreActions
@@ -279,6 +314,8 @@ final class DocExperienceViewModel {
         self.answerSendTargetOverride = answerSendTarget
         self.answerDeliveryPolicy = answerDeliveryPolicy
         self.googleConnectEnvironment = googleConnectEnvironment
+        self.verificationAcknowledgmentPolicy = verificationAcknowledgmentPolicy
+        self.verificationSendTarget = verificationSendTarget
         self.previewStage = DocPreviewStage.current
         let initialAccountIdentifier = Self.accountIdentifier(session: session)
         self.storageAccountIdentifier = initialAccountIdentifier
@@ -379,13 +416,23 @@ final class DocExperienceViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
                 guard let self,
-                      notification.object as? String == Self.accountIdentifier(session: self.session) else {
+                      let notificationDefaults = notification.object as? UserDefaults,
+                      notificationDefaults === self.defaults,
+                      notification.userInfo?[Self.accountIdentifierUserInfoKey] as? String ==
+                      Self.accountIdentifier(session: self.session) else {
                     return
                 }
                 self.resetRuntimeState(
                     preservingWelcome: notification.userInfo?[Self.preserveWelcomeUserInfoKey] as? Bool == true
                 )
             }
+        diagnosticCancellable = NotificationCenter.default
+            .publisher(for: .agentJoinDiagnosticsDidChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                self?.refreshAgentJoinDiagnostic(changedConversationId: notification.object as? String)
+            }
+        refreshAgentJoinDiagnostic()
     }
 
     var docs: [DocStatus] {
@@ -505,20 +552,6 @@ final class DocExperienceViewModel {
         return !isConnectingGoogleDocs
     }
 
-    var canConnectGoogleDocs: Bool {
-        if previewStage == .connect { return true }
-        return googleConnectAvailability == .ready
-    }
-
-    var isPreparingGoogleConnect: Bool {
-        previewStage == nil && googleConnectAvailability == .preparing
-    }
-
-    var googleConnectAvailability: DocGoogleConnectAvailability {
-        guard canRequestGoogleDocs else { return .unavailable }
-        return googleConnectTarget == nil ? .preparing : .ready
-    }
-
     var isDmReadyForDisplay: Bool {
         dmViewModel != nil || previewStage != nil
     }
@@ -534,15 +567,6 @@ final class DocExperienceViewModel {
 
     var dmViewModel: ConversationViewModel? {
         agentDmSession?.dmViewModel
-    }
-
-    var isPreparingAgent: Bool {
-        agentStartupState == .preparing
-    }
-
-    var agentStartupErrorMessage: String? {
-        guard case .failed(let message) = agentStartupState else { return nil }
-        return message
     }
 
     var googleConnectConversation: Conversation? {
@@ -998,6 +1022,18 @@ private extension DocExperienceViewModel {
     func persistOriginConversationId(_ id: String) {
         guard !id.hasPrefix("draft-") else { return }
         defaults.set(id, forKey: storageKey("originConversationId"))
+        refreshAgentJoinDiagnostic()
+    }
+
+    func refreshAgentJoinDiagnostic(changedConversationId: String? = nil) {
+        let conversationId = originViewModel?.conversation.id ?? defaults.string(
+            forKey: storageKey("originConversationId")
+        )
+        guard let conversationId,
+              changedConversationId == nil || changedConversationId?.caseInsensitiveCompare(conversationId) == .orderedSame else {
+            return
+        }
+        agentJoinDiagnostic = AgentJoinDiagnosticsStore.shared.diagnostic(for: conversationId)
     }
 
     static func itemPrecedes(_ lhs: DocWaitingItem, _ rhs: DocWaitingItem) -> Bool {
@@ -1086,15 +1122,60 @@ private extension DocExperienceViewModel {
             flowEvent = nil
         }
         guard let flowEvent else { return }
-        verificationTransportErrorMessage = nil
-        verificationFlowState = DocVerificationFlowReducer.reduce(
+        let nextState = DocVerificationFlowReducer.reduce(
             verificationFlowState,
             event: flowEvent
         )
+        guard nextState != verificationFlowState else { return }
+        cancelVerificationAcknowledgmentTimeout()
+        verificationTransportErrorMessage = nil
+        verificationFlowState = nextState
     }
 
     func rememberVerificationNumber(_ number: String) {
         defaults.set(number, forKey: storageKey(Self.verificationNumberComponent))
+    }
+
+    func sendVerificationProtocolText(_ text: String) async -> Bool {
+        if let verificationSendTarget {
+            return await verificationSendTarget.performSend(text)
+        }
+        return await sendProtocolText(text)
+    }
+
+    func scheduleVerificationAcknowledgmentTimeout(
+        attemptId: UUID,
+        expectedState: DocVerificationFlowState,
+        event: DocVerificationFlowEvent,
+        message: String
+    ) {
+        verificationAcknowledgmentTimeoutTask?.cancel()
+        let deadline = verificationAcknowledgmentPolicy.deadline
+        verificationAcknowledgmentTimeoutTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: deadline)
+            } catch {
+                return
+            }
+            guard let self,
+                  verificationAttemptId == attemptId,
+                  verificationFlowState == expectedState else {
+                return
+            }
+            verificationAcknowledgmentTimeoutTask = nil
+            verificationAttemptId = nil
+            verificationTransportErrorMessage = message
+            verificationFlowState = DocVerificationFlowReducer.reduce(
+                verificationFlowState,
+                event: event
+            )
+        }
+    }
+
+    func cancelVerificationAcknowledgmentTimeout() {
+        verificationAcknowledgmentTimeoutTask?.cancel()
+        verificationAcknowledgmentTimeoutTask = nil
+        verificationAttemptId = nil
     }
 
     func refreshGoogleControlState() {
@@ -1156,6 +1237,38 @@ private extension DocExperienceViewModel {
 }
 
 extension DocExperienceViewModel {
+    var isPreparingAgent: Bool {
+        agentStartupState == .preparing
+    }
+
+    var agentStartupErrorMessage: String? {
+        guard case .failed(let message) = agentStartupState else { return nil }
+        return message
+    }
+
+    var canConnectGoogleDocs: Bool {
+        if previewStage == .connect { return true }
+        guard agentStartupErrorMessage == nil else { return false }
+        return googleConnectAvailability == .ready
+    }
+
+    var isPreparingGoogleConnect: Bool {
+        previewStage == nil && googleConnectAvailability == .preparing
+    }
+
+    var googleConnectAvailability: DocGoogleConnectAvailability {
+        guard canRequestGoogleDocs, agentStartupErrorMessage == nil else { return .unavailable }
+        return googleConnectTarget == nil ? .preparing : .ready
+    }
+
+    var runtimeFallbackWarning: DocRuntimeFallbackWarning? {
+        DocRuntimeFallbackWarning.resolve(
+            isDocModeEnabled: FeatureFlags.shared.isDocModeEnabled,
+            configuredSlug: FeatureFlags.shared.effectiveAgentVariantSlug,
+            diagnostic: agentJoinDiagnostic
+        )
+    }
+
     var verificationAgentStartupState: DocAgentStartupSurfaceState {
         if previewStage == .verifyPreparing { return .preparing }
         if previewStage == .verifyStartupFailure {
@@ -1262,7 +1375,7 @@ extension DocExperienceViewModel {
         guard let text = DocControlRequestMessage.verifyRequestText(number: number) else { return }
         verificationTransportErrorMessage = nil
         rememberVerificationNumber(number)
-        guard dmViewModel != nil || previewStage != nil else {
+        guard dmViewModel != nil || previewStage != nil || verificationSendTarget != nil else {
             queuedVerificationNumber = number
             markAgentStartupProgress()
             return
@@ -1272,18 +1385,34 @@ extension DocExperienceViewModel {
     }
 
     private func performPhoneVerificationRequest(number: String, text: String) {
+        cancelVerificationAcknowledgmentTimeout()
+        let attemptId = UUID()
+        verificationAttemptId = attemptId
         verificationFlowState = DocVerificationFlowReducer.reduce(
             verificationFlowState,
             event: .request(number: number)
         )
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let didSend = await sendProtocolText(text)
-            guard !didSend, verificationFlowState == .requesting(number: number) else { return }
-            verificationTransportErrorMessage = "Couldn't request a code. Check your connection and try again."
-            verificationFlowState = DocVerificationFlowReducer.reduce(
-                verificationFlowState,
-                event: .requestTransportFailed
+            let didSend = await sendVerificationProtocolText(text)
+            guard verificationAttemptId == attemptId,
+                  verificationFlowState == .requesting(number: number) else {
+                return
+            }
+            guard didSend else {
+                cancelVerificationAcknowledgmentTimeout()
+                verificationTransportErrorMessage = "Couldn't request a code. Check your connection and try again."
+                verificationFlowState = DocVerificationFlowReducer.reduce(
+                    verificationFlowState,
+                    event: .requestTransportFailed
+                )
+                return
+            }
+            scheduleVerificationAcknowledgmentTimeout(
+                attemptId: attemptId,
+                expectedState: .requesting(number: number),
+                event: .requestAcknowledgmentTimedOut(number: number),
+                message: "Couldn't send the code. Try again."
             )
         }
     }
@@ -1293,6 +1422,9 @@ extension DocExperienceViewModel {
               let text = DocControlRequestMessage.verifySubmitText(code: code) else {
             return
         }
+        cancelVerificationAcknowledgmentTimeout()
+        let attemptId = UUID()
+        verificationAttemptId = attemptId
         verificationTransportErrorMessage = nil
         verificationFlowState = DocVerificationFlowReducer.reduce(
             verificationFlowState,
@@ -1300,17 +1432,31 @@ extension DocExperienceViewModel {
         )
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let didSend = await sendProtocolText(text)
-            guard !didSend, verificationFlowState == .submitting(number: number) else { return }
-            verificationTransportErrorMessage = "Couldn't check that code. Check your connection and try again."
-            verificationFlowState = DocVerificationFlowReducer.reduce(
-                verificationFlowState,
-                event: .submissionTransportFailed(number: number)
+            let didSend = await sendVerificationProtocolText(text)
+            guard verificationAttemptId == attemptId,
+                  verificationFlowState == .submitting(number: number) else {
+                return
+            }
+            guard didSend else {
+                cancelVerificationAcknowledgmentTimeout()
+                verificationTransportErrorMessage = "Couldn't check that code. Check your connection and try again."
+                verificationFlowState = DocVerificationFlowReducer.reduce(
+                    verificationFlowState,
+                    event: .submissionTransportFailed(number: number)
+                )
+                return
+            }
+            scheduleVerificationAcknowledgmentTimeout(
+                attemptId: attemptId,
+                expectedState: .submitting(number: number),
+                event: .submissionAcknowledgmentTimedOut(number: number),
+                message: "Couldn't verify the code. Try again."
             )
         }
     }
 
     func showPhoneVerificationFallback() {
+        cancelVerificationAcknowledgmentTimeout()
         verificationTransportErrorMessage = nil
         verificationFlowState = DocVerificationFlowReducer.reduce(
             verificationFlowState,
@@ -1320,6 +1466,7 @@ extension DocExperienceViewModel {
 
     func editPhoneNumber() {
         queuedVerificationNumber = nil
+        cancelVerificationAcknowledgmentTimeout()
         verificationTransportErrorMessage = nil
         verificationFlowState = DocVerificationFlowReducer.reduce(
             verificationFlowState,
@@ -1415,12 +1562,37 @@ extension DocExperienceViewModel {
             }
             self.failAgentStartup("I couldn't open our private chat. Check your connection and try again.")
         }
+        newConversationViewModel.onAgentProvisionFailed = { [weak self, weak newConversationViewModel] failure in
+            guard let self,
+                  let newConversationViewModel,
+                  self.conversationViewModel === newConversationViewModel else {
+                return
+            }
+            Log.error("Doc agent startup failed: \(failure.reason ?? "no reason given")")
+            self.failAgentStartup(
+                "I couldn't open our private chat. Check your connection and try again.",
+                requiresRecreation: true
+            )
+        }
         conversationViewModel = newConversationViewModel
         markAgentStartupProgress()
     }
 
     func retryAgentStartup() {
         guard previewStage == nil else { return }
+        guard !requiresAgentRecreationAfterFailure else {
+            Self.clearAgentBindingStorage(
+                session: session,
+                defaults: defaults,
+                replayFirstRun: false,
+                notify: false
+            )
+            resetRuntimeState(preservingWelcome: true)
+            Task { @MainActor [weak self] in
+                await self?.startAgentIfNeeded()
+            }
+            return
+        }
         markAgentStartupProgress(restartsFailedAttempt: true)
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1773,7 +1945,11 @@ extension DocExperienceViewModel {
     }
 
     func connectGoogleDocs() {
-        guard previewStage == nil, canRequestGoogleDocs else { return }
+        guard previewStage == nil,
+              canRequestGoogleDocs,
+              agentStartupErrorMessage == nil else {
+            return
+        }
         guard let target = googleConnectTarget else {
             isGoogleConnectQueued = true
             return
@@ -1950,10 +2126,12 @@ extension DocExperienceViewModel {
             return
         }
         if dmViewModel.conversation.id != observedDmConversationId {
-            agentStartupTimeoutTask?.cancel()
-            agentStartupTimeoutTask = nil
-            agentStartupState = .ready
-            needsDeterministicAgentProvision = false
+            if !requiresAgentRecreationAfterFailure {
+                agentStartupTimeoutTask?.cancel()
+                agentStartupTimeoutTask = nil
+                agentStartupState = .ready
+                needsDeterministicAgentProvision = false
+            }
             observedDmConversationId = dmViewModel.conversation.id
         }
         refreshGoogleControlState()
@@ -2127,8 +2305,11 @@ extension DocExperienceViewModel {
         guard notify else { return }
         NotificationCenter.default.post(
             name: .docAgentResetRequested,
-            object: accountIdentifier(session: session),
-            userInfo: [preserveWelcomeUserInfoKey: !replayFirstRun]
+            object: defaults,
+            userInfo: [
+                accountIdentifierUserInfoKey: accountIdentifier(session: session),
+                preserveWelcomeUserInfoKey: !replayFirstRun,
+            ]
         )
     }
 
@@ -2169,6 +2350,7 @@ extension DocExperienceViewModel {
     private static let verificationHelloComponent: String = "verificationHello"
     private static let verificationNumberComponent: String = "verificationNumber"
     private static let provisionalAccountIdentifier: String = "registering"
+    private static let accountIdentifierUserInfoKey: String = "accountIdentifier"
     private static let preserveWelcomeUserInfoKey: String = "preserveWelcome"
 
     private static func initialWelcomeCompletion(
@@ -2349,9 +2531,13 @@ extension DocExperienceViewModel {
         }
     }
 
-    private func failAgentStartup(_ message: String) {
+    private func failAgentStartup(
+        _ message: String,
+        requiresRecreation: Bool = false
+    ) {
         agentStartupTimeoutTask?.cancel()
         agentStartupTimeoutTask = nil
+        requiresAgentRecreationAfterFailure = requiresRecreation
         agentStartupState = .failed(message)
     }
 
@@ -2367,6 +2553,7 @@ extension DocExperienceViewModel {
             isStartingAgent = false
         }
         conversationViewModel?.onCreationFailed = nil
+        conversationViewModel?.onAgentProvisionFailed = nil
         conversationViewModel?.cleanUpIfNeeded()
         docMessageAggregator?.stop()
         docMessageAggregator = nil
@@ -2396,8 +2583,10 @@ extension DocExperienceViewModel {
         googleConnectErrorMessage = nil
         verificationFlowState = .enteringNumber
         verificationTransportErrorMessage = nil
+        cancelVerificationAcknowledgmentTimeout()
         queuedVerificationNumber = nil
         needsDeterministicAgentProvision = false
+        requiresAgentRecreationAfterFailure = false
         isPresentingGoogleConnect = false
         isPresentingHistory = false
         isPresentingShareNumber = false
@@ -2416,6 +2605,7 @@ extension DocExperienceViewModel {
         agentStartupTimeoutTask?.cancel()
         agentStartupTimeoutTask = nil
         agentStartupState = .idle
+        agentJoinDiagnostic = nil
         hasObservedControlEvent = false
         isControlResyncInFlight = false
         hasCompletedWelcome = preservingWelcome ? completedWelcome : false

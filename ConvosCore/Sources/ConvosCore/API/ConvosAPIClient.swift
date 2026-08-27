@@ -1425,7 +1425,7 @@ extension ConvosAPIClient {
             )
             return response
         case 502:
-            throw APIError.agentProvisionFailed
+            throw APIError.agentProvisionFailed(parseErrorMessage(from: data))
         case 503:
             throw APIError.noAgentsAvailable
         case 504:
@@ -1578,7 +1578,7 @@ public enum APIError: Error {
     case rateLimitExceeded
     case noAgentsAvailable
     case agentPoolTimeout
-    case agentProvisionFailed
+    case agentProvisionFailed(String?)
     case templateArchived
 }
 

@@ -179,6 +179,85 @@ struct DocControlViewModelTests {
         #expect(viewModel.verificationFlowState == .fallback(number: "+14155550123"))
     }
 
+    @Test("verification request acknowledgment times out and retries the request")
+    func verificationRequestAcknowledgmentTimeout() async throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let sendState = VerificationSendTestState()
+        let expectedRequest = try #require(
+            DocControlRequestMessage.verifyRequestText(number: "+14155550123")
+        )
+        let viewModel = fixture.viewModel(
+            verificationAcknowledgmentPolicy: .init(deadline: .milliseconds(20)),
+            verificationSendTarget: .init { text in
+                sendState.sentTexts.append(text)
+                return true
+            }
+        )
+
+        viewModel.requestPhoneVerification(number: "+14155550123")
+        try await waitUntil { viewModel.verificationFlowState == .requestTimedOut(number: "+14155550123") }
+
+        #expect(viewModel.verificationFlowState == .requestTimedOut(number: "+14155550123"))
+        #expect(viewModel.verificationTransportErrorMessage == "Couldn't send the code. Try again.")
+        #expect(sendState.sentTexts == [expectedRequest])
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "late-request-sent", text: Fixture.verificationRequestSent, date: 10)],
+            agentInboxId: Fixture.agentInboxId
+        )
+        #expect(viewModel.verificationFlowState == .requestTimedOut(number: "+14155550123"))
+
+        viewModel.requestPhoneVerification(number: "+14155550123")
+        try await Task.sleep(for: .milliseconds(5))
+
+        #expect(viewModel.verificationFlowState == .requesting(number: "+14155550123"))
+        #expect(sendState.sentTexts.count == 2)
+    }
+
+    @Test("verification submit acknowledgment times out and retries the submission")
+    func verificationSubmitAcknowledgmentTimeout() async throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let sendState = VerificationSendTestState()
+        let expectedSubmit = try #require(
+            DocControlRequestMessage.verifySubmitText(code: "123456")
+        )
+        let viewModel = fixture.viewModel(
+            verificationAcknowledgmentPolicy: .init(deadline: .milliseconds(20)),
+            verificationSendTarget: .init { text in
+                sendState.sentTexts.append(text)
+                return true
+            }
+        )
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "request-sent", text: Fixture.verificationRequestSent, date: 10)],
+            agentInboxId: Fixture.agentInboxId
+        )
+
+        viewModel.submitPhoneVerification(code: "123456")
+        try await waitUntil { viewModel.verificationFlowState == .submissionTimedOut(number: "+14155550123") }
+
+        #expect(viewModel.verificationFlowState == .submissionTimedOut(number: "+14155550123"))
+        #expect(viewModel.verificationTransportErrorMessage == "Couldn't verify the code. Try again.")
+        #expect(sendState.sentTexts == [expectedSubmit])
+
+        viewModel.submitPhoneVerification(code: "123456")
+        try await Task.sleep(for: .milliseconds(5))
+
+        #expect(viewModel.verificationFlowState == .submitting(number: "+14155550123"))
+        #expect(sendState.sentTexts.count == 2)
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(3),
+        condition: @escaping @MainActor () -> Bool
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !condition(), clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
     @Test("outbound verified fact completes phone verification")
     func outboundVerifiedFactCompletesFlow() throws {
         let fixture = try Fixture(hasCompletedWelcome: true)
@@ -445,13 +524,17 @@ struct DocControlViewModelTests {
 
         @MainActor
         func viewModel(
-            googleConnectEnvironment: DocGoogleConnectEnvironment? = nil
+            googleConnectEnvironment: DocGoogleConnectEnvironment? = nil,
+            verificationAcknowledgmentPolicy: DocVerificationAcknowledgmentPolicy = .live,
+            verificationSendTarget: DocVerificationSendTarget? = nil
         ) -> DocExperienceViewModel {
             DocExperienceViewModel(
                 session: session,
                 coreActions: NoOpCoreActions(),
                 defaults: defaults,
-                googleConnectEnvironment: googleConnectEnvironment
+                googleConnectEnvironment: googleConnectEnvironment,
+                verificationAcknowledgmentPolicy: verificationAcknowledgmentPolicy,
+                verificationSendTarget: verificationSendTarget
             )
         }
 
@@ -486,5 +569,10 @@ struct DocControlViewModelTests {
     private final class GoogleConnectTestState {
         var target: DocGoogleConnectTarget?
         var connectedTargets: [DocGoogleConnectTarget] = []
+    }
+
+    @MainActor
+    private final class VerificationSendTestState {
+        var sentTexts: [String] = []
     }
 }

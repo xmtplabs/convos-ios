@@ -228,10 +228,12 @@ struct DocVerifyFirstRunView: View {
     @ViewBuilder
     private var details: some View {
         switch flowState {
-        case .enteringNumber, .requesting:
+        case .enteringNumber, .requesting, .requestTimedOut:
             phoneNumberEntry
         case let .enteringCode(number, attemptFailed):
             codeEntry(number: number, attemptFailed: attemptFailed)
+        case let .submissionTimedOut(number):
+            codeEntry(number: number, attemptFailed: false)
         case let .submitting(number), let .awaitingVerification(number):
             codeEntry(number: number, attemptFailed: false)
         case .fallback:
@@ -248,11 +250,11 @@ struct DocVerifyFirstRunView: View {
                 errorText(transportErrorMessage, identifier: "doc-first-run-verify-transport-error")
             }
             switch flowState {
-            case .enteringNumber:
+            case .enteringNumber, .requestTimedOut:
                 numberAction
             case .requesting:
                 waitingButton(label: "Sending code…")
-            case .enteringCode:
+            case .enteringCode, .submissionTimedOut:
                 codeActions
             case .submitting, .awaitingVerification:
                 waitingButton(label: "Checking code…")
@@ -420,9 +422,9 @@ struct DocVerifyFirstRunView: View {
             break
         }
         switch flowState {
-        case .enteringNumber, .requesting:
+        case .enteringNumber, .requesting, .requestTimedOut:
             return "What's your number?"
-        case .enteringCode, .submitting, .awaitingVerification:
+        case .enteringCode, .submitting, .submissionTimedOut, .awaitingVerification:
             return "Enter your code"
         case .fallback:
             return "Verify by text instead"
@@ -441,9 +443,9 @@ struct DocVerifyFirstRunView: View {
             break
         }
         switch flowState {
-        case .enteringNumber, .requesting:
+        case .enteringNumber, .requesting, .requestTimedOut:
             return "I'll text you a six-digit code. Your number is how @doc knows which groups are yours."
-        case .enteringCode, .submitting, .awaitingVerification:
+        case .enteringCode, .submitting, .submissionTimedOut, .awaitingVerification:
             return "Enter the six digits I just texted you."
         case .fallback:
             return "Text the backup code to @doc. I'll recognize your number from the message."
@@ -464,7 +466,7 @@ struct DocVerifyFirstRunView: View {
             return
         }
         switch flowState {
-        case .enteringNumber:
+        case .enteringNumber, .requestTimedOut:
             focusedField = .phone
         case .enteringCode(_, let attemptFailed):
             if attemptFailed { code = "" }
@@ -472,6 +474,9 @@ struct DocVerifyFirstRunView: View {
             isDelayedFallbackAvailable = false
             try? await Task.sleep(for: .seconds(20))
             guard !Task.isCancelled else { return }
+            isDelayedFallbackAvailable = true
+        case .submissionTimedOut:
+            focusedField = .code
             isDelayedFallbackAvailable = true
         case .submitting, .awaitingVerification:
             focusedField = nil
@@ -692,7 +697,7 @@ struct DocGoogleFirstRunView: View {
 
     private var actionContent: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            if isWaitingForApproval {
+            if isWaitingForApproval, startupErrorMessage == nil {
                 Label("Waiting for approval…", systemImage: "ellipsis")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.colorTextSecondary)
@@ -712,12 +717,14 @@ struct DocGoogleFirstRunView: View {
                     .foregroundStyle(.red)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("doc-first-run-google-startup-error")
             }
 
             if startupErrorMessage != nil, !canConnect {
                 Button("Try again", action: onRetryStartup)
                     .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
                     .frame(minHeight: 44.0)
+                    .accessibilityIdentifier("doc-first-run-google-startup-retry")
             } else {
                 connectButton
             }

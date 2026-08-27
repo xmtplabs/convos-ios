@@ -179,7 +179,7 @@ struct AgentTemplateRepositoryTests {
     @Test("Explicit provision failure re-mints a fresh key for the retry")
     func joinKeyRemintedOnExplicitFailure() async throws {
         let database = try makeDatabase()
-        let api = RetryJoinStubAPIClient(firstJoinError: APIError.agentProvisionFailed)
+        let api = RetryJoinStubAPIClient(firstJoinError: APIError.agentProvisionFailed(nil))
         let repository = makeRepository(database: database, apiClient: api)
 
         await repository.startGeneration(prompt: "build me a chef", conversationId: "convo-remint", slug: "chef.abcd")
@@ -460,7 +460,7 @@ private final class RowDeletingProvisionFailStubAPIClient: TestStubAPIClient {
         _ = try? await database.write { db in
             try DBAgentTemplateGeneration.deleteAll(db)
         }
-        throw APIError.agentProvisionFailed
+        throw APIError.agentProvisionFailed(nil)
     }
 }
 

@@ -278,6 +278,9 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// Wrapping startup flows use this after their bounded automatic retries
     /// are exhausted so the failure appears on the surface they own.
     var onCreationFailed: ((Error) -> Void)?
+    /// Wrapping startup flows use this when the agent's server-side startup
+    /// ends after the conversation itself is already ready.
+    var onAgentProvisionFailed: ((DefaultAgentProvisionFailure) -> Void)?
     /// Invoked when a scanned QR resolves into a conversation the user should be
     /// taken into: a joined invite, or the fresh conversation a scanned agent is
     /// being added to. The presenter dismisses the scanner and navigates into the
@@ -388,6 +391,8 @@ class NewConversationViewModel: Identifiable, Hashable {
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored
+    private var defaultAgentProvisionFailureCancellable: AnyCancellable?
+    @ObservationIgnored
     private var stateObservationTask: Task<Void, Never>?
     @ObservationIgnored
     private var dismissAction: DismissAction?
@@ -478,6 +483,7 @@ class NewConversationViewModel: Identifiable, Hashable {
 
         self.isCreatingConversation = mode.isNewConversation
         self.messagesTopBarTrailingItem = .share
+        setupDefaultAgentProvisionFailureObservation()
         createPlaceholderConversationViewModel()
         acquireInbox(mode: mode)
         resolveOptimisticAgentIdentityIfNeeded()
@@ -749,6 +755,27 @@ class NewConversationViewModel: Identifiable, Hashable {
                 await self?.persistHidesInviteCardIfNeeded(stateManager: stateManager)
             }
         }
+    }
+
+    private func setupDefaultAgentProvisionFailureObservation() {
+        guard wantsDefaultAgent else { return }
+        defaultAgentProvisionFailureCancellable = NotificationCenter.default.publisher(
+            for: .defaultAgentProvisionDidFail
+        )
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let self,
+                      let failure = notification.object as? DefaultAgentProvisionFailure else {
+                    return
+                }
+                let activeConversationIds = [
+                    conversationStateManager?.conversationId,
+                    claimedConversationId,
+                    conversationViewModel?.conversation.id,
+                ]
+                guard activeConversationIds.contains(failure.conversationId) else { return }
+                onAgentProvisionFailed?(failure)
+            }
     }
 
     /// Persist `hidesInviteCard = true` on the conversation's local state
