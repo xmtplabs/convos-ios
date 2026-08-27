@@ -21,6 +21,7 @@ final class CloudConnectionGrantRequestSheetViewModel {
     let serviceId: String
     let conversationId: String
     let conversation: Conversation?
+    let isPreviewingDisconnectedService: Bool
 
     private let session: any SessionManagerProtocol
     private let cloudConnectionManager: any CloudConnectionManagerProtocol
@@ -38,6 +39,7 @@ final class CloudConnectionGrantRequestSheetViewModel {
         self.conversationId = conversationId
         self.conversation = conversation
         self.session = session
+        self.isPreviewingDisconnectedService = previewingDisconnectedService
 
         let callbackScheme = ConfigManager.shared.appUrlScheme
         self.cloudConnectionManager = session.cloudConnectionManager(
@@ -88,7 +90,7 @@ final class CloudConnectionGrantRequestSheetViewModel {
     }
 
     func share() {
-        guard let connection else { return }
+        guard !isPreviewingDisconnectedService, let connection else { return }
         isBusy = true
         error = nil
         let agents = agentInboxIds
@@ -111,6 +113,7 @@ final class CloudConnectionGrantRequestSheetViewModel {
     }
 
     func connectAndShare() {
+        guard !isPreviewingDisconnectedService else { return }
         isBusy = true
         error = nil
         let agents = agentInboxIds
@@ -285,7 +288,7 @@ struct CloudConnectionGrantRequestSheet: View {
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .frame(minHeight: 44.0)
-        .disabled(isLoading)
+        .disabled(isLoading || viewModel.isPreviewingDisconnectedService)
     }
 
     @ViewBuilder

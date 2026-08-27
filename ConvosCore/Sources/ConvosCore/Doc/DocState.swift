@@ -313,11 +313,37 @@ public enum DocStateMessage {
         let people: Int?
         let shared: Bool?
 
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case name
+            case url
+            case updatedAt
+            case lastChange
+            case binding
+            case dates
+            case people
+            case shared
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try? container.decode(String.self, forKey: .id)
+            name = try? container.decode(String.self, forKey: .name)
+            url = try? container.decode(String.self, forKey: .url)
+            updatedAt = try? container.decode(TimeInterval.self, forKey: .updatedAt)
+            lastChange = try? container.decode(RawLastChange.self, forKey: .lastChange)
+            binding = try? container.decode(RawBinding.self, forKey: .binding)
+            dates = try? container.decode(String.self, forKey: .dates)
+            people = try? container.decode(Int.self, forKey: .people)
+            shared = try? container.decode(Bool.self, forKey: .shared)
+        }
+
         var status: DocStatus? {
             guard let id, !id.isEmpty,
                   let name, !name.isEmpty,
                   let url,
                   let updatedAt,
+                  updatedAt.isFinite,
                   let lastChange = lastChange?.value,
                   let binding = binding?.value else {
                 return nil
@@ -344,7 +370,8 @@ public enum DocStateMessage {
         var value: DocLastChange? {
             guard let who, !who.isEmpty,
                   let what, !what.isEmpty,
-                  let at else {
+                  let at,
+                  at.isFinite else {
                 return nil
             }
             return DocLastChange(who: who, what: what, at: Date(timeIntervalSince1970: at))

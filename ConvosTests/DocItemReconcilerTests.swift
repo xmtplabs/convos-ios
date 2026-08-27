@@ -63,19 +63,28 @@ struct DocItemReconcilerTests {
         #expect(!detector.shouldWarn)
     }
 
-    @Test func startupTimeoutWaitsForColdProvisioningAndKeepsActiveWorkNonTerminal() {
+    @Test func startupTimeoutTracksProgressInsteadOfRetainedProvisioningObjects() {
         #expect(DocAgentStartupTimeoutPolicy.deadline == .seconds(90))
         #expect(!DocAgentStartupTimeoutPolicy.shouldFail(
             dmIsReady: false,
-            provisioningOrRebindIsActive: true
+            startupWorkMadeProgress: true
         ))
         #expect(!DocAgentStartupTimeoutPolicy.shouldFail(
             dmIsReady: true,
-            provisioningOrRebindIsActive: false
+            startupWorkMadeProgress: false
         ))
+    }
+
+    @Test func startupTimeoutSurfacesFailureWhenObjectsExistButRebindStalls() {
+        let retainedStartupObjects = (conversationViewModel: true, agentDmSession: true)
+        let scheduledProgressRevision = 4
+        let currentProgressRevision = 4
+
+        #expect(retainedStartupObjects.conversationViewModel)
+        #expect(retainedStartupObjects.agentDmSession)
         #expect(DocAgentStartupTimeoutPolicy.shouldFail(
             dmIsReady: false,
-            provisioningOrRebindIsActive: false
+            startupWorkMadeProgress: currentProgressRevision != scheduledProgressRevision
         ))
     }
 

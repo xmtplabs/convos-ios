@@ -263,12 +263,13 @@ private struct DocChangesLedger: View {
     }
 }
 
-private func docCompactRelativeTime(from date: Date) -> String {
-    let seconds = max(0, Int(Date().timeIntervalSince(date)))
-    if seconds < 60 { return "now" }
-    if seconds < 60 * 60 { return "\(seconds / 60)m" }
-    if seconds < 24 * 60 * 60 { return "\(seconds / 3_600)h" }
-    return "\(seconds / 86_400)d"
+func docCompactRelativeTime(from date: Date, relativeTo now: Date = Date()) -> String {
+    let elapsed = now.timeIntervalSince(date)
+    guard elapsed.isFinite, elapsed >= 60 else { return "now" }
+    if elapsed < 60 * 60 { return "\(Int(elapsed / 60))m" }
+    if elapsed < 24 * 60 * 60 { return "\(Int(elapsed / 3_600))h" }
+    let safelyRepresentableDays = min(elapsed / 86_400, Double(Int.max) / 2)
+    return "\(Int(safelyRepresentableDays))d"
 }
 
 private func docRelativeTime(from date: Date) -> String {

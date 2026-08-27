@@ -36,6 +36,25 @@ struct DocDraftSubmissionTests {
         #expect(json["edited"] == nil)
     }
 
+    @Test("draft feedback uses a short selection-scoped composer prompt")
+    func draftFeedbackUsesSelectionScopedPrompt() {
+        let source = """
+        ## Decisions
+
+        - Cabin checkout is Thursday morning after breakfast.
+        - Jordan will bring tire chains and groceries for the group.
+        """
+
+        let message = DocDraftFeedbackPrompt.message(
+            draftSource: source,
+            docName: "Tahoe Trip"
+        )
+
+        #expect(message.hasPrefix("Re \"## Decisions - Cabin checkout is Thursday"))
+        #expect(message.hasSuffix("\" in Tahoe Trip: "))
+        #expect(message.count < 120)
+    }
+
     private func decodedPayload(_ message: String) throws -> [String: Any] {
         let payload = String(message.dropFirst(DocAnswerMessage.prefix.count))
         let data = try #require(payload.data(using: .utf8))

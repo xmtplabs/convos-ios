@@ -198,13 +198,14 @@ final class AgentDmSession {
     /// the empty state until remount. Re-attempt the bind on every repository
     /// emission until it succeeds. Runs until cancelled; key it on the agent
     /// inbox id (`.task(id:)`).
-    func rebindWhenDmAppears() async {
+    func rebindWhenDmAppears(onProgress: (() -> Void)? = nil) async {
         guard dmViewModel == nil, agentInboxId != nil else { return }
         let publisher = originViewModel.session
             .conversationsRepository(for: [.allowed, .unknown])
             .conversationsPublisher
         for await _ in publisher.values {
             if Task.isCancelled || dmViewModel != nil { return }
+            onProgress?()
             bindIfNeeded()
             if dmViewModel != nil { return }
         }

@@ -38,6 +38,16 @@ struct DocStateTests {
         #expect(state.docs.map(\.id) == ["valid"])
     }
 
+    @Test("a wrong optional field type does not drop the snapshot")
+    func toleratesWrongOptionalDocumentFieldType() throws {
+        let mixed = #"⟦doc⟧{"v":1,"t":"state","docs":[{"id":"broken","name":"Broken","url":"https://docs.google.com/document/d/1","updatedAt":1787600000,"lastChange":{"who":"Mina","what":"updated it","at":1787600000},"binding":{"state":"none","number":"+16285550123"},"people":"unknown"},{"id":"valid","name":"Packing","url":"https://docs.google.com/document/d/2","updatedAt":1787600000,"lastChange":{"who":"Mina","what":"added a list","at":1787600000},"binding":{"state":"none","number":"+16285550123"}}]}"#
+
+        let state = try #require(DocStateMessage.parse(mixed))
+
+        #expect(state.docs.map(\.id) == ["broken", "valid"])
+        #expect(state.docs[0].people == nil)
+    }
+
     @Test("parses waiting items and resolve events")
     func parsesWaitingItemEvents() throws {
         let itemMessage = #"⟦doc⟧{"v":1,"t":"item","item":{"id":"ask-1","register":"waiting","kind":"question","headline":"Which weekend works?","context":"Tahoe Trip needs a date.","chips":["Dec 14","Dec 21"],"docId":"tahoe","createdAt":1787600000,"future":true}}"#

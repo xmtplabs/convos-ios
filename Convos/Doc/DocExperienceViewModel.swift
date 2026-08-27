@@ -11,6 +11,11 @@ enum DocComposerScope: Hashable {
     case room(String)
 }
 
+struct DocComposerFocusRequest: Equatable {
+    let id: UUID
+    let scope: DocComposerScope
+}
+
 struct DocPendingPhoto: Identifiable {
     let id: UUID
     let image: UIImage
@@ -75,9 +80,9 @@ enum DocAgentStartupTimeoutPolicy {
 
     static func shouldFail(
         dmIsReady: Bool,
-        provisioningOrRebindIsActive: Bool
+        startupWorkMadeProgress: Bool
     ) -> Bool {
-        !dmIsReady && !provisioningOrRebindIsActive
+        !dmIsReady && !startupWorkMadeProgress
     }
 }
 
@@ -145,7 +150,9 @@ final class DocExperienceViewModel {
     var isPresentingShareNumber: Bool = false
     var isPresentingShareDoc: Bool = false
     var presentedDraftItem: DocWaitingItem?
+    private(set) var presentedDraftComposerScope: DocComposerScope?
     var activeAnswerItemId: String?
+    private(set) var composerFocusRequest: DocComposerFocusRequest?
     private(set) var sharedDocNumber: String?
     private(set) var sharedDocText: String?
     var hasCompletedWelcome: Bool
@@ -178,6 +185,10 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var docLaneProvisionTasks: [String: Task<ConversationViewModel?, Never>] = [:]
     @ObservationIgnored private var agentStartupTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var isStartingAgent: Bool = false
+    @ObservationIgnored private var agentStartupProgressRevision: Int = 0
+    @ObservationIgnored private var startupGeneration: Int = 0
+    @ObservationIgnored private var googleConnectTask: Task<Void, Never>?
+    @ObservationIgnored private var googleConnectRequestId: UUID?
 
     init(
         session: any SessionManagerProtocol,
@@ -367,10 +378,22 @@ final class DocExperienceViewModel {
         presentShareNumber(for: doc)
     }
 
-    func presentDraft(_ item: DocWaitingItem) {
+    func presentDraft(_ item: DocWaitingItem, composerScope: DocComposerScope) {
         guard item.register == .draft, item.draft != nil else { return }
         activeAnswerItemId = nil
+        presentedDraftComposerScope = composerScope
         presentedDraftItem = item
+    }
+
+    func prefillDraftFeedback(for item: DocWaitingItem, in scope: DocComposerScope) {
+        guard let draft = item.draft else { return }
+        let docName = item.docId
+            .flatMap { docId in docs.first(where: { $0.id == docId })?.name } ?? "this doc"
+        composerTexts[scope] = DocDraftFeedbackPrompt.message(
+            draftSource: draft.text,
+            docName: docName
+        )
+        composerFocusRequest = DocComposerFocusRequest(id: UUID(), scope: scope)
     }
 
     func sendAnswer(_ answer: DocAnswer, for item: DocWaitingItem) {
@@ -388,6 +411,13 @@ final class DocExperienceViewModel {
                 targetViewModel = await ensureDocLane(for: docId)
             } else {
                 targetViewModel = dmViewModel
+            }
+            guard pendingItems.contains(where: { $0.id == item.id }),
+                  itemSendStates[item.id] == .resolving(
+                      answer: answer,
+                      clientMessageId: clientMessageId
+                  ) else {
+                return
             }
             guard let targetViewModel else {
                 itemSendStates[item.id] = .failed(answer: answer)
@@ -685,7 +715,7 @@ final class DocExperienceViewModel {
     private func reconcilePersistedItemsIfNeeded() {
         let currentIds = Set(pendingItems.map(\.id))
         itemsNeedingHistoryReconciliation.formIntersection(currentIds)
-        guard !itemsNeedingHistoryReconciliation.isEmpty else { return }
+        guard state == nil || !itemsNeedingHistoryReconciliation.isEmpty else { return }
         let repositories = docMessageAggregator?.repositories ?? []
         let repositoriesWithHistory = repositories.filter(\.hasMoreMessages)
         guard !repositoriesWithHistory.isEmpty else {
@@ -699,6 +729,9 @@ final class DocExperienceViewModel {
 
     private func observeGoogleStatus(conversationId: String) {
         googleStatusTask?.cancel()
+        googleConnectTask?.cancel()
+        googleConnectTask = nil
+        googleConnectRequestId = nil
         isGoogleStatusLoaded = false
         isGoogleDocsReady = false
         isConnectingGoogleDocs = false
@@ -781,39 +814,61 @@ extension DocExperienceViewModel {
               !isStartingAgent else {
             return
         }
+        let generation = startupGeneration
         isStartingAgent = true
-        defer { isStartingAgent = false }
+        defer {
+            if startupGeneration == generation {
+                isStartingAgent = false
+            }
+        }
         if hasCompletedWelcome {
-            agentStartupState = .preparing
-            scheduleAgentStartupTimeout()
+            markAgentStartupProgress()
         }
         guard await activateAuthorizedStorage() else {
+            guard startupGeneration == generation else { return }
             failAgentStartup("Couldn't authorize Doc. Check your connection and try again.")
             return
         }
-        guard hasCompletedWelcome else { return }
-        agentStartupState = .preparing
-        scheduleAgentStartupTimeout()
+        guard startupGeneration == generation, hasCompletedWelcome else { return }
+        markAgentStartupProgress()
 
         let convergence = await convergeDocModeIfNeeded(
             storedId: defaults.string(forKey: storageKey("originConversationId"))
         )
+        guard startupGeneration == generation else { return }
         guard convergence.canStart else {
             failAgentStartup(
                 convergence.errorMessage ?? "Doc couldn't start. Check Settings › Debug and try again."
             )
             return
         }
-        agentStartupState = .preparing
-        scheduleAgentStartupTimeout()
+        markAgentStartupProgress()
         let storedId = convergence.conversationId
 
-        let conversations = try? await session
-            .conversationsRepository(for: [.allowed, .unknown])
-            .fetchAll()
-        let existingId = storedId.flatMap { id in
-            conversations?.contains(where: { $0.id == id }) == true ? id : nil
+        let conversations: [Conversation]
+        do {
+            conversations = try await session
+                .conversationsRepository(for: [.allowed, .unknown])
+                .fetchAll()
+        } catch {
+            guard startupGeneration == generation else { return }
+            failAgentStartup("Couldn't load Doc's chat. Check your connection and try again.")
+            return
         }
+        guard startupGeneration == generation else { return }
+        let existingId = storedId.flatMap { id in
+            conversations.contains(where: { $0.id == id }) ? id : nil
+        }
+        if storedId != nil, existingId == nil {
+            Self.clearAgentBindingStorage(
+                session: session,
+                defaults: defaults,
+                replayFirstRun: false,
+                notify: false
+            )
+            resetRuntimeState(preservingWelcome: true, invalidatesStartup: false)
+        }
+        markAgentStartupProgress()
         let mode: NewConversationMode = if let existingId {
             .existingConversation(conversationId: existingId)
         } else {
@@ -826,12 +881,12 @@ extension DocExperienceViewModel {
             coreActions: coreActions,
             agentVariantSlug: FeatureFlags.shared.effectiveAgentVariantSlug
         )
+        markAgentStartupProgress()
     }
 
     func retryAgentStartup() {
         guard previewStage == nil else { return }
-        agentStartupState = .preparing
-        scheduleAgentStartupTimeout()
+        markAgentStartupProgress(restartsFailedAttempt: true)
         Task { @MainActor [weak self] in
             guard let self else { return }
             if conversationViewModel == nil {
@@ -844,6 +899,7 @@ extension DocExperienceViewModel {
 
     func synchronizeAgentDm() async {
         guard previewStage == nil, let originViewModel else { return }
+        markAgentStartupProgress()
         persistOriginConversationId(originViewModel.conversation.id)
 
         let dmSession = agentDmSession ?? AgentDmSession(originViewModel: originViewModel)
@@ -854,7 +910,11 @@ extension DocExperienceViewModel {
         dmSession.setAgent(inboxId: agentInboxId)
         observeDocAgentMessagesIfReady()
         await dmSession.refreshDefaultAgentProvisioning()
-        await dmSession.rebindWhenDmAppears()
+        markAgentStartupProgress()
+        await dmSession.rebindWhenDmAppears { [weak self] in
+            self?.markAgentStartupProgress()
+        }
+        markAgentStartupProgress()
         observeDmIfReady()
     }
 
@@ -933,7 +993,11 @@ extension DocExperienceViewModel {
         do {
             try await targetViewModel.sendDocComposerDraft(
                 text: outgoingText,
-                photos: photos.map(\.image)
+                photos: photos.map(\.image),
+                onPhotoSent: { [weak self] index in
+                    guard photos.indices.contains(index) else { return }
+                    self?.removePendingPhoto(id: photos[index].id, in: scope)
+                }
             )
             composerTexts[scope] = nil
             composerPhotos[scope] = nil
@@ -1101,13 +1165,16 @@ extension DocExperienceViewModel {
               !isConnectingGoogleDocs else {
             return
         }
+        let requestId = UUID()
+        googleConnectRequestId = requestId
         isConnectingGoogleDocs = true
         googleConnectErrorMessage = nil
-        Task { @MainActor [weak self] in
+        googleConnectTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let selection = AbilitiesServices.selection
                 let catalog = try await selection.service.fetchCatalog()
+                try ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
                 guard let ability = catalog.abilities.first(where: {
                     $0.id == DocGoogleConnectionChain.abilityId
                 }) else {
@@ -1120,18 +1187,24 @@ extension DocExperienceViewModel {
                     entitlementIsActive: ability.entitlement?.status == .active,
                     bundleIds: bundleIds,
                     beginEntitlement: {
-                        try await selection.service.beginEntitlement(abilityId: DocGoogleConnectionChain.abilityId)
+                        try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
+                        return try await selection.service.beginEntitlement(
+                            abilityId: DocGoogleConnectionChain.abilityId
+                        )
                     },
                     authorize: { redirectUrl in
+                        try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
                         guard let authorizer = selection.authorizer else {
                             throw DocGoogleConnectionChain.Error.authorizationUnavailable
                         }
                         try await authorizer.authorize(redirectUrl: redirectUrl)
                     },
                     completeEntitlement: {
+                        try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
                         try await selection.service.completeEntitlement(abilityId: DocGoogleConnectionChain.abilityId)
                     },
                     extend: { bundleIds in
+                        try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
                         for agent in agents {
                             try await selection.service.extendAbility(
                                 conversationId: conversation.id,
@@ -1142,19 +1215,38 @@ extension DocExperienceViewModel {
                         }
                     }
                 )
+                try ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
                 isGoogleDocsReady = true
                 isGoogleStatusLoaded = true
                 defaults.set(true, forKey: storageKey("googleConnectHandled"))
             } catch let error as OAuthError {
+                guard googleConnectRequestId == requestId else { return }
                 if case .cancelled = error {
                     googleConnectErrorMessage = nil
                 } else {
                     googleConnectErrorMessage = error.localizedDescription
                 }
+            } catch is CancellationError {
+                return
             } catch {
+                guard googleConnectRequestId == requestId else { return }
                 googleConnectErrorMessage = error.localizedDescription
             }
+            guard googleConnectRequestId == requestId else { return }
             isConnectingGoogleDocs = false
+            googleConnectRequestId = nil
+            googleConnectTask = nil
+        }
+    }
+
+    private func ensureGoogleConnectRequestIsCurrent(
+        _ requestId: UUID,
+        conversationId: String
+    ) throws {
+        guard !Task.isCancelled,
+              googleConnectRequestId == requestId,
+              googleConnectConversation?.id == conversationId else {
+            throw CancellationError()
         }
     }
 }
@@ -1303,9 +1395,8 @@ extension DocExperienceViewModel {
             replayFirstRun: false,
             notify: false
         )
-        resetRuntimeState(preservingWelcome: true)
-        agentStartupState = .preparing
-        scheduleAgentStartupTimeout()
+        resetRuntimeState(preservingWelcome: true, invalidatesStartup: false)
+        markAgentStartupProgress()
         return DocModeConvergenceResult(
             conversationId: nil,
             canStart: true,
@@ -1474,21 +1565,34 @@ extension DocExperienceViewModel {
         }
     }
 
+    private func markAgentStartupProgress(restartsFailedAttempt: Bool = false) {
+        if case .failed = agentStartupState, !restartsFailedAttempt {
+            return
+        }
+        agentStartupProgressRevision &+= 1
+        agentStartupState = .preparing
+        scheduleAgentStartupTimeout()
+    }
+
     private func scheduleAgentStartupTimeout() {
         agentStartupTimeoutTask?.cancel()
+        let scheduledProgressRevision = agentStartupProgressRevision
         agentStartupTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: DocAgentStartupTimeoutPolicy.deadline)
             guard !Task.isCancelled,
                   let self else {
                 return
             }
-            let provisioningOrRebindIsActive = isStartingAgent ||
-                conversationViewModel != nil ||
-                agentDmSession != nil
+            let startupWorkMadeProgress = agentStartupProgressRevision != scheduledProgressRevision
             guard DocAgentStartupTimeoutPolicy.shouldFail(
                 dmIsReady: dmViewModel != nil,
-                provisioningOrRebindIsActive: provisioningOrRebindIsActive
-            ) else { return }
+                startupWorkMadeProgress: startupWorkMadeProgress
+            ) else {
+                if startupWorkMadeProgress {
+                    scheduleAgentStartupTimeout()
+                }
+                return
+            }
             failAgentStartup("Doc is taking too long to start. Try again.")
         }
     }
@@ -1499,12 +1603,22 @@ extension DocExperienceViewModel {
         agentStartupState = .failed(message)
     }
 
-    private func resetRuntimeState(preservingWelcome: Bool = false) {
+    private func resetRuntimeState(
+        preservingWelcome: Bool = false,
+        invalidatesStartup: Bool = true
+    ) {
         let completedWelcome = hasCompletedWelcome
+        if invalidatesStartup {
+            startupGeneration &+= 1
+            isStartingAgent = false
+        }
         docMessageAggregator?.stop()
         docMessageAggregator = nil
         googleStatusTask?.cancel()
         googleStatusTask = nil
+        googleConnectTask?.cancel()
+        googleConnectTask = nil
+        googleConnectRequestId = nil
         observedDmConversationId = nil
         observedDocAgentInboxId = nil
         conversationViewModel = nil
@@ -1519,12 +1633,16 @@ extension DocExperienceViewModel {
         pendingScreenshotCount = 0
         isGoogleStatusLoaded = false
         isGoogleDocsReady = false
+        isConnectingGoogleDocs = false
+        googleConnectErrorMessage = nil
         isPresentingGoogleConnect = false
         isPresentingHistory = false
         isPresentingShareNumber = false
         isPresentingShareDoc = false
         presentedDraftItem = nil
+        presentedDraftComposerScope = nil
         activeAnswerItemId = nil
+        composerFocusRequest = nil
         sharedDocNumber = nil
         sharedDocText = nil
         docLaneProvisionTasks.values.forEach { $0.cancel() }

@@ -58,7 +58,7 @@ struct DocVerifyNumberItemCard: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Label {
-                Text("I go by @doc · \(verificationLineNumber)")
+                Text("@doc · \(verificationLineNumber)")
                     .font(.subheadline.weight(.semibold).monospacedDigit())
             } icon: {
                 Image(systemName: "message.fill")

@@ -30,7 +30,7 @@ struct DocFeedbackFlowTests {
     @Test("Doc number copy excludes the share message")
     func docNumberCopyExcludesShareMessage() {
         let number = "+14155550100"
-        UIPasteboard.general.string = "I go by @doc at \(number)"
+        UIPasteboard.general.string = "Doc at \(number)"
 
         DocCopyNumberActivity.copy(number: number)
 
@@ -95,6 +95,14 @@ struct DocFeedbackFlowTests {
     @Test("Doc composer fork includes the History action")
     func composerForkIncludesHistory() {
         #expect(DocComposerBar.renderedActionKinds == [.history, .photos, .send])
+    }
+
+    @Test("compact relative time clamps extreme finite dates")
+    func compactRelativeTimeClampsExtremeFiniteDates() {
+        let now = Date(timeIntervalSince1970: 1)
+        let distantPast = Date(timeIntervalSince1970: -Double.greatestFiniteMagnitude)
+
+        #expect(docCompactRelativeTime(from: distantPast, relativeTo: now).hasSuffix("d"))
     }
 
     @Test("lane sentinel is emitted only once per document")

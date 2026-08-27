@@ -14,7 +14,7 @@ Secondary participants are the other group members, who never touch this app: th
 
 ## Product Purpose
 
-Doc turns an iMessage group thread into a living Google Doc. In this app, the organizer feeds the agent screenshots or pasted text from a thread (via the agent DM); the agent creates and maintains the summary document. Optionally, the group adds Doc's phone number to the iMessage thread, after which the doc stays current automatically and anyone can contribute by text.
+Doc turns an iMessage group thread into a Google Doc that stays current. In this app, the organizer feeds the agent screenshots or pasted text from a thread (via the agent DM); the agent creates and maintains the summary document. Optionally, the group adds Doc's phone number to the iMessage thread, after which the doc stays current automatically and anyone can contribute by text.
 
 This repository is the iOS app — the organizer's only surface. The product direction is committed: the Convos app becomes Doc's app. Success for the current phase is a working end-to-end preview; a durable success metric is an open decision.
 
@@ -51,7 +51,7 @@ Doc's agent is a native member of the group's *existing* iMessage thread — blu
 - **iMessage as the wedge** is committed: native membership in existing groups is the defining mechanism, not one channel among many.
 - **Google Docs as the artifact** is committed: the user owns the output in their own account.
 - The app currently ships Convos branding; whether and how it rebrands to Doc is an open decision.
-- **Voice (forming, Saul-pinned 2026-08-26):** the phrase "living doc" is banned in all product copy — say "doc". The agent speaks in first person, casual: the home number CTA reads "I go by @doc"; the first share to a group is exactly "here's a doc for us (link)" (sent by the agent when @doc is in the chat, by the organizer's share sheet otherwise); subsequent group notices are "updated the doc with <~8 words max> (link)".
+- **Voice (forming, Saul-pinned 2026-08-26):** the phrase "living doc" is banned in all product copy — say "doc". The contact card identifies @doc with its number without a redundant tagline; the first share to a group is exactly "here's a doc for us (link)" (sent by the agent when @doc is in the chat, by the organizer's share sheet otherwise); subsequent group notices are "updated the doc with <~8 words max> (link)".
 - **Standing visual preference (2026-08-26, revised same day):** Doc's app UI keeps the iOS category-standard structure at **Flighty's** craft level, but is styled with the **incumbent Convos design system** — the app's own tokens, colors, type treatments, and shared components — as much as possible, per Saul's correction that raw system-blue native styling "looks clunky." System-blue-everything is superseded; the Convos component library is the styling authority. The dev-preview Doc build hides legacy Convos conversations from the UI (their data still feeds the state parser).
 
 ## Evidence on Hand

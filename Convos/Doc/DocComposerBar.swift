@@ -94,6 +94,9 @@ struct DocComposerBar: View {
         .onChange(of: selectedPhotos) { _, photos in
             load(photos)
         }
+        .onChange(of: viewModel.composerFocusRequest?.id) { _, _ in
+            focusComposerIfRequested()
+        }
     }
 
     @ViewBuilder
@@ -235,6 +238,18 @@ struct DocComposerBar: View {
             if sent {
                 focusState = .message
             }
+        }
+    }
+
+    private func focusComposerIfRequested() {
+        guard let request = viewModel.composerFocusRequest,
+              request.scope == scope else {
+            return
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard viewModel.composerFocusRequest?.id == request.id else { return }
+            focusState = .message
         }
     }
 

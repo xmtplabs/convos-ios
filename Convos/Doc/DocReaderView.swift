@@ -11,6 +11,7 @@ struct DocReaderView: View {
     @State private var question: String = ""
     @State private var isSending: Bool = false
     @State private var didFailToSend: Bool = false
+    @State private var activeSendId: UUID?
 
     private var doc: DocStatus {
         viewModel.currentDoc(for: initialDoc.id, fallback: initialDoc)
@@ -26,7 +27,9 @@ struct DocReaderView: View {
                 if let content {
                     ScrollView {
                         NativeSelectableMarkdown(markdown: content.markdown) { excerpt in
+                            activeSendId = nil
                             selectedExcerpt = excerpt
+                            isSending = false
                             didFailToSend = false
                         }
                         .frame(maxWidth: 680.0)
@@ -92,14 +95,18 @@ struct DocReaderView: View {
     }
 
     private func clearSelection() {
+        activeSendId = nil
         selectedExcerpt = nil
         question = ""
+        isSending = false
         didFailToSend = false
     }
 
     private func sendQuestion() {
         let cleanQuestion = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let selectedExcerpt, !cleanQuestion.isEmpty, !isSending else { return }
+        let sendId = UUID()
+        activeSendId = sendId
         isSending = true
         didFailToSend = false
         Task { @MainActor in
@@ -108,12 +115,13 @@ struct DocReaderView: View {
                 excerpt: selectedExcerpt,
                 for: doc
             )
+            guard activeSendId == sendId else { return }
             if sent {
                 clearSelection()
             } else {
                 didFailToSend = true
+                isSending = false
             }
-            isSending = false
         }
     }
 }

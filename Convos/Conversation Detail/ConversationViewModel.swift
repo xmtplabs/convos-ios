@@ -3687,10 +3687,15 @@ extension ConversationViewModel {
     /// Sends a Doc composer draft without borrowing the transcript composer's
     /// staged text or attachments. Home and individual rooms can therefore
     /// keep independent catch-up drafts while sharing the same agent DM.
-    func sendDocComposerDraft(text: String?, photos: [UIImage]) async throws {
+    func sendDocComposerDraft(
+        text: String?,
+        photos: [UIImage],
+        onPhotoSent: (Int) -> Void
+    ) async throws {
         let messageWriter = cachedMessageWriter
-        for photo in photos {
+        for (index, photo) in photos.enumerated() {
             try await messageWriter.send(image: photo)
+            onPhotoSent(index)
         }
         if let text, !text.isEmpty {
             try await messageWriter.send(text: text)

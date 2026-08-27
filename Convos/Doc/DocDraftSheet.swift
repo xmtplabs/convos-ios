@@ -6,22 +6,26 @@ struct DocDraftSheet: View {
     let item: DocWaitingItem
     let startsEdited: Bool
     let isEnabled: Bool
+    let onChatAboutThis: () -> Void
     let onAnswer: (DocAnswer) -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
     @State private var editedSource: String
+    @State private var isEditorFocused: Bool = false
     private let originalSource: String
 
     init(
         item: DocWaitingItem,
         startsEdited: Bool = false,
         isEnabled: Bool,
+        onChatAboutThis: @escaping () -> Void,
         onAnswer: @escaping (DocAnswer) -> Void
     ) {
         self.item = item
         self.startsEdited = startsEdited
         self.isEnabled = isEnabled
+        self.onChatAboutThis = onChatAboutThis
         self.onAnswer = onAnswer
         let original = item.draft?.text ?? ""
         let startingMarkdown = startsEdited ? original + "\n- Dinner: Friday at 7 PM" : original
@@ -31,31 +35,32 @@ struct DocDraftSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-                if let anchor = item.draft?.anchor {
-                    Label(anchor, systemImage: "text.book.closed")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.colorTextSecondary)
-                        .padding(.horizontal, DesignConstants.Spacing.step3x)
-                        .frame(minHeight: 28.0)
-                        .background(.colorFillMinimal, in: Capsule())
+            ScrollView {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                    if let anchor = item.draft?.anchor {
+                        Label(anchor, systemImage: "text.book.closed")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.colorTextSecondary)
+                            .padding(.horizontal, DesignConstants.Spacing.step3x)
+                            .frame(minHeight: 28.0)
+                            .background(.colorFillMinimal, in: Capsule())
+                    }
+
+                    if dynamicTypeSize.isAccessibilitySize, !isEditorFocused {
+                        Label("Tap to edit draft", systemImage: "pencil")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.colorTextSecondary)
+                    }
+
+                    editor
+
+                    actionButtons
+                    autoApprovePlaceholder
                 }
-
-                DocEditableMarkdownView(source: $editedSource)
-                    .padding(DesignConstants.Spacing.step2x)
-                    .background(
-                        Color.colorBackgroundRaisedSecondary,
-                        in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
-                    )
-                    .accessibilityLabel("Draft text")
-                    .accessibilityHint("Editable formatted draft")
-                    .accessibilityIdentifier("doc-draft-editor")
-
-                actionButtons
+                .padding(DesignConstants.Spacing.step4x)
+                .frame(maxWidth: 680.0)
+                .frame(maxWidth: .infinity)
             }
-            .padding(DesignConstants.Spacing.step4x)
-            .frame(maxWidth: 680.0)
-            .frame(maxWidth: .infinity)
             .background(Color.colorBackgroundSurfaceless)
             .navigationTitle(item.headline)
             .navigationBarTitleDisplayMode(.inline)
@@ -64,21 +69,60 @@ struct DocDraftSheet: View {
         .accessibilityIdentifier("doc-draft-sheet")
     }
 
+    private var editor: some View {
+        ZStack(alignment: .bottomTrailing) {
+            DocEditableMarkdownView(source: $editedSource, isFocused: $isEditorFocused)
+
+            if !dynamicTypeSize.isAccessibilitySize, !isEditorFocused {
+                Label("Tap to edit", systemImage: "pencil")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.colorTextSecondary)
+                    .padding(.horizontal, DesignConstants.Spacing.step2x)
+                    .frame(minHeight: 28.0)
+                    .background(.colorFillMinimal, in: Capsule())
+                    .padding(DesignConstants.Spacing.step2x)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(DesignConstants.Spacing.step2x)
+        .background(
+            Color.colorBackgroundRaisedSecondary,
+            in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
+                .stroke(
+                    isEditorFocused ? Color.colorLava : Color.colorBorderSubtle2,
+                    lineWidth: isEditorFocused ? 2.0 : 1.0
+                )
+        }
+        .animation(.easeOut(duration: 0.15), value: isEditorFocused)
+        .frame(minHeight: dynamicTypeSize.isAccessibilitySize ? 280.0 : 340.0)
+        .accessibilityLabel("Draft text")
+        .accessibilityHint(isEditorFocused ? "Editing formatted draft" : "Tap to edit the formatted draft")
+        .accessibilityIdentifier("doc-draft-editor")
+    }
+
     private var cleanText: String {
         editedSource.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @ViewBuilder
     private var actionButtons: some View {
-        if dynamicTypeSize.isAccessibilitySize {
-            VStack(spacing: DesignConstants.Spacing.step3x) {
-                approveButton
-                discardButton
-            }
-        } else {
-            HStack(spacing: DesignConstants.Spacing.step3x) {
-                discardButton
-                approveButton
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            approveButton
+
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: DesignConstants.Spacing.step2x) {
+                    chatAboutThisButton
+                    discardButton
+                }
+            } else {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    chatAboutThisButton
+                    discardButton
+                }
             }
         }
     }
@@ -87,9 +131,28 @@ struct DocDraftSheet: View {
         Button("Discard", role: .destructive) {
             answer(.action(.discard, edited: nil))
         }
+        .convosButtonStyle(.text)
+        .frame(minHeight: 44.0)
+        .disabled(!isEnabled)
+        .accessibilityIdentifier("doc-draft-discard")
+    }
+
+    private var chatAboutThisButton: some View {
+        Button {
+            onChatAboutThis()
+            dismiss()
+        } label: {
+            if dynamicTypeSize.isAccessibilitySize {
+                Text("Chat about this")
+            } else {
+                Label("Chat about this", systemImage: "bubble.left")
+            }
+        }
         .convosButtonStyle(.outline(fullWidth: true))
         .frame(maxWidth: .infinity, minHeight: 44.0)
         .disabled(!isEnabled)
+        .accessibilityHint("Prefills a message to Doc and keeps this draft open")
+        .accessibilityIdentifier("doc-draft-chat")
     }
 
     private var approveButton: some View {
@@ -102,6 +165,43 @@ struct DocDraftSheet: View {
         .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
         .frame(maxWidth: .infinity, minHeight: 44.0)
         .disabled(!isEnabled || cleanText.isEmpty)
+        .accessibilityIdentifier("doc-draft-approve")
+    }
+
+    private var autoApprovePlaceholder: some View {
+        Button {} label: {
+            Group {
+                if dynamicTypeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                        HStack(alignment: .firstTextBaseline, spacing: DesignConstants.Spacing.step2x) {
+                            Image(systemName: "wand.and.sparkles")
+                            Text("Auto-approve edits")
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Text("Coming soon")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    HStack(spacing: DesignConstants.Spacing.step3x) {
+                        Label("Auto-approve edits", systemImage: "wand.and.sparkles")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("Coming soon")
+                            .font(.caption.weight(.semibold))
+                    }
+                }
+            }
+            .font(.subheadline)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .frame(minHeight: 44.0)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.colorTextSecondary)
+        .background(.colorFillMinimal, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
+        .disabled(true)
+        .accessibilityLabel("Auto-approve edits, coming soon")
+        .accessibilityIdentifier("doc-draft-auto-approve")
     }
 
     private func answer(_ answer: DocAnswer) {
@@ -117,11 +217,31 @@ enum DocDraftSubmission {
     }
 }
 
+enum DocDraftFeedbackPrompt {
+    static func message(draftSource: String, docName: String) -> String {
+        let normalized = draftSource
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .replacingOccurrences(of: "\"", with: "”")
+        let maximumLength = 72
+        let excerpt: String
+        if normalized.count <= maximumLength {
+            excerpt = normalized
+        } else {
+            let prefix = String(normalized.prefix(maximumLength - 1))
+            let wordBoundary = prefix.lastIndex(of: " ") ?? prefix.endIndex
+            excerpt = prefix[..<wordBoundary].trimmingCharacters(in: .whitespaces) + "…"
+        }
+        return "Re \"\(excerpt)\" in \(docName): "
+    }
+}
+
 private struct DocEditableMarkdownView: UIViewRepresentable {
     @Binding var source: String
+    @Binding var isFocused: Bool
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(source: $source)
+        Coordinator(source: $source, isFocused: $isFocused)
     }
 
     func makeUIView(context: Context) -> UITextView {
@@ -131,7 +251,7 @@ private struct DocEditableMarkdownView: UIViewRepresentable {
         textView.backgroundColor = .clear
         textView.adjustsFontForContentSizeCategory = true
         textView.keyboardDismissMode = .interactive
-        textView.textContainerInset = UIEdgeInsets(top: 8.0, left: 8.0, bottom: 8.0, right: 8.0)
+        textView.textContainerInset = UIEdgeInsets(top: 8.0, left: 8.0, bottom: 44.0, right: 8.0)
         textView.textContainer.lineFragmentPadding = 0
         textView.typingAttributes = DocDraftMarkdown.bodyAttributes
         textView.accessibilityLabel = "Draft text"
@@ -145,10 +265,20 @@ private struct DocEditableMarkdownView: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextViewDelegate {
         @Binding private var source: String
+        @Binding private var isFocused: Bool
         private var isApplyingUpdate: Bool = false
 
-        init(source: Binding<String>) {
+        init(source: Binding<String>, isFocused: Binding<Bool>) {
             _source = source
+            _isFocused = isFocused
+        }
+
+        func textViewDidBeginEditing(_ textView: UITextView) {
+            isFocused = true
+        }
+
+        func textViewDidEndEditing(_ textView: UITextView) {
+            isFocused = false
         }
 
         func textViewDidChange(_ textView: UITextView) {

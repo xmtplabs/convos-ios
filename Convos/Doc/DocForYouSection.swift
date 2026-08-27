@@ -103,7 +103,7 @@ struct DocForYouSection: View {
                 item: item,
                 sendState: viewModel.sendState(for: item),
                 isEnabled: viewModel.isDmReadyForDisplay,
-                onOpen: { viewModel.presentDraft(item) },
+                onOpen: { viewModel.presentDraft(item, composerScope: composerScope) },
                 onAnswer: { viewModel.sendAnswer($0, for: item) },
                 onRetry: { viewModel.retryAnswer(for: item) }
             )

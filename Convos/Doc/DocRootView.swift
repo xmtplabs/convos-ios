@@ -72,10 +72,17 @@ struct DocRootView: View {
             DocDraftSheet(
                 item: item,
                 startsEdited: [.draftSheet, .finishDraft].contains(viewModel.previewStage),
-                isEnabled: viewModel.isDmReadyForDisplay && viewModel.sendState(for: item) == nil
-            ) { answer in
-                viewModel.sendAnswer(answer, for: item)
-            }
+                isEnabled: viewModel.isDmReadyForDisplay && viewModel.sendState(for: item) == nil,
+                onChatAboutThis: {
+                    viewModel.prefillDraftFeedback(
+                        for: item,
+                        in: viewModel.presentedDraftComposerScope ?? .home
+                    )
+                },
+                onAnswer: { answer in
+                    viewModel.sendAnswer(answer, for: item)
+                }
+            )
         }
         .sheet(isPresented: $isPresentingSettings) {
             AppSettingsView(
@@ -87,11 +94,12 @@ struct DocRootView: View {
             )
         }
         .sheet(isPresented: $viewModel.isPresentingHistory) {
-            if let conversationViewModel = viewModel.conversationViewModel {
+            if let conversationViewModel = viewModel.conversationViewModel,
+               let agentInboxId = viewModel.agentInboxId {
                 NewConversationView(
                     viewModel: conversationViewModel,
                     profileSettingsViewModel: profileSettingsViewModel,
-                    initialAgentDmInboxId: viewModel.agentInboxId
+                    initialAgentDmInboxId: agentInboxId
                 )
             } else {
                 ContentUnavailableView(
@@ -467,9 +475,6 @@ private struct DocContributionLine: View {
                 .foregroundStyle(.colorTextPrimary)
             Text(docDisplayPhoneNumber(number))
                 .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.colorTextSecondary)
-            Text("I go by @doc")
-                .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
