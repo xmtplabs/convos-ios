@@ -20,6 +20,14 @@ public struct CloudConnectionGrantEntry: Codable, Sendable, Hashable {
     public let composioEntityId: String
     public let composioConnectionId: String
     public let grantedAt: String              // ISO8601
+    /// Which conversation the grant scopes to. Additive (2026-08), for
+    /// wire-contract parity with Android: the runtime matches grants
+    /// without a conversation filter today, and this field is what lets
+    /// it grow one in a single server deploy covering both platforms.
+    /// Optional because entries written by older clients don't carry it;
+    /// readers must treat absence as "conversation unknown", never as
+    /// "applies everywhere".
+    public let conversationId: String?
 
     public init(
         id: String,
@@ -30,7 +38,8 @@ public struct CloudConnectionGrantEntry: Codable, Sendable, Hashable {
         scope: String = "conversation",
         composioEntityId: String,
         composioConnectionId: String,
-        grantedAt: String
+        grantedAt: String,
+        conversationId: String? = nil
     ) {
         self.id = id
         self.senderId = senderId
@@ -41,6 +50,7 @@ public struct CloudConnectionGrantEntry: Codable, Sendable, Hashable {
         self.composioEntityId = composioEntityId
         self.composioConnectionId = composioConnectionId
         self.grantedAt = grantedAt
+        self.conversationId = conversationId
     }
 }
 

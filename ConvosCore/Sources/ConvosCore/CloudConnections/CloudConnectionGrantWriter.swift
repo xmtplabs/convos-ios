@@ -576,8 +576,11 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         let iso8601 = ISO8601DateFormatter()
         let entries: [CloudConnectionGrantEntry] = desiredGrants.compactMap { grant in
             guard let conn = connectionsById[grant.connectionId] else { return nil }
+            // Both built from the grant's OWN conversation id, not the
+            // ambient one: with the per-conversation projection they are
+            // always equal, but the entry describes the grant.
             return CloudConnectionGrantEntry(
-                id: "grant_\(grant.connectionId)_\(conversationId)_\(grant.grantedToInboxId)",
+                id: "grant_\(grant.connectionId)_\(grant.conversationId)_\(grant.grantedToInboxId)",
                 senderId: senderId,
                 grantedToInboxId: grant.grantedToInboxId,
                 service: conn.serviceId,
@@ -585,7 +588,8 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
                 scope: "conversation",
                 composioEntityId: conn.composioEntityId,
                 composioConnectionId: conn.composioConnectionId,
-                grantedAt: iso8601.string(from: grant.grantedAt)
+                grantedAt: iso8601.string(from: grant.grantedAt),
+                conversationId: grant.conversationId
             )
         }
 
