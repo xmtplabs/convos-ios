@@ -23,6 +23,16 @@ public extension Notification.Name {
 actor DefaultConversationAgentCoordinator {
     private var provisionTasks: [String: Task<Void, Never>] = [:]
     private var joinKeys: [String: ConvosAPI.JoinIdempotencyKey] = [:]
+    private let defaults: UserDefaults
+
+    init(defaultsSuiteName: String? = nil) {
+        if let defaultsSuiteName,
+           let suiteDefaults = UserDefaults(suiteName: defaultsSuiteName) {
+            defaults = suiteDefaults
+        } else {
+            defaults = .standard
+        }
+    }
 
     /// Returns the in-flight (or completed) provision task for the
     /// conversation, creating it from `operation` on first call. Callers await
@@ -54,14 +64,22 @@ actor DefaultConversationAgentCoordinator {
     }
 
     /// The idempotency key for the conversation's current logical join,
-    /// minted on first use and stable across retries so the backend adopts
-    /// the in-flight instance instead of provisioning a duplicate.
+    /// minted on first use and stable across retries and relaunches so the
+    /// backend adopts the in-flight instance instead of provisioning a
+    /// duplicate.
     func joinKey(for conversationId: String) -> ConvosAPI.JoinIdempotencyKey {
         if let existing = joinKeys[conversationId] {
             return existing
         }
+        let storageKey = joinKeyStorageKey(for: conversationId)
+        if let rawValue = defaults.string(forKey: storageKey),
+           let persisted = ConvosAPI.JoinIdempotencyKey(rawValue: rawValue) {
+            joinKeys[conversationId] = persisted
+            return persisted
+        }
         let key = ConvosAPI.JoinIdempotencyKey.mint()
         joinKeys[conversationId] = key
+        defaults.set(key.rawValue, forKey: storageKey)
         return key
     }
 
@@ -70,6 +88,15 @@ actor DefaultConversationAgentCoordinator {
     /// old key, so reusing it can only fail again.
     func clearJoinKey(for conversationId: String) {
         joinKeys[conversationId] = nil
+        defaults.removeObject(forKey: joinKeyStorageKey(for: conversationId))
+    }
+
+    private func joinKeyStorageKey(for conversationId: String) -> String {
+        "\(Constant.joinKeyPrefix).\(conversationId.lowercased())"
+    }
+
+    private enum Constant {
+        static let joinKeyPrefix: String = "defaultAgentJoinKey.v1"
     }
 }
 
@@ -168,6 +195,7 @@ extension SessionManager {
                 // Nothing is in flight, so nothing should read as in flight.
                 // Leaving the task cached is what pinned the Agent tab in its
                 // "preparing" state until the app relaunched.
+                await defaultAgentCoordinator.clearJoinKey(for: conversationId)
                 await defaultAgentCoordinator.clearProvisionTask(for: conversationId)
                 return
             }
@@ -195,7 +223,9 @@ extension SessionManager {
                     ownerProfileName: ownerProfileName
                 )
             }
-            await defaultAgentCoordinator.clearJoinKey(for: conversationId)
+            if response.joined {
+                await defaultAgentCoordinator.clearJoinKey(for: conversationId)
+            }
             monitorDefaultAgentJoinCompletion(
                 response: response,
                 conversationId: conversationId,
@@ -247,6 +277,7 @@ extension SessionManager {
                     instanceId: instanceId,
                     variantId: variantId
                 )
+                await defaultAgentCoordinator.clearJoinKey(for: conversationId)
             } catch is CancellationError {
                 return
             } catch {

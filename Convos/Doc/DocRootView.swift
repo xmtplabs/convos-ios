@@ -33,7 +33,7 @@ struct DocRootView: View {
         rootContentWithFirstRunDebugAccess
         .tint(.colorLava)
         .animation(firstRunAnimation, value: viewModel.firstRunStep)
-        .task(id: viewModel.hasCompletedWelcome) {
+        .task(id: viewModel.agentStartupRequestRevision) {
             await viewModel.startAgentIfNeeded()
         }
         .task(id: viewModel.agentBindingKey) {
@@ -119,6 +119,11 @@ struct DocRootView: View {
             DocTranscriptChromePreview()
         } else {
             switch viewModel.firstRunStep {
+            case .prepareAgent:
+                DocAgentLoadingView(
+                    state: viewModel.agentPreparationState,
+                    onRetry: viewModel.retryAgentStartup
+                )
             case .welcome:
                 DocWelcomeView(onContinue: viewModel.completeWelcome)
             case .verify:

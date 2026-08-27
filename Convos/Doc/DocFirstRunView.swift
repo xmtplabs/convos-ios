@@ -4,6 +4,7 @@ import SwiftUI
 import UIKit
 
 enum DocFirstRunStep: Equatable {
+    case prepareAgent
     case welcome
     case verify
     case sayHello
@@ -13,6 +14,7 @@ enum DocFirstRunStep: Equatable {
 
 enum DocFirstRunReducer {
     static func step(
+        agentIsReady: Bool,
         hasCompletedWelcome: Bool,
         hasCompletedFirstRun: Bool,
         hasVerifiedNumber: Bool,
@@ -20,11 +22,62 @@ enum DocFirstRunReducer {
         hasGrantedGoogleDocs: Bool
     ) -> DocFirstRunStep {
         if hasCompletedFirstRun { return .home }
+        if !agentIsReady { return .prepareAgent }
         if !hasCompletedWelcome { return .welcome }
         if !hasVerifiedNumber { return .verify }
         if !hasCompletedVerificationHello { return .sayHello }
         if !hasGrantedGoogleDocs { return .connectGoogle }
         return .home
+    }
+}
+
+struct DocAgentLoadingView: View {
+    let state: DocAgentStartupSurfaceState
+    let onRetry: () -> Void
+
+    var body: some View {
+        DocFirstRunScaffold(
+            systemImage: "doc.text.fill",
+            title: "Getting Doc ready…",
+            message: "Opening your private chat."
+        ) {
+            details
+        } action: {
+            action
+        }
+        .accessibilityIdentifier("doc-agent-loading")
+    }
+
+    @ViewBuilder
+    private var details: some View {
+        switch state {
+        case .preparing, .ready:
+            ProgressView()
+                .controlSize(.large)
+                .tint(.colorLava)
+                .accessibilityLabel("Getting Doc ready")
+                .accessibilityIdentifier("doc-agent-loading-progress")
+        case .failed(let message):
+            Text(message)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.red)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("doc-agent-loading-error")
+        }
+    }
+
+    @ViewBuilder
+    private var action: some View {
+        switch state {
+        case .preparing, .ready:
+            EmptyView()
+        case .failed:
+            Button("Try again", action: onRetry)
+                .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
+                .frame(minHeight: 44.0)
+                .accessibilityIdentifier("doc-agent-loading-retry")
+        }
     }
 }
 

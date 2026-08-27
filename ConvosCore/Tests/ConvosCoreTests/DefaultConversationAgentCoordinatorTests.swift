@@ -1,4 +1,5 @@
 @testable import ConvosCore
+import Foundation
 import Testing
 
 /// The bookkeeping behind "every conversation gets a silent default agent":
@@ -56,16 +57,24 @@ struct DefaultConversationAgentCoordinatorTests {
         #expect(await counter.count == 2)
     }
 
-    @Test("The join key is stable across retries and re-minted after it is cleared")
-    func joinKeyIsStableUntilCleared() async {
-        let coordinator = DefaultConversationAgentCoordinator()
+    @Test("The join key is stable across retries and relaunches, then re-minted after it is cleared")
+    func joinKeyIsStableUntilCleared() async throws {
+        let suiteName = "DefaultConversationAgentCoordinatorTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = DefaultConversationAgentCoordinator(defaultsSuiteName: suiteName)
 
         let first = await coordinator.joinKey(for: "conv-1")
         let second = await coordinator.joinKey(for: "conv-1")
         #expect(first == second, "Retries reuse the key so the backend adopts the in-flight instance")
 
-        await coordinator.clearJoinKey(for: "conv-1")
-        let third = await coordinator.joinKey(for: "conv-1")
+        let relaunched = DefaultConversationAgentCoordinator(defaultsSuiteName: suiteName)
+        let restored = await relaunched.joinKey(for: "conv-1")
+        #expect(restored == first)
+
+        await relaunched.clearJoinKey(for: "conv-1")
+        let restarted = DefaultConversationAgentCoordinator(defaultsSuiteName: suiteName)
+        let third = await restarted.joinKey(for: "conv-1")
         #expect(third != first)
     }
 }

@@ -121,10 +121,6 @@ struct DocItemReconcilerTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let session = MockInboxesService()
-        defaults.set(
-            true,
-            forKey: DocExperienceViewModel.storageKey("welcome", session: session)
-        )
         let wasDocModeEnabled = FeatureFlags.shared.isDocModeEnabled
         FeatureFlags.shared.isDocModeEnabled = false
         defer { FeatureFlags.shared.isDocModeEnabled = wasDocModeEnabled }
@@ -134,6 +130,8 @@ struct DocItemReconcilerTests {
             defaults: defaults
         )
 
+        #expect(viewModel.firstRunStep == .prepareAgent)
+        #expect(!viewModel.hasCompletedWelcome)
         await viewModel.startAgentIfNeeded()
         let firstWrapper = try #require(viewModel.conversationViewModel)
 
@@ -142,9 +140,9 @@ struct DocItemReconcilerTests {
 
         #expect(viewModel.conversationViewModel == nil)
         #expect(viewModel.agentStartupState == .idle)
-        #expect(viewModel.firstRunStep == .welcome)
+        #expect(viewModel.firstRunStep == .prepareAgent)
 
-        viewModel.completeWelcome()
+        await viewModel.startAgentIfNeeded()
         for _ in 0..<20 where viewModel.conversationViewModel == nil {
             try await Task.sleep(for: .milliseconds(10))
         }

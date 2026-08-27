@@ -8,6 +8,15 @@ struct DocControlViewModelTests {
     @Test("first-run reducer sequences and skips completed control steps")
     func firstRunReducerSequence() {
         #expect(DocFirstRunReducer.step(
+            agentIsReady: false,
+            hasCompletedWelcome: false,
+            hasCompletedFirstRun: false,
+            hasVerifiedNumber: false,
+            hasCompletedVerificationHello: false,
+            hasGrantedGoogleDocs: false
+        ) == .prepareAgent)
+        #expect(DocFirstRunReducer.step(
+            agentIsReady: true,
             hasCompletedWelcome: false,
             hasCompletedFirstRun: false,
             hasVerifiedNumber: false,
@@ -15,6 +24,7 @@ struct DocControlViewModelTests {
             hasGrantedGoogleDocs: false
         ) == .welcome)
         #expect(DocFirstRunReducer.step(
+            agentIsReady: true,
             hasCompletedWelcome: true,
             hasCompletedFirstRun: false,
             hasVerifiedNumber: false,
@@ -22,6 +32,7 @@ struct DocControlViewModelTests {
             hasGrantedGoogleDocs: true
         ) == .verify)
         #expect(DocFirstRunReducer.step(
+            agentIsReady: true,
             hasCompletedWelcome: true,
             hasCompletedFirstRun: false,
             hasVerifiedNumber: true,
@@ -29,6 +40,7 @@ struct DocControlViewModelTests {
             hasGrantedGoogleDocs: false
         ) == .sayHello)
         #expect(DocFirstRunReducer.step(
+            agentIsReady: true,
             hasCompletedWelcome: true,
             hasCompletedFirstRun: false,
             hasVerifiedNumber: true,
@@ -36,6 +48,7 @@ struct DocControlViewModelTests {
             hasGrantedGoogleDocs: false
         ) == .connectGoogle)
         #expect(DocFirstRunReducer.step(
+            agentIsReady: true,
             hasCompletedWelcome: true,
             hasCompletedFirstRun: false,
             hasVerifiedNumber: true,
@@ -43,6 +56,7 @@ struct DocControlViewModelTests {
             hasGrantedGoogleDocs: true
         ) == .home)
         #expect(DocFirstRunReducer.step(
+            agentIsReady: false,
             hasCompletedWelcome: true,
             hasCompletedFirstRun: true,
             hasVerifiedNumber: false,
@@ -534,7 +548,8 @@ struct DocControlViewModelTests {
                 defaults: defaults,
                 googleConnectEnvironment: googleConnectEnvironment,
                 verificationAcknowledgmentPolicy: verificationAcknowledgmentPolicy,
-                verificationSendTarget: verificationSendTarget
+                verificationSendTarget: verificationSendTarget,
+                agentReadinessOverride: true
             )
         }
 

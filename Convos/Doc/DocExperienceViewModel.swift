@@ -283,6 +283,7 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var isStartingAgent: Bool = false
     @ObservationIgnored private var agentStartupProgressRevision: Int = 0
     @ObservationIgnored private var startupGeneration: Int = 0
+    private(set) var agentStartupRequestRevision: Int = 0
     @ObservationIgnored private var hasObservedControlEvent: Bool = false
     @ObservationIgnored private var isControlResyncInFlight: Bool = false
     @ObservationIgnored private var queuedVerificationNumber: String?
@@ -297,6 +298,7 @@ final class DocExperienceViewModel {
     @ObservationIgnored private let googleConnectEnvironment: DocGoogleConnectEnvironment?
     @ObservationIgnored private let verificationAcknowledgmentPolicy: DocVerificationAcknowledgmentPolicy
     @ObservationIgnored private let verificationSendTarget: DocVerificationSendTarget?
+    @ObservationIgnored private let agentReadinessOverride: Bool?
 
     init(
         session: any SessionManagerProtocol,
@@ -306,7 +308,8 @@ final class DocExperienceViewModel {
         answerDeliveryPolicy: DocAnswerDeliveryPolicy = .live,
         googleConnectEnvironment: DocGoogleConnectEnvironment? = nil,
         verificationAcknowledgmentPolicy: DocVerificationAcknowledgmentPolicy = .live,
-        verificationSendTarget: DocVerificationSendTarget? = nil
+        verificationSendTarget: DocVerificationSendTarget? = nil,
+        agentReadinessOverride: Bool? = nil
     ) {
         self.session = session
         self.coreActions = coreActions
@@ -316,6 +319,7 @@ final class DocExperienceViewModel {
         self.googleConnectEnvironment = googleConnectEnvironment
         self.verificationAcknowledgmentPolicy = verificationAcknowledgmentPolicy
         self.verificationSendTarget = verificationSendTarget
+        self.agentReadinessOverride = agentReadinessOverride
         self.previewStage = DocPreviewStage.current
         let initialAccountIdentifier = Self.accountIdentifier(session: session)
         self.storageAccountIdentifier = initialAccountIdentifier
@@ -435,12 +439,6 @@ final class DocExperienceViewModel {
         refreshAgentJoinDiagnostic()
     }
 
-    var docs: [DocStatus] {
-        (state?.docs ?? []).sorted { lhs, rhs in
-            lhs.updatedAt > rhs.updatedAt
-        }
-    }
-
     var firstRunStep: DocFirstRunStep {
         switch previewStage {
         case .welcome:
@@ -455,6 +453,7 @@ final class DocExperienceViewModel {
             return .home
         case nil:
             return DocFirstRunReducer.step(
+                agentIsReady: agentIsReadyForFirstRun,
                 hasCompletedWelcome: hasCompletedWelcome,
                 hasCompletedFirstRun: hasCompletedFirstRun,
                 hasVerifiedNumber: hasVerifiedNumber,
@@ -1198,6 +1197,7 @@ private extension DocExperienceViewModel {
         guard previewStage == nil,
               !hasCompletedFirstRun,
               DocFirstRunReducer.step(
+                  agentIsReady: agentIsReadyForFirstRun,
                   hasCompletedWelcome: hasCompletedWelcome,
                   hasCompletedFirstRun: false,
                   hasVerifiedNumber: hasVerifiedNumber,
@@ -1237,6 +1237,12 @@ private extension DocExperienceViewModel {
 }
 
 extension DocExperienceViewModel {
+    var docs: [DocStatus] {
+        (state?.docs ?? []).sorted { lhs, rhs in
+            lhs.updatedAt > rhs.updatedAt
+        }
+    }
+
     var isPreparingAgent: Bool {
         agentStartupState == .preparing
     }
@@ -1277,6 +1283,13 @@ extension DocExperienceViewModel {
         return .resolve(
             startupState: agentStartupState,
             dmIsReady: dmViewModel != nil || previewStage != nil
+        )
+    }
+
+    var agentPreparationState: DocAgentStartupSurfaceState {
+        .resolve(
+            startupState: agentStartupState,
+            dmIsReady: dmViewModel != nil
         )
     }
 
@@ -1368,7 +1381,6 @@ extension DocExperienceViewModel {
         guard previewStage == nil else { return }
         defaults.set(true, forKey: storageKey("welcome"))
         reconcileFirstRunCompletion()
-        Task { await startAgentIfNeeded() }
     }
 
     func requestPhoneVerification(number: String) {
@@ -1483,7 +1495,6 @@ extension DocExperienceViewModel {
 
     func startAgentIfNeeded() async {
         guard previewStage == nil,
-              hasCompletedWelcome,
               conversationViewModel == nil,
               !isStartingAgent else {
             return
@@ -1546,7 +1557,7 @@ extension DocExperienceViewModel {
         } else {
             .newConversation
         }
-        needsDeterministicAgentProvision = existingId == nil
+        needsDeterministicAgentProvision = true
         let newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: mode,
@@ -2418,6 +2429,10 @@ extension DocExperienceViewModel {
         Self.storageKey(component, accountIdentifier: storageAccountIdentifier)
     }
 
+    private var agentIsReadyForFirstRun: Bool {
+        agentReadinessOverride ?? (dmViewModel != nil || agentStartupState == .ready)
+    }
+
     private func activateAuthorizedStorage() async -> Bool {
         do {
             let result = try await session
@@ -2550,6 +2565,7 @@ extension DocExperienceViewModel {
         let completedFirstRun = hasCompletedFirstRun
         if invalidatesStartup {
             startupGeneration &+= 1
+            agentStartupRequestRevision &+= 1
             isStartingAgent = false
         }
         conversationViewModel?.onCreationFailed = nil
