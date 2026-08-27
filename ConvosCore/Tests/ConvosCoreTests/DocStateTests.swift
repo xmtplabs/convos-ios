@@ -19,6 +19,37 @@ struct DocStateTests {
         #expect(state.docs[0].shared == false)
     }
 
+    @Test("parses the current publisher's pending snapshot beside a verification item")
+    func parsesCurrentPublisherPendingSnapshot() throws {
+        let stateMessage = #"⟦doc⟧{"v":1,"t":"state","line":"+16283095734","docs":[{"id":"tahoe-trip","name":"Tahoe Trip","url":"https://docs.google.com/document/d/doc-123/edit","updatedAt":1787720400,"lastChange":{"who":"Sara","what":"created the doc","at":1787720340},"binding":{"state":"pending","number":"+16283095734","group":null},"shared":false,"dates":"Dec 12–15","people":4}]}"#
+        let itemMessage = #"⟦doc⟧{"v":1,"t":"item","item":{"id":"523e4567-e89b-42d3-a456-426614174004","register":"waiting","kind":"verify_number","headline":"Verify your phone number","context":"Send the prefilled message from your phone number.","code":"ABCD-EFGH-2345","lineNumber":"+16283095734","smsBody":"VERIFY ABCD-EFGH-2345","docId":null,"createdAt":1787720400}}"#
+
+        let state = try #require(DocStateMessage.parse(stateMessage))
+        let itemEvent = try #require(DocStateMessage.parseEvent(itemMessage))
+
+        #expect(state.line == "+16283095734")
+        #expect(state.docs.count == 1)
+        let doc = try #require(state.docs.first)
+        #expect(doc.binding.state == .pending)
+        #expect(doc.binding.number == "+16283095734")
+        guard case .item(let item) = itemEvent else {
+            Issue.record("Expected the verification item published beside the snapshot")
+            return
+        }
+        #expect(item.kind == .verifyNumber)
+    }
+
+    @Test("parses the publisher's unbound document shape")
+    func parsesCurrentPublisherUnboundSnapshot() throws {
+        let message = #"⟦doc⟧{"v":1,"t":"state","line":"+16283095734","docs":[{"id":"tahoe-trip","name":"Tahoe Trip","url":"https://docs.google.com/document/d/doc-123/edit","updatedAt":1787720400,"lastChange":{"who":"Sara","what":"created the doc","at":1787720340},"binding":{"state":"none","number":null,"group":null},"shared":false,"dates":"Dec 12–15","people":4}]}"#
+
+        let state = try #require(DocStateMessage.parse(message))
+        let doc = try #require(state.docs.first)
+
+        #expect(doc.binding.state == .none)
+        #expect(doc.binding.number.isEmpty)
+    }
+
     @Test("accepts absent and null contribution lines")
     func parsesOptionalContributionLine() throws {
         let absent = try #require(DocStateMessage.parse(#"⟦doc⟧{"v":1,"t":"state","docs":[]}"#))

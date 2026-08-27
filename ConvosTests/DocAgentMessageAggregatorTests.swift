@@ -5,6 +5,48 @@ import XCTest
 
 @MainActor
 final class DocAgentMessageAggregatorTests: XCTestCase {
+    func testCurrentPublisherStateAndVerificationItemReachHomeSnapshot() async {
+        let defaults = makeDefaults()
+        let agent = agentMember()
+        let lane = conversation(id: "primary-lane", agent: agent)
+        let stateText = #"⟦doc⟧{"v":1,"t":"state","line":"+16283095734","docs":[{"id":"tahoe-trip","name":"Tahoe Trip","url":"https://docs.google.com/document/d/doc-123/edit","updatedAt":1787720400,"lastChange":{"who":"Sara","what":"created the doc","at":1787720340},"binding":{"state":"pending","number":"+16283095734","group":null},"shared":false,"dates":"Dec 12–15","people":4}]}"#
+        let itemText = #"⟦doc⟧{"v":1,"t":"item","item":{"id":"523e4567-e89b-42d3-a456-426614174004","register":"waiting","kind":"verify_number","headline":"Verify your phone number","context":"Send the prefilled message from your phone number.","code":"ABCD-EFGH-2345","lineNumber":"+16283095734","smsBody":"VERIFY ABCD-EFGH-2345","docId":null,"createdAt":1787720401}}"#
+        let repository = TestDocMessagesRepository(
+            conversationId: lane.id,
+            messages: [
+                wireMessage(id: "publisher-state", text: stateText, date: 200, sender: agent),
+                wireMessage(id: "publisher-item", text: itemText, date: 201, sender: agent),
+            ]
+        )
+        let conversations = CurrentValueSubject<[Conversation], Never>([lane])
+        let viewModel = DocExperienceViewModel(
+            session: MockInboxesService(),
+            coreActions: NoOpCoreActions(),
+            defaults: defaults
+        )
+        let aggregator = makeAggregator(
+            conversations: conversations,
+            repositories: [lane.id: repository]
+        )
+        let snapshotArrived = expectation(description: "publisher snapshot reached home")
+        var didFulfill = false
+
+        aggregator.start(agentInboxId: agent.profile.inboxId) { messages in
+            viewModel.ingestAggregatedMessages(messages, agentInboxId: agent.profile.inboxId)
+            guard !didFulfill,
+                  viewModel.docs.map(\.id) == ["tahoe-trip"],
+                  viewModel.visiblePendingItems.map(\.kind) == [.verifyNumber] else {
+                return
+            }
+            didFulfill = true
+            snapshotArrived.fulfill()
+        }
+
+        await fulfillment(of: [snapshotArrived], timeout: 1)
+        XCTAssertEqual(viewModel.docs.first?.binding.state, .pending)
+        XCTAssertEqual(viewModel.contributionLine, "+16283095734")
+    }
+
     func testStateFromNonObservedAgentConversationReachesParserAndRenders() async {
         let defaults = makeDefaults()
         let agent = agentMember()
@@ -160,6 +202,15 @@ final class DocAgentMessageAggregatorTests: XCTestCase {
         sender: ConversationMember
     ) -> AnyMessage {
         let text = #"⟦doc⟧{"v":1,"t":"state","docs":[{"id":"trip","name":"\#(name)","url":"https://docs.google.com/document/d/1","updatedAt":\#(Int(date)),"lastChange":{"who":"Sara","what":"updated the plan","at":\#(Int(date))},"binding":{"state":"live","number":"+16285550123","group":"Trip"}}]}"#
+        return wireMessage(id: id, text: text, date: date, sender: sender)
+    }
+
+    private func wireMessage(
+        id: String,
+        text: String,
+        date: TimeInterval,
+        sender: ConversationMember
+    ) -> AnyMessage {
         return .message(
             Message(
                 id: id,

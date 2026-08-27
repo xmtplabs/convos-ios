@@ -76,6 +76,7 @@ public struct DocLastChange: Codable, Hashable, Sendable {
 public struct DocBinding: Codable, Hashable, Sendable {
     public enum State: String, Codable, Hashable, Sendable {
         case live
+        case pending
         case none
     }
 
@@ -385,11 +386,16 @@ public enum DocStateMessage {
 
         var value: DocBinding? {
             guard let state,
-                  let state = DocBinding.State(rawValue: state),
-                  let number else {
+                  let state = DocBinding.State(rawValue: state) else {
                 return nil
             }
-            return DocBinding(state: state, number: number, group: group)
+            switch state {
+            case .live, .pending:
+                guard let number, !number.isEmpty else { return nil }
+                return DocBinding(state: state, number: number, group: group)
+            case .none:
+                return DocBinding(state: state, number: number ?? "", group: group)
+            }
         }
     }
 
