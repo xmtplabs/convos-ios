@@ -28,6 +28,7 @@ struct DocPendingPhoto: Identifiable {
 
 enum DocPreviewStage: String {
     case welcome
+    case verify
     case connect
     case empty
     case cards
@@ -176,6 +177,7 @@ final class DocExperienceViewModel {
     private(set) var sharedDocNumber: String?
     private(set) var sharedDocText: String?
     var hasCompletedWelcome: Bool
+    private(set) var hasCompletedFirstRun: Bool
 
     let previewStage: DocPreviewStage?
 
@@ -229,8 +231,18 @@ final class DocExperienceViewModel {
         self.previewStage = DocPreviewStage.current
         let initialAccountIdentifier = Self.accountIdentifier(session: session)
         self.storageAccountIdentifier = initialAccountIdentifier
-        self.hasCompletedWelcome = defaults.bool(
-            forKey: Self.storageKey("welcome", accountIdentifier: initialAccountIdentifier)
+        self.hasCompletedWelcome = Self.initialWelcomeCompletion(
+            previewStage: previewStage,
+            defaults: defaults,
+            accountIdentifier: initialAccountIdentifier
+        )
+        self.hasCompletedFirstRun = defaults.bool(
+            forKey: Self.storageKey("firstRun", accountIdentifier: initialAccountIdentifier)
+        )
+        self.controlSnapshot = Self.initialControlSnapshot(
+            previewStage: previewStage,
+            defaults: defaults,
+            accountIdentifier: initialAccountIdentifier
         )
         if let data = defaults.data(
             forKey: Self.storageKey("docLanes", accountIdentifier: initialAccountIdentifier)
@@ -238,12 +250,6 @@ final class DocExperienceViewModel {
            let registry = try? JSONDecoder().decode(DocLaneRegistry.self, from: data) {
             docLaneRegistry = registry
         }
-        if let data = defaults.data(
-            forKey: Self.storageKey(Self.controlComponent, accountIdentifier: initialAccountIdentifier)
-        ) {
-            controlSnapshot = try? JSONDecoder().decode(DocControlSnapshot.self, from: data)
-        }
-
         if let previewStage,
            [
                DocPreviewStage.cards,
@@ -311,6 +317,7 @@ final class DocExperienceViewModel {
             isShowingNotDocAgentNotice = true
         }
         refreshGoogleControlState()
+        reconcileFirstRunCompletion()
 
         resetCancellable = NotificationCenter.default
             .publisher(for: .docAgentResetRequested)
@@ -329,6 +336,26 @@ final class DocExperienceViewModel {
     var docs: [DocStatus] {
         (state?.docs ?? []).sorted { lhs, rhs in
             lhs.updatedAt > rhs.updatedAt
+        }
+    }
+
+    var firstRunStep: DocFirstRunStep {
+        switch previewStage {
+        case .welcome:
+            return hasCompletedWelcome ? .verify : .welcome
+        case .verify:
+            return .verify
+        case .connect:
+            return .connectGoogle
+        case .some:
+            return .home
+        case nil:
+            return DocFirstRunReducer.step(
+                hasCompletedWelcome: hasCompletedWelcome,
+                hasCompletedFirstRun: hasCompletedFirstRun,
+                hasVerifiedNumber: hasVerifiedNumber,
+                hasGrantedGoogleDocs: hasGrantedGoogleDocs
+            )
         }
     }
 
@@ -388,9 +415,13 @@ final class DocExperienceViewModel {
     }
 
     var shouldShowGoogleConnectCard: Bool {
-        if previewStage == .connect || previewStage == .disconnected { return true }
-        guard previewStage == nil, let googleControl else { return false }
-        return googleControl.gate.status != .approved && googleControl.connection.status != .granted
+        if previewStage == .disconnected { return true }
+        guard previewStage == nil,
+              hasCompletedFirstRun,
+              let googleControl else {
+            return false
+        }
+        return googleControl.connection.status != .granted
     }
 
     var isWaitingForGoogleApproval: Bool {
@@ -399,11 +430,15 @@ final class DocExperienceViewModel {
 
     var canRequestGoogleDocs: Bool {
         guard googleControl?.gate.status != .pending,
-              googleControl?.gate.status != .approved,
               googleControl?.connection.status != .granted else {
             return false
         }
         return !isConnectingGoogleDocs
+    }
+
+    var canConnectGoogleDocs: Bool {
+        if previewStage == .connect { return true }
+        return googleConnectConversation != nil && canRequestGoogleDocs
     }
 
     var isDmReadyForDisplay: Bool {
@@ -438,6 +473,14 @@ final class DocExperienceViewModel {
 
     private var googleControl: DocControlGoogleDocs? {
         controlSnapshot?.googleDocs(ownerInboxId: storageAccountIdentifier)
+    }
+
+    private var hasVerifiedNumber: Bool {
+        controlSnapshot?.verificationsByKey.values.contains(where: { $0.status == .verified }) == true
+    }
+
+    private var hasGrantedGoogleDocs: Bool {
+        googleControl?.connection.status == .granted
     }
 
     private var originViewModel: ConversationViewModel? {
@@ -730,6 +773,7 @@ final class DocExperienceViewModel {
         if changedControlSnapshot {
             persistControlSnapshot()
             refreshGoogleControlState()
+            reconcileFirstRunCompletion()
         }
         requestControlResyncIfNeeded(agentInboxId: agentInboxId)
         updateNotDocAgentNotice()
@@ -921,10 +965,24 @@ private extension DocExperienceViewModel {
             return
         }
         isGoogleStatusLoaded = true
-        isGoogleDocsReady = googleControl.gate.status == .approved ||
-            googleControl.connection.status == .granted
+        isGoogleDocsReady = googleControl.connection.status == .granted
         isConnectingGoogleDocs = googleControl.gate.status == .pending ||
             googleConnectRequestId != nil
+    }
+
+    func reconcileFirstRunCompletion() {
+        guard previewStage == nil,
+              !hasCompletedFirstRun,
+              DocFirstRunReducer.step(
+                  hasCompletedWelcome: hasCompletedWelcome,
+                  hasCompletedFirstRun: false,
+                  hasVerifiedNumber: hasVerifiedNumber,
+                  hasGrantedGoogleDocs: hasGrantedGoogleDocs
+              ) == .home else {
+            return
+        }
+        hasCompletedFirstRun = true
+        defaults.set(true, forKey: storageKey("firstRun"))
     }
 
     func requestControlResyncIfNeeded(agentInboxId: String) {
@@ -958,11 +1016,13 @@ extension DocExperienceViewModel {
         hasCompletedWelcome = true
         guard previewStage == nil else { return }
         defaults.set(true, forKey: storageKey("welcome"))
+        reconcileFirstRunCompletion()
         Task { await startAgentIfNeeded() }
     }
 
     func startAgentIfNeeded() async {
         guard previewStage == nil,
+              hasCompletedWelcome,
               conversationViewModel == nil,
               !isStartingAgent else {
             return
@@ -974,15 +1034,13 @@ extension DocExperienceViewModel {
                 isStartingAgent = false
             }
         }
-        if hasCompletedWelcome {
-            markAgentStartupProgress()
-        }
+        markAgentStartupProgress()
         guard await activateAuthorizedStorage() else {
             guard startupGeneration == generation else { return }
             failAgentStartup("Couldn't authorize Doc. Check your connection and try again.")
             return
         }
-        guard startupGeneration == generation, hasCompletedWelcome else { return }
+        guard startupGeneration == generation else { return }
         markAgentStartupProgress()
 
         let convergence = await convergeDocModeIfNeeded(
@@ -1664,6 +1722,7 @@ extension DocExperienceViewModel {
         ]
         if replayFirstRun {
             components.append("welcome")
+            components.append("firstRun")
         }
         let accountIdentifiers = Set([
             accountIdentifier(session: session),
@@ -1701,6 +1760,7 @@ extension DocExperienceViewModel {
 
     private static let persistedComponents: [String] = [
         "welcome",
+        "firstRun",
         "originConversationId",
         "googleConnectHandled",
         "snapshot",
@@ -1715,6 +1775,31 @@ extension DocExperienceViewModel {
     private static let controlResyncMarkerComponent: String = "controlResyncSentAgentInboxId"
     private static let provisionalAccountIdentifier: String = "registering"
     private static let preserveWelcomeUserInfoKey: String = "preserveWelcome"
+
+    private static func initialWelcomeCompletion(
+        previewStage: DocPreviewStage?,
+        defaults: UserDefaults,
+        accountIdentifier: String
+    ) -> Bool {
+        guard previewStage != .welcome else { return false }
+        return defaults.bool(forKey: storageKey("welcome", accountIdentifier: accountIdentifier))
+    }
+
+    private static func initialControlSnapshot(
+        previewStage: DocPreviewStage?,
+        defaults: UserDefaults,
+        accountIdentifier: String
+    ) -> DocControlSnapshot? {
+        if let previewStage, [.welcome, .verify].contains(previewStage) {
+            return previewVerificationSnapshot
+        }
+        guard let data = defaults.data(
+            forKey: storageKey(controlComponent, accountIdentifier: accountIdentifier)
+        ) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(DocControlSnapshot.self, from: data)
+    }
 
     private func storageKey(_ component: String) -> String {
         Self.storageKey(component, accountIdentifier: storageAccountIdentifier)
@@ -1758,6 +1843,7 @@ extension DocExperienceViewModel {
 
     private func reloadPersistedState() {
         hasCompletedWelcome = defaults.bool(forKey: storageKey("welcome"))
+        hasCompletedFirstRun = defaults.bool(forKey: storageKey("firstRun"))
         if let data = defaults.data(forKey: storageKey("docLanes")),
            let registry = try? JSONDecoder().decode(DocLaneRegistry.self, from: data) {
             docLaneRegistry = registry
@@ -1794,6 +1880,7 @@ extension DocExperienceViewModel {
         if controlSnapshot != nil {
             compatibilityDetector.hasSeenDocSentinel = true
         }
+        reconcileFirstRunCompletion()
     }
 
     private func markAgentStartupProgress(restartsFailedAttempt: Bool = false) {
@@ -1839,6 +1926,7 @@ extension DocExperienceViewModel {
         invalidatesStartup: Bool = true
     ) {
         let completedWelcome = hasCompletedWelcome
+        let completedFirstRun = hasCompletedFirstRun
         if invalidatesStartup {
             startupGeneration &+= 1
             isStartingAgent = false
@@ -1887,6 +1975,7 @@ extension DocExperienceViewModel {
         hasObservedControlEvent = false
         isControlResyncInFlight = false
         hasCompletedWelcome = preservingWelcome ? completedWelcome : false
+        hasCompletedFirstRun = preservingWelcome ? completedFirstRun : false
         latestStateMessageId = nil
         stateMessageIdAtLastSend = nil
         processedEventMessageIds = []

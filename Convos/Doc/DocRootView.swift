@@ -30,43 +30,14 @@ struct DocRootView: View {
     }
 
     var body: some View {
-        Group {
-            if viewModel.previewStage == .transcript {
-                DocTranscriptChromePreview()
-            } else if viewModel.previewStage == .welcome ||
-                (viewModel.previewStage == nil && !viewModel.hasCompletedWelcome) {
-                DocWelcomeView {
-                    if reduceMotion {
-                        viewModel.completeWelcome()
-                    } else {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            viewModel.completeWelcome()
-                        }
-                    }
-                }
-            } else {
-                NavigationStack(path: $navigationPath) {
-                    DocHomeView(
-                        viewModel: viewModel,
-                        onSettings: { isPresentingSettings = true },
-                        onConnectGoogle: viewModel.connectGoogleDocs
-                    )
-                    .navigationDestination(for: DocStatus.self) { doc in
-                        DocRoomView(viewModel: viewModel, initialDoc: doc)
-                    }
-                }
-            }
-        }
+        rootContent
         .tint(.colorLava)
-        .task {
+        .animation(firstRunAnimation, value: viewModel.firstRunStep)
+        .task(id: viewModel.hasCompletedWelcome) {
             await viewModel.startAgentIfNeeded()
         }
         .task(id: viewModel.agentBindingKey) {
             await viewModel.synchronizeAgentDm()
-        }
-        .onChange(of: viewModel.dmViewModel?.conversation.id) { _, dmId in
-            guard dmId != nil else { return }
-            viewModel.showGoogleConnectIfNeeded()
         }
         .sheet(item: $viewModel.presentedDraftItem) { item in
             DocDraftSheet(
@@ -121,6 +92,54 @@ struct DocRootView: View {
             items: viewModel.sharedDocText.map { [$0] } ?? []
         )
     }
+
+    @ViewBuilder
+    private var rootContent: some View {
+        if viewModel.previewStage == .transcript {
+            DocTranscriptChromePreview()
+        } else {
+            switch viewModel.firstRunStep {
+            case .welcome:
+                DocWelcomeView(onContinue: viewModel.completeWelcome)
+            case .verify:
+                DocVerifyFirstRunView(
+                    verification: viewModel.verificationControl,
+                    startupErrorMessage: viewModel.agentStartupErrorMessage,
+                    onRenew: viewModel.renewVerification,
+                    onRetryStartup: viewModel.retryAgentStartup
+                )
+            case .connectGoogle:
+                DocGoogleFirstRunView(
+                    isConnecting: viewModel.isConnectingGoogleDocs,
+                    isWaitingForApproval: viewModel.isWaitingForGoogleApproval,
+                    canConnect: viewModel.canConnectGoogleDocs,
+                    errorMessage: viewModel.googleConnectErrorMessage,
+                    startupErrorMessage: viewModel.agentStartupErrorMessage,
+                    onConnect: viewModel.connectGoogleDocs,
+                    onRetryStartup: viewModel.retryAgentStartup
+                )
+            case .home:
+                homeNavigation
+            }
+        }
+    }
+
+    private var homeNavigation: some View {
+        NavigationStack(path: $navigationPath) {
+            DocHomeView(
+                viewModel: viewModel,
+                onSettings: { isPresentingSettings = true },
+                onConnectGoogle: viewModel.connectGoogleDocs
+            )
+            .navigationDestination(for: DocStatus.self) { doc in
+                DocRoomView(viewModel: viewModel, initialDoc: doc)
+            }
+        }
+    }
+
+    private var firstRunAnimation: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.25)
+    }
 }
 
 private struct DocTranscriptChromePreview: View {
@@ -168,51 +187,6 @@ private func makeDocTranscriptPreviewViewModel() -> ConversationViewModel {
         session: MockInboxesService(),
         messagingService: MockMessagingService()
     )
-}
-
-private struct DocWelcomeView: View {
-    let onContinue: () -> Void
-
-    var body: some View {
-        GeometryReader { proxy in
-            ScrollView {
-                VStack(spacing: 0) {
-                    Spacer(minLength: DesignConstants.Spacing.step8x)
-                    Image(systemName: "doc.text.fill")
-                        .font(.system(size: 56.0, weight: .medium))
-                        .foregroundStyle(.colorLava)
-                        .frame(width: 96.0, height: 96.0)
-                        .background(.colorFillMinimal, in: RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large))
-                        .accessibilityHidden(true)
-
-                    Text("Doc")
-                        .font(.largeTitle.bold())
-                        .foregroundStyle(.colorTextPrimary)
-                        .padding(.top, DesignConstants.Spacing.step6x)
-
-                    Text("Doc turns your group's iMessage thread into a doc that stays up to date")
-                        .font(.title3)
-                        .foregroundStyle(.colorTextSecondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.top, DesignConstants.Spacing.step3x)
-                        .padding(.horizontal, DesignConstants.Spacing.step8x)
-
-                    Spacer(minLength: DesignConstants.Spacing.step8x)
-
-                    Button("Continue", action: onContinue)
-                        .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
-                        .frame(maxWidth: .infinity)
-                        .frame(minHeight: 44.0)
-                        .padding(.horizontal, DesignConstants.Spacing.step5x)
-                        .padding(.bottom, DesignConstants.Spacing.step6x)
-                        .accessibilityIdentifier("doc-welcome-continue")
-                }
-                .frame(minHeight: proxy.size.height)
-            }
-        }
-        .background(Color.colorBackgroundSurfaceless)
-        .accessibilityIdentifier("doc-welcome")
-    }
 }
 
 private struct DocHomeView: View {

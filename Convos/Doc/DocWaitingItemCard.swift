@@ -31,18 +31,13 @@ struct DocVerificationControlCard: View {
     let verification: DocControlVerification
     let onRenew: () -> Void
 
-    @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
-    @State private var isComposerPresented: Bool = false
     @State private var isWaitingForText: Bool = false
     @State private var didCopyCode: Bool = false
 
     var body: some View {
         DocItemCardContainer(itemId: verification.challengeId ?? DocControlMessage.verificationChallengeKey) {
             content
-        }
-        .sheet(isPresented: $isComposerPresented) {
-            messageComposerSheet
         }
         .accessibilityIdentifier("doc-verification-control")
     }
@@ -83,26 +78,13 @@ struct DocVerificationControlCard: View {
                     .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
                     .frame(minHeight: 44.0)
             } else {
-                Button("Text @doc to verify") {
-                    beginVerification()
-                }
-                .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
-                .frame(minHeight: 44.0)
+                DocVerificationActionButton(
+                    verification: verification,
+                    isWaitingForText: $isWaitingForText
+                )
             }
         }
         .padding(DesignConstants.Spacing.step4x)
-    }
-
-    @ViewBuilder
-    private var messageComposerSheet: some View {
-        if let smsBody = verification.smsBody {
-            DocMessageComposeView(recipient: verification.lineNumber, body: smsBody) {
-                isComposerPresented = false
-                withAnimation(.easeOut(duration: 0.16)) {
-                    isWaitingForText = true
-                }
-            }
-        }
     }
 
     @ViewBuilder
@@ -177,6 +159,35 @@ struct DocVerificationControlCard: View {
 
     private var copyButtonImage: String {
         didCopyCode ? "checkmark" : "doc.on.doc"
+    }
+}
+
+struct DocVerificationActionButton: View {
+    let verification: DocControlVerification
+    @Binding var isWaitingForText: Bool
+
+    @Environment(\.openURL) private var openURL: OpenURLAction
+    @State private var isComposerPresented: Bool = false
+
+    var body: some View {
+        Button("Text @doc to verify", action: beginVerification)
+            .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
+            .frame(minHeight: 44.0)
+            .sheet(isPresented: $isComposerPresented) {
+                messageComposerSheet
+            }
+    }
+
+    @ViewBuilder
+    private var messageComposerSheet: some View {
+        if let smsBody = verification.smsBody {
+            DocMessageComposeView(recipient: verification.lineNumber, body: smsBody) {
+                isComposerPresented = false
+                withAnimation(.easeOut(duration: 0.16)) {
+                    isWaitingForText = true
+                }
+            }
+        }
     }
 
     private func beginVerification() {

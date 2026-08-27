@@ -5,6 +5,152 @@ import Testing
 
 @MainActor
 struct DocControlViewModelTests {
+    @Test("first-run reducer sequences and skips completed control steps")
+    func firstRunReducerSequence() {
+        #expect(DocFirstRunReducer.step(
+            hasCompletedWelcome: false,
+            hasCompletedFirstRun: false,
+            hasVerifiedNumber: false,
+            hasGrantedGoogleDocs: false
+        ) == .welcome)
+        #expect(DocFirstRunReducer.step(
+            hasCompletedWelcome: true,
+            hasCompletedFirstRun: false,
+            hasVerifiedNumber: false,
+            hasGrantedGoogleDocs: true
+        ) == .verify)
+        #expect(DocFirstRunReducer.step(
+            hasCompletedWelcome: true,
+            hasCompletedFirstRun: false,
+            hasVerifiedNumber: true,
+            hasGrantedGoogleDocs: false
+        ) == .connectGoogle)
+        #expect(DocFirstRunReducer.step(
+            hasCompletedWelcome: true,
+            hasCompletedFirstRun: false,
+            hasVerifiedNumber: true,
+            hasGrantedGoogleDocs: true
+        ) == .home)
+        #expect(DocFirstRunReducer.step(
+            hasCompletedWelcome: true,
+            hasCompletedFirstRun: true,
+            hasVerifiedNumber: false,
+            hasGrantedGoogleDocs: false
+        ) == .home)
+    }
+
+    @Test("control facts advance first run and persist completion")
+    func controlFactsAdvanceFirstRun() throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let viewModel = fixture.viewModel()
+
+        #expect(viewModel.firstRunStep == .verify)
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "verified", text: Fixture.verificationVerified, date: 10)],
+            agentInboxId: Fixture.agentInboxId
+        )
+        #expect(viewModel.firstRunStep == .connectGoogle)
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "granted", text: Fixture.googleGranted, date: 11)],
+            agentInboxId: Fixture.agentInboxId
+        )
+
+        #expect(viewModel.firstRunStep == .home)
+        #expect(viewModel.hasCompletedFirstRun)
+        #expect(fixture.defaults.bool(
+            forKey: DocExperienceViewModel.storageKey("firstRun", accountIdentifier: "registering")
+        ))
+    }
+
+    @Test("pre-granted Google waits only for verification")
+    func preGrantedGoogleSkipsConnect() throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let viewModel = fixture.viewModel()
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "granted", text: Fixture.googleGranted, date: 10)],
+            agentInboxId: Fixture.agentInboxId
+        )
+        #expect(viewModel.firstRunStep == .verify)
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "verified", text: Fixture.verificationVerified, date: 11)],
+            agentInboxId: Fixture.agentInboxId
+        )
+        #expect(viewModel.firstRunStep == .home)
+    }
+
+    @Test("relaunch resumes a pending verification")
+    func relaunchResumesVerification() throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let firstLaunch = fixture.viewModel()
+        firstLaunch.ingestAggregatedMessages(
+            [fixture.message(id: "pending", text: Fixture.verificationPending, date: 10)],
+            agentInboxId: Fixture.agentInboxId
+        )
+
+        let relaunched = fixture.viewModel()
+
+        #expect(relaunched.firstRunStep == .verify)
+        #expect(relaunched.verificationControl?.status == .pending)
+    }
+
+    @Test("pre-verified number resumes at Google connect")
+    func preVerifiedNumberSkipsVerify() throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let firstLaunch = fixture.viewModel()
+        firstLaunch.ingestAggregatedMessages(
+            [fixture.message(id: "verified", text: Fixture.verificationVerified, date: 10)],
+            agentInboxId: Fixture.agentInboxId
+        )
+
+        let relaunched = fixture.viewModel()
+
+        #expect(relaunched.firstRunStep == .connectGoogle)
+    }
+
+    @Test("regressions stay on home after first run")
+    func regressionsStayOnHome() throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let viewModel = fixture.viewModel()
+        viewModel.ingestAggregatedMessages(
+            [
+                fixture.message(id: "verified", text: Fixture.verificationVerified, date: 10),
+                fixture.message(id: "granted", text: Fixture.googleGranted, date: 11),
+            ],
+            agentInboxId: Fixture.agentInboxId
+        )
+        #expect(viewModel.firstRunStep == .home)
+
+        viewModel.ingestAggregatedMessages(
+            [
+                fixture.message(id: "renewed", text: Fixture.verificationRenewed, date: 12),
+                fixture.message(id: "revoked", text: Fixture.googleRevoked, date: 13),
+            ],
+            agentInboxId: Fixture.agentInboxId
+        )
+
+        #expect(viewModel.firstRunStep == .home)
+        #expect(viewModel.verificationControl?.status == .pending)
+        #expect(viewModel.shouldShowGoogleConnectCard)
+    }
+
+    @Test("reset restarts first run")
+    func resetRestartsFirstRun() async throws {
+        let fixture = try Fixture(hasCompletedWelcome: true, hasCompletedFirstRun: true)
+        let viewModel = fixture.viewModel()
+        #expect(viewModel.firstRunStep == .home)
+
+        DocExperienceViewModel.resetAgentBinding(
+            session: fixture.session,
+            defaults: fixture.defaults
+        )
+        try await Task.sleep(for: .milliseconds(10))
+
+        #expect(viewModel.firstRunStep == .welcome)
+    }
+
     @Test("verification clears without an editorial resolution")
     func verificationClearsFromControl() throws {
         let fixture = try Fixture()
@@ -33,7 +179,7 @@ struct DocControlViewModelTests {
 
     @Test("pending Google control suppresses another request")
     func pendingGoogleSuppressesDuplicateRequest() throws {
-        let fixture = try Fixture()
+        let fixture = try Fixture(hasCompletedWelcome: true, hasCompletedFirstRun: true)
         let viewModel = fixture.viewModel()
 
         viewModel.ingestAggregatedMessages(
@@ -147,18 +293,34 @@ struct DocControlViewModelTests {
         static let legacyVerificationItem: String = #"⟦doc⟧{"v":1,"t":"item","item":{"id":"523e4567-e89b-42d3-a456-426614174004","register":"waiting","kind":"verify_number","headline":"Verify your phone number","context":"Send the prefilled message.","code":"ABCD-EFGH-2345","lineNumber":"+16283095734","smsBody":"VERIFY ABCD-EFGH-2345","docId":null,"createdAt":1787720399}}"#
         static let verificationPending: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":10,"at":1787720400,"key":"verification:challenge","kind":"verification","verification":{"status":"pending","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":null,"code":"ABCD-EFGH-2345","smsBody":"VERIFY ABCD-EFGH-2345","expiresAt":1787724000,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
         static let verificationVerified: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":11,"at":1787720500,"key":"verification:owner:+14155550123","kind":"verification","verification":{"status":"verified","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":"+14155550123","code":null,"smsBody":null,"expiresAt":1787724000,"verifiedAt":1787720500,"releasedAt":null,"clearsKey":"verification:challenge"}}"#
+        static let verificationRenewed: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":12,"at":1787720600,"key":"verification:challenge","kind":"verification","verification":{"status":"pending","challengeId":"53A5C46C-31C1-409E-B277-9C84AFA23C91","lineNumber":"+16283095734","ownerNumber":null,"code":"WXYZ-EFGH-2345","smsBody":"VERIFY WXYZ-EFGH-2345","expiresAt":1787725000,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
         static let googlePending: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":20,"at":1787720400,"key":"google:registering","kind":"google_docs","googleDocs":{"ownerInboxId":"registering","requestConversationId":null,"supersedesKey":null,"gate":{"status":"pending","requestId":"request-1","updatedAt":1787720400},"connection":{"status":"unknown","providerId":null,"updatedAt":1787720400}}}"#
+        static let googleGranted: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":21,"at":1787720500,"key":"google:registering","kind":"google_docs","googleDocs":{"ownerInboxId":"registering","requestConversationId":null,"supersedesKey":null,"gate":{"status":"approved","requestId":"request-1","updatedAt":1787720500},"connection":{"status":"granted","providerId":"composio.googledocs","updatedAt":1787720500}}}"#
+        static let googleRevoked: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":22,"at":1787720600,"key":"google:registering","kind":"google_docs","googleDocs":{"ownerInboxId":"registering","requestConversationId":null,"supersedesKey":null,"gate":{"status":"approved","requestId":"request-1","updatedAt":1787720500},"connection":{"status":"revoked","providerId":"composio.googledocs","updatedAt":1787720600}}}"#
         static let bindingLive: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":30,"at":1787720400,"key":"binding:thread:+16283095734:thread-1","kind":"binding","binding":{"status":"live","lineNumber":"+16283095734","threadId":"thread-1","conversationType":"group","groupName":"Tahoe","docId":"tahoe-trip","intentAt":1787720300,"boundAt":1787720400,"releasedAt":null,"supersedesKey":null}}"#
         static let bindingReleased: String = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":31,"at":1787720600,"key":"binding:thread:+16283095734:thread-1","kind":"binding","binding":{"status":"released","lineNumber":"+16283095734","threadId":"thread-1","conversationType":"group","groupName":"Tahoe","docId":"tahoe-trip","intentAt":1787720300,"boundAt":1787720400,"releasedAt":1787720600,"supersedesKey":null}}"#
 
         let suiteName: String
         let defaults: UserDefaults
+        let session: MockInboxesService
         let agent: ConversationMember
 
-        init() throws {
+        init(
+            hasCompletedWelcome: Bool = false,
+            hasCompletedFirstRun: Bool = false
+        ) throws {
             suiteName = "DocControlViewModelTests.\(UUID().uuidString)"
             defaults = try #require(UserDefaults(suiteName: suiteName))
             defaults.removePersistentDomain(forName: suiteName)
+            session = MockInboxesService()
+            defaults.set(
+                hasCompletedWelcome,
+                forKey: "doc.v1.registering.welcome"
+            )
+            defaults.set(
+                hasCompletedFirstRun,
+                forKey: "doc.v1.registering.firstRun"
+            )
             agent = ConversationMember(
                 profile: .mock(inboxId: Self.agentInboxId, name: "Doc"),
                 role: .member,
@@ -170,7 +332,7 @@ struct DocControlViewModelTests {
         @MainActor
         func viewModel() -> DocExperienceViewModel {
             DocExperienceViewModel(
-                session: MockInboxesService(),
+                session: session,
                 coreActions: NoOpCoreActions(),
                 defaults: defaults
             )
