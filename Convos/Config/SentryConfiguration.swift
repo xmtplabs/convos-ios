@@ -18,6 +18,7 @@ enum SentryConfiguration {
 
         let envName = environment.name
         let isProduction = environment.isProduction
+        let sentryEnvironment = environmentName(for: environment)
         Log.info("Initializing Sentry for environment: \(envName)")
 
         SentrySDK.start { options in
@@ -30,6 +31,7 @@ enum SentryConfiguration {
             // and the next launch re-foregrounds the frozen one.
             options.enableSigtermReporting = false
             options.attachStacktrace = true
+            options.environment = sentryEnvironment
 
             if isProduction {
                 // Crash and error reporting only. Screenshots, view hierarchy,
@@ -38,7 +40,6 @@ enum SentryConfiguration {
                 options.attachScreenshot = false
                 options.attachViewHierarchy = false
                 options.sendDefaultPii = false
-                options.environment = envName
             } else {
                 // Richer context (screenshots, view hierarchy, IP addresses,
                 // user IDs, request data) for internal team debugging.
@@ -47,14 +48,23 @@ enum SentryConfiguration {
                 options.attachScreenshot = true
                 options.attachViewHierarchy = true
                 options.sendDefaultPii = true
-                options.environment = "\(envName)-debug"
             }
         }
 
         Log.info("Sentry initialized successfully")
     }
 
-    private static func shouldEnableSentry(for environment: AppEnvironment) -> Bool {
+    /// The environment events report under. Non-production builds get a
+    /// `-debug` suffix so their richer, PII-carrying events stay separable from
+    /// production. Shared with `LibxmtpSentry` so libxmtp's telemetry lands in
+    /// the same environment as the Swift SDK's events.
+    static func environmentName(for environment: AppEnvironment) -> String {
+        environment.isProduction ? environment.name : "\(environment.name)-debug"
+    }
+
+    /// Also gates libxmtp's telemetry, so the two event sources are never
+    /// enabled independently of each other.
+    static func shouldEnableSentry(for environment: AppEnvironment) -> Bool {
         switch environment {
         case .local, .tests:
             // Local builds and test runs never report to Sentry
