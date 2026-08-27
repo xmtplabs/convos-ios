@@ -1561,9 +1561,9 @@ private extension ConversationView {
     @ViewBuilder
     private func spaceSheet(root: HomeBrowserEntry) -> some View {
         NavigationStack(path: $spaceSheetPath) {
-            spaceSheetPage(root)
+            spaceSheetPage(root, isRoot: true)
                 .navigationDestination(for: HomeBrowserEntry.self) { entry in
-                    spaceSheetPage(entry)
+                    spaceSheetPage(entry, isRoot: false)
                 }
         }
     }
@@ -1574,15 +1574,23 @@ private extension ConversationView {
     /// before that and stays while a reader scrolls — and the tile's caption is
     /// the name they just chose, so it is the one they expect to see.
     @ViewBuilder
-    private func spaceSheetPage(_ entry: HomeBrowserEntry) -> some View {
+    private func spaceSheetPage(
+        _ entry: HomeBrowserEntry,
+        isRoot: Bool
+    ) -> some View {
         homeBrowserPage(for: entry)
             .navigationTitle(entry.title ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                sheetCloseItem(
-                    identifier: "space-sheet-close",
-                    action: dismissSpaceSheet
-                )
+                // Only the page the sheet opened on closes it. A page reached
+                // by a link has the stack's own back button, and two ways out
+                // sharing one corner reads as a mistake — which it was.
+                if isRoot {
+                    sheetCloseItem(
+                        identifier: "space-sheet-close",
+                        action: dismissSpaceSheet
+                    )
+                }
             }
     }
 
