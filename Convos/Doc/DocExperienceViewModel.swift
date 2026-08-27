@@ -2122,6 +2122,11 @@ extension DocExperienceViewModel {
                 }
             }
         )
+        try Task.checkCancellation()
+        try await DocGoogleConnectionChain.sendGrantedEvents(
+            target: target,
+            eventWriter: session.messagingService().connectionEventWriter()
+        )
     }
 }
 
@@ -2133,6 +2138,7 @@ enum DocScreenshotSelectionPolicy {
 
 enum DocGoogleConnectionChain {
     static let abilityId: String = "googledocs"
+    static let providerId: ProviderID = .init(rawValue: "composio.\(abilityId)")
 
     enum Error: LocalizedError {
         case authorizationUnavailable
@@ -2172,6 +2178,18 @@ enum DocGoogleConnectionChain {
             }
         }
         try await extend(bundleIds)
+    }
+
+    static func sendGrantedEvents(
+        target: DocGoogleConnectTarget,
+        eventWriter: any ConnectionEventWriterProtocol
+    ) async throws {
+        try await eventWriter.sendCloudGrantedEvents(
+            providerIds: [providerId],
+            capability: nil,
+            grantedToInboxIds: target.agentInboxIds,
+            in: target.conversationId
+        )
     }
 
     @MainActor

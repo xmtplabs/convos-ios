@@ -24,6 +24,35 @@ public extension ConnectionEventWriterProtocol {
     func sendRevoked(providerId: String, in conversationId: String) async throws {
         try await sendRevoked(providerId: providerId, capability: nil, grantedToInboxId: nil, in: conversationId)
     }
+
+    /// Sends one granted event for every cloud provider and agent pair. Every
+    /// invocation performs fresh sends so a caller can safely retry after a
+    /// partial failure.
+    func sendCloudGrantedEvents(
+        providerIds: [ProviderID],
+        capability: ConnectionCapability?,
+        grantedToInboxIds: [String],
+        in conversationId: String
+    ) async throws {
+        var firstError: (any Error)?
+        for grantedToInboxId in grantedToInboxIds {
+            for providerId in providerIds where providerId.cloudServiceId != nil {
+                do {
+                    try await sendGranted(
+                        providerId: providerId.rawValue,
+                        capability: capability,
+                        grantedToInboxId: grantedToInboxId,
+                        in: conversationId
+                    )
+                } catch {
+                    firstError = firstError ?? error
+                }
+            }
+        }
+        if let firstError {
+            throw firstError
+        }
+    }
 }
 
 public enum ConnectionEventWriterError: Error, LocalizedError {

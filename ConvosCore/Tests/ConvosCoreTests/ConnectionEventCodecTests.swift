@@ -60,6 +60,72 @@ struct ConnectionEventCodecTests {
     }
 }
 
+@Suite("Connection event writer")
+struct ConnectionEventWriterTests {
+    @Test("cloud grants preserve their routing fields and are not suppressed on retry")
+    func cloudGrantsPreserveRoutingAndRetry() async throws {
+        let writer = RecordingConnectionEventWriter()
+        let providerId = ProviderID(rawValue: "composio.googledocs")
+
+        try await writer.sendCloudGrantedEvents(
+            providerIds: [providerId, ProviderID(rawValue: "device.calendar")],
+            capability: nil,
+            grantedToInboxIds: ["doc-agent"],
+            in: "doc-dm"
+        )
+        try await writer.sendCloudGrantedEvents(
+            providerIds: [providerId],
+            capability: nil,
+            grantedToInboxIds: ["doc-agent"],
+            in: "doc-dm"
+        )
+
+        let expected = RecordingConnectionEventWriter.Grant(
+            providerId: "composio.googledocs",
+            capability: nil,
+            grantedToInboxId: "doc-agent",
+            conversationId: "doc-dm"
+        )
+        #expect(await writer.grants() == [expected, expected])
+    }
+}
+
+private actor RecordingConnectionEventWriter: ConnectionEventWriterProtocol {
+    struct Grant: Equatable, Sendable {
+        let providerId: String
+        let capability: ConnectionCapability?
+        let grantedToInboxId: String?
+        let conversationId: String
+    }
+
+    private var recordedGrants: [Grant] = []
+
+    func grants() -> [Grant] {
+        recordedGrants
+    }
+
+    func sendGranted(
+        providerId: String,
+        capability: ConnectionCapability?,
+        grantedToInboxId: String?,
+        in conversationId: String
+    ) async throws {
+        recordedGrants.append(Grant(
+            providerId: providerId,
+            capability: capability,
+            grantedToInboxId: grantedToInboxId,
+            conversationId: conversationId
+        ))
+    }
+
+    func sendRevoked(
+        providerId: String,
+        capability: ConnectionCapability?,
+        grantedToInboxId: String?,
+        in conversationId: String
+    ) async throws {}
+}
+
 @Suite("ConnectionMessageSummaryFormatter capability text")
 struct ConnectionMessageSummaryFormatterCapabilityTests {
     @Test("granted device calendar brands the service regardless of capability")

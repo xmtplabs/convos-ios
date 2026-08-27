@@ -1,5 +1,6 @@
 @testable import Convos
 import ConvosComposer
+import ConvosConnections
 import ConvosCore
 import Testing
 import UIKit
@@ -235,4 +236,62 @@ struct DocFeedbackFlowTests {
 
         #expect(calls == ["extend:documents.write"])
     }
+
+    @Test("Google connect sends a fresh granted event to every agent on each attempt")
+    func googleConnectSendsGrantedEventsPerAgentAndAttempt() async throws {
+        let writer = RecordingDocConnectionEventWriter()
+        let target = DocGoogleConnectTarget(
+            conversationId: "doc-dm",
+            agentInboxIds: ["doc-agent-1", "doc-agent-2"]
+        )
+
+        try await DocGoogleConnectionChain.sendGrantedEvents(target: target, eventWriter: writer)
+        try await DocGoogleConnectionChain.sendGrantedEvents(target: target, eventWriter: writer)
+
+        let expectedAttempt = target.agentInboxIds.map {
+            RecordingDocConnectionEventWriter.Grant(
+                providerId: "composio.googledocs",
+                capability: nil,
+                grantedToInboxId: $0,
+                conversationId: "doc-dm"
+            )
+        }
+        #expect(await writer.grants() == expectedAttempt + expectedAttempt)
+    }
+}
+
+private actor RecordingDocConnectionEventWriter: ConnectionEventWriterProtocol {
+    struct Grant: Equatable, Sendable {
+        let providerId: String
+        let capability: ConnectionCapability?
+        let grantedToInboxId: String?
+        let conversationId: String
+    }
+
+    private var recordedGrants: [Grant] = []
+
+    func grants() -> [Grant] {
+        recordedGrants
+    }
+
+    func sendGranted(
+        providerId: String,
+        capability: ConnectionCapability?,
+        grantedToInboxId: String?,
+        in conversationId: String
+    ) async throws {
+        recordedGrants.append(Grant(
+            providerId: providerId,
+            capability: capability,
+            grantedToInboxId: grantedToInboxId,
+            conversationId: conversationId
+        ))
+    }
+
+    func sendRevoked(
+        providerId: String,
+        capability: ConnectionCapability?,
+        grantedToInboxId: String?,
+        in conversationId: String
+    ) async throws {}
 }

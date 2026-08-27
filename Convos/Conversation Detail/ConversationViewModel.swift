@@ -2970,16 +2970,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         grantedToInboxId: String,
         eventWriter: any ConnectionEventWriterProtocol
     ) async {
-        for providerId in providerIds {
-            guard providerId.cloudServiceId != nil,
-                  newlyApprovedProviderIds.contains(providerId) else { continue }
-            try? await eventWriter.sendGranted(
-                providerId: providerId.rawValue,
-                capability: capability,
-                grantedToInboxId: grantedToInboxId,
-                in: conversationId
-            )
-        }
+        try? await eventWriter.sendCloudGrantedEvents(
+            providerIds: providerIds.filter(newlyApprovedProviderIds.contains),
+            capability: capability,
+            grantedToInboxIds: [grantedToInboxId],
+            in: conversationId
+        )
     }
 
     private static func capabilityActionParameter(
