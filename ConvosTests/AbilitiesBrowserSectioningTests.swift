@@ -4,9 +4,9 @@ import XCTest
 
 /// The Connections browser's two-section split in `.composerModal`:
 /// Connected holds the entitlements whose authorization actually finished,
-/// Discover holds everything still connectable - not-entitled plus the
-/// `pendingAuth` records an abandoned OAuth leaves behind - and the outage
-/// section holds the rest.
+/// Discover holds everything still connectable - not-entitled, the
+/// `pendingAuth` records an abandoned OAuth leaves behind, and `revoked`
+/// ones a member severed - and the outage section holds the rest.
 @MainActor
 final class AbilitiesBrowserSectioningTests: XCTestCase {
     func testRepairableEntitlementsStayUnderConnected() async throws {
@@ -50,7 +50,7 @@ final class AbilitiesBrowserSectioningTests: XCTestCase {
             (.active, .connected),
             (.expired, .connected),
             (.needsReauth, .connected),
-            (.revoked, .connected),
+            (.revoked, .discover),
             (.pendingAuth, .discover),
         ]
         for (status, section) in expected {
