@@ -92,6 +92,13 @@ struct ConvosApp: App {
             Client.setLibXMTPNativeLogLevel(libXMTPLogLevel)
             Log.info("LibXMTP native log level set to \(libXMTPLogLevel)")
         }
+
+        // libxmtp reports its own errors and spans into the same Sentry project
+        // as the app, so a protocol-layer failure shows up next to the app-side
+        // event it caused. Enabled after the log writer is scheduled so both
+        // native sinks are configured before any client work starts.
+        LibxmtpSentry.configure(environment: environment)
+
         Log.info("App starting with environment: \(environment)")
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
@@ -205,7 +212,15 @@ struct ConvosApp: App {
             do {
                 let messagingService = session.messagingService()
                 let inboxReady = try await messagingService.sessionStateManager.waitForInboxReadyResult()
-                coreMetrics.identify(privateKey: Data(inboxReady.client.inboxId.utf8))
+                let inboxKey = Data(inboxReady.client.inboxId.utf8)
+                coreMetrics.identify(privateKey: inboxKey)
+                // Deriving the id the same way PostHog does makes the Sentry
+                // user and the product-analytics person the same identifier,
+                // so an error and the session it broke can be lined up without
+                // either side carrying the inbox id.
+                LibxmtpSentry.setUser(
+                    stableId: PostHogConfiguration.stableIdEncoder.derive(privateKey: inboxKey)
+                )
                 // The backend accountId (not the XMTP inbox id) lets product
                 // analytics cross-link to backend records. Backend SIWE auth
                 // caches it in the keychain before the session reaches inbox
@@ -320,6 +335,9 @@ struct ConvosApp: App {
                 case .active:
                     handleScenePhaseActive()
                 case .background:
+                    // Push whatever libxmtp has buffered out now; a suspended
+                    // process may never get another chance to send it.
+                    LibxmtpSentry.flush()
                     // Re-arm once-per-foreground work for the next active session.
                     timezoneForegroundGuard.reset()
                     agentRelayForegroundGuard.reset()

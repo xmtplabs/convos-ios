@@ -29,6 +29,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.5.0"),
+        // ConvosInvites/Package.swift pins the same revision and has to move with this one, or SPM
+        // fails to resolve two revisions of the same package.
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
             revision: "ios-4.12.0-dev.de26965"
