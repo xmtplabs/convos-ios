@@ -41,7 +41,10 @@ Doc's agent is a native member of the group's *existing* iMessage thread — blu
 - Organizer answers travel back through the same DM as compact JSON prefixed by `⟦ans⟧`. Both protocol prefixes are control-plane traffic and stay hidden from transcript, preview, and notification surfaces.
 - Google Docs create/update/share are Composio-backed and dev-only today (production deliberately dark); OAuth scope is `drive.file` — Doc touches only documents it created.
 - One shared Photon Business line (+1 628 309-5734, dev) serves all docs; group messages route by thread, direct texts route only when the sender is unambiguous. Inbound media over the line carries no bytes — images must come through this app's agent DM.
-- The agent's only group-facing voice today is "\<name\> updated the doc: \<link\>" on meaningful changes. **Open decision:** additional outbound allowances are under consideration — treat silence-in-groups as current posture, not doctrine.
+- Phone verification is the first first-run step, before Google connect, and is inbound-first: the app opens Messages pre-addressed to the line with `VERIFY <code>`; the inbound text proves number control. A verified number's first text in an unbound group binds that thread to the owner's agent automatically — no pre-registration.
+- Verification is also the migration signal: re-verifying on a new agent releases the abandoned agent's bindings and routes, so Reset Doc agent is self-healing.
+- Texts sent before @doc joined a group never reach it (Apple delivers no history to new members); after a group binds, the agent offers a one-time "Want me to catch up on \<group\>?" inviting screenshot backfill.
+- The agent's only group-facing voice is the organizer-authorized first share and explicitly approved reshares. Doc updates never produce group texts; they land in the app via the state publish (`lastChange` on the doc card).
 - User-facing copy says "agent," never "assistant."
 - Terminology: a *binding* is (line, thread) → agent instance; the *fixture* is the doc-top contribution block; the *ledger* is the agent's per-thread state file.
 
