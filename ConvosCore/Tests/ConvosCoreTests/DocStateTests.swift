@@ -212,22 +212,28 @@ struct DocStateTests {
         #expect(DocWireMessage.isHiddenText(message))
     }
 
-    @Test("bootstrap request matches the agent contract and stays hidden")
-    func bootstrapRequestMatchesContract() {
-        #expect(DocBootstrapMessage.text == #"⟦req⟧{"v":1,"t":"bootstrap"}"#)
-        #expect(DocWireMessage.isHiddenText(DocBootstrapMessage.text))
-    }
-
-    @Test("chooses agent or native document sharing by binding")
+    @Test("chooses agent or native document sharing by control binding")
     func choosesDocumentSharePath() {
         let live = docStatus(binding: .live, shared: false)
         let unbound = docStatus(binding: .none, shared: false)
         let alreadyShared = docStatus(binding: .live, shared: true)
+        let controlBinding = DocControlBinding(
+            status: .live,
+            lineNumber: "+16285550123",
+            threadId: "thread-1",
+            conversationType: .group,
+            groupName: "Tahoe",
+            docId: "doc",
+            intentAt: 1,
+            boundAt: 2,
+            releasedAt: nil,
+            supersedesKey: nil
+        )
         let text = "here's a doc for us (https://docs.google.com/document/d/1)"
 
-        #expect(DocShareAction.disposition(for: live) == .askAgent(text))
-        #expect(DocShareAction.disposition(for: unbound) == .nativeShare(text))
-        #expect(DocShareAction.disposition(for: alreadyShared) == .hidden)
+        #expect(DocShareAction.disposition(for: live, controlBinding: controlBinding) == .askAgent(text))
+        #expect(DocShareAction.disposition(for: unbound, controlBinding: nil) == .nativeShare(text))
+        #expect(DocShareAction.disposition(for: alreadyShared, controlBinding: controlBinding) == .hidden)
     }
 
     @Test("encodes compact choice, text, and action answers")

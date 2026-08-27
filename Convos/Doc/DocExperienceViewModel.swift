@@ -111,57 +111,6 @@ struct DocModeConvergenceResult {
     let errorMessage: String?
 }
 
-@MainActor
-final class DocAgentBootstrapSender {
-    struct Binding {
-        let originConversationId: String
-        let agentInboxId: String
-        let dmConversationId: String
-    }
-
-    enum Result: Equatable {
-        case alreadySent
-        case inFlight
-        case notPending
-        case sent
-    }
-
-    private var bindingsInFlight: Set<String> = []
-
-    func sendIfNeeded(
-        binding: Binding,
-        defaults: UserDefaults,
-        pendingOriginKey: String,
-        sentBindingsKey: String,
-        send: (String, String) async throws -> Void
-    ) async throws -> Result {
-        guard defaults.string(forKey: pendingOriginKey) == binding.originConversationId else {
-            return .notPending
-        }
-        let bindingId = "\(binding.agentInboxId)|\(binding.dmConversationId)"
-        var sentBindings = Set(defaults.stringArray(forKey: sentBindingsKey) ?? [])
-        guard !sentBindings.contains(bindingId) else {
-            defaults.removeObject(forKey: pendingOriginKey)
-            return .alreadySent
-        }
-
-        let inFlightId = "\(sentBindingsKey)|\(bindingId)"
-        guard bindingsInFlight.insert(inFlightId).inserted else { return .inFlight }
-        defer { bindingsInFlight.remove(inFlightId) }
-
-        try await send(DocBootstrapMessage.text, UUID().uuidString)
-        try Task.checkCancellation()
-        guard defaults.string(forKey: pendingOriginKey) == binding.originConversationId else {
-            return .sent
-        }
-        sentBindings = Set(defaults.stringArray(forKey: sentBindingsKey) ?? [])
-        sentBindings.insert(bindingId)
-        defaults.set(sentBindings.sorted(), forKey: sentBindingsKey)
-        defaults.removeObject(forKey: pendingOriginKey)
-        return .sent
-    }
-}
-
 struct DocLaneRegistry: Codable, Equatable {
     private(set) var conversationIds: [String: String] = [:]
     private(set) var announcedDocIds: Set<String> = []
@@ -202,6 +151,7 @@ final class DocExperienceViewModel {
     private(set) var conversationViewModel: NewConversationViewModel?
     private(set) var agentDmSession: AgentDmSession?
     private(set) var state: DocState?
+    private(set) var controlSnapshot: DocControlSnapshot?
     private(set) var pendingItems: [DocWaitingItem] = []
     private(set) var docContentsById: [String: DocContent] = [:]
     private(set) var docContentLoadStates: [String: DocContentLoadState] = [:]
@@ -234,7 +184,6 @@ final class DocExperienceViewModel {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var storageAccountIdentifier: String
     @ObservationIgnored private var docMessageAggregator: DocAgentMessageAggregator?
-    @ObservationIgnored private var googleStatusTask: Task<Void, Never>?
     @ObservationIgnored private var observedDmConversationId: String?
     @ObservationIgnored private var observedDocAgentInboxId: String?
     @ObservationIgnored private var latestStateMessageId: String?
@@ -258,8 +207,8 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var isStartingAgent: Bool = false
     @ObservationIgnored private var agentStartupProgressRevision: Int = 0
     @ObservationIgnored private var startupGeneration: Int = 0
-    @ObservationIgnored private var isCreatingAgentForBootstrap: Bool = false
-    @ObservationIgnored private let bootstrapSender: DocAgentBootstrapSender = .init()
+    @ObservationIgnored private var hasObservedControlEvent: Bool = false
+    @ObservationIgnored private var isControlResyncInFlight: Bool = false
     @ObservationIgnored private var googleConnectTask: Task<Void, Never>?
     @ObservationIgnored private var googleConnectRequestId: UUID?
     @ObservationIgnored private let answerSendTargetOverride: DocAnswerSendTarget?
@@ -289,6 +238,11 @@ final class DocExperienceViewModel {
            let registry = try? JSONDecoder().decode(DocLaneRegistry.self, from: data) {
             docLaneRegistry = registry
         }
+        if let data = defaults.data(
+            forKey: Self.storageKey(Self.controlComponent, accountIdentifier: initialAccountIdentifier)
+        ) {
+            controlSnapshot = try? JSONDecoder().decode(DocControlSnapshot.self, from: data)
+        }
 
         if let previewStage,
            [
@@ -309,6 +263,7 @@ final class DocExperienceViewModel {
             state = Self.previewState
             if [.forYou, .roomBound, .docSheet].contains(previewStage) {
                 pendingItems = Self.previewItems
+                controlSnapshot = previewStage == .forYou ? Self.previewVerificationSnapshot : controlSnapshot
             } else if [.forYouRegisters, .draftSheet, .finishHome, .finishRoom, .finishDraft]
                 .contains(previewStage) {
                 pendingItems = Self.previewRegisterItems
@@ -348,10 +303,14 @@ final class DocExperienceViewModel {
             state = try? JSONDecoder().decode(DocState.self, from: data)
             compatibilityDetector.hasSeenDocSentinel = state != nil
         }
+        if controlSnapshot != nil {
+            compatibilityDetector.hasSeenDocSentinel = true
+        }
 
         if previewStage == .notDocAgent {
             isShowingNotDocAgentNotice = true
         }
+        refreshGoogleControlState()
 
         resetCancellable = NotificationCenter.default
             .publisher(for: .docAgentResetRequested)
@@ -376,10 +335,45 @@ final class DocExperienceViewModel {
     var visiblePendingItems: [DocWaitingItem] {
         pendingItems
             .filter { item in
+                guard item.kind != .verifyNumber else { return false }
                 guard case .awaitingDelivery = itemSendStates[item.id] else { return true }
                 return false
             }
             .sorted(by: Self.itemPrecedes)
+    }
+
+    var controlLifecycle: DocControlLifecycle? {
+        controlSnapshot?.lifecycle
+    }
+
+    var verificationControl: DocControlVerification? {
+        guard let verification = controlSnapshot?.verificationChallenge,
+              [.pending, .expired].contains(verification.status) else {
+            return nil
+        }
+        return verification
+    }
+
+    func controlBinding(for docId: String) -> DocControlBinding? {
+        if let binding = controlSnapshot?.binding(forDocId: docId) { return binding }
+        guard previewStage != nil,
+              let editorialBinding = docs.first(where: { $0.id == docId })?.binding,
+              editorialBinding.state != .none else {
+            return nil
+        }
+        let status: DocControlBinding.Status = editorialBinding.state == .live ? .live : .pending
+        return DocControlBinding(
+            status: status,
+            lineNumber: editorialBinding.number,
+            threadId: status == .live ? "preview" : nil,
+            conversationType: status == .live ? .group : nil,
+            groupName: editorialBinding.group,
+            docId: docId,
+            intentAt: 0,
+            boundAt: status == .live ? 0 : nil,
+            releasedAt: nil,
+            supersedesKey: nil
+        )
     }
 
     var previewInitialDoc: DocStatus? {
@@ -395,7 +389,21 @@ final class DocExperienceViewModel {
 
     var shouldShowGoogleConnectCard: Bool {
         if previewStage == .connect || previewStage == .disconnected { return true }
-        return previewStage == nil && isGoogleStatusLoaded && !isGoogleDocsReady
+        guard previewStage == nil, let googleControl else { return false }
+        return googleControl.gate.status != .approved && googleControl.connection.status != .granted
+    }
+
+    var isWaitingForGoogleApproval: Bool {
+        googleControl?.gate.status == .pending
+    }
+
+    var canRequestGoogleDocs: Bool {
+        guard googleControl?.gate.status != .pending,
+              googleControl?.gate.status != .approved,
+              googleControl?.connection.status != .granted else {
+            return false
+        }
+        return !isConnectingGoogleDocs
     }
 
     var isDmReadyForDisplay: Bool {
@@ -428,21 +436,17 @@ final class DocExperienceViewModel {
         dmViewModel?.conversation
     }
 
+    private var googleControl: DocControlGoogleDocs? {
+        controlSnapshot?.googleDocs(ownerInboxId: storageAccountIdentifier)
+    }
+
     private var originViewModel: ConversationViewModel? {
         conversationViewModel?.conversationViewModel
     }
 
     func presentShareNumber(for doc: DocStatus) {
-        let directNumber = doc.binding.number.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallbackNumber = docs
-            .lazy
-            .map(\.binding.number)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first(where: { !$0.isEmpty })
-        guard let number = directNumber.isEmpty ? fallbackNumber : directNumber,
-              !number.isEmpty else {
-            return
-        }
+        guard docs.contains(where: { $0.id == doc.id }), !contributionLine.isEmpty else { return }
+        let number = contributionLine
         sharedDocNumber = number
         isPresentingShareNumber = true
     }
@@ -453,7 +457,7 @@ final class DocExperienceViewModel {
             presentShareNumber(for: doc)
             return
         }
-        guard let doc = docs.first(where: { !$0.binding.number.isEmpty }) else { return }
+        guard let doc = docs.first else { return }
         presentShareNumber(for: doc)
     }
 
@@ -643,14 +647,22 @@ final class DocExperienceViewModel {
         _ messages: [AnyMessage],
         agentInboxId: String
     ) {
+        prepareControlProjection(agentInboxId: agentInboxId)
         updateAnswerDeliveries(from: messages)
 
         var changedSnapshot = observeAgentCompatibility(messages, agentInboxId: agentInboxId)
+        var changedControlSnapshot = false
         for message in messages.sorted(by: { $0.date < $1.date }) {
             DocWireDebugLog.sentinelReceived(message, expectedSenderId: agentInboxId)
             guard !processedEventMessageIds.contains(message.id),
                   message.senderId == agentInboxId,
                   case .text(let text) = message.content else {
+                continue
+            }
+            if let controlEvent = DocControlMessage.parseEvent(text) {
+                processedEventMessageIds.insert(message.id)
+                hasObservedControlEvent = true
+                changedControlSnapshot = applyControlEvent(controlEvent) || changedControlSnapshot
                 continue
             }
             guard let event = DocStateMessage.parseEvent(text) else {
@@ -715,13 +727,25 @@ final class DocExperienceViewModel {
             }
         }
         if changedSnapshot { persistSnapshot() }
+        if changedControlSnapshot {
+            persistControlSnapshot()
+            refreshGoogleControlState()
+        }
+        requestControlResyncIfNeeded(agentInboxId: agentInboxId)
         updateNotDocAgentNotice()
     }
+}
 
-    private func observeAgentCompatibility(_ messages: [AnyMessage], agentInboxId: String) -> Bool {
+private extension DocExperienceViewModel {
+    func observeAgentCompatibility(_ messages: [AnyMessage], agentInboxId: String) -> Bool {
         var changed = false
         for message in messages {
             guard case .text(let text) = message.content else { continue }
+            if message.senderId == agentInboxId,
+               DocControlMessage.parseEvent(text) != nil {
+                compatibilityDetector.hasSeenDocSentinel = true
+                continue
+            }
             let sender: DocAgentCompatibilityDetector.Sender
             if message.senderId == agentInboxId {
                 sender = .agent
@@ -739,7 +763,7 @@ final class DocExperienceViewModel {
         return changed
     }
 
-    private func updateNotDocAgentNotice() {
+    func updateNotDocAgentNotice() {
         guard previewStage == nil else { return }
         guard compatibilityDetector.shouldWarn, !didDismissNotDocAgentNotice else {
             notDocAgentNoticeTask?.cancel()
@@ -761,7 +785,7 @@ final class DocExperienceViewModel {
         }
     }
 
-    private func updateAnswerDeliveries(from messages: [AnyMessage]) {
+    func updateAnswerDeliveries(from messages: [AnyMessage]) {
         for (itemId, sendState) in Array(itemSendStates) {
             let clientMessageId: String
             let answer: DocAnswer
@@ -787,7 +811,7 @@ final class DocExperienceViewModel {
         }
     }
 
-    private func resolveItem(id: String) {
+    func resolveItem(id: String) {
         cancelAnswerDeliveryTimeout(for: id)
         pendingItems.removeAll { $0.id == id }
         itemSendStates[id] = nil
@@ -798,7 +822,7 @@ final class DocExperienceViewModel {
     /// A cold snapshot can outlive a resolve event that has moved beyond the
     /// repository's first page. Page backward only for items restored from disk;
     /// live items continue on the inexpensive current-page observation path.
-    private func reconcilePersistedItemsIfNeeded() {
+    func reconcilePersistedItemsIfNeeded() {
         let currentIds = Set(pendingItems.map(\.id))
         itemsNeedingHistoryReconciliation.formIntersection(currentIds)
         guard state == nil || !itemsNeedingHistoryReconciliation.isEmpty else { return }
@@ -813,37 +837,7 @@ final class DocExperienceViewModel {
         }
     }
 
-    private func observeGoogleStatus(conversationId: String) {
-        googleStatusTask?.cancel()
-        googleConnectTask?.cancel()
-        googleConnectTask = nil
-        googleConnectRequestId = nil
-        isGoogleStatusLoaded = false
-        isGoogleDocsReady = false
-        isConnectingGoogleDocs = false
-        googleConnectErrorMessage = nil
-        let selection = AbilitiesServices.selection
-        let agentInboxId = agentInboxId
-        googleStatusTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let catalog = try await selection.service.fetchCatalog()
-                let optIns = try await selection.service.conversationAbilities(conversationId: conversationId)
-                guard !Task.isCancelled else { return }
-                let googleDocs = catalog.abilities.first { $0.id == DocGoogleConnectionChain.abilityId }
-                isGoogleDocsReady = googleDocs?.entitlement?.status == .active && optIns.contains {
-                    $0.abilityId == DocGoogleConnectionChain.abilityId &&
-                        $0.agentInboxId == agentInboxId
-                }
-            } catch {
-                guard !Task.isCancelled else { return }
-                Log.warning("Doc: couldn't refresh Google Docs ability status: \(error.localizedDescription)")
-            }
-            isGoogleStatusLoaded = true
-        }
-    }
-
-    private func persistSnapshot() {
+    func persistSnapshot() {
         let snapshot = PersistedSnapshot(
             state: state,
             pendingItems: pendingItems,
@@ -857,19 +851,19 @@ final class DocExperienceViewModel {
         }
     }
 
-    private func persistOriginConversationId(_ id: String) {
+    func persistOriginConversationId(_ id: String) {
         guard !id.hasPrefix("draft-") else { return }
         defaults.set(id, forKey: storageKey("originConversationId"))
     }
 
-    private static func itemPrecedes(_ lhs: DocWaitingItem, _ rhs: DocWaitingItem) -> Bool {
+    static func itemPrecedes(_ lhs: DocWaitingItem, _ rhs: DocWaitingItem) -> Bool {
         let lhsRank = registerRank(lhs.register)
         let rhsRank = registerRank(rhs.register)
         if lhsRank != rhsRank { return lhsRank < rhsRank }
         return lhs.createdAt > rhs.createdAt
     }
 
-    private static func registerRank(_ register: DocWaitingItem.Register) -> Int {
+    static func registerRank(_ register: DocWaitingItem.Register) -> Int {
         switch register {
         case .waiting: 0
         case .draft: 1
@@ -877,12 +871,85 @@ final class DocExperienceViewModel {
         }
     }
 
-    private struct PersistedSnapshot: Codable {
+    struct PersistedSnapshot: Codable {
         let state: DocState?
         let pendingItems: [DocWaitingItem]
         let resolvedItemIds: [String]
         let docContents: [DocContent]?
         let hasSeenDocSentinel: Bool?
+    }
+
+    func prepareControlProjection(agentInboxId: String) {
+        let agentKey = storageKey(Self.controlAgentInboxIdComponent)
+        guard let persistedAgentInboxId = defaults.string(forKey: agentKey) else {
+            defaults.set(agentInboxId, forKey: agentKey)
+            return
+        }
+        guard persistedAgentInboxId != agentInboxId else { return }
+        controlSnapshot = nil
+        hasObservedControlEvent = false
+        isControlResyncInFlight = false
+        defaults.removeObject(forKey: storageKey(Self.controlComponent))
+        defaults.removeObject(forKey: storageKey(Self.controlResyncMarkerComponent))
+        defaults.set(agentInboxId, forKey: agentKey)
+        refreshGoogleControlState()
+    }
+
+    func applyControlEvent(_ event: DocControlEvent) -> Bool {
+        guard var snapshot = controlSnapshot else {
+            controlSnapshot = DocControlSnapshot(event: event)
+            return true
+        }
+        guard snapshot.apply(event) else { return false }
+        controlSnapshot = snapshot
+        return true
+    }
+
+    func persistControlSnapshot() {
+        guard let controlSnapshot,
+              let data = try? JSONEncoder().encode(controlSnapshot) else {
+            return
+        }
+        defaults.set(data, forKey: storageKey(Self.controlComponent))
+    }
+
+    func refreshGoogleControlState() {
+        guard let googleControl else {
+            isGoogleStatusLoaded = false
+            isGoogleDocsReady = false
+            isConnectingGoogleDocs = googleConnectRequestId != nil
+            return
+        }
+        isGoogleStatusLoaded = true
+        isGoogleDocsReady = googleControl.gate.status == .approved ||
+            googleControl.connection.status == .granted
+        isConnectingGoogleDocs = googleControl.gate.status == .pending ||
+            googleConnectRequestId != nil
+    }
+
+    func requestControlResyncIfNeeded(agentInboxId: String) {
+        guard previewStage == nil,
+              controlSnapshot == nil,
+              !hasObservedControlEvent,
+              !isControlResyncInFlight,
+              defaults.string(forKey: storageKey(Self.controlResyncMarkerComponent)) != agentInboxId,
+              let dmViewModel else {
+            return
+        }
+        isControlResyncInFlight = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { isControlResyncInFlight = false }
+            do {
+                try await dmViewModel.sendDocProtocolText(
+                    DocControlRequestMessage.resyncText,
+                    clientMessageId: UUID().uuidString
+                )
+                defaults.set(agentInboxId, forKey: storageKey(Self.controlResyncMarkerComponent))
+            } catch {
+                Log.warning("Doc control resync request failed: \(error.localizedDescription)")
+            }
+        }
     }
 }
 
@@ -960,8 +1027,6 @@ extension DocExperienceViewModel {
         } else {
             .newConversation
         }
-        isCreatingAgentForBootstrap = existingId == nil
-
         conversationViewModel = NewConversationViewModel(
             session: session,
             mode: mode,
@@ -987,7 +1052,6 @@ extension DocExperienceViewModel {
     func synchronizeAgentDm() async {
         guard previewStage == nil, let originViewModel else { return }
         markAgentStartupProgress()
-        markBootstrapPendingForNewAgent(originConversationId: originViewModel.conversation.id)
         persistOriginConversationId(originViewModel.conversation.id)
 
         let dmSession = agentDmSession ?? AgentDmSession(originViewModel: originViewModel)
@@ -1009,6 +1073,8 @@ extension DocExperienceViewModel {
     func showGoogleConnectIfNeeded() {
         guard previewStage == nil,
               dmViewModel != nil,
+              shouldShowGoogleConnectCard,
+              googleControl?.gate.status != .pending,
               !defaults.bool(forKey: storageKey("googleConnectHandled")) else {
             return
         }
@@ -1250,7 +1316,12 @@ private extension DocExperienceViewModel {
 
 extension DocExperienceViewModel {
     var contributionLine: String {
-        DocContributionLinePolicy.number(stateLine: state?.line)
+        if let line = controlSnapshot?.line,
+           line.status == .available,
+           let lineNumber = line.lineNumber {
+            return lineNumber
+        }
+        return previewStage == nil ? "" : DocPreviewConfiguration.contributionLine
     }
 
     var shareText: String? {
@@ -1259,17 +1330,30 @@ extension DocExperienceViewModel {
     }
 
     func presentContributionLine() {
+        guard !contributionLine.isEmpty else { return }
         sharedDocNumber = contributionLine
         isPresentingShareNumber = true
     }
 
+    func renewVerification() {
+        Task { @MainActor [weak self] in
+            _ = await self?.sendProtocolText(DocControlRequestMessage.renewVerificationText)
+        }
+    }
+
     func shouldShowShareDoc(for doc: DocStatus) -> Bool {
-        DocShareAction.disposition(for: doc) != .hidden
+        DocShareAction.disposition(
+            for: doc,
+            controlBinding: controlBinding(for: doc.id)
+        ) != .hidden
     }
 
     @discardableResult
     func shareDoc(_ doc: DocStatus) async -> Bool {
-        switch DocShareAction.disposition(for: doc) {
+        switch DocShareAction.disposition(
+            for: doc,
+            controlBinding: controlBinding(for: doc.id)
+        ) {
         case .hidden:
             return true
         case .nativeShare(let text):
@@ -1284,7 +1368,7 @@ extension DocExperienceViewModel {
     func connectGoogleDocs() {
         guard previewStage == nil,
               let conversation = googleConnectConversation,
-              !isConnectingGoogleDocs else {
+              canRequestGoogleDocs else {
             return
         }
         let requestId = UUID()
@@ -1338,8 +1422,6 @@ extension DocExperienceViewModel {
                     }
                 )
                 try ensureGoogleConnectRequestIsCurrent(requestId, conversationId: conversation.id)
-                isGoogleDocsReady = true
-                isGoogleStatusLoaded = true
                 defaults.set(true, forKey: storageKey("googleConnectHandled"))
             } catch let error as OAuthError {
                 guard googleConnectRequestId == requestId else { return }
@@ -1355,9 +1437,9 @@ extension DocExperienceViewModel {
                 googleConnectErrorMessage = error.localizedDescription
             }
             guard googleConnectRequestId == requestId else { return }
-            isConnectingGoogleDocs = false
             googleConnectRequestId = nil
             googleConnectTask = nil
+            refreshGoogleControlState()
         }
     }
 
@@ -1449,52 +1531,12 @@ extension DocExperienceViewModel {
             agentStartupTimeoutTask = nil
             agentStartupState = .ready
             observedDmConversationId = dmViewModel.conversation.id
-            observeGoogleStatus(conversationId: dmViewModel.conversation.id)
         }
-        await sendBootstrapIfNeeded(to: dmViewModel)
+        refreshGoogleControlState()
+        if let agentInboxId {
+            requestControlResyncIfNeeded(agentInboxId: agentInboxId)
+        }
         showGoogleConnectIfNeeded()
-    }
-
-    private func markBootstrapPendingForNewAgent(originConversationId: String) {
-        guard isCreatingAgentForBootstrap,
-              !originConversationId.hasPrefix("draft-") else {
-            return
-        }
-        defaults.set(
-            originConversationId,
-            forKey: storageKey(Self.bootstrapPendingOriginConversationIdComponent)
-        )
-        isCreatingAgentForBootstrap = false
-    }
-
-    private func sendBootstrapIfNeeded(to dmViewModel: ConversationViewModel) async {
-        guard let originConversationId = originViewModel?.conversation.id,
-              let agentInboxId else {
-            return
-        }
-        let pendingOriginKey = storageKey(Self.bootstrapPendingOriginConversationIdComponent)
-        let sentBindingsKey = storageKey(Self.bootstrapSentBindingsComponent)
-        do {
-            _ = try await bootstrapSender.sendIfNeeded(
-                binding: .init(
-                    originConversationId: originConversationId,
-                    agentInboxId: agentInboxId,
-                    dmConversationId: dmViewModel.conversation.id
-                ),
-                defaults: defaults,
-                pendingOriginKey: pendingOriginKey,
-                sentBindingsKey: sentBindingsKey
-            ) { text, clientMessageId in
-                try await dmViewModel.sendDocProtocolText(
-                    text,
-                    clientMessageId: clientMessageId
-                )
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            Log.error("Doc bootstrap send failed: \(error.localizedDescription)")
-        }
     }
 
     private func observeDocAgentMessagesIfReady() {
@@ -1616,8 +1658,9 @@ extension DocExperienceViewModel {
             "snapshot",
             "state",
             "docLanes",
-            bootstrapPendingOriginConversationIdComponent,
-            bootstrapSentBindingsComponent,
+            controlComponent,
+            controlAgentInboxIdComponent,
+            controlResyncMarkerComponent,
         ]
         if replayFirstRun {
             components.append("welcome")
@@ -1663,12 +1706,13 @@ extension DocExperienceViewModel {
         "snapshot",
         "state",
         "docLanes",
-        bootstrapPendingOriginConversationIdComponent,
-        bootstrapSentBindingsComponent,
+        controlComponent,
+        controlAgentInboxIdComponent,
+        controlResyncMarkerComponent,
     ]
-    static let bootstrapPendingOriginConversationIdComponent: String =
-        "bootstrapPendingOriginConversationId"
-    static let bootstrapSentBindingsComponent: String = "bootstrapSentBindings"
+    private static let controlComponent: String = "control"
+    private static let controlAgentInboxIdComponent: String = "controlAgentInboxId"
+    private static let controlResyncMarkerComponent: String = "controlResyncSentAgentInboxId"
     private static let provisionalAccountIdentifier: String = "registering"
     private static let preserveWelcomeUserInfoKey: String = "preserveWelcome"
 
@@ -1722,11 +1766,16 @@ extension DocExperienceViewModel {
         }
 
         state = nil
+        controlSnapshot = nil
         pendingItems = []
         docContentsById = [:]
         resolvedItemIds = []
         itemsNeedingHistoryReconciliation = []
         compatibilityDetector = .init()
+        if let data = defaults.data(forKey: storageKey(Self.controlComponent)) {
+            controlSnapshot = try? JSONDecoder().decode(DocControlSnapshot.self, from: data)
+        }
+        refreshGoogleControlState()
         if let data = defaults.data(forKey: storageKey("snapshot")),
            let snapshot = try? JSONDecoder().decode(PersistedSnapshot.self, from: data) {
             state = snapshot.state
@@ -1741,6 +1790,9 @@ extension DocExperienceViewModel {
         } else if let data = defaults.data(forKey: storageKey("state")) {
             state = try? JSONDecoder().decode(DocState.self, from: data)
             compatibilityDetector.hasSeenDocSentinel = state != nil
+        }
+        if controlSnapshot != nil {
+            compatibilityDetector.hasSeenDocSentinel = true
         }
     }
 
@@ -1793,8 +1845,6 @@ extension DocExperienceViewModel {
         }
         docMessageAggregator?.stop()
         docMessageAggregator = nil
-        googleStatusTask?.cancel()
-        googleStatusTask = nil
         googleConnectTask?.cancel()
         googleConnectTask = nil
         googleConnectRequestId = nil
@@ -1803,6 +1853,7 @@ extension DocExperienceViewModel {
         conversationViewModel = nil
         agentDmSession = nil
         state = nil
+        controlSnapshot = nil
         pendingItems = []
         docContentsById = [:]
         docContentLoadStates = [:]
@@ -1833,7 +1884,8 @@ extension DocExperienceViewModel {
         agentStartupTimeoutTask?.cancel()
         agentStartupTimeoutTask = nil
         agentStartupState = .idle
-        isCreatingAgentForBootstrap = false
+        hasObservedControlEvent = false
+        isControlResyncInFlight = false
         hasCompletedWelcome = preservingWelcome ? completedWelcome : false
         latestStateMessageId = nil
         stateMessageIdAtLastSend = nil

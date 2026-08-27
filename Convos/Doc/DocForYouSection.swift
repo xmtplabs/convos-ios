@@ -3,6 +3,7 @@ import SwiftUI
 
 struct DocForYouSection: View {
     @Bindable var viewModel: DocExperienceViewModel
+    let verification: DocControlVerification?
     let items: [DocWaitingItem]
     let composerScope: DocComposerScope
 
@@ -11,6 +12,17 @@ struct DocForYouSection: View {
 
     var body: some View {
         Section {
+            if let verification {
+                DocVerificationControlCard(
+                    verification: verification,
+                    onRenew: viewModel.renewVerification
+                )
+                .transition(DocMotion.itemTransition(reduceMotion: reduceMotion))
+                .listRowInsets(rowInsets)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+
             ForEach(visibleItems) { item in
                 itemCard(for: item)
                     .transition(DocMotion.itemTransition(reduceMotion: reduceMotion))
@@ -19,7 +31,7 @@ struct DocForYouSection: View {
                     .listRowSeparator(.hidden)
             }
 
-            if hiddenCount > 0 || isExpanded {
+            if hiddenCount > 0 || isExpanded, !items.isEmpty {
                 Button {
                     withAnimation(DocMotion.arrival(reduceMotion: reduceMotion)) {
                         isExpanded.toggle()
@@ -55,18 +67,16 @@ struct DocForYouSection: View {
             let leftRank = rank(lhs.register)
             let rightRank = rank(rhs.register)
             if leftRank != rightRank { return leftRank < rightRank }
-            if lhs.kind == .verifyNumber, rhs.kind != .verifyNumber { return true }
-            if rhs.kind == .verifyNumber, lhs.kind != .verifyNumber { return false }
             return lhs.createdAt > rhs.createdAt
         }
     }
 
     private var visibleItems: [DocWaitingItem] {
-        isExpanded ? rankedItems : Array(rankedItems.prefix(3))
+        isExpanded ? rankedItems : Array(rankedItems.prefix(verification == nil ? 3 : 2))
     }
 
     private var hiddenCount: Int {
-        max(0, rankedItems.count - 3)
+        max(0, rankedItems.count - (verification == nil ? 3 : 2))
     }
 
     private var rowInsets: EdgeInsets {
@@ -82,18 +92,14 @@ struct DocForYouSection: View {
     private func itemCard(for item: DocWaitingItem) -> some View {
         switch item.register {
         case .waiting:
-            if item.kind == .verifyNumber {
-                DocVerifyNumberItemCard(item: item)
-            } else {
-                DocWaitingItemCard(
-                    item: item,
-                    sendState: viewModel.sendState(for: item),
-                    isEnabled: viewModel.isDmReadyForDisplay,
-                    activeAnswerItemId: $viewModel.activeAnswerItemId,
-                    onAnswer: { viewModel.sendAnswer($0, for: item) },
-                    onRetry: { viewModel.retryAnswer(for: item) }
-                )
-            }
+            DocWaitingItemCard(
+                item: item,
+                sendState: viewModel.sendState(for: item),
+                isEnabled: viewModel.isDmReadyForDisplay,
+                activeAnswerItemId: $viewModel.activeAnswerItemId,
+                onAnswer: { viewModel.sendAnswer($0, for: item) },
+                onRetry: { viewModel.retryAnswer(for: item) }
+            )
         case .draft:
             DocDraftItemCard(
                 item: item,

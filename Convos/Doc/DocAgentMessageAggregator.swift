@@ -239,14 +239,24 @@ final class DocAgentMessageAggregator {
                 return DocStateMessage.isDataPlaneText(text)
             }
             .sorted { DocMessagePosition(message: $0) > DocMessagePosition(message: $1) }
+        let controlMessages = wireMessages.filter(isControlMessage)
         guard let stateMessage = wireMessages.first(where: isStateMessage) else {
             return (wireMessages, false)
         }
         let statePosition = DocMessagePosition(message: stateMessage)
-        let messagesSinceState = wireMessages.filter {
-            DocMessagePosition(message: $0) >= statePosition
+        let editorialMessagesSinceState = wireMessages.filter { message in
+            !isControlMessage(message) && DocMessagePosition(message: message) >= statePosition
         }
-        return (messagesSinceState, true)
+        let backfill = Dictionary(
+            (controlMessages + editorialMessagesSinceState).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return (
+            backfill.values.sorted {
+                DocMessagePosition(message: $0) > DocMessagePosition(message: $1)
+            },
+            true
+        )
     }
 
     private static func isStateMessage(_ message: AnyMessage) -> Bool {
@@ -255,6 +265,11 @@ final class DocAgentMessageAggregator {
             return false
         }
         return true
+    }
+
+    private static func isControlMessage(_ message: AnyMessage) -> Bool {
+        guard case .text(let text) = message.content else { return false }
+        return DocControlMessage.parseEvent(text) != nil
     }
 
     private func emitIfReady() {

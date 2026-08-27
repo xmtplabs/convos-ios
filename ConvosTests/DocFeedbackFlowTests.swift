@@ -6,8 +6,8 @@ import UIKit
 
 @MainActor
 struct DocFeedbackFlowTests {
-    @Test("null-state home always has the Doc preview contribution line")
-    func nullStateHomeHasContributionLine() throws {
+    @Test("null-state home waits for the Worker contribution line")
+    func nullStateHomeWaitsForControlLine() throws {
         let suiteName = "DocContributionLineTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -18,13 +18,43 @@ struct DocFeedbackFlowTests {
         )
 
         #expect(viewModel.docs.isEmpty)
-        #expect(viewModel.contributionLine == DocPreviewConfiguration.contributionLine)
-        #expect(docDisplayPhoneNumber(viewModel.contributionLine) == "+1 (628) 309-5734")
+        #expect(viewModel.contributionLine.isEmpty)
     }
 
-    @Test("snapshot contribution line overrides the preview line")
-    func snapshotContributionLineOverridesPreviewLine() {
-        #expect(DocContributionLinePolicy.number(stateLine: "+14155550100") == "+14155550100")
+    @Test("control contribution line overrides editorial compatibility state")
+    func controlContributionLineIsAuthoritative() throws {
+        let suiteName = "DocControlContributionLineTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let viewModel = DocExperienceViewModel(
+            session: MockInboxesService(),
+            coreActions: NoOpCoreActions(),
+            defaults: defaults
+        )
+        let agent = ConversationMember(
+            profile: .mock(inboxId: "doc-agent", name: "Doc"),
+            role: .member,
+            isCurrentUser: false,
+            isAgent: true
+        )
+        let text = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":2,"at":1787720400,"key":"line","kind":"line","line":{"status":"available","lineNumber":"+14155550100"}}"#
+        let message = AnyMessage.message(
+            Message(
+                id: "control-line",
+                sender: agent,
+                source: .incoming,
+                status: .published,
+                content: .text(text),
+                date: Date(timeIntervalSince1970: 2),
+                reactions: []
+            ),
+            .existing
+        )
+
+        viewModel.ingestAggregatedMessages([message], agentInboxId: agent.profile.inboxId)
+
+        #expect(viewModel.contributionLine == "+14155550100")
+        #expect(docDisplayPhoneNumber(viewModel.contributionLine) == "+1 (415) 555-0100")
     }
 
     @Test("Doc number copy excludes the share message")

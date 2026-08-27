@@ -100,8 +100,9 @@ struct DocItemReconcilerTests {
             "googleConnectHandled",
             "snapshot",
             "state",
-            DocExperienceViewModel.bootstrapPendingOriginConversationIdComponent,
-            DocExperienceViewModel.bootstrapSentBindingsComponent,
+            "control",
+            "controlAgentInboxId",
+            "controlResyncSentAgentInboxId",
         ]
             .map { DocExperienceViewModel.storageKey($0, session: session) }
         docKeys.forEach { defaults.set("stored", forKey: $0) }

@@ -2,6 +2,28 @@ import ConvosCore
 import Foundation
 
 extension DocExperienceViewModel {
+    static var previewVerificationSnapshot: DocControlSnapshot {
+        DocControlSnapshot(event: DocControlEvent(
+            instanceId: "F47AC10B-58CC-4372-A567-0E02B2C3D479",
+            epoch: "7D9E6679-7425-40DE-944B-E07FC1F90AE7",
+            sequence: 1,
+            occurredAt: 1_787_720_400,
+            key: DocControlMessage.verificationChallengeKey,
+            payload: .verification(DocControlVerification(
+                status: .pending,
+                challengeId: "A8098C1A-F86E-11DA-BD1A-00112444BE1E",
+                lineNumber: DocPreviewConfiguration.contributionLine,
+                ownerNumber: nil,
+                code: "ABCD-2345-WXYZ",
+                smsBody: "VERIFY ABCD-2345-WXYZ",
+                expiresAt: 1_787_724_000,
+                verifiedAt: nil,
+                releasedAt: nil,
+                clearsKey: nil
+            ))
+        ))
+    }
+
     static var previewItems: [DocWaitingItem] {
         let now = Date()
         return [

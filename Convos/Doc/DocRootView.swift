@@ -226,6 +226,7 @@ private struct DocHomeView: View {
             if viewModel.shouldShowGoogleConnectCard {
                 DocGoogleConnectCard(
                     isConnecting: viewModel.isConnectingGoogleDocs,
+                    isWaitingForApproval: viewModel.isWaitingForGoogleApproval,
                     errorMessage: viewModel.googleConnectErrorMessage,
                     onConnect: onConnectGoogle
                 )
@@ -245,27 +246,29 @@ private struct DocHomeView: View {
                 .docHomeRow()
             }
 
-            if !viewModel.docs.isEmpty {
+            if !viewModel.docs.isEmpty, !viewModel.contributionLine.isEmpty {
                 DocContributionLine(number: viewModel.contributionLine, onShare: viewModel.presentContributionLine)
                     .docHomeRow()
             }
 
-            if !viewModel.visiblePendingItems.isEmpty {
+            if viewModel.verificationControl != nil || !viewModel.visiblePendingItems.isEmpty {
                 DocForYouSection(
                     viewModel: viewModel,
+                    verification: viewModel.verificationControl,
                     items: viewModel.visiblePendingItems,
                     composerScope: .home
                 )
             }
 
             if viewModel.docs.isEmpty {
-                DocEmptyState(isPreparing: viewModel.isPreparingAgent)
+                DocEmptyState(lifecycle: viewModel.controlLifecycle)
                     .docHomeRow()
             } else {
                 Section {
                     ForEach(viewModel.docs) { doc in
                         DocStatusCard(
                             doc: doc,
+                            binding: viewModel.controlBinding(for: doc.id),
                             onShareNumber: { viewModel.presentShareNumber(for: doc) },
                             onShareDoc: {
                                 Task { await viewModel.shareDoc(doc) }
@@ -279,7 +282,7 @@ private struct DocHomeView: View {
                 }
             }
 
-            if viewModel.docs.isEmpty {
+            if viewModel.docs.isEmpty, !viewModel.contributionLine.isEmpty {
                 DocContributionLine(number: viewModel.contributionLine, onShare: viewModel.presentContributionLine)
                     .docHomeRow()
             }
@@ -360,6 +363,7 @@ private extension View {
 
 private struct DocGoogleConnectCard: View {
     let isConnecting: Bool
+    let isWaitingForApproval: Bool
     let errorMessage: String?
     let onConnect: () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
@@ -393,9 +397,9 @@ private struct DocGoogleConnectCard: View {
                 .frame(width: 32.0, height: 32.0)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                Text("Connect Google Docs")
+                Text(isWaitingForApproval ? "Google Docs requested" : "Connect Google Docs")
                     .font(.subheadline.weight(.semibold))
-                Text("Doc needs it to write your docs")
+                Text(isWaitingForApproval ? "Waiting for approval" : "Doc needs it to write your docs")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -405,7 +409,9 @@ private struct DocGoogleConnectCard: View {
 
     private var connectButton: some View {
         Button(action: onConnect) {
-            if isConnecting {
+            if isWaitingForApproval {
+                Text("Waiting…")
+            } else if isConnecting {
                 ProgressView().frame(minWidth: 60.0)
             } else {
                 Text(errorMessage == nil ? "Connect" : "Retry")
@@ -559,7 +565,7 @@ private struct DocContributionLine: View {
 }
 
 private struct DocEmptyState: View {
-    let isPreparing: Bool
+    let lifecycle: DocControlLifecycle?
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
@@ -585,10 +591,16 @@ private struct DocEmptyState: View {
     }
 
     private var emptyStateDescription: String {
-        if isPreparing {
+        switch lifecycle?.status {
+        case .provisioned, .joined:
             return "I'm getting ready. Share screenshots here to start, or add @doc to the group directly."
+        case .failed:
+            return "I couldn't get ready. Try again, or reset the Doc agent in Settings."
+        case .destroyed:
+            return "This Doc agent is no longer available. Reset it in Settings to start again."
+        case .ready, nil:
+            return "Share screenshots here to start, or add @doc to the group directly. Screenshots first works best: share the doc, then add me once it looks right."
         }
-        return "Share screenshots here to start, or add @doc to the group directly. Screenshots first works best: share the doc, then add me once it looks right."
     }
 }
 
@@ -622,6 +634,7 @@ private struct DocAgentStartupErrorCard: View {
 
 private struct DocStatusCard: View {
     let doc: DocStatus
+    let binding: DocControlBinding?
     let onShareNumber: () -> Void
     let onShareDoc: () -> Void
 
@@ -690,13 +703,20 @@ private struct DocStatusCard: View {
 
     @ViewBuilder
     private var bindingPill: some View {
-        if doc.binding.state == .live {
+        if binding?.status == .live {
             Label("In the group", systemImage: "checkmark.circle.fill")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.green)
                 .padding(.horizontal, DesignConstants.Spacing.step3x)
                 .frame(minHeight: 28.0)
                 .background(Color.green.opacity(0.12), in: Capsule())
+        } else if binding?.status == .pending {
+            Label("Adding to group…", systemImage: "clock")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+                .frame(minHeight: 28.0)
+                .background(.colorFillMinimal, in: Capsule())
         } else {
             Button(action: onShareNumber) {
                 Label("Share Doc's number", systemImage: "person.badge.plus")

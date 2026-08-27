@@ -213,10 +213,6 @@ public enum DocWireMessage {
     }
 }
 
-public enum DocBootstrapMessage {
-    public static let text: String = #"⟦req⟧{"v":1,"t":"bootstrap"}"#
-}
-
 public enum DocStateMessage {
     public static let prefix: String = "⟦doc⟧"
 
@@ -546,10 +542,13 @@ public enum DocShareDisposition: Hashable, Sendable {
 }
 
 public enum DocShareAction {
-    public static func disposition(for doc: DocStatus) -> DocShareDisposition {
+    public static func disposition(
+        for doc: DocStatus,
+        controlBinding: DocControlBinding?
+    ) -> DocShareDisposition {
         guard doc.shared != true else { return .hidden }
         let message = "here's a doc for us (\(doc.url))"
-        return doc.binding.state == .live ? .askAgent(message) : .nativeShare(message)
+        return controlBinding?.status == .live ? .askAgent(message) : .nativeShare(message)
     }
 }
 

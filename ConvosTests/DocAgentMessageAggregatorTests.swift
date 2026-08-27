@@ -23,13 +23,13 @@ final class DocAgentMessageAggregatorTests: XCTestCase {
         let state = stateMessage(id: "state-live", name: "Live State", date: 100, sender: agent)
         let item = wireMessage(
             id: "z-item-live",
-            text: #"⟦doc⟧{"v":1,"t":"item","item":{"id":"verify-live","register":"waiting","kind":"verify_number","headline":"Verify your phone number","context":"Send the prefilled message.","code":"ABCD-EFGH-2345","lineNumber":"+16283095734","smsBody":"VERIFY ABCD-EFGH-2345","docId":null,"createdAt":101}}"#,
+            text: #"⟦doc⟧{"v":1,"t":"item","item":{"id":"question-live","register":"waiting","kind":"question","headline":"Which date works?","context":"The trip needs a date.","chips":["Friday"],"docId":null,"createdAt":101}}"#,
             date: 101,
             sender: agent
         )
         let resolved = wireMessage(
             id: "a-resolved-live",
-            text: #"⟦doc⟧{"v":1,"t":"item-resolved","id":"verify-live"}"#,
+            text: #"⟦doc⟧{"v":1,"t":"item-resolved","id":"question-live"}"#,
             date: 101,
             sender: agent
         )
@@ -46,7 +46,7 @@ final class DocAgentMessageAggregatorTests: XCTestCase {
                 sawState = true
                 stateArrived.fulfill()
             }
-            if !sawItem, viewModel.pendingItems.map(\.id) == ["verify-live"] {
+            if !sawItem, viewModel.pendingItems.map(\.id) == ["question-live"] {
                 sawItem = true
                 itemArrived.fulfill()
             }
@@ -65,17 +65,19 @@ final class DocAgentMessageAggregatorTests: XCTestCase {
         XCTAssertTrue(viewModel.pendingItems.isEmpty)
     }
 
-    func testCurrentPublisherStateAndVerificationItemReachHomeSnapshot() async {
+    func testCurrentPublisherStateAndControlVerificationReachHomeSnapshot() async {
         let defaults = makeDefaults()
         let agent = agentMember()
         let lane = conversation(id: "primary-lane", agent: agent)
         let stateText = #"⟦doc⟧{"v":1,"t":"state","line":"+16283095734","docs":[{"id":"tahoe-trip","name":"Tahoe Trip","url":"https://docs.google.com/document/d/doc-123/edit","updatedAt":1787720400,"lastChange":{"who":"Sara","what":"created the doc","at":1787720340},"binding":{"state":"pending","number":"+16283095734","group":null},"shared":false,"dates":"Dec 12–15","people":4}]}"#
-        let itemText = #"⟦doc⟧{"v":1,"t":"item","item":{"id":"523e4567-e89b-42d3-a456-426614174004","register":"waiting","kind":"verify_number","headline":"Verify your phone number","context":"Send the prefilled message from your phone number.","code":"ABCD-EFGH-2345","lineNumber":"+16283095734","smsBody":"VERIFY ABCD-EFGH-2345","docId":null,"createdAt":1787720401}}"#
+        let lineText = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":2,"at":1787720399,"key":"line","kind":"line","line":{"status":"available","lineNumber":"+16283095734"}}"#
+        let verificationText = #"⟦doc⟧{"v":1,"t":"control","instanceId":"F47AC10B-58CC-4372-A567-0E02B2C3D479","epoch":"7D9E6679-7425-40DE-944B-E07FC1F90AE7","seq":3,"at":1787720400,"key":"verification:challenge","kind":"verification","verification":{"status":"pending","challengeId":"A8098C1A-F86E-11DA-BD1A-00112444BE1E","lineNumber":"+16283095734","ownerNumber":null,"code":"ABCD-EFGH-2345","smsBody":"VERIFY ABCD-EFGH-2345","expiresAt":1787724000,"verifiedAt":null,"releasedAt":null,"clearsKey":null}}"#
         let repository = TestDocMessagesRepository(
             conversationId: lane.id,
             messages: [
                 wireMessage(id: "publisher-state", text: stateText, date: 200, sender: agent),
-                wireMessage(id: "publisher-item", text: itemText, date: 201, sender: agent),
+                wireMessage(id: "publisher-line", text: lineText, date: 199, sender: agent),
+                wireMessage(id: "publisher-verification", text: verificationText, date: 201, sender: agent),
             ]
         )
         let conversations = CurrentValueSubject<[Conversation], Never>([lane])
@@ -95,7 +97,7 @@ final class DocAgentMessageAggregatorTests: XCTestCase {
             viewModel.ingestAggregatedMessages(messages, agentInboxId: agent.profile.inboxId)
             guard !didFulfill,
                   viewModel.docs.map(\.id) == ["tahoe-trip"],
-                  viewModel.visiblePendingItems.map(\.kind) == [.verifyNumber] else {
+                  viewModel.verificationControl?.status == .pending else {
                 return
             }
             didFulfill = true
@@ -103,7 +105,7 @@ final class DocAgentMessageAggregatorTests: XCTestCase {
         }
 
         await fulfillment(of: [snapshotArrived], timeout: 1)
-        XCTAssertEqual(viewModel.docs.first?.binding.state, .pending)
+        XCTAssertTrue(viewModel.visiblePendingItems.isEmpty)
         XCTAssertEqual(viewModel.contributionLine, "+16283095734")
     }
 

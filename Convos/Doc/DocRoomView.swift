@@ -40,6 +40,8 @@ struct DocRoomView: View {
 
             DocActivationView(
                 doc: doc,
+                binding: viewModel.controlBinding(for: doc.id),
+                contributionLine: viewModel.contributionLine,
                 onShareNumber: { viewModel.presentShareNumber(for: doc) },
                 onShareDoc: {
                     Task { await viewModel.shareDoc(doc) }
@@ -50,6 +52,7 @@ struct DocRoomView: View {
             if !forYouItems.isEmpty {
                 DocForYouSection(
                     viewModel: viewModel,
+                    verification: nil,
                     items: forYouItems,
                     composerScope: .room(doc.id)
                 )
@@ -169,16 +172,18 @@ private extension View {
 
 private struct DocActivationView: View {
     let doc: DocStatus
+    let binding: DocControlBinding?
+    let contributionLine: String
     let onShareNumber: () -> Void
     let onShareDoc: () -> Void
 
     var body: some View {
-        if doc.binding.state == .live {
+        if let binding, binding.status == .live {
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                     .accessibilityHidden(true)
-                Text("In the group · \(docDisplayPhoneNumber(doc.binding.number))")
+                Text("In the group · \(docDisplayPhoneNumber(binding.lineNumber))")
                     .font(.subheadline)
                     .foregroundStyle(.colorTextSecondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -186,9 +191,21 @@ private struct DocActivationView: View {
             .padding(.horizontal, DesignConstants.Spacing.step2x)
             .frame(minHeight: 44.0)
             .accessibilityIdentifier("doc-room-bound-status")
-        } else {
+        } else if binding?.status == .pending {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Adding Doc to the group…")
+                    .font(.subheadline)
+                    .foregroundStyle(.colorTextSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .frame(minHeight: 44.0)
+            .accessibilityIdentifier("doc-room-binding-pending")
+        } else if !contributionLine.isEmpty {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
-                Text(docDisplayPhoneNumber(doc.binding.number))
+                Text(docDisplayPhoneNumber(contributionLine))
                     .font(.title2.weight(.semibold).monospacedDigit())
                     .foregroundStyle(.colorTextPrimary)
                     .textSelection(.enabled)

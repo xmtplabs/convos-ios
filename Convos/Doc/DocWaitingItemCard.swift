@@ -27,8 +27,9 @@ enum DocMotion {
     }
 }
 
-struct DocVerifyNumberItemCard: View {
-    let item: DocWaitingItem
+struct DocVerificationControlCard: View {
+    let verification: DocControlVerification
+    let onRenew: () -> Void
 
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize: DynamicTypeSize
@@ -37,22 +38,22 @@ struct DocVerifyNumberItemCard: View {
     @State private var didCopyCode: Bool = false
 
     var body: some View {
-        DocItemCardContainer(itemId: item.id) {
+        DocItemCardContainer(itemId: verification.challengeId ?? DocControlMessage.verificationChallengeKey) {
             content
         }
         .sheet(isPresented: $isComposerPresented) {
             messageComposerSheet
         }
-        .accessibilityIdentifier("doc-verify-number-\(item.id)")
+        .accessibilityIdentifier("doc-verification-control")
     }
 
     private var content: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step3x) {
-            Text(item.headline)
+            Text("Verify your phone number")
                 .font(.headline.weight(.semibold))
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(item.context)
+            Text(verificationDescription)
                 .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -66,30 +67,36 @@ struct DocVerifyNumberItemCard: View {
             }
             .accessibilityLabel("Text @doc at \(verificationLineNumber)")
 
-            if let code = item.code {
+            if let code = verification.code {
                 codeRow(code)
             }
 
-            if isWaitingForText {
+            if verification.status == .pending, isWaitingForText {
                 Label("Waiting for your text…", systemImage: "ellipsis.message")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.colorTextSecondary)
                     .transition(.opacity)
             }
 
-            Button("Text @doc to verify") {
-                beginVerification()
+            if verification.status == .expired {
+                Button("Get a new code", action: onRenew)
+                    .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
+                    .frame(minHeight: 44.0)
+            } else {
+                Button("Text @doc to verify") {
+                    beginVerification()
+                }
+                .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
+                .frame(minHeight: 44.0)
             }
-            .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorLava))
-            .frame(minHeight: 44.0)
         }
         .padding(DesignConstants.Spacing.step4x)
     }
 
     @ViewBuilder
     private var messageComposerSheet: some View {
-        if let lineNumber = item.lineNumber, let smsBody = item.smsBody {
-            DocMessageComposeView(recipient: lineNumber, body: smsBody) {
+        if let smsBody = verification.smsBody {
+            DocMessageComposeView(recipient: verification.lineNumber, body: smsBody) {
                 isComposerPresented = false
                 withAnimation(.easeOut(duration: 0.16)) {
                     isWaitingForText = true
@@ -150,7 +157,18 @@ struct DocVerifyNumberItemCard: View {
     }
 
     private var verificationLineNumber: String {
-        item.lineNumber ?? ""
+        verification.lineNumber
+    }
+
+    private var verificationDescription: String {
+        switch verification.status {
+        case .pending:
+            "Send the prefilled message from the phone number you use with Doc."
+        case .expired:
+            "That verification code expired. Get a new code, then text it to @doc."
+        case .verified, .released:
+            "Your phone number is verified."
+        }
     }
 
     private var copyButtonTitle: String {
@@ -162,14 +180,14 @@ struct DocVerifyNumberItemCard: View {
     }
 
     private func beginVerification() {
-        guard let lineNumber = item.lineNumber, let smsBody = item.smsBody else { return }
+        guard let smsBody = verification.smsBody else { return }
         if MFMessageComposeViewController.canSendText() {
             isComposerPresented = true
         } else {
             withAnimation(.easeOut(duration: 0.16)) {
                 isWaitingForText = true
             }
-            guard let url = smsURL(lineNumber: lineNumber, body: smsBody) else { return }
+            guard let url = smsURL(lineNumber: verification.lineNumber, body: smsBody) else { return }
             openURL(url)
         }
     }
