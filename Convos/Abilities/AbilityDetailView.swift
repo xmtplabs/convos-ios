@@ -123,7 +123,7 @@ struct AbilityDetailView: View {
     /// broken, where the removed list menu used to offer it.
     @ViewBuilder
     private var actionSection: some View {
-        if onDisconnect != nil {
+        if showsActions {
             Section {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     reconnectButton
@@ -141,9 +141,9 @@ struct AbilityDetailView: View {
 
     @ViewBuilder
     private var reconnectButton: some View {
-        if needsReconnect, let onReconnect {
+        if showsReconnect {
             let reconnectAction: () -> Void = {
-                onReconnect()
+                onReconnect?()
                 dismiss()
             }
             Button("Reconnect", action: reconnectAction)
@@ -157,6 +157,18 @@ struct AbilityDetailView: View {
         return Button("Disconnect", action: disconnectAction)
             .buttonStyle(RoundedDestructiveButtonStyle(fullWidth: true))
             .accessibilityIdentifier("ability-detail-disconnect")
+    }
+
+    /// The section is App Settings only: the in-convo browser injects no
+    /// actions, so it stays read-only.
+    private var showsActions: Bool {
+        onDisconnect != nil
+    }
+
+    /// Reconnect leads only for a repairable connection the caller can
+    /// actually restart.
+    private var showsReconnect: Bool {
+        needsReconnect && onReconnect != nil
     }
 
     /// The states that repair in place. `revoked` is routed to Discover
