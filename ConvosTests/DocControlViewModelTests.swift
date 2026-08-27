@@ -148,6 +148,188 @@ struct DocControlViewModelTests {
         #expect(!viewModel.isGoogleConnectQueued)
     }
 
+    @Test("Google connect keeps the target captured at tap through a DM remount")
+    func googleConnectKeepsCapturedTarget() async throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let connectState = GoogleConnectTestState()
+        let initialTarget = DocGoogleConnectTarget(
+            conversationId: "approval-conversation",
+            agentInboxIds: [Fixture.agentInboxId]
+        )
+        connectState.target = initialTarget
+        let environment = DocGoogleConnectEnvironment(
+            target: { connectState.target },
+            performConnect: { target in
+                connectState.connectedTargets.append(target)
+                await connectState.waitForResume()
+            }
+        )
+        let viewModel = preparedGoogleConnectViewModel(
+            fixture: fixture,
+            environment: environment
+        )
+
+        viewModel.connectGoogleDocs()
+        try await waitUntil { connectState.connectedTargets == [initialTarget] }
+        connectState.target = DocGoogleConnectTarget(
+            conversationId: "remounted-conversation",
+            agentInboxIds: [Fixture.agentInboxId]
+        )
+        connectState.resumeConnect()
+        try await waitUntil { viewModel.isFinishingGoogleConnect }
+
+        #expect(connectState.connectedTargets == [initialTarget])
+        #expect(viewModel.isConnectingGoogleDocs)
+        #expect(viewModel.googleConnectErrorMessage == nil)
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "granted", text: Fixture.googleGranted, date: 11)],
+            agentInboxId: Fixture.agentInboxId
+        )
+
+        #expect(viewModel.firstRunStep == .home)
+        #expect(!viewModel.isConnectingGoogleDocs)
+        #expect(!viewModel.isFinishingGoogleConnect)
+        #expect(viewModel.googleConnectErrorMessage == nil)
+    }
+
+    @Test("Google connect acknowledgment timeout yields to a late success fact")
+    func googleConnectAcknowledgmentTimeoutYieldsToLateSuccess() async throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let target = DocGoogleConnectTarget(
+            conversationId: "approval-conversation",
+            agentInboxIds: [Fixture.agentInboxId]
+        )
+        let environment = DocGoogleConnectEnvironment(
+            target: { target },
+            performConnect: { _ in }
+        )
+        let viewModel = preparedGoogleConnectViewModel(
+            fixture: fixture,
+            environment: environment,
+            googleAcknowledgmentPolicy: .init(deadline: .milliseconds(20))
+        )
+
+        viewModel.connectGoogleDocs()
+        try await waitUntil {
+            viewModel.googleConnectErrorMessage == "Couldn't finish connecting Google. Try again."
+        }
+
+        #expect(!viewModel.isConnectingGoogleDocs)
+        #expect(!viewModel.isFinishingGoogleConnect)
+        #expect(viewModel.firstRunStep == .connectGoogle)
+
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "late-granted", text: Fixture.googleGranted, date: 11)],
+            agentInboxId: Fixture.agentInboxId
+        )
+
+        #expect(viewModel.firstRunStep == .home)
+        #expect(viewModel.googleConnectErrorMessage == nil)
+    }
+
+    @Test("Google connect cancellation shows a retriable chat error")
+    func googleConnectCancellationIsVisible() async throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let target = DocGoogleConnectTarget(
+            conversationId: "approval-conversation",
+            agentInboxIds: [Fixture.agentInboxId]
+        )
+        let environment = DocGoogleConnectEnvironment(
+            target: { target },
+            performConnect: { _ in throw CancellationError() }
+        )
+        let viewModel = preparedGoogleConnectViewModel(
+            fixture: fixture,
+            environment: environment
+        )
+
+        viewModel.connectGoogleDocs()
+        try await waitUntil {
+            viewModel.googleConnectErrorMessage == "Lost the chat connection. Try again."
+        }
+
+        #expect(!viewModel.isConnectingGoogleDocs)
+        #expect(viewModel.canConnectGoogleDocs)
+    }
+
+    @Test("dismissing the Google OAuth sheet stays quiet")
+    func googleConnectOAuthDismissalStaysQuiet() async throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let connectState = GoogleConnectTestState()
+        let target = DocGoogleConnectTarget(
+            conversationId: "approval-conversation",
+            agentInboxIds: [Fixture.agentInboxId]
+        )
+        let environment = DocGoogleConnectEnvironment(
+            target: { target },
+            performConnect: { connectedTarget in
+                connectState.connectedTargets.append(connectedTarget)
+                throw OAuthError.cancelled
+            }
+        )
+        let viewModel = preparedGoogleConnectViewModel(
+            fixture: fixture,
+            environment: environment
+        )
+
+        viewModel.connectGoogleDocs()
+        try await waitUntil {
+            connectState.connectedTargets == [target] && !viewModel.isConnectingGoogleDocs
+        }
+
+        #expect(viewModel.googleConnectErrorMessage == nil)
+        #expect(viewModel.canConnectGoogleDocs)
+    }
+
+    @Test("Google OAuth presentation failure shows a retriable error")
+    func googleConnectOAuthPresentationFailureIsVisible() async throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let target = DocGoogleConnectTarget(
+            conversationId: "approval-conversation",
+            agentInboxIds: [Fixture.agentInboxId]
+        )
+        let environment = DocGoogleConnectEnvironment(
+            target: { target },
+            performConnect: { _ in
+                throw OAuthError.failed(GoogleConnectTestError.presentation)
+            }
+        )
+        let viewModel = preparedGoogleConnectViewModel(
+            fixture: fixture,
+            environment: environment
+        )
+
+        viewModel.connectGoogleDocs()
+        try await waitUntil { viewModel.googleConnectErrorMessage != nil }
+
+        #expect(viewModel.googleConnectErrorMessage == "Authentication failed: The Google sign-in sheet couldn't open.")
+        #expect(viewModel.canConnectGoogleDocs)
+    }
+
+    @Test("Google service failure shows a retriable error")
+    func googleConnectServiceFailureIsVisible() async throws {
+        let fixture = try Fixture(hasCompletedWelcome: true)
+        let target = DocGoogleConnectTarget(
+            conversationId: "approval-conversation",
+            agentInboxIds: [Fixture.agentInboxId]
+        )
+        let environment = DocGoogleConnectEnvironment(
+            target: { target },
+            performConnect: { _ in throw GoogleConnectTestError.service }
+        )
+        let viewModel = preparedGoogleConnectViewModel(
+            fixture: fixture,
+            environment: environment
+        )
+
+        viewModel.connectGoogleDocs()
+        try await waitUntil { viewModel.googleConnectErrorMessage != nil }
+
+        #expect(viewModel.googleConnectErrorMessage == "The Google connection service failed.")
+        #expect(viewModel.canConnectGoogleDocs)
+    }
+
     @Test("relaunch resumes a pending verification")
     func relaunchResumesVerification() throws {
         let fixture = try Fixture(hasCompletedWelcome: true)
@@ -193,8 +375,8 @@ struct DocControlViewModelTests {
         #expect(viewModel.verificationFlowState == .fallback(number: "+14155550123"))
     }
 
-    @Test("verification request acknowledgment times out and retries the request")
-    func verificationRequestAcknowledgmentTimeout() async throws {
+    @Test("verification request acknowledgment timeout yields to late success")
+    func verificationRequestAcknowledgmentTimeoutYieldsToLateSuccess() async throws {
         let fixture = try Fixture(hasCompletedWelcome: true)
         let sendState = VerificationSendTestState()
         let expectedRequest = try #require(
@@ -219,13 +401,11 @@ struct DocControlViewModelTests {
             [fixture.message(id: "late-request-sent", text: Fixture.verificationRequestSent, date: 10)],
             agentInboxId: Fixture.agentInboxId
         )
-        #expect(viewModel.verificationFlowState == .requestTimedOut(number: "+14155550123"))
-
-        viewModel.requestPhoneVerification(number: "+14155550123")
-        try await Task.sleep(for: .milliseconds(5))
-
-        #expect(viewModel.verificationFlowState == .requesting(number: "+14155550123"))
-        #expect(sendState.sentTexts.count == 2)
+        #expect(viewModel.verificationFlowState == .enteringCode(
+            number: "+14155550123",
+            attemptFailed: false
+        ))
+        #expect(viewModel.verificationTransportErrorMessage == nil)
     }
 
     @Test("verification submit acknowledgment times out and retries the submission")
@@ -270,6 +450,23 @@ struct DocControlViewModelTests {
         while !condition(), clock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
+    }
+
+    private func preparedGoogleConnectViewModel(
+        fixture: Fixture,
+        environment: DocGoogleConnectEnvironment,
+        googleAcknowledgmentPolicy: DocGoogleAcknowledgmentPolicy = .live
+    ) -> DocExperienceViewModel {
+        let viewModel = fixture.viewModel(
+            googleConnectEnvironment: environment,
+            googleAcknowledgmentPolicy: googleAcknowledgmentPolicy
+        )
+        viewModel.ingestAggregatedMessages(
+            [fixture.message(id: "verified", text: Fixture.verificationVerified, date: 10)],
+            agentInboxId: Fixture.agentInboxId
+        )
+        viewModel.completeVerificationHello()
+        return viewModel
     }
 
     @Test("outbound verified fact completes phone verification")
@@ -539,6 +736,7 @@ struct DocControlViewModelTests {
         @MainActor
         func viewModel(
             googleConnectEnvironment: DocGoogleConnectEnvironment? = nil,
+            googleAcknowledgmentPolicy: DocGoogleAcknowledgmentPolicy = .live,
             verificationAcknowledgmentPolicy: DocVerificationAcknowledgmentPolicy = .live,
             verificationSendTarget: DocVerificationSendTarget? = nil
         ) -> DocExperienceViewModel {
@@ -547,6 +745,7 @@ struct DocControlViewModelTests {
                 coreActions: NoOpCoreActions(),
                 defaults: defaults,
                 googleConnectEnvironment: googleConnectEnvironment,
+                googleAcknowledgmentPolicy: googleAcknowledgmentPolicy,
                 verificationAcknowledgmentPolicy: verificationAcknowledgmentPolicy,
                 verificationSendTarget: verificationSendTarget,
                 agentReadinessOverride: true
@@ -584,10 +783,36 @@ struct DocControlViewModelTests {
     private final class GoogleConnectTestState {
         var target: DocGoogleConnectTarget?
         var connectedTargets: [DocGoogleConnectTarget] = []
+        var connectContinuation: CheckedContinuation<Void, Never>?
+
+        func waitForResume() async {
+            await withCheckedContinuation { continuation in
+                connectContinuation = continuation
+            }
+        }
+
+        func resumeConnect() {
+            connectContinuation?.resume()
+            connectContinuation = nil
+        }
     }
 
     @MainActor
     private final class VerificationSendTestState {
         var sentTexts: [String] = []
+    }
+
+    private enum GoogleConnectTestError: LocalizedError {
+        case presentation
+        case service
+
+        var errorDescription: String? {
+            switch self {
+            case .presentation:
+                "The Google sign-in sheet couldn't open."
+            case .service:
+                "The Google connection service failed."
+            }
+        }
     }
 }

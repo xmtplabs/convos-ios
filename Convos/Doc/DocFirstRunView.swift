@@ -727,6 +727,7 @@ private struct DocVerificationFallbackPanel: View {
 
 struct DocGoogleFirstRunView: View {
     let isConnecting: Bool
+    let isFinishing: Bool
     let isWaitingForApproval: Bool
     let canConnect: Bool
     let isPreparing: Bool
@@ -750,7 +751,12 @@ struct DocGoogleFirstRunView: View {
 
     private var actionContent: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            if isWaitingForApproval, startupErrorMessage == nil {
+            if isFinishing, startupErrorMessage == nil {
+                Label("Finishing up…", systemImage: "ellipsis")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.colorTextSecondary)
+                    .accessibilityIdentifier("doc-first-run-google-finishing")
+            } else if isWaitingForApproval, startupErrorMessage == nil {
                 Label("Waiting for approval…", systemImage: "ellipsis")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.colorTextSecondary)
@@ -799,11 +805,12 @@ struct DocGoogleFirstRunView: View {
 
     @ViewBuilder
     private var connectButtonLabel: some View {
-        if isConnecting {
-            ProgressView()
-                .tint(.colorTextPrimaryInverted)
-                .frame(maxWidth: .infinity)
-                .accessibilityLabel("Connecting Google")
+        if isFinishing {
+            progressButtonLabel("Finishing up…")
+        } else if isWaitingForApproval {
+            progressButtonLabel("Waiting…")
+        } else if isConnecting {
+            progressButtonLabel("Connecting…")
         } else if isPreparing {
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 ProgressView()
@@ -814,6 +821,16 @@ struct DocGoogleFirstRunView: View {
         } else {
             Text(errorMessage == nil ? "Connect Google" : "Try again")
         }
+    }
+
+    private func progressButtonLabel(_ text: String) -> some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            ProgressView()
+                .tint(.colorTextPrimaryInverted)
+            Text(text)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
     }
 }
 

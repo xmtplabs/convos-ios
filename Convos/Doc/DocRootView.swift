@@ -148,6 +148,7 @@ struct DocRootView: View {
             case .connectGoogle:
                 DocGoogleFirstRunView(
                     isConnecting: viewModel.isConnectingGoogleDocs,
+                    isFinishing: viewModel.isFinishingGoogleConnect,
                     isWaitingForApproval: viewModel.isWaitingForGoogleApproval,
                     canConnect: viewModel.canConnectGoogleDocs,
                     isPreparing: viewModel.isPreparingGoogleConnect,
@@ -291,6 +292,7 @@ private struct DocHomeView: View {
             if viewModel.shouldShowGoogleConnectCard {
                 DocGoogleConnectCard(
                     isConnecting: viewModel.isConnectingGoogleDocs,
+                    isFinishing: viewModel.isFinishingGoogleConnect,
                     isWaitingForApproval: viewModel.isWaitingForGoogleApproval,
                     errorMessage: viewModel.googleConnectErrorMessage,
                     onConnect: onConnectGoogle
@@ -434,6 +436,7 @@ private extension View {
 
 private struct DocGoogleConnectCard: View {
     let isConnecting: Bool
+    let isFinishing: Bool
     let isWaitingForApproval: Bool
     let errorMessage: String?
     let onConnect: () -> Void
@@ -468,9 +471,9 @@ private struct DocGoogleConnectCard: View {
                 .frame(width: 32.0, height: 32.0)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                Text(isWaitingForApproval ? "Google Docs requested" : "Connect Google Docs")
+                Text(title)
                     .font(.subheadline.weight(.semibold))
-                Text(isWaitingForApproval ? "Waiting for approval" : "Doc needs it to write your docs")
+                Text(detail)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -480,10 +483,14 @@ private struct DocGoogleConnectCard: View {
 
     private var connectButton: some View {
         Button(action: onConnect) {
-            if isWaitingForApproval {
+            if isFinishing {
+                ProgressView().frame(minWidth: 60.0)
+                    .accessibilityLabel("Finishing up")
+            } else if isWaitingForApproval {
                 Text("Waiting…")
             } else if isConnecting {
                 ProgressView().frame(minWidth: 60.0)
+                    .accessibilityLabel("Connecting Google")
             } else {
                 Text(errorMessage == nil ? "Connect" : "Retry")
             }
@@ -492,6 +499,16 @@ private struct DocGoogleConnectCard: View {
             .controlSize(.regular)
             .frame(minHeight: 44.0)
             .disabled(isConnecting)
+    }
+
+    private var title: String {
+        if isFinishing { return "Connecting Google Docs" }
+        return isWaitingForApproval ? "Google Docs requested" : "Connect Google Docs"
+    }
+
+    private var detail: String {
+        if isFinishing { return "Finishing up…" }
+        return isWaitingForApproval ? "Waiting for approval" : "Doc needs it to write your docs"
     }
 
     @ViewBuilder

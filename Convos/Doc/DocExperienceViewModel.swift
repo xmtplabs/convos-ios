@@ -109,6 +109,12 @@ struct DocVerificationAcknowledgmentPolicy {
     static let live: Self = .init(deadline: .seconds(25))
 }
 
+struct DocGoogleAcknowledgmentPolicy {
+    let deadline: Duration
+
+    static let live: Self = .init(deadline: .seconds(25))
+}
+
 struct DocVerificationSendTarget {
     let performSend: @MainActor (String) async -> Bool
 }
@@ -235,6 +241,7 @@ final class DocExperienceViewModel {
     private(set) var isGoogleStatusLoaded: Bool = false
     private(set) var isGoogleDocsReady: Bool = false
     private(set) var isConnectingGoogleDocs: Bool = false
+    private(set) var isFinishingGoogleConnect: Bool = false
     private(set) var isGoogleConnectQueued: Bool = false
     private(set) var googleConnectErrorMessage: String?
     private(set) var verificationFlowState: DocVerificationFlowState = .enteringNumber
@@ -299,9 +306,12 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var verificationAttemptId: UUID?
     @ObservationIgnored private var googleConnectTask: Task<Void, Never>?
     @ObservationIgnored private var googleConnectRequestId: UUID?
+    @ObservationIgnored private var googleAcknowledgmentTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var googleAcknowledgmentAttemptId: UUID?
     @ObservationIgnored private let answerSendTargetOverride: DocAnswerSendTarget?
     @ObservationIgnored private let answerDeliveryPolicy: DocAnswerDeliveryPolicy
     @ObservationIgnored private let googleConnectEnvironment: DocGoogleConnectEnvironment?
+    @ObservationIgnored private let googleAcknowledgmentPolicy: DocGoogleAcknowledgmentPolicy
     @ObservationIgnored private let verificationAcknowledgmentPolicy: DocVerificationAcknowledgmentPolicy
     @ObservationIgnored private let verificationSendTarget: DocVerificationSendTarget?
     @ObservationIgnored private let agentReadinessOverride: Bool?
@@ -313,6 +323,7 @@ final class DocExperienceViewModel {
         answerSendTarget: DocAnswerSendTarget? = nil,
         answerDeliveryPolicy: DocAnswerDeliveryPolicy = .live,
         googleConnectEnvironment: DocGoogleConnectEnvironment? = nil,
+        googleAcknowledgmentPolicy: DocGoogleAcknowledgmentPolicy = .live,
         verificationAcknowledgmentPolicy: DocVerificationAcknowledgmentPolicy = .live,
         verificationSendTarget: DocVerificationSendTarget? = nil,
         agentReadinessOverride: Bool? = nil
@@ -323,6 +334,7 @@ final class DocExperienceViewModel {
         self.answerSendTargetOverride = answerSendTarget
         self.answerDeliveryPolicy = answerDeliveryPolicy
         self.googleConnectEnvironment = googleConnectEnvironment
+        self.googleAcknowledgmentPolicy = googleAcknowledgmentPolicy
         self.verificationAcknowledgmentPolicy = verificationAcknowledgmentPolicy
         self.verificationSendTarget = verificationSendTarget
         self.agentReadinessOverride = agentReadinessOverride
@@ -421,31 +433,11 @@ final class DocExperienceViewModel {
         refreshGoogleControlState()
         reconcileFirstRunCompletion()
 
-        resetCancellable = NotificationCenter.default
-            .publisher(for: .docAgentResetRequested)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] notification in
-                guard let self,
-                      let notificationDefaults = notification.object as? UserDefaults,
-                      notificationDefaults === self.defaults,
-                      notification.userInfo?[Self.accountIdentifierUserInfoKey] as? String ==
-                      Self.accountIdentifier(session: self.session) else {
-                    return
-                }
-                self.hasRetriedRuntimeMismatch = false
-                self.resetRuntimeState(
-                    preservingWelcome: notification.userInfo?[Self.preserveWelcomeUserInfoKey] as? Bool == true
-                )
-            }
-        diagnosticCancellable = NotificationCenter.default
-            .publisher(for: .agentJoinDiagnosticsDidChange)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] notification in
-                self?.refreshAgentJoinDiagnostic(changedConversationId: notification.object as? String)
-            }
-        refreshAgentJoinDiagnostic()
+        observeRuntimeChanges()
     }
+}
 
+extension DocExperienceViewModel {
     var firstRunStep: DocFirstRunStep {
         switch previewStage {
         case .welcome:
@@ -911,6 +903,32 @@ final class DocExperienceViewModel {
 }
 
 private extension DocExperienceViewModel {
+    func observeRuntimeChanges() {
+        resetCancellable = NotificationCenter.default
+            .publisher(for: .docAgentResetRequested)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let self,
+                      let notificationDefaults = notification.object as? UserDefaults,
+                      notificationDefaults === self.defaults,
+                      notification.userInfo?[Self.accountIdentifierUserInfoKey] as? String ==
+                      Self.accountIdentifier(session: self.session) else {
+                    return
+                }
+                self.hasRetriedRuntimeMismatch = false
+                self.resetRuntimeState(
+                    preservingWelcome: notification.userInfo?[Self.preserveWelcomeUserInfoKey] as? Bool == true
+                )
+            }
+        diagnosticCancellable = NotificationCenter.default
+            .publisher(for: .agentJoinDiagnosticsDidChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                self?.refreshAgentJoinDiagnostic(changedConversationId: notification.object as? String)
+            }
+        refreshAgentJoinDiagnostic()
+    }
+
     func observeAgentCompatibility(_ messages: [AnyMessage], agentInboxId: String) -> Bool {
         var changed = false
         for message in messages {
@@ -1188,16 +1206,50 @@ private extension DocExperienceViewModel {
         guard let googleControl else {
             isGoogleStatusLoaded = false
             isGoogleDocsReady = false
-            isConnectingGoogleDocs = googleConnectRequestId != nil
+            isConnectingGoogleDocs = googleConnectRequestId != nil || isFinishingGoogleConnect
             return
         }
         isGoogleStatusLoaded = true
         isGoogleDocsReady = googleControl.connection.status == .granted
+        if isGoogleDocsReady {
+            cancelGoogleAcknowledgmentTimeout()
+            googleConnectErrorMessage = nil
+        }
         isConnectingGoogleDocs = googleControl.gate.status == .pending ||
-            googleConnectRequestId != nil
+            googleConnectRequestId != nil ||
+            isFinishingGoogleConnect
         if isGoogleDocsReady || googleControl.gate.status == .pending {
             isGoogleConnectQueued = false
         }
+    }
+
+    func scheduleGoogleAcknowledgmentTimeout(attemptId: UUID) {
+        googleAcknowledgmentTimeoutTask?.cancel()
+        let deadline = googleAcknowledgmentPolicy.deadline
+        googleAcknowledgmentTimeoutTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: deadline)
+            } catch {
+                return
+            }
+            guard let self,
+                  googleAcknowledgmentAttemptId == attemptId,
+                  !isGoogleDocsReady else {
+                return
+            }
+            googleAcknowledgmentTimeoutTask = nil
+            googleAcknowledgmentAttemptId = nil
+            isFinishingGoogleConnect = false
+            googleConnectErrorMessage = "Couldn't finish connecting Google. Try again."
+            refreshGoogleControlState()
+        }
+    }
+
+    func cancelGoogleAcknowledgmentTimeout() {
+        googleAcknowledgmentTimeoutTask?.cancel()
+        googleAcknowledgmentTimeoutTask = nil
+        googleAcknowledgmentAttemptId = nil
+        isFinishingGoogleConnect = false
     }
 
     func reconcileFirstRunCompletion() {
@@ -1988,10 +2040,17 @@ extension DocExperienceViewModel {
                 if let googleConnectEnvironment {
                     try await googleConnectEnvironment.performConnect(target)
                 } else {
-                    try await performGoogleConnect(target: target, requestId: requestId)
+                    try await performGoogleConnect(target: target)
                 }
-                try ensureGoogleConnectRequestIsCurrent(requestId, conversationId: target.conversationId)
+                try Task.checkCancellation()
+                guard googleConnectRequestId == requestId else { return }
                 defaults.set(true, forKey: storageKey("googleConnectHandled"))
+                googleConnectRequestId = nil
+                googleConnectTask = nil
+                googleAcknowledgmentAttemptId = requestId
+                isFinishingGoogleConnect = true
+                scheduleGoogleAcknowledgmentTimeout(attemptId: requestId)
+                refreshGoogleControlState()
             } catch let error as OAuthError {
                 guard googleConnectRequestId == requestId else { return }
                 if case .cancelled = error {
@@ -2000,7 +2059,8 @@ extension DocExperienceViewModel {
                     googleConnectErrorMessage = error.localizedDescription
                 }
             } catch is CancellationError {
-                return
+                guard googleConnectRequestId == requestId else { return }
+                googleConnectErrorMessage = "Lost the chat connection. Try again."
             } catch {
                 guard googleConnectRequestId == requestId else { return }
                 googleConnectErrorMessage = error.localizedDescription
@@ -2018,12 +2078,11 @@ extension DocExperienceViewModel {
     }
 
     private func performGoogleConnect(
-        target: DocGoogleConnectTarget,
-        requestId: UUID
+        target: DocGoogleConnectTarget
     ) async throws {
         let selection = AbilitiesServices.selection
         let catalog = try await selection.service.fetchCatalog()
-        try ensureGoogleConnectRequestIsCurrent(requestId, conversationId: target.conversationId)
+        try Task.checkCancellation()
         guard let ability = catalog.abilities.first(where: {
             $0.id == DocGoogleConnectionChain.abilityId
         }) else {
@@ -2035,24 +2094,24 @@ extension DocExperienceViewModel {
             entitlementIsActive: ability.entitlement?.status == .active,
             bundleIds: bundleIds,
             beginEntitlement: {
-                try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: target.conversationId)
+                try Task.checkCancellation()
                 return try await selection.service.beginEntitlement(
                     abilityId: DocGoogleConnectionChain.abilityId
                 )
             },
             authorize: { redirectUrl in
-                try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: target.conversationId)
+                try Task.checkCancellation()
                 guard let authorizer = selection.authorizer else {
                     throw DocGoogleConnectionChain.Error.authorizationUnavailable
                 }
                 try await authorizer.authorize(redirectUrl: redirectUrl)
             },
             completeEntitlement: {
-                try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: target.conversationId)
+                try Task.checkCancellation()
                 try await selection.service.completeEntitlement(abilityId: DocGoogleConnectionChain.abilityId)
             },
             extend: { bundleIds in
-                try self.ensureGoogleConnectRequestIsCurrent(requestId, conversationId: target.conversationId)
+                try Task.checkCancellation()
                 for agentInboxId in target.agentInboxIds {
                     try await selection.service.extendAbility(
                         conversationId: target.conversationId,
@@ -2063,17 +2122,6 @@ extension DocExperienceViewModel {
                 }
             }
         )
-    }
-
-    private func ensureGoogleConnectRequestIsCurrent(
-        _ requestId: UUID,
-        conversationId: String
-    ) throws {
-        guard !Task.isCancelled,
-              googleConnectRequestId == requestId,
-              googleConnectTarget?.conversationId == conversationId else {
-            throw CancellationError()
-        }
     }
 }
 
@@ -2644,6 +2692,7 @@ extension DocExperienceViewModel {
         preservingWelcome: Bool = false,
         invalidatesStartup: Bool = true
     ) {
+        let lostGoogleConnect = googleConnectRequestId != nil || isFinishingGoogleConnect
         let completedWelcome = hasCompletedWelcome
         let completedVerificationHello = hasCompletedVerificationHello
         let completedFirstRun = hasCompletedFirstRun
@@ -2660,6 +2709,7 @@ extension DocExperienceViewModel {
         googleConnectTask?.cancel()
         googleConnectTask = nil
         googleConnectRequestId = nil
+        cancelGoogleAcknowledgmentTimeout()
         observedDmConversationId = nil
         observedDocAgentInboxId = nil
         conversationViewModel = nil
@@ -2680,7 +2730,7 @@ extension DocExperienceViewModel {
         isGoogleDocsReady = false
         isConnectingGoogleDocs = false
         isGoogleConnectQueued = false
-        googleConnectErrorMessage = nil
+        googleConnectErrorMessage = lostGoogleConnect ? "Lost the chat connection. Try again." : nil
         verificationFlowState = .enteringNumber
         verificationTransportErrorMessage = nil
         cancelVerificationAcknowledgmentTimeout()

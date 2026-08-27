@@ -46,8 +46,8 @@ struct DocVerificationFlowTests {
         #expect(state == .submitting(number: Fixture.number))
     }
 
-    @Test("late request acknowledgments cannot restore an older attempt")
-    func ignoresLateRequestAcknowledgments() {
+    @Test("late request acknowledgments advance a timed out attempt")
+    func acceptsLateRequestAcknowledgments() {
         var state: DocVerificationFlowState = .enteringNumber
 
         state = reduce(state, .request(number: Fixture.number))
@@ -55,7 +55,7 @@ struct DocVerificationFlowTests {
         #expect(state == .requestTimedOut(number: Fixture.number))
 
         state = reduce(state, .requestSent(number: Fixture.number))
-        #expect(state == .requestTimedOut(number: Fixture.number))
+        #expect(state == .enteringCode(number: Fixture.number, attemptFailed: false))
 
         state = reduce(state, .request(number: Fixture.otherNumber))
         state = reduce(state, .requestSent(number: Fixture.number))
@@ -64,6 +64,21 @@ struct DocVerificationFlowTests {
         state = reduce(state, .requestSent(number: Fixture.otherNumber))
         state = reduce(state, .requestSent(number: Fixture.otherNumber))
         #expect(state == .enteringCode(number: Fixture.otherNumber, attemptFailed: false))
+    }
+
+    @Test("late submission acknowledgments advance a timed out attempt")
+    func acceptsLateSubmissionAcknowledgments() {
+        var state: DocVerificationFlowState = .enteringCode(
+            number: Fixture.number,
+            attemptFailed: false
+        )
+
+        state = reduce(state, .submitCode)
+        state = reduce(state, .submissionAcknowledgmentTimedOut(number: Fixture.number))
+        #expect(state == .submissionTimedOut(number: Fixture.number))
+
+        state = reduce(state, .submissionVerified(number: Fixture.number))
+        #expect(state == .awaitingVerification(number: Fixture.number))
     }
 
     @Test("late submit failures cannot overwrite an enabled retry")

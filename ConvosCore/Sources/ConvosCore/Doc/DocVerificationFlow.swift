@@ -54,7 +54,11 @@ public enum DocVerificationFlowReducer {
         case .request(let number):
             return .requesting(number: number)
         case .requestSent(let number):
-            guard state == .requesting(number: number) || state == .enteringNumber else { return state }
+            guard state == .requesting(number: number) ||
+                state == .requestTimedOut(number: number) ||
+                state == .enteringNumber else {
+                return state
+            }
             return .enteringCode(number: number, attemptFailed: false)
         case .requestFailed(let number):
             guard state == .requesting(number: number) ||
@@ -78,7 +82,10 @@ public enum DocVerificationFlowReducer {
                 return state
             }
         case .submissionVerified(let number):
-            guard state == .submitting(number: number) else { return state }
+            guard state == .submitting(number: number) ||
+                state == .submissionTimedOut(number: number) else {
+                return state
+            }
             return .awaitingVerification(number: number)
         case .submissionFailed(let number):
             guard state == .submitting(number: number) ||
