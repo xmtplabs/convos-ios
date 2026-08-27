@@ -68,7 +68,7 @@ The shim keeps invites working during the refactor. This plan addresses the rema
 
 **After C10 shim**: `clientId` scoping removed from `PendingInviteRepository`. Pending invites are associated with the single user identity.
 
-**Remaining work**: Verify that push notifications for incoming join request DMs are routed correctly to the single identity's DM processing path. The NSE reads the singleton keychain identity (done in C7). The only remaining question is whether `InviteJoinRequestsManager` needs any update to subscribe to the correct DM stream after the single-inbox pivot. Tracked as part of C10 implementation verification.
+**Remaining work**: Verify that push notifications for incoming join request DMs are routed correctly to the single identity's DM processing path. The NSE reads the singleton keychain identity (done in C7). The only remaining question is whether `InviteJoinRequestsManager` needs any update to subscribe to the correct DM stream after the single-inbox transition. Tracked as part of C10 implementation verification.
 
 ### 3. ADR 001 privacy section update
 

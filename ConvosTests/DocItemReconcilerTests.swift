@@ -90,11 +90,13 @@ struct DocItemReconcilerTests {
     }
 
     @MainActor
-    @Test func resetClearsOnlyDocShellState() throws {
+    @Test func resetClearsDocStateAndDiscardsBoundAndPreparedConversations() async throws {
         let suiteName = "DocAgentResetTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let session = MockInboxesService()
+        let boundConversationId = "bound-\(UUID().uuidString)"
+        let preparedConversationId = "prepared-\(UUID().uuidString)"
+        let session = MockInboxesService(preparedConversationId: preparedConversationId)
         let docKeys = [
             "originConversationId",
             "welcome",
@@ -107,12 +109,21 @@ struct DocItemReconcilerTests {
         ]
             .map { DocExperienceViewModel.storageKey($0, session: session) }
         docKeys.forEach { defaults.set("stored", forKey: $0) }
+        defaults.set(
+            boundConversationId,
+            forKey: DocExperienceViewModel.storageKey("originConversationId", session: session)
+        )
         defaults.set("keep", forKey: "unrelated")
+        AgentVariantAssignmentStore.shared.assign(slug: "wrong-runtime", to: boundConversationId)
+        AgentVariantAssignmentStore.shared.assign(slug: "wrong-runtime", to: preparedConversationId)
 
-        DocExperienceViewModel.resetAgentBinding(session: session, defaults: defaults)
+        await DocExperienceViewModel.resetAgentBinding(session: session, defaults: defaults)
 
         #expect(docKeys.allSatisfy { defaults.object(forKey: $0) == nil })
         #expect(defaults.string(forKey: "unrelated") == "keep")
+        #expect(session.discardedConversationIds == [boundConversationId, preparedConversationId])
+        #expect(AgentVariantAssignmentStore.shared.slug(for: boundConversationId) == nil)
+        #expect(AgentVariantAssignmentStore.shared.slug(for: preparedConversationId) == nil)
     }
 
     @MainActor
@@ -135,7 +146,7 @@ struct DocItemReconcilerTests {
         await viewModel.startAgentIfNeeded()
         let firstWrapper = try #require(viewModel.conversationViewModel)
 
-        DocExperienceViewModel.resetAgentBinding(session: session, defaults: defaults)
+        await DocExperienceViewModel.resetAgentBinding(session: session, defaults: defaults)
         try await Task.sleep(for: .milliseconds(10))
 
         #expect(viewModel.conversationViewModel == nil)

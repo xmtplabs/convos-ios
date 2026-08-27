@@ -345,7 +345,7 @@ struct DocControlViewModelTests {
         let viewModel = fixture.viewModel()
         #expect(viewModel.firstRunStep == .home)
 
-        DocExperienceViewModel.resetAgentBinding(
+        await DocExperienceViewModel.resetAgentBinding(
             session: fixture.session,
             defaults: fixture.defaults
         )

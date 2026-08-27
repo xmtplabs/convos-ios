@@ -796,7 +796,7 @@ class NewConversationViewModel: Identifiable, Hashable {
 
     // MARK: - Actions
 
-    /// Pivots a scanner-mode flow into the agent-template spawn path when
+    /// Switches a scanner-mode flow into the agent-template spawn path when
     /// the user scans a template QR. Mirrors the
     /// `.newConversationWithTemplate` deeplink mode: create a fresh
     /// conversation, then request an instance of the template into it
@@ -1271,7 +1271,7 @@ extension NewConversationViewModel {
     }
 
     /// Routes a scanned QR payload. A `convos://template/<id>` code
-    /// pivots the scanner into the agent-template spawn flow; anything
+    /// switches the scanner into the agent-template spawn flow; anything
     /// else is treated as a conversation invite, exactly as before.
     func handleScannedCode(_ code: String) {
         // A scan should land the user in the resulting conversation once it is

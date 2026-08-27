@@ -158,6 +158,18 @@ enum DocModeResolutionPolicy {
     }
 }
 
+enum DefaultAgentCacheProvisionPolicy {
+    static func shouldDefer(
+        isDocExperienceEnabled: Bool,
+        isDocExperienceAvailable: Bool,
+        isAgentVariantSelectorEnabled: Bool
+    ) -> Bool {
+        isDocExperienceEnabled ||
+            isDocExperienceAvailable ||
+            isAgentVariantSelectorEnabled
+    }
+}
+
 enum DocAgentConvergenceAction: Equatable {
     case create
     case keep
@@ -168,9 +180,11 @@ enum DocAgentConvergenceAction: Equatable {
         diagnostic: AgentJoinDiagnostic?,
         expectedVariantSlug: String
     ) -> Self {
-        guard conversationId != nil else { return .create }
+        guard let conversationId else { return .create }
         guard let diagnostic,
-              diagnostic.variantDropped != true,
+              diagnostic.conversationId.caseInsensitiveCompare(conversationId) == .orderedSame,
+              diagnostic.requestedVariantId == expectedVariantSlug,
+              diagnostic.variantDropped == false,
               diagnostic.variant?.slug == expectedVariantSlug else {
             return .replace
         }

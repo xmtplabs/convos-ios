@@ -60,7 +60,7 @@ If Device B's session reports any conversation with `isUnused == false` (via `Se
 
 19. On Device A's `Devices` screen, immediately after dismissing the sheet, Device B's row should appear with the joiner's `UIDevice.current.name` (e.g. `Jarod's iPhone 13 mini`). This is the optimistic insert — it shows before the network surfaces the real installation. The row is reconciled with the real installation id within ~5–20s; the displayed name persists across the swap because `PairedDeviceNameStore` cached it.
 20. On Device B, the conversation list reflects Device A's history once XMTP sync completes. The bottom-of-conversation `Add your name and pic` red CTA should **not** appear — `ConversationOnboardingCoordinator.markCompletedForPairedDevice()` flips the global onboarding `UserDefaults` flags as part of pair adoption, and `ProfileSettingsViewModel.shared` is rebound to the freshly-bootstrapped `MessagingService` so `profileSettings.isDefault` is `false`.
-21. On Device B, navigate into one of Device A's existing conversations. Verify Device A's prior outgoing messages render on the **right side** of the message list (own bubbles), proving the local DB's "current user" pivoted to the paired inboxId via the `wipeResidualInboxRows()` call in `SessionManager.refreshAfterPairingCompleted`.
+21. On Device B, navigate into one of Device A's existing conversations. Verify Device A's prior outgoing messages render on the **right side** of the message list (own bubbles), proving the local DB's "current user" switched to the paired inboxId via the `wipeResidualInboxRows()` call in `SessionManager.refreshAfterPairingCompleted`.
 
 ### Backend account verification (the production beta gate)
 

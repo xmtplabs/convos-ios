@@ -130,13 +130,11 @@ extension SessionManager {
 
     /// Hook the app layer installs to hold the warm cache's default-agent
     /// provision until the conversation is adopted. The cache provisions at
-    /// preparation time, which is before a creation flow exists to pick a
-    /// variant, so a prepared conversation's agent would always be built on
-    /// whatever runtime was current when the row was minted — the pick could
-    /// never apply to the one agent the conversation ships with. Holding it
-    /// costs the pre-warm latency, so only the dev variant selector asks for
-    /// it; `commitClaimedConversation` ensures the agent at adoption, after the
-    /// variant is bound.
+    /// preparation time, which is before a creation flow exists to pick or
+    /// resolve a variant, so a prepared conversation's agent could be built on
+    /// the wrong runtime. Variant-selecting and Doc-capable app flows hold this
+    /// work; `commitClaimedConversation` ensures the agent at adoption, after
+    /// the variant is bound.
     public nonisolated(unsafe) static var deferCacheTimeDefaultAgent: (@Sendable () async -> Bool)?
 
     /// Hook the app layer installs to record which variant a freshly claimed

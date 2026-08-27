@@ -153,11 +153,16 @@ struct DocRuntimeFallbackWarning: Equatable {
         diagnostic: AgentJoinDiagnostic?
     ) -> Self? {
         guard isDocModeEnabled,
-              let diagnostic,
-              diagnostic.variantDropped == true || diagnostic.variant == nil else {
+              let diagnostic else {
             return nil
         }
-        return Self(requestedSlug: diagnostic.requestedVariantId ?? configuredSlug ?? "unknown")
+        let expectedSlug = configuredSlug ?? diagnostic.requestedVariantId
+        guard diagnostic.requestedVariantId != expectedSlug ||
+            diagnostic.variantDropped != false ||
+            diagnostic.variant?.slug != expectedSlug else {
+            return nil
+        }
+        return Self(requestedSlug: expectedSlug ?? "unknown")
     }
 }
 
@@ -289,6 +294,7 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var queuedVerificationNumber: String?
     @ObservationIgnored private var needsDeterministicAgentProvision: Bool = false
     @ObservationIgnored private var requiresAgentRecreationAfterFailure: Bool = false
+    @ObservationIgnored private var hasRetriedRuntimeMismatch: Bool = false
     @ObservationIgnored private var verificationAcknowledgmentTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var verificationAttemptId: UUID?
     @ObservationIgnored private var googleConnectTask: Task<Void, Never>?
@@ -426,6 +432,7 @@ final class DocExperienceViewModel {
                       Self.accountIdentifier(session: self.session) else {
                     return
                 }
+                self.hasRetriedRuntimeMismatch = false
                 self.resetRuntimeState(
                     preservingWelcome: notification.userInfo?[Self.preserveWelcomeUserInfoKey] as? Bool == true
                 )
@@ -1543,11 +1550,12 @@ extension DocExperienceViewModel {
             conversations.contains(where: { $0.id == id }) ? id : nil
         }
         if storedId != nil, existingId == nil {
-            Self.clearAgentBindingStorage(
+            await Self.tearDownAgentBinding(
                 session: session,
                 defaults: defaults,
                 replayFirstRun: false,
-                notify: false
+                notify: false,
+                additionalConversationId: storedId
             )
             resetRuntimeState(preservingWelcome: true, invalidatesStartup: false)
         }
@@ -1592,15 +1600,18 @@ extension DocExperienceViewModel {
     func retryAgentStartup() {
         guard previewStage == nil else { return }
         guard !requiresAgentRecreationAfterFailure else {
-            Self.clearAgentBindingStorage(
-                session: session,
-                defaults: defaults,
-                replayFirstRun: false,
-                notify: false
-            )
-            resetRuntimeState(preservingWelcome: true)
             Task { @MainActor [weak self] in
-                await self?.startAgentIfNeeded()
+                guard let self else { return }
+                hasRetriedRuntimeMismatch = false
+                await Self.tearDownAgentBinding(
+                    session: session,
+                    defaults: defaults,
+                    replayFirstRun: false,
+                    notify: false,
+                    additionalConversationId: originViewModel?.conversation.id
+                )
+                resetRuntimeState(preservingWelcome: true)
+                await startAgentIfNeeded()
             }
             return
         }
@@ -1620,14 +1631,15 @@ extension DocExperienceViewModel {
     func synchronizeAgentDm() async {
         guard previewStage == nil, let originViewModel else { return }
         markAgentStartupProgress()
-        persistOriginConversationId(originViewModel.conversation.id)
+        let conversationId = originViewModel.conversation.id
+        guard !originViewModel.conversation.isDraft else { return }
 
-        if needsDeterministicAgentProvision,
-           agentInboxId == nil,
-           !originViewModel.conversation.isDraft {
-            await ensureDocAgentProvisioned(conversationId: originViewModel.conversation.id)
-            guard originViewModel.conversation.id == self.originViewModel?.conversation.id else { return }
+        if needsDeterministicAgentProvision, agentInboxId == nil {
+            await ensureDocAgentProvisioned(conversationId: conversationId)
+            guard conversationId == self.originViewModel?.conversation.id else { return }
         }
+        guard await validateDocRuntimeIfNeeded(conversationId: conversationId) else { return }
+        persistOriginConversationId(conversationId)
 
         let dmSession = agentDmSession ?? AgentDmSession(originViewModel: originViewModel)
         if agentDmSession == nil {
@@ -2142,6 +2154,7 @@ extension DocExperienceViewModel {
                 agentStartupTimeoutTask = nil
                 agentStartupState = .ready
                 needsDeterministicAgentProvision = false
+                hasRetriedRuntimeMismatch = false
             }
             observedDmConversationId = dmViewModel.conversation.id
         }
@@ -2163,6 +2176,45 @@ extension DocExperienceViewModel {
             await session.ensureDefaultAgentConversationReady(id: conversationId)
             if agentInboxId != nil { return }
         }
+    }
+
+    private func validateDocRuntimeIfNeeded(conversationId: String) async -> Bool {
+        guard FeatureFlags.shared.isDocModeEnabled else { return true }
+        guard let selectedVariant = FeatureFlags.shared.selectedAgentVariant,
+              selectedVariant.label == "Doc",
+              let expectedVariantSlug = AgentVariantResolution.slug(for: conversationId),
+              expectedVariantSlug == selectedVariant.slug else {
+            failAgentStartup("Doc couldn't verify its preview runtime.", requiresRecreation: true)
+            return false
+        }
+        let diagnostic = AgentJoinDiagnosticsStore.shared.diagnostic(for: conversationId)
+        guard DocAgentConvergenceAction.resolve(
+            conversationId: conversationId,
+            diagnostic: diagnostic,
+            expectedVariantSlug: expectedVariantSlug
+        ) == .replace else {
+            return true
+        }
+
+        let exhaustedAutomaticRetry = hasRetriedRuntimeMismatch
+        await Self.tearDownAgentBinding(
+            session: session,
+            defaults: defaults,
+            replayFirstRun: false,
+            notify: false,
+            additionalConversationId: conversationId
+        )
+        resetRuntimeState(preservingWelcome: true, invalidatesStartup: false)
+        guard !exhaustedAutomaticRetry else {
+            failAgentStartup(
+                "Doc couldn't start on its preview runtime. Check Settings › Debug and try again.",
+                requiresRecreation: true
+            )
+            return false
+        }
+        hasRetriedRuntimeMismatch = true
+        await startAgentIfNeeded()
+        return false
     }
 
     private func sendQueuedPhoneVerificationIfNeeded() {
@@ -2221,11 +2273,15 @@ extension DocExperienceViewModel {
             )
         }
         let diagnostic = storedId.flatMap { AgentJoinDiagnosticsStore.shared.diagnostic(for: $0) }
-        guard DocAgentConvergenceAction.resolve(
+        let action = DocAgentConvergenceAction.resolve(
             conversationId: storedId,
             diagnostic: diagnostic,
             expectedVariantSlug: variant.slug
-        ) == .replace else {
+        )
+        guard action == .replace else {
+            if let storedId {
+                AgentVariantAssignmentStore.shared.assign(slug: variant.slug, to: storedId)
+            }
             return DocModeConvergenceResult(
                 conversationId: storedId,
                 canStart: true,
@@ -2233,11 +2289,12 @@ extension DocExperienceViewModel {
             )
         }
 
-        Self.clearAgentBindingStorage(
+        await Self.tearDownAgentBinding(
             session: session,
             defaults: defaults,
             replayFirstRun: false,
-            notify: false
+            notify: false,
+            additionalConversationId: storedId
         )
         resetRuntimeState(preservingWelcome: true, invalidatesStartup: false)
         markAgentStartupProgress()
@@ -2258,24 +2315,54 @@ extension DocExperienceViewModel {
     static func resetAgentBinding(
         session: any SessionManagerProtocol,
         defaults: UserDefaults = .standard
-    ) {
-        clearAgentBindingStorage(
+    ) async {
+        await tearDownAgentBinding(
             session: session,
             defaults: defaults,
             replayFirstRun: true,
-            notify: true
+            notify: true,
+            additionalConversationId: nil
         )
     }
 
     static func resetAgentBindingForVariantConvergence(
         session: any SessionManagerProtocol,
         defaults: UserDefaults = .standard
-    ) {
-        clearAgentBindingStorage(
+    ) async {
+        await tearDownAgentBinding(
             session: session,
             defaults: defaults,
             replayFirstRun: false,
-            notify: true
+            notify: true,
+            additionalConversationId: nil
+        )
+    }
+
+    private static func tearDownAgentBinding(
+        session: any SessionManagerProtocol,
+        defaults: UserDefaults,
+        replayFirstRun: Bool,
+        notify: Bool,
+        additionalConversationId: String?
+    ) async {
+        var conversationIds: [String] = []
+        for conversationId in [
+            storedOriginConversationId(session: session, defaults: defaults),
+            additionalConversationId,
+            session.peekPreparedConversationId(),
+        ].compactMap({ $0 }) where !conversationIds.contains(conversationId) {
+            conversationIds.append(conversationId)
+        }
+        for conversationId in conversationIds {
+            await session.discardClaimedConversation(id: conversationId)
+            AgentVariantAssignmentStore.shared.assign(slug: nil, to: conversationId)
+            AgentJoinDiagnosticsStore.shared.clear(conversationId: conversationId)
+        }
+        clearAgentBindingStorage(
+            session: session,
+            defaults: defaults,
+            replayFirstRun: replayFirstRun,
+            notify: notify
         )
     }
 
@@ -2285,9 +2372,6 @@ extension DocExperienceViewModel {
         replayFirstRun: Bool,
         notify: Bool
     ) {
-        if let conversationId = storedOriginConversationId(session: session, defaults: defaults) {
-            AgentJoinDiagnosticsStore.shared.clear(conversationId: conversationId)
-        }
         var components = [
             "originConversationId",
             "googleConnectHandled",

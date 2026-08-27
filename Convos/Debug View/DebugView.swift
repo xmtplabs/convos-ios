@@ -53,6 +53,7 @@ struct DebugViewSection: View {
     @State private var docAgentBindingId: String?
     @State private var docAgentDiagnostic: AgentJoinDiagnostic?
     @State private var didResetDocAgent: Bool = false
+    @State private var isResettingDocAgent: Bool = false
     @State private var docVariantResolution: DocModeVariantResolver.Resolution?
     @State private var isResolvingDocMode: Bool = false
     @State private var isDocModeEnabled: Bool = FeatureFlags.shared.isDocModeEnabled
@@ -165,15 +166,22 @@ struct DebugViewSection: View {
 
             let resetDocAgentAction = { resetDocAgent() }
             Button(action: resetDocAgentAction) {
-                Text("Reset Doc agent")
+                HStack(spacing: DesignConstants.Spacing.stepX) {
+                    if isResettingDocAgent {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(isResettingDocAgent ? "Resetting Doc agent…" : "Reset Doc agent")
+                }
                     .foregroundStyle(.colorTextPrimary)
             }
-            .disabled(docAgentBindingId == nil)
+            .disabled(!canResetDocAgent || isResettingDocAgent)
 
             if didResetDocAgent {
-                Text("Doc agent reset. Close Settings to restart first run.")
+                Label("Reset — reopen Doc to start over", systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
+                    .accessibilityIdentifier("doc-agent-reset-confirmation")
             }
         }
     }
@@ -532,10 +540,16 @@ struct DebugViewSection: View {
     }
 
     private func resetDocAgent() {
-        DocExperienceViewModel.resetAgentBinding(session: session)
-        docAgentBindingId = nil
-        docAgentDiagnostic = nil
-        didResetDocAgent = true
+        guard !isResettingDocAgent else { return }
+        didResetDocAgent = false
+        isResettingDocAgent = true
+        Task {
+            await DocExperienceViewModel.resetAgentBinding(session: session)
+            docAgentBindingId = nil
+            docAgentDiagnostic = nil
+            isResettingDocAgent = false
+            didResetDocAgent = true
+        }
     }
 
     private func setDocMode(_ enabled: Bool) {
@@ -554,7 +568,7 @@ struct DebugViewSection: View {
                 FeatureFlags.shared.isDocModeEnabled = false
                 isDocModeEnabled = false
             } else if case .resolved(let variant) = resolution {
-                convergeDocAgent(to: variant)
+                await convergeDocAgent(to: variant)
                 FeatureFlags.shared.isDocModeEnabled = true
             }
             isResolvingDocMode = false
@@ -583,17 +597,21 @@ struct DebugViewSection: View {
         }
     }
 
-    private func convergeDocAgent(to variant: ConvosAPI.AgentVariant) {
+    private func convergeDocAgent(to variant: ConvosAPI.AgentVariant) async {
         let action = DocAgentConvergenceAction.resolve(
             conversationId: docAgentBindingId,
             diagnostic: docAgentDiagnostic,
             expectedVariantSlug: variant.slug
         )
         guard action == .replace else { return }
-        DocExperienceViewModel.resetAgentBindingForVariantConvergence(session: session)
+        await DocExperienceViewModel.resetAgentBindingForVariantConvergence(session: session)
         docAgentBindingId = nil
         docAgentDiagnostic = nil
         didResetDocAgent = false
+    }
+
+    private var canResetDocAgent: Bool {
+        docAgentBindingId != nil || session.peekPreparedConversationId() != nil
     }
 }
 

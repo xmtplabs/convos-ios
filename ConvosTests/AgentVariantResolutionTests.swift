@@ -151,6 +151,32 @@ final class AgentVariantResolutionTests: XCTestCase {
         ))
     }
 
+    func testDocCapableBuildDefersCacheTimeDefaultAgentBeforeDocModeIsEnabled() {
+        XCTAssertTrue(DefaultAgentCacheProvisionPolicy.shouldDefer(
+            isDocExperienceEnabled: false,
+            isDocExperienceAvailable: true,
+            isAgentVariantSelectorEnabled: false
+        ))
+        XCTAssertTrue(DefaultAgentCacheProvisionPolicy.shouldDefer(
+            isDocExperienceEnabled: true,
+            isDocExperienceAvailable: false,
+            isAgentVariantSelectorEnabled: false
+        ))
+    }
+
+    func testNonDocBuildCanWarmDefaultAgentWithoutASelector() {
+        XCTAssertFalse(DefaultAgentCacheProvisionPolicy.shouldDefer(
+            isDocExperienceEnabled: false,
+            isDocExperienceAvailable: false,
+            isAgentVariantSelectorEnabled: false
+        ))
+        XCTAssertTrue(DefaultAgentCacheProvisionPolicy.shouldDefer(
+            isDocExperienceEnabled: false,
+            isDocExperienceAvailable: false,
+            isAgentVariantSelectorEnabled: true
+        ))
+    }
+
     func testDocModeKeepsAgentBoundToExpectedVariant() {
         let diagnostic = AgentJoinDiagnostic(
             conversationId: "conversation-1",
@@ -182,6 +208,24 @@ final class AgentVariantResolutionTests: XCTestCase {
             variant: .init(slug: "doc-runtime", commit: "abc123"),
             variantDropped: true
         )
+        let wrongRequestDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "other-runtime",
+            variant: .init(slug: "doc-runtime", commit: "abc123"),
+            variantDropped: false
+        )
+        let unconfirmedDropDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "doc-runtime", commit: "abc123"),
+            variantDropped: nil
+        )
+        let wrongRuntimeDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "other-runtime", commit: "abc123"),
+            variantDropped: false
+        )
 
         XCTAssertEqual(
             DocAgentConvergenceAction.resolve(
@@ -195,6 +239,30 @@ final class AgentVariantResolutionTests: XCTestCase {
             DocAgentConvergenceAction.resolve(
                 conversationId: "conversation-1",
                 diagnostic: droppedDiagnostic,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .replace
+        )
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: "conversation-1",
+                diagnostic: wrongRequestDiagnostic,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .replace
+        )
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: "conversation-1",
+                diagnostic: unconfirmedDropDiagnostic,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .replace
+        )
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: "conversation-1",
+                diagnostic: wrongRuntimeDiagnostic,
                 expectedVariantSlug: "doc-runtime"
             ),
             .replace
@@ -222,6 +290,12 @@ final class AgentVariantResolutionTests: XCTestCase {
             variant: nil,
             variantDropped: false
         )
+        let wrongRuntimeDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-3",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "other-runtime", commit: "abc123"),
+            variantDropped: false
+        )
 
         XCTAssertEqual(
             DocRuntimeFallbackWarning.resolve(
@@ -247,6 +321,13 @@ final class AgentVariantResolutionTests: XCTestCase {
             DocRuntimeFallbackWarning.resolve(
                 isDocModeEnabled: true,
                 diagnostic: missingVariantDiagnostic
+            )?.requestedSlug,
+            "doc-runtime"
+        )
+        XCTAssertEqual(
+            DocRuntimeFallbackWarning.resolve(
+                isDocModeEnabled: true,
+                diagnostic: wrongRuntimeDiagnostic
             )?.requestedSlug,
             "doc-runtime"
         )
