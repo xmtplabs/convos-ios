@@ -62,6 +62,25 @@ enum DocItemSendState: Hashable {
     case failed(answer: DocAnswer)
 }
 
+struct DocAnswerSendTarget {
+    let conversationId: String
+    let performSend: @MainActor (String, String, String) async throws -> Void
+
+    func send(_ text: String, clientMessageId: String) async throws {
+        try await performSend(conversationId, text, clientMessageId)
+    }
+}
+
+struct DocAnswerDeliveryPolicy {
+    let awaitingDelay: Duration
+    let deadline: Duration
+
+    static let live: Self = .init(
+        awaitingDelay: .milliseconds(650),
+        deadline: .seconds(15)
+    )
+}
+
 enum DocContentLoadState: Hashable {
     case idle
     case loading
@@ -176,6 +195,7 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var resolvedItemIds: Set<String> = []
     @ObservationIgnored private var itemsNeedingHistoryReconciliation: Set<String> = []
     @ObservationIgnored private var docContentTimeoutTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var answerDeliveryTimeoutTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var resetCancellable: AnyCancellable?
     @ObservationIgnored private var notDocAgentNoticeTask: Task<Void, Never>?
     @ObservationIgnored private var compatibilityDetector: DocAgentCompatibilityDetector = .init()
@@ -189,15 +209,21 @@ final class DocExperienceViewModel {
     @ObservationIgnored private var startupGeneration: Int = 0
     @ObservationIgnored private var googleConnectTask: Task<Void, Never>?
     @ObservationIgnored private var googleConnectRequestId: UUID?
+    @ObservationIgnored private let answerSendTargetOverride: DocAnswerSendTarget?
+    @ObservationIgnored private let answerDeliveryPolicy: DocAnswerDeliveryPolicy
 
     init(
         session: any SessionManagerProtocol,
         coreActions: any CoreActions,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        answerSendTarget: DocAnswerSendTarget? = nil,
+        answerDeliveryPolicy: DocAnswerDeliveryPolicy = .live
     ) {
         self.session = session
         self.coreActions = coreActions
         self.defaults = defaults
+        self.answerSendTargetOverride = answerSendTarget
+        self.answerDeliveryPolicy = answerDeliveryPolicy
         self.previewStage = DocPreviewStage.current
         let initialAccountIdentifier = Self.accountIdentifier(session: session)
         self.storageAccountIdentifier = initialAccountIdentifier
@@ -406,12 +432,6 @@ final class DocExperienceViewModel {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let targetViewModel: ConversationViewModel?
-            if let docId = item.docId {
-                targetViewModel = await ensureDocLane(for: docId)
-            } else {
-                targetViewModel = dmViewModel
-            }
             guard pendingItems.contains(where: { $0.id == item.id }),
                   itemSendStates[item.id] == .resolving(
                       answer: answer,
@@ -419,13 +439,13 @@ final class DocExperienceViewModel {
                   ) else {
                 return
             }
-            guard let targetViewModel else {
+            guard let answerSendTarget else {
                 itemSendStates[item.id] = .failed(answer: answer)
                 return
             }
             do {
-                try await targetViewModel.sendDocProtocolText(text, clientMessageId: clientMessageId)
-                try? await Task.sleep(for: .milliseconds(650))
+                try await answerSendTarget.send(text, clientMessageId: clientMessageId)
+                try? await Task.sleep(for: answerDeliveryPolicy.awaitingDelay)
                 guard itemSendStates[item.id] == .resolving(
                     answer: answer,
                     clientMessageId: clientMessageId
@@ -433,6 +453,11 @@ final class DocExperienceViewModel {
                     return
                 }
                 itemSendStates[item.id] = .awaitingDelivery(
+                    answer: answer,
+                    clientMessageId: clientMessageId
+                )
+                scheduleAnswerDeliveryTimeout(
+                    itemId: item.id,
                     answer: answer,
                     clientMessageId: clientMessageId
                 )
@@ -610,6 +635,7 @@ final class DocExperienceViewModel {
                     pendingItems: &pendingItems,
                     resolvedItemIds: &resolvedItemIds
                 ) || changedSnapshot
+                cancelAnswerDeliveryTimeout(for: id)
                 itemSendStates[id] = nil
                 itemsNeedingHistoryReconciliation.remove(id)
             case .docContent(let content):
@@ -695,6 +721,7 @@ final class DocExperienceViewModel {
                 resolveItem(id: itemId)
                 persistSnapshot()
             case .failed:
+                cancelAnswerDeliveryTimeout(for: itemId)
                 itemSendStates[itemId] = .failed(answer: answer)
             case .unpublished, .unknown:
                 break
@@ -703,6 +730,7 @@ final class DocExperienceViewModel {
     }
 
     private func resolveItem(id: String) {
+        cancelAnswerDeliveryTimeout(for: id)
         pendingItems.removeAll { $0.id == id }
         itemSendStates[id] = nil
         resolvedItemIds.insert(id)
@@ -1019,6 +1047,40 @@ extension DocExperienceViewModel {
 }
 
 private extension DocExperienceViewModel {
+    var answerSendTarget: DocAnswerSendTarget? {
+        if let answerSendTargetOverride { return answerSendTargetOverride }
+        guard let dmViewModel else { return nil }
+        return DocAnswerSendTarget(conversationId: dmViewModel.conversation.id) { _, text, clientMessageId in
+            try await dmViewModel.sendDocProtocolText(text, clientMessageId: clientMessageId)
+        }
+    }
+
+    func scheduleAnswerDeliveryTimeout(
+        itemId: String,
+        answer: DocAnswer,
+        clientMessageId: String
+    ) {
+        cancelAnswerDeliveryTimeout(for: itemId)
+        answerDeliveryTimeoutTasks[itemId] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(for: answerDeliveryPolicy.deadline)
+            guard !Task.isCancelled,
+                  itemSendStates[itemId] == .awaitingDelivery(
+                      answer: answer,
+                      clientMessageId: clientMessageId
+                  ) else {
+                return
+            }
+            answerDeliveryTimeoutTasks[itemId] = nil
+            itemSendStates[itemId] = .failed(answer: answer)
+        }
+    }
+
+    func cancelAnswerDeliveryTimeout(for itemId: String) {
+        answerDeliveryTimeoutTasks[itemId]?.cancel()
+        answerDeliveryTimeoutTasks[itemId] = nil
+    }
+
     func ensureDocLane(for docId: String) async -> ConversationViewModel? {
         if let viewModel = docLaneViewModels[docId] {
             return await announceLaneIfNeeded(docId: docId, on: viewModel) ? viewModel : nil
@@ -1627,6 +1689,8 @@ extension DocExperienceViewModel {
         pendingItems = []
         docContentsById = [:]
         docContentLoadStates = [:]
+        answerDeliveryTimeoutTasks.values.forEach { $0.cancel() }
+        answerDeliveryTimeoutTasks = [:]
         itemSendStates = [:]
         composerTexts = [:]
         composerPhotos = [:]
