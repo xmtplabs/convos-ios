@@ -15,9 +15,13 @@ import Foundation
 ///   row presents the screen full-screen from
 ///   `ConversationView`. The screen wraps itself in its own
 ///   `NavigationStack` with a Done dismiss control; ability detail pushes
-///   run inside that stack. Carries the launching DM's context: the
-///   Connected section scopes its per-chat toggles to that conversation
-///   and agent.
+///   run inside that stack. Carries the launching agent's context, and
+///   the DM's ORIGIN GROUP conversation id — never the DM's own: the
+///   backend authorizes the agent's tool calls against its primary group,
+///   so grant-side writes scoped to the DM's id authorize nothing (the
+///   same rule `CapabilityGrantScope` enforces for capability-card
+///   approvals). The Connected section scopes its per-chat toggles to
+///   that origin group and agent.
 ///
 /// Both modes render the same sections from the same view model; only the
 /// wrapper differs.

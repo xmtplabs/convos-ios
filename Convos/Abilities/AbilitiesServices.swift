@@ -13,13 +13,22 @@ struct AbilitiesSelection {
     /// Nil in mock mode: the stub authorization sheet stands in, and a
     /// mock connect never opens a real browser.
     let authorizer: (any AbilityAuthorizing)?
+    /// Announces landed per-chat opt-ins to the agent runtime's grant
+    /// ledger (profile metadata + backend consent record + transcript
+    /// event), so a toggled-on ability is usable without the agent
+    /// carding for consent the member already gave. Nil in mock mode and
+    /// before `configure`; a nil announcer keeps the backend-only
+    /// behavior (the agent cards once).
+    let announcer: (any AbilityGrantAnnouncing)?
 
     init(
         service: any AbilitiesServiceProtocol,
-        authorizer: (any AbilityAuthorizing)? = nil
+        authorizer: (any AbilityAuthorizing)? = nil,
+        announcer: (any AbilityGrantAnnouncing)? = nil
     ) {
         self.service = service
         self.authorizer = authorizer
+        self.announcer = announcer
     }
 }
 
@@ -41,6 +50,7 @@ enum AbilitiesServices {
     /// closure rather than a retained repository so the read happens off the
     /// main actor at the moment the detail screen asks for it.
     nonisolated(unsafe) private static var conversationsProvider: (@Sendable () async throws -> [Conversation])?
+    nonisolated(unsafe) private static var liveGrantAnnouncer: (any AbilityGrantAnnouncing)?
     private static let mockService: MockAbilitiesService = MockAbilitiesService()
 
     /// The atomic (service, authorizer) pair for the current mode. Resolve
@@ -53,7 +63,8 @@ enum AbilitiesServices {
         }
         return AbilitiesSelection(
             service: liveService,
-            authorizer: AbilityOAuthAuthorizer(callbackURLScheme: ConfigManager.shared.appUrlScheme)
+            authorizer: AbilityOAuthAuthorizer(callbackURLScheme: ConfigManager.shared.appUrlScheme),
+            announcer: liveGrantAnnouncer
         )
     }
 
@@ -89,6 +100,19 @@ enum AbilitiesServices {
             myInboxIdProvider: {
                 try? await messaging.sessionStateManager.waitForInboxReadyResult().client.inboxId
             }
+        )
+        // Successor to the deleted v1 awareness shim (#1442), production-on
+        // by design: landed toggles route through the same grant writer the
+        // capability-card path uses, so the agent stops carding for consent
+        // already given. See `CloudAbilityGrantAnnouncer`.
+        let connectionManager = session.cloudConnectionManager(
+            callbackURLScheme: ConfigManager.shared.appUrlScheme
+        )
+        liveGrantAnnouncer = CloudAbilityGrantAnnouncer(
+            repository: session.cloudConnectionRepository(),
+            grantWriter: { messaging.connectionGrantWriter() },
+            eventWriter: { messaging.connectionEventWriter() },
+            refreshConnections: { _ = try await connectionManager.refreshConnections() }
         )
     }
 

@@ -1701,18 +1701,22 @@ private extension ConversationView {
     }
 
     /// Powerplug tap from the `+` menu row: presents the Connections
-    /// browser full-screen, carrying the launching DM's conversation,
-    /// agent inbox id and agent name so its Connected section can scope
-    /// its toggles. Guarded by the same capability that offered the row.
+    /// browser full-screen, carrying the agent inbox id and agent name so
+    /// its Connected section can scope its toggles — and the ORIGIN GROUP's
+    /// conversation id, never the DM's own. The backend authorizes the
+    /// agent's tool calls against its primary group, so grant-side writes
+    /// scoped to the DM's id authorize nothing — the same rule
+    /// `CapabilityGrantScope` enforces for capability-card approvals.
+    /// `viewModel` here is the hosting group the agent lane rides in.
+    /// Guarded by the same capability that offered the row.
     func handleComposerConnectionsTap() {
         guard composerConnectionsEnabled,
               let agentDmSession,
-              let agentInboxId = agentDmSession.agentInboxId,
-              let dmConversationId = agentDmSession.dmViewModel?.conversation.id else {
+              let agentInboxId = agentDmSession.agentInboxId else {
             return
         }
         connectionsBrowserContext = .composerModal(
-            conversationId: dmConversationId,
+            conversationId: viewModel.conversation.id,
             agentInboxId: agentInboxId,
             agentDisplayName: agentDmSession.agentName
         )

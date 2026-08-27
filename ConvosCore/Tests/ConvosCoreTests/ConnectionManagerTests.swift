@@ -604,6 +604,46 @@ struct ConnectionManagerTests {
             // expected: the sheet surfaces this instead of hanging
         }
     }
+
+    @Test("Deleting a conversation cascades its grant rows away")
+    func conversationDeleteCascadesGrants() async throws {
+        // Pins the platform difference with Android, where foreign-key
+        // enforcement is off and an explicit cleaner reaps grant rows on
+        // conversation deletion. Here `foreignKeysEnabled = true`
+        // (DatabaseManager, and GRDB's default in this test database)
+        // makes `connectionGrant.conversationId ON DELETE CASCADE` live:
+        // every deletion path (explosion reap, leave, quarantine) relies
+        // on it, and nothing may re-create Android-style orphan rows. If
+        // this test ever fails because enforcement was turned off, grant
+        // hygiene needs an explicit cleaner before shipping.
+        let fixtures = try await makeTestFixtures()
+        let keptConversationId = "convo-kept"
+        let deletedConversationId = "convo-deleted"
+
+        try await fixtures.dbWriter.write { db in
+            try makeDBConversation(id: keptConversationId).insert(db)
+            try makeDBConversation(id: deletedConversationId).insert(db)
+            try makeDBConnection(id: "conn-1").insert(db)
+            for conversationId in [keptConversationId, deletedConversationId] {
+                try DBCloudConnectionGrant(
+                    connectionId: "conn-1",
+                    conversationId: conversationId,
+                    serviceId: "googlecalendar",
+                    grantedToInboxId: "agent-1",
+                    grantedAt: Date()
+                ).insert(db)
+            }
+        }
+
+        _ = try await fixtures.dbWriter.write { db in
+            try DBConversation.deleteOne(db, key: deletedConversationId)
+        }
+
+        let remaining = try await fixtures.dbReader.read { db in
+            try DBCloudConnectionGrant.fetchAll(db)
+        }
+        #expect(remaining.map(\.conversationId) == [keptConversationId])
+    }
 }
 
 // MARK: - Helpers
