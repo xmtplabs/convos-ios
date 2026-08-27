@@ -437,13 +437,16 @@ struct ContactsView: View {
     private func handleInviteShareCompleted(activityType: UIActivity.ActivityType?, completed: Bool) {
         guard let sharedViewModel = sharedInviteViewModel else { return }
         sharedInviteViewModel = nil
-        if let sharedInvite {
+        // A nil session can't have produced an invite to share in the first
+        // place - the invite rows only appear with a live one.
+        if let sharedInvite, let session {
             ConversationShareReporter.report(
                 activityType: activityType,
                 completed: completed,
                 invite: sharedInvite,
                 conversation: sharedViewModel.conversationViewModel?.conversation,
-                coreActions: coreActions
+                coreActions: coreActions,
+                session: session
             )
         }
         sharedInvite = nil

@@ -107,7 +107,8 @@ struct ConversationInfoView: View {
                 completed: completed,
                 invite: viewModel.invite,
                 conversation: viewModel.conversation,
-                coreActions: viewModel.coreActions
+                coreActions: viewModel.coreActions,
+                session: viewModel.session
             )
         }
     }
@@ -595,7 +596,8 @@ struct ConversationInfoView: View {
                 .sheet(isPresented: $presentingInviteCode) {
                     InviteCodeSheet(
                         conversation: viewModel.conversation,
-                        invite: viewModel.invite
+                        invite: viewModel.invite,
+                        session: viewModel.session
                     )
                 }
                 .background {

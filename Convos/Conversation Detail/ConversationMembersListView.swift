@@ -25,7 +25,8 @@ struct ConversationMembersListView: View {
                 completed: completed,
                 invite: viewModel.invite,
                 conversation: viewModel.conversation,
-                coreActions: viewModel.coreActions
+                coreActions: viewModel.coreActions,
+                session: viewModel.session
             )
         }
     }

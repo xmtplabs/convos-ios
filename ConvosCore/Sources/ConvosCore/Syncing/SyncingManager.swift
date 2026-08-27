@@ -17,12 +17,15 @@ public protocol SyncingManagerProtocol: Actor {
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async
 
-    /// Temporary diagnostic for agents timing out while joining (suspected
-    /// silent message-stream death). Polls for unprocessed join-request DMs
-    /// for a bounded window after an agents/join call, processing anything
-    /// the stream missed. Remove once the stream issue is confirmed and
-    /// fixed. See `SyncingManager.startAgentJoinRequestPolling`.
-    func startAgentJoinRequestPolling() async
+    /// Safety net for a join request the message stream never delivered.
+    /// Polls for unprocessed join-request DMs for a bounded window after the
+    /// user does something that invites someone, processing anything the
+    /// stream missed. See `SyncingManager.startJoinRequestPolling`.
+    ///
+    /// The stream dying loudly is handled by the state machine, which now
+    /// restarts on `.resume`. This covers the case it cannot see: a stream
+    /// that is nominally alive and silently delivering nothing.
+    func startJoinRequestPolling(reason: JoinRequestPollReason) async
 
     /// Drain the backlog of activity since `cursor` in one batched transaction,
     /// before streams resume. Runs the message-side `BatchCatchUp` and the
@@ -81,6 +84,27 @@ private struct UncheckedClientBox: @unchecked Sendable {
 /// manage lifecycle transitions and ensure proper sequencing of operations.
 enum SyncingError: Error {
     case streamRetriesExhausted
+}
+
+/// What prompted a join-request poll. The poll itself is identical either
+/// way - `processJoinRequestOutcomes` has never been agent-specific - but a
+/// rescue means something different depending on who was kept waiting, so
+/// the two report separately.
+public enum JoinRequestPollReason: Sendable {
+    /// The user asked an assistant to join. The assistant polls the network
+    /// and gives up after 60s.
+    case assistantJoin
+    /// The user surfaced an invite - shared the link or put the code on
+    /// screen - so a person may be trying to join right now. They watch
+    /// "Verifying" for 150s before it times out.
+    case inviteShared
+
+    var logLabel: String {
+        switch self {
+        case .assistantJoin: return "assistant-join"
+        case .inviteShared: return "invite-shared"
+        }
+    }
 }
 
 // swiftlint:disable:next type_body_length
@@ -153,7 +177,7 @@ actor SyncingManager: SyncingManagerProtocol {
     /// Temporary diagnostic state for the agent-join poll. The task is the
     /// bounded polling loop; the date stamps the last message the stream
     /// actually delivered, so poll logs can report how stale the stream is.
-    private var agentJoinPollTask: Task<Void, Never>?
+    private var joinRequestPollTask: Task<Void, Never>?
     private var lastMessageStreamEventDate: Date?
 
     /// Reconciles conversation consent against contact-block state (the
@@ -261,7 +285,7 @@ actor SyncingManager: SyncingManagerProtocol {
         notificationTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
-        agentJoinPollTask?.cancel()
+        joinRequestPollTask?.cancel()
         currentTask?.cancel()
 
         // Remove observers
@@ -1003,7 +1027,7 @@ actor SyncingManager: SyncingManagerProtocol {
         syncTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
-        agentJoinPollTask?.cancel()
+        joinRequestPollTask?.cancel()
 
         if let task = syncTask {
             _ = await task.value
@@ -1017,9 +1041,9 @@ actor SyncingManager: SyncingManagerProtocol {
             _ = await task.value
             conversationStreamTask = nil
         }
-        if let task = agentJoinPollTask {
+        if let task = joinRequestPollTask {
             _ = await task.value
-            agentJoinPollTask = nil
+            joinRequestPollTask = nil
         }
     }
 
@@ -1209,52 +1233,65 @@ extension SyncingManager {
     /// coordinator returns `.alreadyMember` (no re-add, no duplicate
     /// snapshot), which also keeps the "stream missed it" log signal free
     /// of false positives.
-    func startAgentJoinRequestPolling() {
-        agentJoinPollTask?.cancel()
+    func startJoinRequestPolling(reason: JoinRequestPollReason) {
+        // A second trigger inside an in-flight window (sharing a link right
+        // after showing the code, say) rebases the window rather than
+        // running two loops over the same DMs.
+        joinRequestPollTask?.cancel()
         let startedAt = Date()
-        Log.info("[agent-join-poll] starting: every \(Int(Constant.agentJoinPollInterval))s for \(Int(Constant.agentJoinPollWindow))s")
-        agentJoinPollTask = Task { [weak self] in
-            await self?.runAgentJoinRequestPolling(startedAt: startedAt)
+        Log.info("[join-poll] starting (\(reason.logLabel)): every \(Int(Constant.joinPollInterval))s for \(Int(Constant.joinPollWindow))s")
+        joinRequestPollTask = Task { [weak self] in
+            await self?.runJoinRequestPolling(startedAt: startedAt, reason: reason)
         }
     }
 
-    private func runAgentJoinRequestPolling(startedAt: Date) async {
-        var cursor = startedAt.addingTimeInterval(-Constant.agentJoinPollCursorOverlap)
-        let deadline = startedAt.addingTimeInterval(Constant.agentJoinPollWindow)
+    private func runJoinRequestPolling(startedAt: Date, reason: JoinRequestPollReason) async {
+        var cursor = startedAt.addingTimeInterval(-Constant.joinPollCursorOverlap)
+        let deadline = startedAt.addingTimeInterval(Constant.joinPollWindow)
         var tick = 0
         while !Task.isCancelled && Date() < deadline {
             do {
-                try await Task.sleep(nanoseconds: UInt64(Constant.agentJoinPollInterval * 1_000_000_000))
+                try await Task.sleep(nanoseconds: UInt64(Constant.joinPollInterval * 1_000_000_000))
             } catch {
                 break
             }
             tick += 1
             guard case .ready(let params) = _state else {
-                Log.debug("[agent-join-poll] tick \(tick) skipped - sync not ready (\(_state))")
+                Log.debug("[join-poll] tick \(tick) skipped - sync not ready (\(_state))")
                 continue
             }
             let tickStartedAt = Date()
             do {
                 _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
             } catch {
-                Log.warning("[agent-join-poll] tick \(tick): syncAllConversations failed, will retry: \(error)")
+                Log.warning("[join-poll] tick \(tick): syncAllConversations failed, will retry: \(error)")
                 continue
             }
-            let acceptedCount = await runAgentJoinPollBatch(params: params, since: cursor)
+            let acceptedCount = await runJoinPollBatch(params: params, since: cursor)
             if acceptedCount > 0 {
                 let streamAgeSecs: Float = lastMessageStreamEventDate.map { Float(Date().timeIntervalSince($0)) } ?? -1
                 let lastStreamEvent: String = streamAgeSecs >= 0 ? "\(Int(streamAgeSecs))s ago" : "never"
                 Log.warning(
-                    "[agent-join-poll] tick \(tick): accepted \(acceptedCount) join request(s) the message stream had not processed" +
+                    "[join-poll] tick \(tick) (\(reason.logLabel)): accepted \(acceptedCount) join request(s) the message stream had not processed" +
                     " (last stream message: \(lastStreamEvent)) - message stream is likely dead"
                 )
-                await coreActions.assistantJoinRescuedByPolling(streamAgeSecs: streamAgeSecs, pollTick: tick)
+                switch reason {
+                case .assistantJoin:
+                    await coreActions.assistantJoinRescuedByPolling(streamAgeSecs: streamAgeSecs, pollTick: tick)
+                case .inviteShared:
+                    // `assistantJoinRescuedByPolling` is the only rescue metric
+                    // the shared catalog defines, and reporting a person's join
+                    // through it would silently corrupt the assistant funnel.
+                    // Invite rescues are warning-logged above until the catalog
+                    // gains a matching event.
+                    break
+                }
             } else {
-                Log.debug("[agent-join-poll] tick \(tick): no unprocessed join requests")
+                Log.debug("[join-poll] tick \(tick): no unprocessed join requests")
             }
-            cursor = tickStartedAt.addingTimeInterval(-Constant.agentJoinPollCursorOverlap)
+            cursor = tickStartedAt.addingTimeInterval(-Constant.joinPollCursorOverlap)
         }
-        Log.info("[agent-join-poll] finished after \(tick) tick(s)")
+        Log.info("[join-poll] finished after \(tick) tick(s)")
     }
 
     /// Processes join-request DMs since `since`, then pulls the message-side
@@ -1268,7 +1305,7 @@ extension SyncingManager {
     /// state it touches is the immutable `identityStore` / `databaseWriter`,
     /// and it keeps the non-Sendable client out of the actor's isolation
     /// domain.
-    private nonisolated func runAgentJoinPollBatch(params: SyncClientParams, since: Date?) async -> Int {
+    private nonisolated func runJoinPollBatch(params: SyncClientParams, since: Date?) async -> Int {
         let client = params.client
         let manager = InviteJoinRequestsManager(
             identityStore: identityStore,
@@ -1296,15 +1333,15 @@ extension SyncingManager {
         static let maxConcurrentDiscoverPrechecks: Int = 4
         /// How often the temporary agent-join poll checks for unprocessed
         /// join requests.
-        static let agentJoinPollInterval: TimeInterval = 5
+        static let joinPollInterval: TimeInterval = 5
         /// How long the poll keeps checking after an agents/join call. The
         /// agent backend gives up after about two minutes; poll a bit past
         /// that so the tail end of the window is still observable.
-        static let agentJoinPollWindow: TimeInterval = 150
+        static let joinPollWindow: TimeInterval = 150
         /// Back-overlap applied when advancing the poll cursor so messages
         /// that land while a sync pass is in flight aren't skipped by the
         /// next tick.
-        static let agentJoinPollCursorOverlap: TimeInterval = 5
+        static let joinPollCursorOverlap: TimeInterval = 5
     }
 }
 

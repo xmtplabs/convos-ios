@@ -17,6 +17,9 @@ import SwiftUI
 struct InviteCodeSheet: View {
     let conversation: Conversation
     let invite: Invite
+    /// Used to watch for a join request the message stream never delivers
+    /// while this code is on screen. See `startJoinRequestPolling`.
+    let session: any SessionManagerProtocol
     /// Fires when a share completes, so a caller minting a conversation just
     /// to share its code can record that the link is out in the world.
     var onShareCompleted: ((Bool) -> Void)?
@@ -46,9 +49,28 @@ struct InviteCodeSheet: View {
                 }
             }
         }
+        .onAppear(perform: startJoinRequestPolling)
+    }
+
+    /// A code on screen is an invitation someone may be scanning right now,
+    /// and their join request arrives as a DM in a brand new conversation -
+    /// a topic with no push subscription, so the message stream is the only
+    /// live path that carries it. Watch for one the stream misses, rather
+    /// than leaving the scanner on "Verifying" until it times out.
+    private func startJoinRequestPolling() {
+        guard !invite.isEmpty else { return }
+        Task {
+            await session.messagingService()
+                .sessionStateManager
+                .startJoinRequestPolling(reason: .inviteShared)
+        }
     }
 }
 
 #Preview {
-    InviteCodeSheet(conversation: .mock(), invite: .mock())
+    InviteCodeSheet(
+        conversation: .mock(),
+        invite: .mock(),
+        session: ConvosClient.mock().session
+    )
 }

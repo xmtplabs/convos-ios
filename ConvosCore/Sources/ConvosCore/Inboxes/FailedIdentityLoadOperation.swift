@@ -50,7 +50,7 @@ final class FailedIdentityLoadSessionStateManager: SessionStateManagerProtocol, 
 
     func runHistorySyncBackfill() async {}
 
-    func startAgentJoinRequestPolling() async {}
+    func startJoinRequestPolling(reason: JoinRequestPollReason) async {}
 
     func addObserver(_ observer: SessionStateObserver) {
         observer.sessionStateDidChange(currentState)
