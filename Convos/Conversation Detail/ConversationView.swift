@@ -412,6 +412,30 @@ struct ConversationView<MessagesBottomBar: View>: View {
             return
         }
         selectTab(.agent)
+        revealAgentDm()
+    }
+
+    /// Raises the sheet for a request that named the agent DM outright.
+    ///
+    /// Selecting the tab is not enough on its own. Every other route to the Agent
+    /// tab leaves the sheet where it was and lets `openCollapsedSheetIfUnread`
+    /// decide, which is right for a tab the user is browsing between: with the
+    /// sheet down they are looking at the Home, and only the unread dot makes the
+    /// switch mean "show me what arrived".
+    ///
+    /// A notification tap is not that. It named a message, so the sheet has to
+    /// come up whether or not anything is badged - and it usually is not, because
+    /// the badge needs `agentDmSession.dmViewModel` to exist and to have reported
+    /// `isUnread`, which a tap can easily beat. The tab was selected and the sheet
+    /// stayed down, so the notification landed on the Home and the message it
+    /// pointed at was never shown.
+    ///
+    /// Nothing is waited for here. The lane can be raised before the DM binds -
+    /// the transcript fills in underneath - and an empty lane for a moment is a far
+    /// better answer than the wrong screen.
+    private func revealAgentDm() {
+        guard sheetDetent == .collapsed else { return }
+        moveSheet(to: .smallestReadable)
     }
 
     /// Switches to a requested tab when the list's "Open Agent DM" / "Open Things"
