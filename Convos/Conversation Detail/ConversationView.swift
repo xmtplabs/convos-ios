@@ -128,6 +128,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var connectionsBrowserContext: ConnectionsBrowserMode?
     /// Drives the system share sheet behind the top bar's invite-link button.
     @State private var presentingInviteShareSheet: Bool = false
+    @State private var presentingThingShareSheet: Bool = false
     @State private var navState: ConversationNavigatorImpl = .init()
     @State private var navigator: ConversationCollector?
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -741,6 +742,10 @@ private extension ConversationView {
                 items: inviteShareItems,
                 onCompletion: handleInviteShareCompletion
             )
+            .shareSheet(
+                isPresented: $presentingThingShareSheet,
+                items: thingShareItems
+            )
             .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
                 newConversationSheet(viewModel)
             }
@@ -1138,6 +1143,44 @@ private extension ConversationView {
         homeBrowserEntries.removeLast()
     }
 
+    /// Drops the current thing's link into a tab's composer and switches to it.
+    /// The Space page URL on top of the browsing chain is the thing's shareable
+    /// link. `selectTab` only moves the tab, so the keyboard stays down.
+    private func shareCurrentThing(to tab: ConversationTab) {
+        guard let link = homeBrowserEntries.last?.url.absoluteString else { return }
+        let target: ConversationViewModel? = (tab == .agent) ? agentDmSession?.dmViewModel : viewModel
+        guard let target else { return }
+        prefillComposer(target, withLink: link)
+        selectTab(tab)
+    }
+
+    /// Hands the current thing to the agent to edit: drops its link into the
+    /// agent composer and leads with a "Please change this" starter prompt, then
+    /// switches to the Agent tab. Gated by the menu to when the agent DM is bound.
+    private func askAgentToEditCurrentThing() {
+        guard let target = agentDmSession?.dmViewModel,
+              let link = homeBrowserEntries.last?.url.absoluteString else { return }
+        prefillComposer(target, withLink: link)
+        let prompt = "Please change this"
+        target.messageText = target.messageText.isEmpty ? prompt : "\(prompt)\n\(target.messageText)"
+        selectTab(.agent)
+    }
+
+    /// An empty composer with no existing card takes the link as an immediate
+    /// preview card; anything else appends the link so a draft (or an existing
+    /// card, of which there can be only one) is never clobbered. The appended
+    /// link becomes its own card on send via edge-link extraction, and the
+    /// append path also covers URLs `LinkPreview.from` rejects (private hosts).
+    private func prefillComposer(_ viewModel: ConversationViewModel, withLink link: String) {
+        if viewModel.messageText.isEmpty, viewModel.pastedLinkPreview == nil,
+           let preview = LinkPreview.from(text: link) {
+            viewModel.pastedLinkPreview = preview
+        } else {
+            let separator = viewModel.messageText.isEmpty ? "" : "\n"
+            viewModel.messageText += "\(separator)\(link)"
+        }
+    }
+
     /// Promotes focus onto the tab whose composer just took it.
     ///
     /// The system raises the keyboard over whatever is on screen; if that was
@@ -1198,6 +1241,22 @@ private extension ConversationView {
                 .accessibilityLabel("Back")
                 .accessibilityIdentifier("home-browser-back")
             }
+            if homeBrowserEntries.last?.url != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    EditThingMenu(
+                        canAskAgent: agentDmSession?.dmViewModel != nil,
+                        onAskForChanges: askAgentToEditCurrentThing
+                    )
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareThingMenu(
+                        canShareToAgent: agentDmSession?.dmViewModel != nil,
+                        onShareToGroup: { shareCurrentThing(to: .group) },
+                        onShareToAgent: { shareCurrentThing(to: .agent) },
+                        onShareExternally: { presentingThingShareSheet = true }
+                    )
+                }
+            }
         }
         // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
         // toolbar item is dropped for that flow. Browser pages hide the
@@ -1254,6 +1313,12 @@ private extension ConversationView {
         let invite = viewModel.invite
         guard !invite.isEmpty else { return [] }
         return [invite.inviteURLString]
+    }
+
+    /// The current thing's link, for the Share menu's system share-sheet row.
+    private var thingShareItems: [Any] {
+        guard let url = homeBrowserEntries.last?.url else { return [] }
+        return [url]
     }
 
     /// A completed share is what keeps a brand-new conversation alive: the
