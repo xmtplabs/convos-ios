@@ -10,6 +10,8 @@ private actor ScriptedModelService: AgentModelServing {
     private let catalogue: [AgentModelOption]
     private var pendingReads: [CheckedContinuation<Void, Never>] = []
     private var holdsReads: Bool = false
+    private var pendingWrites: [String: CheckedContinuation<Void, Never>] = [:]
+    private var holdsWrites: Bool = false
 
     init(serverModel: String?, catalogue: [AgentModelOption]) {
         self.serverModel = serverModel
@@ -32,6 +34,20 @@ private actor ScriptedModelService: AgentModelServing {
         }
     }
 
+    func holdWrites(_ holds: Bool) {
+        holdsWrites = holds
+    }
+
+    func releaseWrite(_ model: String) {
+        pendingWrites.removeValue(forKey: model)?.resume()
+    }
+
+    func waitForPendingWrite(_ model: String) async {
+        while pendingWrites[model] == nil {
+            await Task.yield()
+        }
+    }
+
     func readModel(instanceId: String, variantId: String?) async throws -> AgentModelSnapshot {
         if holdsReads {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -46,6 +62,11 @@ private actor ScriptedModelService: AgentModelServing {
         instanceId: String,
         variantId: String?
     ) async throws -> AgentModelSnapshot {
+        if holdsWrites {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                pendingWrites[model] = continuation
+            }
+        }
         serverModel = model
         return AgentModelSnapshot(model: model, available: catalogue)
     }
@@ -82,6 +103,32 @@ final class AgentModelStoreSyncRaceTests: XCTestCase {
         XCTAssertEqual(store.selectedId, "openai/gpt-5.6-sol")
         // The catalogue is not a member's choice, so the read still delivers it.
         XCTAssertEqual(store.options.map(\.id), catalogue.map(\.id))
+    }
+
+    /// Another member's switch arriving mid-write is not thrown away when the
+    /// write lands. Both devices write the group's appData, so the room can
+    /// converge on theirs — and when it does, the value the room carries is the
+    /// one already observed here, so no further change arrives to correct a
+    /// picker that kept the local tap.
+    func testSyncedModelDuringWriteIsAdoptedWhenTheWriteLands() async {
+        let service = ScriptedModelService(serverModel: nil, catalogue: catalogue)
+        await service.holdWrites(true)
+        let store = AgentModelStore(
+            instanceId: "instance-1",
+            service: service
+        )
+
+        store.select(catalogue[0])
+        await service.waitForPendingWrite(catalogue[0].id)
+        store.apply(syncedModel: catalogue[1].id)
+        // Held, not adopted: the write this device made is still unanswered.
+        XCTAssertEqual(store.selectedId, catalogue[0].id)
+
+        await service.releaseWrite(catalogue[0].id)
+        while store.selectedId == catalogue[0].id {
+            await Task.yield()
+        }
+        XCTAssertEqual(store.selectedId, catalogue[1].id)
     }
 
     /// The room clearing a model is a value like any other: a read that was

@@ -358,10 +358,30 @@ public final class AgentModelStore {
             )
             if !snapshot.available.isEmpty { options = snapshot.available }
             confirmedId = option.id
-            // This tap is what the server holds now, so anything that synced
-            // while it was in flight is older than it and must not survive to
-            // be restored by a later rollback.
-            deferredSyncedModel = nil
+            // A value that synced while this write was out is the room's own
+            // state, and the room is what the picker exists to show. Adopt it
+            // once this is the last write in flight, rather than dropping it
+            // for the local tap.
+            //
+            // Dropping it looks right — the tap is the thing the server just
+            // acknowledged — and is wrong in one case that does not repair
+            // itself. Both devices write the group's appData, so the room
+            // converges on whichever commit ordered last. If that is the other
+            // member's, appData already carries their value, the republished
+            // value is identical to the one already observed, and no further
+            // change arrives to correct this device: the picker sits on the
+            // local tap while every other member sees the other model, until
+            // the card is closed and reopened.
+            //
+            // Adopting can briefly show a model the room then moves off, but
+            // that resolves on the next synced change. Divergence does not.
+            if let deferred = deferredSyncedModel, writesInFlight == 1 {
+                deferredSyncedModel = nil
+                if deferred != option.id {
+                    selectedId = deferred
+                    confirmedId = deferred
+                }
+            }
             Log.info("agent model set to \(option.id)")
         } catch {
             Log.error("agent model update failed: \(error)")
