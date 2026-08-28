@@ -3006,7 +3006,7 @@
 			repositoryURL = "https://github.com/siteline/swiftui-introspect.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = "1.4.0-beta.4";
+				minimumVersion = 26.0.0;
 			};
 		};
 		7A5D3E972E43B82400DA9B84 /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
