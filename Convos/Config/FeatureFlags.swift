@@ -117,16 +117,27 @@ final class FeatureFlags {
         }
     }
 
-    /// Off by default -- gates the model picker on an agent's contact card.
-    /// Reachable in every environment, same posture as the flags above: the
-    /// switch is a real product control meant to be dogfooded on a production
-    /// build, not a dev affordance. Default-off keeps the row absent, and with
-    /// it the catalogue read, so an agent nobody is switching is never asked
-    /// what it can run.
+    /// On by default on internal builds, off by default in production --
+    /// gates the model picker on an agent's contact card. Reachable in every
+    /// environment, same posture as the flags above: the switch is a real
+    /// product control meant to be dogfooded on a production build, not a dev
+    /// affordance. Dev and Local carry the row without anyone opting in, so
+    /// the feature is exercised by default where it is being built; production
+    /// stays default-off, and with it the catalogue read, so an agent nobody
+    /// is switching is never asked what it can run.
+    ///
+    /// The default only applies while nothing is stored: an explicit toggle
+    /// from either debug menu is honoured in both directions, so turning it
+    /// off on a dev build stays off across launches.
     var isAgentModelPickerEnabled: Bool {
         get {
             access(keyPath: \.isAgentModelPickerEnabled)
-            return UserDefaults.standard.bool(forKey: Constant.agentModelPickerEnabledKey)
+            if let stored = UserDefaults.standard.object(
+                forKey: Constant.agentModelPickerEnabledKey
+            ) as? Bool {
+                return stored
+            }
+            return ConfigManager.shared.currentEnvironment.isInternalBuild
         }
         set {
             withMutation(keyPath: \.isAgentModelPickerEnabled) {
