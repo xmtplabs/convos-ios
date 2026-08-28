@@ -13,10 +13,10 @@ import XMTPiOS
 /// SDK code. Keeping the whole surface here makes a codegen rename a one-file
 /// fix instead of a scatter of call-site edits.
 enum LibxmtpSentry {
-    /// Production sends no traces: they carry per-operation timing for every
-    /// send and sync, and the volume is not worth paying for until the
-    /// internal builds show which spans are worth keeping.
-    private static let productionTracesSampleRate: Float = 0.0
+    /// Production samples 5% of operations into Sentry performance traces;
+    /// the internal-build soak showed the span set is worth keeping. Error
+    /// events are never sampled — only the waterfalls are.
+    private static let productionTracesSampleRate: Float = 0.05
     private static let internalTracesSampleRate: Float = 0.1
 
     /// Matches the Sentry SDK's own default, and bounds how much libxmtp
