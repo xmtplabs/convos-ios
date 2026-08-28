@@ -166,7 +166,7 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
         await postRevocationSideEffects(
             connectionId: connectionId,
             serviceId: serviceId,
-            conversationIds: Array(Set(affectedGrants.map(\.conversationId)))
+            grants: affectedGrants
         )
 
         // Idempotent: GRDB's deleteOne returns false when the row is already
@@ -225,15 +225,10 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
         await republishRevokedGrants(orphanedGrants, context: "during refresh")
 
         for orphan in orphanedConnections {
-            let conversationIds = Array(Set(
-                orphanedGrants
-                    .filter { $0.connectionId == orphan.id }
-                    .map(\.conversationId)
-            ))
             await postRevocationSideEffects(
                 connectionId: orphan.id,
                 serviceId: orphan.serviceId,
-                conversationIds: conversationIds
+                grants: orphanedGrants.filter { $0.connectionId == orphan.id }
             )
         }
 
@@ -351,27 +346,33 @@ public final class CloudConnectionManager: CloudConnectionManagerProtocol, @unch
     private func postRevocationSideEffects(
         connectionId: String,
         serviceId: String?,
-        conversationIds: [String]
+        grants: [DBCloudConnectionGrant]
     ) async {
         guard let serviceId else { return }
         let providerId = ProviderID(rawValue: "composio.\(serviceId)")
         if let eventWriter = eventWriterProvider() {
-            for conversationId in conversationIds {
+            // One revoked event per (conversation, agent) grant rather than one
+            // per conversation: the agent inbox id is what lets the event route
+            // to that agent's DM instead of the shared group transcript.
+            var seenTargets: Set<String> = []
+            for grant in grants {
+                let target = "\(grant.conversationId)|\(grant.grantedToInboxId)"
+                guard seenTargets.insert(target).inserted else { continue }
                 do {
                     try await eventWriter.sendRevoked(
                         providerId: providerId.rawValue,
                         capability: nil,
-                        grantedToInboxId: nil,
-                        in: conversationId
+                        grantedToInboxId: grant.grantedToInboxId,
+                        in: grant.conversationId
                     )
                 } catch {
-                    Log.warning("Failed to send connection_event revoked (connectionId=\(connectionId), conversationId=\(conversationId)): \(error.localizedDescription)")
+                    Log.warning("Failed to send connection_event revoked (connectionId=\(connectionId), conversationId=\(grant.conversationId)): \(error.localizedDescription)")
                 }
             }
-        } else if !conversationIds.isEmpty {
+        } else if !grants.isEmpty {
             Log.warning(
                 "Revocation had no event writer injected; connection_event.revoked " +
-                "will not be posted to \(conversationIds.count) conversation(s) (connectionId=\(connectionId))"
+                "will not be posted for \(grants.count) grant(s) (connectionId=\(connectionId))"
             )
         }
         if let resolver = resolverProvider() {

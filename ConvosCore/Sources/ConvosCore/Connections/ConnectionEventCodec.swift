@@ -23,23 +23,30 @@ public struct ConnectionEvent: Codable, Sendable, Hashable {
     /// is meaningful — e.g. the user disconnected the underlying OAuth) can
     /// continue to omit it.
     public let grantedToInboxId: String?
+    /// Marks a human-facing discoverability copy of an event whose full version
+    /// went to the agent DM. Render-only by contract: agent runtimes neither
+    /// open a turn for it nor relay it to the model. Optional on the wire so
+    /// older receivers ignore it and normal events omit it entirely.
+    public let notice: Bool?
 
     public init(
         version: Int = ConnectionEvent.supportedVersion,
         providerId: String,
         action: Action,
         capability: ConnectionCapability? = nil,
-        grantedToInboxId: String? = nil
+        grantedToInboxId: String? = nil,
+        notice: Bool? = nil
     ) {
         self.version = version
         self.providerId = providerId
         self.action = action
         self.capability = capability
         self.grantedToInboxId = grantedToInboxId
+        self.notice = notice
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, providerId, action, capability, grantedToInboxId
+        case version, providerId, action, capability, grantedToInboxId, notice
     }
 
     public init(from decoder: Decoder) throws {
@@ -49,6 +56,7 @@ public struct ConnectionEvent: Codable, Sendable, Hashable {
         self.action = try container.decode(Action.self, forKey: .action)
         self.capability = try container.decodeIfPresent(ConnectionCapability.self, forKey: .capability)
         self.grantedToInboxId = try container.decodeIfPresent(String.self, forKey: .grantedToInboxId)
+        self.notice = try container.decodeIfPresent(Bool.self, forKey: .notice)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -58,6 +66,7 @@ public struct ConnectionEvent: Codable, Sendable, Hashable {
         try container.encode(action, forKey: .action)
         try container.encodeIfPresent(capability, forKey: .capability)
         try container.encodeIfPresent(grantedToInboxId, forKey: .grantedToInboxId)
+        try container.encodeIfPresent(notice, forKey: .notice)
     }
 }
 
