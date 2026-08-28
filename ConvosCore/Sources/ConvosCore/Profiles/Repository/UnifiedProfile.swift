@@ -14,6 +14,10 @@ public struct UnifiedProfile: Identifiable, Hashable, Sendable {
     let memberKind: DBMemberKind?
     public let metadata: ProfileMetadata?
     let avatars: [String: Avatar]
+    /// The backend-served avatar: one URL for the person, not one per
+    /// conversation. Once views read this, `avatars` and `displayAvatar(for:)`
+    /// go with the rest of the per-conversation model.
+    public let avatarUrl: URL?
     let updatedAt: Date
 
     init(
@@ -22,6 +26,7 @@ public struct UnifiedProfile: Identifiable, Hashable, Sendable {
         memberKind: DBMemberKind?,
         metadata: ProfileMetadata?,
         avatars: [String: Avatar],
+        avatarUrl: URL? = nil,
         updatedAt: Date
     ) {
         self.inboxId = inboxId
@@ -29,6 +34,7 @@ public struct UnifiedProfile: Identifiable, Hashable, Sendable {
         self.memberKind = memberKind
         self.metadata = metadata
         self.avatars = avatars
+        self.avatarUrl = avatarUrl
         self.updatedAt = updatedAt
     }
 
@@ -73,6 +79,7 @@ public struct UnifiedProfile: Identifiable, Hashable, Sendable {
             memberKind: identity.memberKind,
             metadata: identity.metadata,
             avatars: avatars,
+            avatarUrl: identity.avatarUrl.flatMap(URL.init(string:)),
             updatedAt: identity.updatedAt
         )
     }
