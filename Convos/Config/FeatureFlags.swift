@@ -65,33 +65,6 @@ final class FeatureFlags {
         }
     }
 
-    /// Gates the per-conversation agent participation control ("Listen"):
-    /// Speak freely / Listen mode / Paused. Toggle from App Settings -> Debug
-    /// in non-production builds, or from the curated prod debug menu in
-    /// production. Deliberately not prod-locked like the flags above: the
-    /// control is reachable everywhere so Listen can be dogfooded in TestFlight.
-    ///
-    /// On by default in every build, production included, so the control is
-    /// there without anyone having to find a debug menu first. An explicit
-    /// toggle in either direction is remembered and wins over the default, so
-    /// turning it off from the prod debug menu still sticks.
-    var isListenParticipationEnabled: Bool {
-        get {
-            access(keyPath: \.isListenParticipationEnabled)
-            guard let stored = UserDefaults.standard.object(forKey: Constant.listenParticipationEnabledKey) as? Bool else {
-                return Self.listenParticipationDefault
-            }
-            return stored
-        }
-        set {
-            withMutation(keyPath: \.isListenParticipationEnabled) {
-                UserDefaults.standard.set(newValue, forKey: Constant.listenParticipationEnabledKey)
-            }
-        }
-    }
-
-    private static let listenParticipationDefault: Bool = true
-
     /// Off by default -- opts libxmtp streams onto the shared bidi wire by
     /// exporting `XMTP_BIDI_STREAMS_ENABLED` at launch (see `ConvosApp.init`;
     /// flips take effect on the next launch). Deliberately not prod-locked
@@ -106,43 +79,6 @@ final class FeatureFlags {
         set {
             withMutation(keyPath: \.isXMTPBidiStreamsEnabled) {
                 UserDefaults.standard.set(newValue, forKey: Constant.xmtpBidiStreamsEnabledKey)
-            }
-        }
-    }
-
-    /// Off by default -- gates the V2 abilities surfaces (the abilities
-    /// catalog list in App Settings and the per-conversation abilities
-    /// section), backed by the live abilities backend once enabled (see
-    /// `AbilitiesServices.useLiveBackend`, which reports live unconditionally
-    /// whenever this flag is on). Toggle from App Settings -> Debug in
-    /// non-production builds, or from the curated prod debug menu in
-    /// production. Deliberately not prod-locked like most flags above: the
-    /// control is reachable everywhere so V2 can be dogfooded in production,
-    /// same posture as `isListenParticipationEnabled`. Default stays off in
-    /// every environment -- enabling it in production points the client at
-    /// whatever the production abilities backend currently serves, which may
-    /// lag what dev has.
-    ///
-    /// Coupled to `AbilitiesServices.useLiveBackend` in both directions so
-    /// V2 running against the mock (instead of the live backend) can never
-    /// be reached: turning this on forces the live backend on too
-    /// (write-time, below). `AbilitiesServices.useLiveBackend`'s getter
-    /// enforces the same invariant independent of what is in storage, which
-    /// is what actually keeps a value restored from persistence at launch
-    /// from resurfacing the invalid combination -- and in production that
-    /// getter reports live regardless of storage, so the coupling holds
-    /// there without needing a production guard of its own.
-    var isAbilitiesV2Enabled: Bool {
-        get {
-            access(keyPath: \.isAbilitiesV2Enabled)
-            return UserDefaults.standard.bool(forKey: Constant.abilitiesV2EnabledKey)
-        }
-        set {
-            withMutation(keyPath: \.isAbilitiesV2Enabled) {
-                UserDefaults.standard.set(newValue, forKey: Constant.abilitiesV2EnabledKey)
-            }
-            if newValue {
-                AbilitiesServices.setUseLiveBackend(true)
             }
         }
     }
@@ -177,6 +113,38 @@ final class FeatureFlags {
         set {
             withMutation(keyPath: \.isWebInspectorEnabled) {
                 UserDefaults.standard.set(newValue, forKey: Constant.webInspectorEnabledKey)
+            }
+        }
+    }
+
+    /// Off by default -- gates the model picker on an agent's contact card.
+    /// Reachable in every environment, same posture as the flags above: the
+    /// switch is a real product control meant to be dogfooded on a production
+    /// build, not a dev affordance. Default-off keeps the row absent, and with
+    /// it the catalogue read, so an agent nobody is switching is never asked
+    /// what it can run.
+    var isAgentModelPickerEnabled: Bool {
+        get {
+            access(keyPath: \.isAgentModelPickerEnabled)
+            return UserDefaults.standard.bool(forKey: Constant.agentModelPickerEnabledKey)
+        }
+        set {
+            withMutation(keyPath: \.isAgentModelPickerEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.agentModelPickerEnabledKey)
+            }
+        }
+    }
+
+    /// Off by default -- gates the on-device relay UI for connecting an
+    /// external agent. Reachable from both debug menus in every environment.
+    var agentRelayEnabled: Bool {
+        get {
+            access(keyPath: \.agentRelayEnabled)
+            return UserDefaults.standard.bool(forKey: Constant.agentRelayEnabledKey)
+        }
+        set {
+            withMutation(keyPath: \.agentRelayEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.agentRelayEnabledKey)
             }
         }
     }
@@ -248,10 +216,10 @@ final class FeatureFlags {
         static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"
         static let selectedAgentVariantKey: String = "featureFlags.selectedAgentVariant"
         static let agentVariantSelectorEnabledKey: String = "featureFlags.agentVariantSelectorEnabled"
-        static let listenParticipationEnabledKey: String = "featureFlags.listenParticipationEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
-        static let abilitiesV2EnabledKey: String = "featureFlags.abilitiesV2Enabled"
         static let spaceShareEnabledKey: String = "featureFlags.spaceShareEnabled"
         static let webInspectorEnabledKey: String = "featureFlags.webInspectorEnabled"
+        static let agentRelayEnabledKey: String = "featureFlags.agentRelayEnabled"
+        static let agentModelPickerEnabledKey: String = "featureFlags.agentModelPickerEnabled"
     }
 }

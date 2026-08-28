@@ -23,6 +23,13 @@ public extension Notification.Name {
     /// selecting the group again is a no-op, so the page can't be seeded the way
     /// a fresh open is.
     static let selectAgentDmPageRequested: Notification.Name = Notification.Name("SelectAgentDmPageRequested")
+    /// Requests that an already-open conversation switch its pager to a specific
+    /// tab. Posted (with `userInfo["conversationId"]` and `userInfo["tab"]` = the
+    /// `ConversationTab` raw value) by the list's "Open Agent DM" / "Open Things"
+    /// context-menu actions, which reselect a conversation that may already be on
+    /// screen in a side-by-side layout - selecting the same id again is a no-op,
+    /// so the page can't be seeded the way a fresh open is.
+    static let selectConversationTabRequested: Notification.Name = Notification.Name("SelectConversationTabRequested")
     /// One conversation arriving on, or leaving, the screen. Posted with
     /// `userInfo["conversationId"]` and `userInfo["isOnScreen"]`, by each lane for
     /// itself: a conversation shows its group and its agent DM together, so both
@@ -736,7 +743,22 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
         try await wipeResidualInboxRows()
 
+        // The agent-chat transcript and relay credentials are account data:
+        // wipe them here, not in the per-identity paths. The reset attempts
+        // every relay cleanup before its first failure is propagated.
+        var relayWipeError: Error?
+        do {
+            try AgentRelayReset.wipeAll(environment: environment)
+        } catch {
+            Log.error("Failed to wipe agent relay data: \(error.localizedDescription)")
+            relayWipeError = error
+        }
+
         cachedMessagingService.withLock { $0 = nil }
+
+        if let relayWipeError {
+            throw relayWipeError
+        }
     }
 
     private func wipeResidualInboxRows() async throws {
@@ -1029,13 +1051,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     /// Session-wide unsent-brief replayer (one-shot scan at session start).
     /// Constructed by the accessor in `SessionManager+UnsentBriefReplayer.swift`.
     let unsentBriefReplayerLock: OSAllocatedUnfairLock<UnsentBuilderBriefReplayer?> = .init(initialState: nil)
-
-    /// Lazily-constructed auto-enable service plus the host-supplied gate it
-    /// consults. Both live behind locks so the accessor in
-    /// `SessionManager+AutoEnableAbilities.swift` can build the service once
-    /// while the gate stays reconfigurable at any time.
-    let autoEnableAbilitiesServiceLock: OSAllocatedUnfairLock<AutoEnableAbilitiesService?> = .init(initialState: nil)
-    let autoEnableAbilitiesEligibilityLock: OSAllocatedUnfairLock<(@Sendable () async -> Bool)?> = .init(initialState: nil)
 
     public func capabilityProviderRegistry() -> any CapabilityProviderRegistry {
         capabilityRegistryLock.withLock { registry in
@@ -1599,12 +1614,9 @@ extension SessionManager {
     /// agent after the member add - the default agent holds admin from
     /// creation so it can act as the conversation's always-online admitter
     /// once agent-admitted joins exist; nothing server-side can exercise the
-    /// bit before then. `autoEnablesCreatorAbilities` controls whether the
-    /// join fans the user's live cloud connections out to the freshly added
-    /// agent; a caller that grants an exact picked set passes false so
-    /// auto-enable cannot widen it. Internal because only the agent-template
-    /// repository's wired join handler and the default-agent coordinator
-    /// thread these; the public protocol surface stays as-is.
+    /// bit before then. Internal because only the agent-template repository's
+    /// wired join handler and the default-agent coordinator thread these; the
+    /// public protocol surface stays as-is.
     func addAgentToConversation(
         conversationId: String,
         templateId: String?,
@@ -1612,8 +1624,7 @@ extension SessionManager {
         forceErrorCode: Int?,
         idempotencyKey: ConvosAPI.JoinIdempotencyKey?,
         ownerProfileName: String? = nil,
-        grantAdmin: Bool = false,
-        autoEnablesCreatorAbilities: Bool = true
+        grantAdmin: Bool = false
     ) async throws -> ConvosAPI.AgentJoinResponse {
         // Capture the creator's device timezone on the main actor before any
         // async hop. This seeds the agent's baseline/default zone (Channel A);
@@ -1681,9 +1692,6 @@ extension SessionManager {
                 // own device timezone into the per-sender ProfileUpdate metadata
                 // (Channel B). Best-effort: a failure must not fail the join.
                 await publishTimezoneForAgentConversation(conversationId: conversationId)
-                if autoEnablesCreatorAbilities {
-                    autoEnableCreatorAbilities(conversationId: conversationId, agentInboxId: agentInboxId)
-                }
                 return resolved.response
             } catch {
                 lastError = error
@@ -1698,20 +1706,6 @@ extension SessionManager {
             }
         }
         throw lastError ?? APIError.invalidResponse
-    }
-
-    /// Fire-and-forget fan-out of the user's live cloud connections to a
-    /// freshly added agent. Detached from the join so a slow or failing
-    /// grant push can never delay or fail adding the agent; the service
-    /// logs every skipped or failed grant. The fan-out keys on the
-    /// provisioned agent inbox id handed over by the join and never reads
-    /// conversation membership, so it doesn't depend on the member add
-    /// having become visible to local observation yet.
-    private func autoEnableCreatorAbilities(conversationId: String, agentInboxId: String) {
-        let service = autoEnableAbilitiesService()
-        Task {
-            await service.autoEnable(conversationId: conversationId, agentInboxId: agentInboxId)
-        }
     }
 
     /// Best-effort per-sender timezone publish (agent-timezone Channel B) for a
@@ -1857,16 +1851,13 @@ extension SessionManager {
             // byte-identical; when set, the same slug carries the join routing
             // and (via options.variantId) the load-bearing join-status poll.
             let options = variantId.map { ConvosAPI.AgentJoinOptions(onboarding: nil, variantId: $0) }
-            // The builder flow grants exactly the connections the user picked
-            // in the builder (via the grant replayer), so the join must not
-            // auto-enable the user's other live connections on top.
+            // The builder flow grants exactly the connections the user picked in the builder (via the grant replayer).
             _ = try await self.addAgentToConversation(
                 conversationId: conversationId,
                 templateId: templateId,
                 options: options,
                 forceErrorCode: nil,
-                idempotencyKey: joinIdempotencyKey,
-                autoEnablesCreatorAbilities: false
+                idempotencyKey: joinIdempotencyKey
             )
         }
         agentTemplateRepositoryInstance.resumePendingGenerations()

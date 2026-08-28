@@ -29,9 +29,11 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.5.0"),
+        // ConvosInvites/Package.swift pins the same revision and has to move with this one, or SPM
+        // fails to resolve two revisions of the same package.
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
-            revision: "ios-4.12.0-nightly.20260822.a53a97e"
+            revision: "ios-4.12.0-dev.de26965"
         ),
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
         .package(url: "https://github.com/ra1028/DifferenceKit.git", from: "1.3.0"),
@@ -39,9 +41,7 @@ let package = Package(
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.1"),
-        // Temporary pin: the ConvosBridge product only exists on the web-plugins
-        // branch so far; revert to branch: "main" once that PR merges in convos-shared.
-        .package(url: "https://github.com/xmtplabs/convos-shared.git", branch: "mpr/web-plugins"),
+        .package(url: "https://github.com/xmtplabs/convos-shared.git", branch: "main"),
         .package(path: "../ConvosLogging"),
         .package(path: "../ConvosInvites"),
         .package(path: "../ConvosAppData"),

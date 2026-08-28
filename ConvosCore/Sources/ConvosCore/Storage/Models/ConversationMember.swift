@@ -11,9 +11,14 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
     public let agentVerification: AgentVerification
     public let invitedBy: Profile?
     public let joinedAt: Date?
+    /// The model this member runs on, when the member is an agent, as the
+    /// group's appData carries it. Nil for a human, and nil for an agent
+    /// nobody has switched — that agent runs whatever its template shipped,
+    /// which no member's device can name.
+    public let agentModel: String?
 
     private enum CodingKeys: String, CodingKey {
-        case profile, role, isCurrentUser, isAgent, agentVerification, invitedBy, joinedAt
+        case profile, role, isCurrentUser, isAgent, agentVerification, invitedBy, joinedAt, agentModel
     }
 
     public init(
@@ -23,7 +28,8 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         isAgent: Bool = false,
         agentVerification: AgentVerification = .unverified,
         invitedBy: Profile? = nil,
-        joinedAt: Date? = nil
+        joinedAt: Date? = nil,
+        agentModel: String? = nil
     ) {
         self.profile = profile
         self.role = role
@@ -32,6 +38,7 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         self.agentVerification = agentVerification
         self.invitedBy = invitedBy
         self.joinedAt = joinedAt
+        self.agentModel = agentModel
     }
 
     public init(from decoder: Decoder) throws {
@@ -43,6 +50,7 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         self.agentVerification = try container.decodeIfPresent(AgentVerification.self, forKey: .agentVerification) ?? .unverified
         self.invitedBy = try container.decodeIfPresent(Profile.self, forKey: .invitedBy)
         self.joinedAt = try container.decodeIfPresent(Date.self, forKey: .joinedAt)
+        self.agentModel = try container.decodeIfPresent(String.self, forKey: .agentModel)
     }
 
     public var isVerifiedConvosAgent: Bool {

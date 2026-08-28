@@ -88,7 +88,15 @@ private struct AddFromContactsPickerModifier: ViewModifier {
         .shareSheet(
             isPresented: $presentingShareSheet,
             items: shareItems,
-            onCompletion: { _, completed, _ in
+            onCompletion: { activityType, completed, _ in
+                ConversationShareReporter.report(
+                    activityType: activityType,
+                    completed: completed,
+                    invite: viewModel.invite,
+                    conversation: viewModel.conversation,
+                    coreActions: viewModel.coreActions,
+                    session: viewModel.session
+                )
                 if completed { onInviteShared?() }
             }
         )
@@ -99,6 +107,7 @@ private struct AddFromContactsPickerModifier: ViewModifier {
             InviteCodeSheet(
                 conversation: viewModel.conversation,
                 invite: viewModel.invite,
+                session: viewModel.session,
                 onShareCompleted: { completed in
                     if completed { onInviteShared?() }
                 }

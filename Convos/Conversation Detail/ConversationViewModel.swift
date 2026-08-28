@@ -45,6 +45,17 @@ struct BuilderVoiceMemoSnapshot: Sendable {
     let levels: [Float]
 }
 
+enum ConversationMemberRemovalError: LocalizedError {
+    case notPermitted
+
+    var errorDescription: String? {
+        switch self {
+        case .notPermitted:
+            "Only the person who created this convo can remove members."
+        }
+    }
+}
+
 @MainActor
 @Observable
 class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this type_body_length
@@ -752,6 +763,10 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     private var previousMessageTextLength: Int = 0
     var pastedLinkPreview: LinkPreview?
 
+    func syncPasteDetectionBaseline() {
+        previousMessageTextLength = messageText.count
+    }
+
     func checkForPastedLink() {
         let inserted = messageText.count - previousMessageTextLength
         previousMessageTextLength = messageText.count
@@ -1116,6 +1131,16 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     @ObservationIgnored
     private var assistantJoinTimeoutTask: Task<Void, Never>?
 
+    /// Telemetry anchors for the invite-acceptance wait behind the drawer's
+    /// "Verifying" state. Set only when this view model opens a conversation
+    /// whose invite is already pending - a live join starts from a draft
+    /// conversation and is measured by `NewConversationViewModel`, so the two
+    /// surfaces cannot report the same wait twice.
+    @ObservationIgnored
+    private var inviteAcceptanceWaitStartedAt: Date?
+    @ObservationIgnored
+    private var inviteAcceptanceTimeoutTask: Task<Void, Never>?
+
     var sendReadReceipts: Bool = true
     var isViewingConversation: Bool = false
 
@@ -1183,6 +1208,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         // tying it to the view lifecycle was cancelling joins mid-request, so
         // the backend never provisioned the agent.
         explodeDurationTask?.cancel()
+        inviteAcceptanceTimeoutTask?.cancel()
         agentBuilderPlaceholderExpiryTask?.cancel()
         pendingSyntheticAgentExpiryTask?.cancel()
         assistantJoinTimeoutTask?.cancel()
@@ -1301,9 +1327,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
 
         if conversation.isPendingInvite {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
+            beginInviteAcceptanceWait()
         }
         startOnboarding()
         registerInlineAttachmentRecovery()
+        applyPendingComposerDraft()
 
         // The initial assignment of `conversation` does not run its
         // `didSet`, so a conversation that already has other members must
@@ -1382,6 +1410,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
+        applyPendingComposerDraft()
         observeAgentBuilderSummary()
 
         self.editingConversationName = conversation.name ?? ""
@@ -1634,6 +1663,53 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             }
         } catch {
             Log.error("agent power read failed: \(error)")
+        }
+    }
+
+    /// True while a stop is in flight. Drives the button's disabled state so a
+    /// second tap cannot fan out a second stop, and so the control visibly
+    /// acknowledges the press — previously a tap produced no feedback at all,
+    /// which is indistinguishable from a tap that never registered.
+    var isInterruptingAgent: Bool = false
+
+    /// Stops the turn the conversation's agents are running right now — the stop
+    /// button. A fire-once control-plane call that injects no message and
+    /// persists nothing; the backend reports how many agents were actually
+    /// running, and stopping an idle one is a successful no-op.
+    ///
+    /// Logged at every exit, entry included. A stop that does nothing is not
+    /// self-evident from the outside: the failure looks exactly like a button
+    /// that was never pressed, and without an entry line there is no way to
+    /// tell "the tap never reached this method" from "the call was made and
+    /// answered `interrupted: 0`". That ambiguity cost a full debugging
+    /// session, so every branch here says which one it was.
+    func interruptAgent() async {
+        let conversation = self.conversation
+        Log.info("agent interrupt requested for conversation \(conversation.id)")
+        guard !conversation.isDraft else {
+            Log.info("agent interrupt skipped: conversation is a draft")
+            return
+        }
+        guard !isInterruptingAgent else {
+            Log.info("agent interrupt skipped: one already in flight")
+            return
+        }
+        isInterruptingAgent = true
+        defer { isInterruptingAgent = false }
+        do {
+            let client = ConvosAPIClientFactory.client(
+                environment: ConfigManager.shared.currentEnvironment
+            )
+            let response = try await client.interruptAgent(
+                conversationId: conversation.id,
+                variantId: conversationAgentVariantSlug
+            )
+            Log.info(
+                "agent interrupt done: interrupted=\(response.interrupted ?? -1) "
+                    + "failed=\(response.failed ?? -1)"
+            )
+        } catch {
+            Log.error("agent interrupt failed: \(error)")
         }
     }
 
@@ -1935,9 +2011,9 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             .filter { !existingInboxIds.contains($0.profile.inboxId) }
         // Agent contacts are canonical rows keyed by agentTemplateId, so
         // picked templates resolve back through the same contacts
-        // repository. A templateId with no contact row (e.g. a suggested
-        // agent the user never chatted with) is skipped - that selection
-        // just keeps the non-optimistic behavior.
+        // repository. A templateId with no contact row (e.g. an agent
+        // reached through a share link the user never chatted with) is
+        // skipped - that selection just keeps the non-optimistic behavior.
         let agentContacts: [Contact] = (try? contactsRepository.fetchContacts(templateIds: agentTemplateIds)) ?? []
         let agentMembers: [ConversationMember] = agentContacts
             .compactMap(\.agentShareInfo)
@@ -2064,6 +2140,7 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
     }
 
     func inviteWasAccepted() {
+        clearInviteAcceptanceWait()
         Task { @MainActor in
             await onboardingCoordinator.inviteWasAccepted(for: conversation.id)
         }
@@ -3196,6 +3273,11 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         /// window in SyncingManager, which itself covers the assistant
         /// backend's roughly two-minute give-up with margin.
         static let assistantJoinWaitWindow: TimeInterval = 150
+        /// How long the drawer's "Verifying" state is measured before it
+        /// reports a failed `joined_conversation`. Matches the invite-join
+        /// wait window in `NewConversationViewModel` so the two stuck-wait
+        /// samples stay comparable.
+        static let inviteAcceptanceWaitWindow: TimeInterval = 150
         /// Shown in the approval sheet when an approval could not be
         /// completed (backend grant confirmation or result send failed).
         static let capabilityApprovalFailedMessage: String =
@@ -4182,16 +4264,12 @@ extension ConversationViewModel {
         presentingProfileSettings = true
     }
 
-    func remove(member: ConversationMember) {
-        guard canRemoveMembers else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await metadataWriter.removeMembers([member.profile.inboxId], from: conversation.id)
-            } catch {
-                Log.error("Error removing member: \(error.localizedDescription)")
-            }
-        }
+    /// Throws rather than swallowing the failure so callers can keep their UI
+    /// open and report it - the profile card dismisses itself only once the
+    /// removal has actually landed.
+    func remove(member: ConversationMember) async throws {
+        guard canRemoveMembers else { throw ConversationMemberRemovalError.notPermitted }
+        try await metadataWriter.removeMembers([member.profile.inboxId], from: conversation.id)
     }
 
     private func setNotificationsEnabled(_ enabled: Bool) {
@@ -4346,12 +4424,6 @@ extension ConversationViewModel {
         }
     }
 
-    /// Bare-join convenience for the in-conversation "add an agent"
-    /// affordances. Kept so their call sites don't change.
-    func requestAgentJoin() {
-        requestAgentJoin(templateId: nil)
-    }
-
     /// Sequential batched variant of `requestAgentJoin(templateId:)`. Used
     /// when the picker confirmed multiple agent templates at once. Awaits
     /// each call to completion before firing the next, with a short
@@ -4439,6 +4511,60 @@ extension ConversationViewModel {
             assistantJoinWaitSource = source
         }
         armAssistantJoinTimeout()
+    }
+
+    /// Starts measuring the drawer's "Verifying" wait. This surface
+    /// previously had neither a timer nor any telemetry: a pending invite the
+    /// creator never approved spun here indefinitely and reported nothing.
+    private func beginInviteAcceptanceWait() {
+        inviteAcceptanceWaitStartedAt = Date()
+        armInviteAcceptanceTimeout()
+    }
+
+    private func armInviteAcceptanceTimeout() {
+        inviteAcceptanceTimeoutTask?.cancel()
+        guard let startedAt = inviteAcceptanceWaitStartedAt else { return }
+        let elapsed = Date().timeIntervalSince(startedAt)
+        let remaining: TimeInterval = max(0, Constant.inviteAcceptanceWaitWindow - elapsed)
+        inviteAcceptanceTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled else { return }
+            self?.emitInviteAcceptanceTimedOut()
+        }
+    }
+
+    /// The invite was still unapproved when the wait window elapsed.
+    ///
+    /// `source` reports `.url` because the original entry point is not
+    /// persisted on the conversation: this surface is reached by opening an
+    /// already-pending convo, often in a later session, by which point the
+    /// scan / paste / url distinction is gone. `failure_reason` is the
+    /// load-bearing dimension here, not `source`.
+    private func emitInviteAcceptanceTimedOut() {
+        guard let startedAt = inviteAcceptanceWaitStartedAt else { return }
+        inviteAcceptanceWaitStartedAt = nil
+        guard conversation.isPendingInvite else { return }
+
+        let waitDuration = Float(Date().timeIntervalSince(startedAt))
+        let actions: any CoreActions = coreActions
+        Task {
+            await actions.joinedConversation(
+                verificationDuration: waitDuration,
+                memberCount: nil,
+                hasAssistant: nil,
+                source: .url,
+                isSuccess: false,
+                failureReason: .approvalTimedOut,
+                creatorReason: nil,
+                attemptNumber: 1
+            )
+        }
+    }
+
+    private func clearInviteAcceptanceWait() {
+        inviteAcceptanceWaitStartedAt = nil
+        inviteAcceptanceTimeoutTask?.cancel()
+        inviteAcceptanceTimeoutTask = nil
     }
 
     private func armAssistantJoinTimeout() {
@@ -4812,26 +4938,6 @@ extension ConversationViewModel {
 
     func makeAgentFilesLinksRepository() -> AgentFilesLinksRepository {
         session.agentFilesLinksRepository(for: conversation.id)
-    }
-
-    func makeConversationConnectionsViewModel() -> ConversationConnectionsViewModel {
-        // Snapshot of agent inbox ids at view-model creation. Per-conversation toggles
-        // fan out one grant row per agent currently in the conversation; if membership
-        // changes mid-life of the view model, callers can recreate it (the view model is
-        // shaped per ConversationInfo presentation, so that already happens naturally).
-        let agentInboxIds = conversation.members
-            .filter { $0.isAgent }
-            .map { $0.profile.inboxId }
-        return ConversationConnectionsViewModel(
-            conversationId: conversation.id,
-            agentInboxIds: agentInboxIds,
-            cloudConnectionManager: session.cloudConnectionManager(callbackURLScheme: ConfigManager.shared.appUrlScheme),
-            cloudConnectionRepository: session.cloudConnectionRepository(),
-            grantWriter: messagingService.connectionGrantWriter(),
-            connectionEventWriter: messagingService.connectionEventWriter(),
-            enablementStore: session.connectionEnablementStore(),
-            capabilityResolver: session.capabilityResolver()
-        )
     }
 
     @MainActor

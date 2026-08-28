@@ -7,8 +7,9 @@ import SwiftUI
 /// new-conversation flow.
 ///
 /// The pick is handed to the caller, which passes it to the creation flow so it
-/// binds to that specific conversation once it has an id. Starts on the Debug
-/// default so the common case is Continue without touching the dropdown.
+/// binds to that specific conversation once it has an id. Starts on the last
+/// variant chosen in the make-an-agent composer, so the common case is
+/// Continue without touching the dropdown.
 struct AgentVariantPickerSheet: View {
     let onContinue: (String?) -> Void
 

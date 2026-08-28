@@ -104,6 +104,41 @@ struct ConnectionsMetadataPayloadTests {
         #expect(grant.grantedAt == "2026-04-21T15:33:01Z")
     }
 
+    @Test("Round-trips the conversationId scope field")
+    func roundTripConversationId() throws {
+        // Additive (2026-08), wire-parity with Android: the field is what
+        // lets the runtime grow a per-conversation grant filter in one
+        // server deploy covering both platforms.
+        let scoped = CloudConnectionGrantEntry(
+            id: "grant_conn_123",
+            senderId: "sender_abc",
+            grantedToInboxId: "agent_xyz",
+            service: "googlecalendar",
+            provider: "composio",
+            composioEntityId: "entity_device",
+            composioConnectionId: "ca_abc",
+            grantedAt: "2026-04-21T15:00:00Z",
+            conversationId: "conv-1"
+        )
+        let payload = CloudConnectionsMetadataPayload(grants: [scoped])
+
+        let json = try payload.toJsonString()
+        let decoded = try CloudConnectionsMetadataPayload.fromJsonString(json)
+        #expect(decoded.grants.first?.conversationId == "conv-1")
+    }
+
+    @Test("A legacy entry without conversationId decodes as unknown, and nil never serialises")
+    func legacyEntriesOmitConversationId() throws {
+        // Absence means "conversation unknown", never "applies everywhere" -
+        // and an entry built without the field must not add a null key that
+        // older readers would choke on.
+        let legacyJson = try CloudConnectionsMetadataPayload(grants: [entry()]).toJsonString()
+        #expect(!legacyJson.contains("conversationId"))
+
+        let decoded = try CloudConnectionsMetadataPayload.fromJsonString(legacyJson)
+        #expect(decoded.grants.first?.conversationId == nil)
+    }
+
     @Test("Malformed JSON throws")
     func malformedJsonThrows() {
         #expect(throws: (any Error).self) {

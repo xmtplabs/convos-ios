@@ -576,8 +576,11 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
         let iso8601 = ISO8601DateFormatter()
         let entries: [CloudConnectionGrantEntry] = desiredGrants.compactMap { grant in
             guard let conn = connectionsById[grant.connectionId] else { return nil }
+            // Both built from the grant's OWN conversation id, not the
+            // ambient one: with the per-conversation projection they are
+            // always equal, but the entry describes the grant.
             return CloudConnectionGrantEntry(
-                id: "grant_\(grant.connectionId)_\(conversationId)_\(grant.grantedToInboxId)",
+                id: "grant_\(grant.connectionId)_\(grant.conversationId)_\(grant.grantedToInboxId)",
                 senderId: senderId,
                 grantedToInboxId: grant.grantedToInboxId,
                 service: conn.serviceId,
@@ -585,7 +588,8 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
                 scope: "conversation",
                 composioEntityId: conn.composioEntityId,
                 composioConnectionId: conn.composioConnectionId,
-                grantedAt: iso8601.string(from: grant.grantedAt)
+                grantedAt: iso8601.string(from: grant.grantedAt),
+                conversationId: grant.conversationId
             )
         }
 
@@ -624,47 +628,12 @@ final class CloudConnectionGrantWriter: CloudConnectionGrantWriterProtocol, @unc
             conversationId: conversationId,
             inboxId: senderId
         ) { metadata in
-            // This payload is rebuilt from scratch from V1 grant rows, but
-            // the existing value may also carry V2 awareness-shim entries
-            // (id namespace `grant_v2_`) owned by AbilityV1AwarenessShimWriter.
-            // Carry them across the rebuild; dropping them would blind
-            // V1-reader agents to still-active V2 abilities whenever any V1
-            // grant changes.
-            let shimEntries = AbilityV1AwarenessShimWriter.shimOwnedEntries(
-                inPayload: metadata[connectionsKey]?.stringValue
-            )
-            if let merged = Self.connectionsJson(rebuilt: grantsJson, preservingShimEntries: shimEntries) {
-                metadata[connectionsKey] = .string(merged)
+            if let grantsJson {
+                metadata[connectionsKey] = .string(grantsJson)
             } else {
                 metadata.removeValue(forKey: connectionsKey)
             }
         }
-    }
-
-    /// The final connections payload for a V1 rebuild: the rebuilt V1
-    /// grants (nil when V1 holds none) plus any preserved shim entries.
-    /// Returns nil when there is nothing at all to publish, which clears
-    /// the key. A serialization failure falls back to the rebuilt payload
-    /// alone -- the V1 write must not fail on account of the best-effort
-    /// shim.
-    static func connectionsJson(rebuilt grantsJson: String?, preservingShimEntries shimEntries: [[String: Any]]) -> String? {
-        guard !shimEntries.isEmpty else { return grantsJson }
-        var payloadObject: [String: Any] = ["version": 1]
-        if let grantsJson,
-           let data = grantsJson.data(using: .utf8),
-           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            payloadObject = parsed
-        }
-        var grants: [[String: Any]] = (payloadObject["grants"] as? [[String: Any]]) ?? []
-        grants.append(contentsOf: shimEntries)
-        payloadObject["grants"] = grants
-        guard JSONSerialization.isValidJSONObject(payloadObject),
-              let merged = try? JSONSerialization.data(withJSONObject: payloadObject, options: [.sortedKeys]),
-              let json = String(data: merged, encoding: .utf8) else {
-            Log.warning("[CloudConnections] failed to merge shim entries into rebuilt connections payload; publishing V1 grants alone")
-            return grantsJson
-        }
-        return json
     }
 
     private func prettyPrint(_ json: String) -> String {

@@ -666,6 +666,16 @@ final class ConversationAbilitiesViewModel {
                 // the visual settle on it would strand a real enablement
                 // on a spinner.
                 clearPendingEnablement(key)
+                // The write above already ran under the epoch guard, so the
+                // announcement needs no fence of its own. Best-effort inside
+                // the announcer: a failed announcement never reverts the
+                // toggle, the agent just cards once.
+                await selection.announcer?.announceEnabled(
+                    conversationId: conversationId,
+                    agentInboxId: agent.inboxId,
+                    abilityId: ability.id,
+                    bundleIds: bundleIds
+                )
             } catch AbilitiesServiceError.needsEntitlement {
                 // The server says the entitlement is gone mid-extend: run
                 // the repair flow and retry with the bundles the user
@@ -728,6 +738,14 @@ final class ConversationAbilitiesViewModel {
                     conversationId: conversationId,
                     abilityId: ability.id,
                     agentInboxId: agent.inboxId
+                )
+                // Mirrors the extend-side announcement, including through
+                // the service's benign not-found path — a stale announced
+                // grant must not outlive a withdrawal.
+                await selection.announcer?.announceDisabled(
+                    conversationId: conversationId,
+                    agentInboxId: agent.inboxId,
+                    abilityId: ability.id
                 )
             } catch {
                 mutationError = error.localizedDescription

@@ -1,5 +1,14 @@
 # Cloud Connections v0.1 — iOS Implementation Plan
 
+> **Status (historical):** this is the original v1 implementation plan, kept for
+> the wire formats and data-model rationale it documents (`connectionsJson`
+> conversation metadata, GRDB models, grant writers), which remain the live
+> substrate. The v1 user surfaces it describes — `ConnectionsListView` /
+> `ConnectionsListViewModel` in App Settings, `ConversationConnectionsSection`
+> in conversation info, the `isConnectionsEnabled` feature flag, and the
+> auto-enable-on-agent-add service — have since been replaced by the always-on
+> Abilities surfaces (`Convos/Abilities/`) and deleted from the codebase.
+
 > **Vocabulary:** "Cloud Connections" = Composio-brokered SaaS integrations (OAuth tokens stored server-side, tool calls proxied through Composio). Separate from "Device Connections" — the on-device Apple-SDK pathway in the `ConvosConnections` package. Both show up to the user as plain "Connections" in Settings; Cloud/Device is engineering vocabulary only.
 
 ## Context

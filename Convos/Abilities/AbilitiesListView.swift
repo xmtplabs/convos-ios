@@ -161,14 +161,13 @@ struct AbilitiesListScreen: View {
 /// entitlement state, with status badges and connect actions through
 /// `AbilitiesServiceProtocol`.
 ///
-/// Entry points (all flag-gated behind Abilities V2, all via
-/// `AbilitiesListScreen`, which owns the view models and takes the
-/// `ConnectionsBrowserMode` naming the caller):
+/// Entry points (all via `AbilitiesListScreen`, which owns the view models
+/// and takes the `ConnectionsBrowserMode` naming the caller):
 /// - App Settings connections row (`AppSettingsView.connectionsDestination`)
-///   pushes it in place of the V1 `ConnectionsListView`, in mode
-///   `.appSettings`; the row is titled "Abilities" under the flag. Account
-///   level throughout: "Connected" / "All connections" / "Status unknown",
-///   the `ellipsis` menu with Disconnect, and the detail push.
+///   pushes it in mode `.appSettings`; the row is titled "Abilities". Account
+///   level throughout: "Connected" / "Add a connection" / "Status unknown",
+///   each Connected row pushing the detail (where Disconnect lives) and each
+///   available row connecting on tap.
 /// - The agent composer's `+` menu presents it full-screen from
 ///   `ConversationView.connectionsBrowserPresentation`, in mode
 ///   `.composerModal`; the screen then supplies its own `NavigationStack`
@@ -385,11 +384,11 @@ struct AbilitiesListView: View {
         }
     }
 
-    /// The account-level list enumerates what exists; the chat-scoped one
-    /// frames the same rows as things to add to this convo.
+    /// Both frame the rows as things to add; the account-level list adds to
+    /// the account, the chat-scoped one to this convo.
     private var availableSectionTitle: String {
         switch mode {
-        case .appSettings: "All connections"
+        case .appSettings: "Add a connection"
         case .composerModal: "Discover"
         }
     }
@@ -428,7 +427,12 @@ struct AbilitiesListView: View {
 
     private func navigableEntitledRow(_ ability: AbilitiesAPI.Ability) -> some View {
         NavigationLink {
-            AbilityDetailScreen(ability: ability, usageSource: usageSource)
+            AbilityDetailScreen(
+                ability: ability,
+                usageSource: usageSource,
+                onDisconnect: { viewModel.disconnect(ability) },
+                onReconnect: { viewModel.connect(ability) }
+            )
         } label: {
             abilityRowContent(ability, subtitle: entitledSubtitle(for: ability)) {
                 entitledAccessory(ability)
@@ -507,9 +511,38 @@ struct AbilitiesListView: View {
         .accessibilityIdentifier("ability-disclosure-\(ability.id)")
     }
 
+    @ViewBuilder
     private func availableRow(_ ability: AbilitiesAPI.Ability) -> some View {
-        abilityRowContent(ability, subtitle: ability.subtitle.resolved()) {
-            availableAccessory(ability)
+        switch mode {
+        case .appSettings:
+            connectableAvailableRow(ability)
+        case .composerModal:
+            abilityRowContent(ability, subtitle: ability.subtitle.resolved()) {
+                availableAccessory(ability)
+            }
+        }
+    }
+
+    /// App Settings frames each available connection as a single Connect
+    /// action: the whole row is the button, so there is no inline Connect
+    /// control. A spinner takes the trailing space while the connect runs.
+    private func connectableAvailableRow(_ ability: AbilitiesAPI.Ability) -> some View {
+        let connectAction: () -> Void = { viewModel.connect(ability) }
+        return Button(action: connectAction) {
+            abilityRowContent(ability, subtitle: ability.subtitle.resolved()) {
+                availableBusyAccessory(ability)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.isBusy(ability))
+        .accessibilityIdentifier("ability-connect-\(ability.id)")
+    }
+
+    @ViewBuilder
+    private func availableBusyAccessory(_ ability: AbilitiesAPI.Ability) -> some View {
+        if viewModel.isBusy(ability) {
+            ProgressView()
         }
     }
 
@@ -589,9 +622,14 @@ struct AbilitiesListView: View {
         if viewModel.isBusy(ability) {
             ProgressView()
         } else if let entitlement = ability.entitlement {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
+            // Active connections need no accessory: the row reads clean and the
+            // chevron already says it opens. Broken states keep their badge as
+            // the warning that something needs attention.
+            switch entitlement.status {
+            case .active:
+                EmptyView()
+            default:
                 AbilityStatusBadge(status: entitlement.status)
-                entitledMenu(ability, status: entitlement.status)
             }
         }
     }
@@ -634,30 +672,6 @@ struct AbilitiesListView: View {
         } else {
             ConversationAbilityToggleLoadingControl()
         }
-    }
-
-    private func entitledMenu(_ ability: AbilitiesAPI.Ability, status: AbilitiesAPI.EntitlementStatus) -> some View {
-        let continueAction = { viewModel.connect(ability) }
-        let disconnectAction = { viewModel.disconnect(ability) }
-        return Menu {
-            switch status {
-            case .expired, .needsReauth, .revoked:
-                Button("Reconnect", action: continueAction)
-            case .active, .pendingAuth:
-                // `pendingAuth` never reaches this menu: an unfinished
-                // authorization is a Discover row with a Connect button,
-                // not a Connected row with a repair entry.
-                EmptyView()
-            }
-            Button("Disconnect", role: .destructive, action: disconnectAction)
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.body)
-                .foregroundStyle(.colorTextSecondary)
-                .frame(width: DesignConstants.Spacing.step6x, height: DesignConstants.Spacing.step6x)
-                .contentShape(.rect)
-        }
-        .accessibilityIdentifier("ability-menu-\(ability.id)")
     }
 
     @ViewBuilder

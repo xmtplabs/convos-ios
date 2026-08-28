@@ -436,6 +436,87 @@ public enum ConvosAPI {
             }
         }
     }
+
+    /// The model one agent runs on.
+    ///
+    /// Keyed by agent instance, not by conversation: an agent belongs to one
+    /// conversation, but a conversation can hold several agents and the picker
+    /// sits on one agent's profile.
+    public struct AgentModelResponse: Codable {
+        public let success: Bool
+        public let instanceId: String
+        /// Null until someone switches it: the agent is running whatever its
+        /// template shipped, and the control plane does not know that value
+        /// without asking the container. Render it as "no explicit choice",
+        /// never as "no model".
+        public let model: String?
+        /// The models THIS agent can switch to, from its own config. The list
+        /// is per agent, so it cannot be hardcoded here and stay correct.
+        /// Optional (and empty) on a control plane that predates it, or before
+        /// the agent has ever run — the picker shows what it has rather than a
+        /// list the app invented.
+        public let available: [AgentModelOptionPayload]?
+
+        public init(
+            success: Bool,
+            instanceId: String,
+            model: String?,
+            available: [AgentModelOptionPayload]? = nil
+        ) {
+            self.success = success
+            self.instanceId = instanceId
+            self.model = model
+            self.available = available
+        }
+    }
+
+    /// One switchable model as the agent's own config lists it.
+    public struct AgentModelOptionPayload: Codable, Hashable, Sendable {
+        public let id: String
+        public let name: String
+
+        public init(id: String, name: String) {
+            self.id = id
+            self.name = name
+        }
+    }
+
+    public struct AgentModelRequest: Codable {
+        public let model: String
+
+        public init(model: String) {
+            self.model = model
+        }
+    }
+
+    /// Result of a stop: the conversation's agents were asked to interrupt the
+    /// turn they are running now, without a chat message being sent. Nothing is
+    /// persisted — a stop is a transient signal to whatever is running.
+    public struct AgentInterruptResponse: Codable {
+        public let success: Bool
+        public let conversationId: String
+        /// How many of the conversation's agents actually had a turn running to
+        /// stop. Zero is a successful no-op — stopping an idle agent stops
+        /// nothing. Optional so a control plane that predates the field decodes.
+        public let interrupted: Int?
+        /// How many agents could not be reached at all. Distinct from a zero
+        /// `interrupted`: that means nothing was running, this means the stop
+        /// never happened. Optional for the same reason as `interrupted` — a
+        /// control plane that predates the field must still decode.
+        public let failed: Int?
+
+        public init(
+            success: Bool,
+            conversationId: String,
+            interrupted: Int? = nil,
+            failed: Int? = nil
+        ) {
+            self.success = success
+            self.conversationId = conversationId
+            self.interrupted = interrupted
+            self.failed = failed
+        }
+    }
 }
 
 extension ConvosAPI {
@@ -559,23 +640,6 @@ extension ConvosAPI {
             self.description = description
             self.emoji = emoji
             self.avatarUrl = avatarUrl
-        }
-    }
-
-    /// One page of the agent-templates list endpoint
-    /// (`GET /v2/agent-templates/`). The backend returns a cursor-paginated
-    /// envelope: `data` is the page, `hasMore` signals another page exists,
-    /// and `nextCursor` is the opaque base64url cursor to pass back as
-    /// `&cursor=` for the following page (`nil` on the last page).
-    public struct AgentTemplatesPage: Codable, Sendable {
-        public let data: [AgentTemplate]
-        public let hasMore: Bool
-        public let nextCursor: String?
-
-        public init(data: [AgentTemplate], hasMore: Bool, nextCursor: String?) {
-            self.data = data
-            self.hasMore = hasMore
-            self.nextCursor = nextCursor
         }
     }
 

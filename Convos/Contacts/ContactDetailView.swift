@@ -51,6 +51,11 @@ struct ContactDetailView: View {
     /// the agent profile, mirroring the in-chat ribbon.
     let variantStamp: AgentVariantStamp?
     let mode: ContactDetailMode
+    /// The model this agent runs on as the conversation's synced state carries
+    /// it, passed from the live member row at the chat-side entry point (`nil`
+    /// elsewhere, and `nil` for an agent nobody has switched). A change here is
+    /// somebody else's pick arriving over sync, and the picker follows it.
+    let syncedAgentModel: String?
     /// True when the view should render its own X close button in the
     /// nav-bar's cancellation slot. Sheet entry points (where there is no
     /// system back button) keep this on; NavigationLink push entry points
@@ -71,7 +76,7 @@ struct ContactDetailView: View {
     private let session: (any SessionManagerProtocol)?
     private let coreActions: any CoreActions
     private let profileSettingsViewModel: ProfileSettingsViewModel
-    private let onRemove: (() -> Void)?
+    private let onRemove: (() async throws -> Void)?
     /// When set (member sheets presented from a conversation), Chat on a
     /// DM-able agent hands the agent inboxId back to the presenter, which
     /// dismisses this sheet and selects the conversation's agent-DM page.
@@ -83,6 +88,9 @@ struct ContactDetailView: View {
     @State private var isApplyingBlockChange: Bool = false
     @State private var presentingBlockConfirmation: Bool = false
     @State private var presentingRemoveConfirmation: Bool = false
+    @State private var isRemovingMember: Bool = false
+    @State private var presentingRemoveError: Bool = false
+    @State private var removeErrorMessage: String?
     @State private var presentingPicker: Bool = false
     @State private var presentingSendMessageError: Bool = false
     @State private var sendMessageErrorMessage: String?
@@ -119,6 +127,7 @@ struct ContactDetailView: View {
         contact: Contact,
         variantStamp: AgentVariantStamp? = nil,
         mode: ContactDetailMode = .standalone,
+        syncedAgentModel: String? = nil,
         contactsWriter: any ContactsWriterProtocol,
         contactsRepository: any ContactsRepositoryProtocol,
         session: (any SessionManagerProtocol)? = nil,
@@ -126,12 +135,13 @@ struct ContactDetailView: View {
         profileSettingsViewModel: ProfileSettingsViewModel = .shared,
         showsCloseButton: Bool = true,
         pushedConversationInsetsTopSafeArea: Bool = false,
-        onRemove: (() -> Void)? = nil,
+        onRemove: (() async throws -> Void)? = nil,
         onStartAgentDm: ((String) -> Void)? = nil
     ) {
         self.contact = contact
         self.variantStamp = variantStamp
         self.mode = mode
+        self.syncedAgentModel = syncedAgentModel
         self.contactsWriter = contactsWriter
         self.contactsRepository = contactsRepository
         self.session = session
@@ -142,7 +152,7 @@ struct ContactDetailView: View {
         self.onRemove = onRemove
         self.onStartAgentDm = onStartAgentDm
         _isBlocked = State(initialValue: contact.isBlocked)
-        // Suggested-agent contacts carry the description, so it renders
+        // Agent-share placeholder contacts carry the description, so it renders
         // immediately; saved agent contacts seed nil and resolve it on appear.
         _agentDescription = State(initialValue: contact.agentDescription)
     }
@@ -178,6 +188,9 @@ struct ContactDetailView: View {
                 presentingPicker: $presentingPicker,
                 presentingSendMessageError: $presentingSendMessageError,
                 sendMessageErrorMessage: sendMessageErrorMessage,
+                presentingRemoveError: $presentingRemoveError,
+                removeErrorTitle: removeErrorTitle,
+                removeErrorMessage: removeErrorMessage,
                 blockAlertTitle: blockAlertTitle,
                 blockAlertMessage: blockAlertMessage,
                 presentingAgentInfo: $presentingAgentInfo,
@@ -201,7 +214,7 @@ struct ContactDetailView: View {
                 "Remove \(contact.resolvedDisplayName)?",
                 isPresented: $presentingRemoveConfirmation
             ) {
-                Button("Remove", role: .destructive) { onRemove?() }
+                Button("Remove", role: .destructive) { handleRemoveConfirmed() }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text(
@@ -253,8 +266,9 @@ struct ContactDetailView: View {
     /// Resolves the agent template's description (id or slug) so the card can
     /// show it under the name. `nil` for humans and when resolution fails.
     private func loadAgentDescription() async {
-        // Suggested-agent contacts already carry the description (seeded in
-        // init), so skip the round-trip; only saved agent contacts resolve it.
+        // Agent-share placeholder contacts already carry the description
+        // (seeded in init), so skip the round-trip; only saved agent contacts
+        // resolve it.
         guard agentDescription == nil, let session, let templateId = contact.agentTemplateId else { return }
         let info = await session.agentShareResolver().resolve(identifier: templateId)
         agentDescription = info?.descriptionText
@@ -340,10 +354,9 @@ struct ContactDetailView: View {
                         .padding(.top, DesignConstants.Spacing.step2x)
                         .padding(.horizontal, DesignConstants.Spacing.step6x)
                 }
-                // Suggested-agent and agent-share placeholders aren't saved
-                // contacts, so the "Added X ago" line (and Block, below)
-                // don't apply.
-                if !contact.isUnsavedAgentPlaceholder {
+                // Agent-share placeholders aren't saved contacts, so the
+                // "Added X ago" line (and Block, below) don't apply.
+                if !contact.isAgentSharePlaceholder {
                     ContactDetailSubtitle(
                         contact: contact,
                         invitedBy: mode.invitedBy,
@@ -361,6 +374,7 @@ struct ContactDetailView: View {
                 ContactDetailActions(
                     isBlocked: isBlocked,
                     isApplyingBlockChange: isApplyingBlockChange,
+                    isRemovingMember: isRemovingMember,
                     // A template-backed agent's Chat spawns a fresh instance
                     // into a new conversation (see `handleChatWithAgentTemplate`).
                     // A non-template verified agent gets a private DM with the
@@ -370,16 +384,28 @@ struct ContactDetailView: View {
                     // way to interact.
                     canSendMessage: session != nil && (!isVerifiedAgent || isAgentTemplate || canStartAgentDm),
                     showChat: !mode.isCurrentUser,
-                    showModelPicker: !mode.isCurrentUser && (isVerifiedAgent || isAgentTemplate),
+                    showModelPicker: FeatureFlags.shared.isAgentModelPickerEnabled
+                        && !mode.isCurrentUser
+                        && (isVerifiedAgent || isAgentTemplate),
                     isAgent: isVerifiedAgent || isAgentTemplate,
                     showShare: agentTemplateShareURL != nil,
                     showRemove: mode.isScopedToConversation
                         && !mode.isCurrentUser
                         && mode.canRemoveMembers,
-                    showBlock: !mode.isCurrentUser && !contact.isUnsavedAgentPlaceholder,
+                    showBlock: !mode.isCurrentUser && !contact.isAgentSharePlaceholder,
                     contactDisplayName: contact.resolvedDisplayName,
                     agentEmail: contact.agentEmail,
                     agentInstanceId: contact.agentInstanceId,
+                    agentModelService: agentModelService,
+                    syncedAgentModel: syncedAgentModel,
+                    // The displayed agent's own variant first: an agent built
+                    // on a variant worker exists only there, so routing its
+                    // switch by whatever the global selector happens to hold
+                    // would send it to the wrong worker — or, with the selector
+                    // off, to the default one. The global pick is only the
+                    // fallback for an entry point that carries no stamp.
+                    agentVariantId: variantStamp?.slug
+                        ?? FeatureFlags.shared.effectiveAgentVariantSlug,
                     showsInstanceIdRow: showsInstanceIdRow,
                     agentAttestation: contact.agentAttestation,
                     agentVerification: contact.agentVerification,
@@ -468,9 +494,12 @@ struct ContactDetailView: View {
             mode: .newConversation,
             contactsRepository: contactsRepository,
             preselectedInboxIds: [contact.inboxId],
-            suggestedAgentsService: SuggestedAgentsService.live(),
             onConfirm: handlePickerConfirm
         )
+    }
+
+    private var removeErrorTitle: String {
+        "Couldn't remove \(contact.resolvedDisplayName)"
     }
 
     // MARK: - Block alert content
@@ -617,6 +646,20 @@ struct ContactDetailView: View {
     /// want a different chat, so falling through to the picker is the
     /// right move. Multiple 1:1s with the same person are allowed; the
     /// SQL ordering picks the most-recently-active alternative.
+    /// The picker's write path, when this detail is open inside a conversation
+    /// with the agent. Writing the pick into that conversation's appData from
+    /// this device is what puts the picking member's name on the transcript row
+    /// — the Assistant Worker signs its own commits, so a switch it publishes
+    /// reads as the agent having switched itself.
+    private var agentModelService: (any AgentModelServing)? {
+        guard let session, let conversationId = mode.conversationId else { return nil }
+        return ConversationAppDataAgentModelService(
+            metadataWriter: session.messagingService().conversationMetadataWriter(),
+            conversationId: conversationId,
+            agentInboxId: contact.inboxId
+        )
+    }
+
     private func findExistingOneToOne(session: any SessionManagerProtocol) -> Conversation? {
         try? session
             .conversationsRepository(for: [.allowed, .unknown])
@@ -638,6 +681,32 @@ struct ContactDetailView: View {
     private func handleRemoveTap() {
         // Removing the agent is destructive, so confirm natively before firing.
         presentingRemoveConfirmation = true
+    }
+
+    /// A confirmed removal closes this card once it lands - the profile then
+    /// describes someone who is no longer in the conversation, so leaving it up
+    /// strands the user on a stale view. Owned here rather than by the callers
+    /// because every entry point routes through this same confirmation, and
+    /// `dismiss` resolves correctly for both presentation styles: it pops the
+    /// card pushed from the members list, and closes the sheet opened by a
+    /// member tap in a chat (same action the X button already uses).
+    ///
+    /// The dismissal waits on the removal instead of racing it. Closing
+    /// optimistically would report success for a removal that failed, leaving
+    /// the member in the conversation with nothing on screen to say so.
+    private func handleRemoveConfirmed() {
+        guard !isRemovingMember else { return }
+        isRemovingMember = true
+        Task { @MainActor in
+            defer { isRemovingMember = false }
+            do {
+                try await onRemove?()
+                dismiss()
+            } catch {
+                removeErrorMessage = error.localizedDescription
+                presentingRemoveError = true
+            }
+        }
     }
 
     private func applyBlockChange(block: Bool) {
@@ -845,10 +914,16 @@ private struct ContactDetailSubtitle: View {
 private struct ContactDetailActions: View {
     let isBlocked: Bool
     let isApplyingBlockChange: Bool
+    /// Disables the Remove row while the removal is in flight, so a second tap
+    /// can't fire another one before the card closes. Mirrors
+    /// `isApplyingBlockChange` on the Block row.
+    let isRemovingMember: Bool
     let canSendMessage: Bool
     let showChat: Bool
     /// Shows the model dropdown under Chat. Agents only - a human contact
-    /// doesn't run on a model.
+    /// doesn't run on a model - and behind `isAgentModelPickerEnabled`, which
+    /// is read at the call site so the row and its catalogue fetch never build
+    /// while the feature is off.
     let showModelPicker: Bool
     /// Drives the chat CTA copy: "New chat" for agents (tapping spawns a
     /// fresh conversation), "Chat" for human members (tapping routes to a
@@ -865,6 +940,19 @@ private struct ContactDetailActions: View {
     /// Always plumbed through when the contact has one. Display gate
     /// is `showsInstanceIdRow`, not nullability of this field.
     let agentInstanceId: String?
+    /// Writes a pick into this conversation's appData before mirroring it to
+    /// the control plane, so the transcript row carries the picking member's
+    /// name rather than the agent's. Nil outside a conversation, where there is
+    /// no appData to write into and the Worker's own publish carries the switch.
+    let agentModelService: (any AgentModelServing)?
+    /// What the room says this agent is on, followed by the picker so a switch
+    /// made on another device shows here too.
+    let syncedAgentModel: String?
+    /// Dev-only variant routing key for the model picker. An agent built on a
+    /// variant worker only exists there, so a switch that omits this lands on
+    /// the default worker and changes nothing. Nil (and stripped in
+    /// production) for a normal agent.
+    let agentVariantId: String?
     /// True on Dev/Local builds. Hides the row on production.
     let showsInstanceIdRow: Bool
     /// Agent's published attestation signature (`nil` when it joined without
@@ -895,8 +983,14 @@ private struct ContactDetailActions: View {
             if showChat {
                 chatButton
             }
-            if showModelPicker {
-                ContactDetailModelRow(contactDisplayName: contactDisplayName)
+            if showModelPicker, let agentInstanceId {
+                ContactDetailModelRow(
+                    contactDisplayName: contactDisplayName,
+                    instanceId: agentInstanceId,
+                    variantId: agentVariantId,
+                    service: agentModelService,
+                    syncedModel: syncedAgentModel
+                )
             }
             if showShare {
                 shareRow
@@ -967,7 +1061,7 @@ private struct ContactDetailActions: View {
             label: "Remove",
             footer: "Remove from convo",
             color: .colorTextPrimary,
-            isDisabled: false,
+            isDisabled: isRemovingMember,
             accessibilityLabel: "Remove \(contactDisplayName)",
             accessibilityIdentifier: "remove-member-button",
             action: onRemove
@@ -1032,54 +1126,41 @@ private struct ContactDetailActionRow: View {
 
 // MARK: - Agent model picker
 
-/// The model an agent runs on. Only `claudeSonnet` is live; the rest are
-/// placeholders the design calls for so the menu reads as a roadmap instead
-/// of a one-item list. They render disabled with a "Soon" subtitle until
-/// their backends land.
-private enum ContactDetailAgentModel: String, CaseIterable, Identifiable {
-    case claudeSonnet
-    case claudeFable
-    case gptSol
-    case grok
-    case geminiPro
-    case openSource
-
-    var id: String {
-        return rawValue
-    }
-
-    var title: String {
-        switch self {
-        case .claudeSonnet: return "Claude Sonnet"
-        case .claudeFable: return "Claude Fable 5"
-        case .gptSol: return "GPT-5.6 Sol"
-        case .grok: return "Grok 4.6"
-        case .geminiPro: return "Gemini 3.1 Pro"
-        case .openSource: return "Open source models"
-        }
-    }
-
-    /// Second line of the menu item: what you get today on the live model,
-    /// "Soon" on the ones that aren't wired up.
-    var subtitle: String {
-        return isAvailable ? "Included" : "Soon"
-    }
-
-    var isAvailable: Bool {
-        return self == .claudeSonnet
-    }
-}
-
 /// The model dropdown under an agent's Chat button: the canonical action-row
 /// shape (rounded fill on top, small grey caption below) wrapping a native
-/// menu instead of a button. Nothing is selectable yet - the agent's model is
-/// fixed and every alternative is disabled - so the row is display-only and
-/// carries no selection state.
+/// menu instead of a button.
+///
+/// The models come from `AgentModelOption`; the runtime validates every switch
+/// against the agent's own list, so one this agent cannot run is refused
+/// upstream rather than silently mis-applied.
 private struct ContactDetailModelRow: View {
     let contactDisplayName: String
+    let instanceId: String
+    let variantId: String?
+    /// The model the conversation's synced state names for this agent. Nil
+    /// where there is no synced state to read (the standalone card) and for an
+    /// agent nobody has switched.
+    let syncedModel: String?
 
-    /// Fixed for now. Becomes real state when the other models land.
-    private let selectedModel: ContactDetailAgentModel = .claudeSonnet
+    @State private var store: AgentModelStore
+
+    init(
+        contactDisplayName: String,
+        instanceId: String,
+        variantId: String?,
+        service: (any AgentModelServing)?,
+        syncedModel: String? = nil
+    ) {
+        self.contactDisplayName = contactDisplayName
+        self.instanceId = instanceId
+        self.variantId = variantId
+        self.syncedModel = syncedModel
+        _store = State(
+            wrappedValue: service.map {
+                AgentModelStore(instanceId: instanceId, variantId: variantId, service: $0)
+            } ?? AgentModelStore(instanceId: instanceId, variantId: variantId)
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
@@ -1095,40 +1176,84 @@ private struct ContactDetailModelRow: View {
                 .foregroundStyle(.colorTextSecondary)
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
         }
+        // Seeded before the read so the row opens on what the room already
+        // says rather than "Default"; `load()` follows with the catalogue and
+        // the control plane's own answer.
+        .onAppear { applySyncedModelIfKnown() }
+        .task { await store.load() }
+        // Someone else's pick arrives as a change to this conversation's synced
+        // member row. Nothing here polls, and a write of this device's own is
+        // newer than any sync, which the store already knows.
+        .onChange(of: syncedModel) { _, model in
+            store.apply(syncedModel: model)
+        }
+        .alert(
+            "Model unchanged",
+            isPresented: Binding(
+                get: { store.errorMessage != nil },
+                set: { if !$0 { store.dismissError() } }
+            )
+        ) {
+            Button("OK", role: .cancel) { store.dismissError() }
+        } message: {
+            Text(store.errorMessage ?? "")
+        }
     }
 
+    /// Only when the card is scoped to a conversation. A nil outside one means
+    /// "nothing synced to read", not "no model", and adopting it would claim
+    /// the agent is on its default before the control plane has answered.
+    private func applySyncedModelIfKnown() {
+        guard syncedModel != nil else { return }
+        store.apply(syncedModel: syncedModel)
+    }
+
+    @ViewBuilder
     private var menuContent: some View {
-        return Section("Agent Model") {
-            ForEach(ContactDetailAgentModel.allCases) { model in
-                menuItem(for: model)
+        Section("Agent Model") {
+            if store.options.isEmpty {
+                // Nothing invented: the catalogue is the agent's own, and an
+                // option it cannot run would be refused upstream and read as
+                // the picker being broken.
+                Text(store.hasLoaded ? "No models available" : "Loading…")
+            } else {
+                ForEach(store.options) { option in
+                    menuItem(for: option)
+                }
             }
         }
     }
 
-    /// The live model gets the selected checkmark and an empty action - it's
-    /// already what the agent runs on, so tapping it is intentionally inert.
-    /// Everything else is disabled.
+    /// The selected model carries the checkmark. SwiftUI hoists a
+    /// `checkmark` image in a menu-item label into the `UIMenu` state gutter,
+    /// which is where the design draws it.
     @ViewBuilder
-    private func menuItem(for model: ContactDetailAgentModel) -> some View {
-        let noop = {}
-        if model == selectedModel {
-            Button(action: noop) {
-                Text(model.title)
-                Text(model.subtitle)
+    private func menuItem(for option: AgentModelOption) -> some View {
+        let select = { store.select(option) }
+        if option.id == store.selectedId {
+            Button(action: select) {
+                Text(option.name)
                 Image(systemName: "checkmark")
             }
         } else {
-            Button(action: noop) {
-                Text(model.title)
-                Text(model.subtitle)
+            Button(action: select) {
+                Text(option.name)
             }
-            .disabled(true)
         }
     }
 
+    /// Names what the agent is actually on.
+    ///
+    /// Nobody having switched it is not the same as no model: the agent runs
+    /// what its template shipped, which the control plane cannot name without
+    /// waking it, so the row says "Default" rather than guessing an id.
+    private var currentTitle: String {
+        store.selectedTitle ?? "Default"
+    }
+
     private var rowLabel: some View {
-        return HStack(spacing: DesignConstants.Spacing.step2x) {
-            Text(selectedModel.title)
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Text(currentTitle)
                 .font(.body)
                 .foregroundStyle(.colorTextPrimary)
             Spacer(minLength: 0.0)
@@ -1379,6 +1504,9 @@ private struct ContactDetailModalsModifier<
     @Binding var presentingPicker: Bool
     @Binding var presentingSendMessageError: Bool
     let sendMessageErrorMessage: String?
+    @Binding var presentingRemoveError: Bool
+    let removeErrorTitle: String
+    let removeErrorMessage: String?
     let blockAlertTitle: String
     let blockAlertMessage: String
     @Binding var presentingAgentInfo: Bool
@@ -1398,6 +1526,15 @@ private struct ContactDetailModalsModifier<
                 "Couldn't open message picker",
                 isPresented: $presentingSendMessageError,
                 presenting: sendMessageErrorMessage
+            ) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { message in
+                Text(message)
+            }
+            .alert(
+                removeErrorTitle,
+                isPresented: $presentingRemoveError,
+                presenting: removeErrorMessage
             ) { _ in
                 Button("OK", role: .cancel) {}
             } message: { message in

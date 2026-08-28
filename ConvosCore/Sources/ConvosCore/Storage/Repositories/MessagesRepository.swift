@@ -940,6 +940,7 @@ fileprivate extension Database {
                         DBConversationMember.Columns.inboxId,
                         DBConversationMember.Columns.role,
                         DBConversationMember.Columns.createdAt,
+                        DBConversationMember.Columns.agentModel,
                     ])
                     .including(optional: DBConversationMember.profile)
                     .including(optional: DBConversationMember.avatarSlot)

@@ -18,7 +18,7 @@ public struct InboxProfileAvatarView: View {
     let placeholderEmoji: String?
     let agentVerification: AgentVerification
     /// Rendered when the canonical profile has no avatar yet - including a
-    /// synthetic contact (suggested agent, agent-share placeholder) that carries
+    /// synthetic contact (an agent-share placeholder) that carries
     /// its own avatar but has no profile row. Keeps the shared-cache benefit for
     /// real profiles while preserving the caller's own image instead of dropping
     /// to the placeholder.

@@ -24,8 +24,8 @@ public protocol SessionStateManagerProtocol: AnyObject, Sendable {
 
     /// Temporary diagnostic for agents timing out while joining. Starts a
     /// bounded poll for unprocessed join-request DMs in case the message
-    /// stream has died. See `SyncingManager.startAgentJoinRequestPolling`.
-    func startAgentJoinRequestPolling() async
+    /// stream has died. See `SyncingManager.startJoinRequestPolling`.
+    func startJoinRequestPolling(reason: JoinRequestPollReason) async
 
     func addObserver(_ observer: SessionStateObserver)
     func removeObserver(_ observer: SessionStateObserver)

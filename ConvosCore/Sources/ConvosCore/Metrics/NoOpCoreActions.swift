@@ -6,15 +6,21 @@ public final class NoOpCoreActions: CoreActions, @unchecked Sendable {
 
     public func startedConversation() async {}
 
+    public func joinAttemptStarted(source: ConversationSource) async {}
+
+    // swiftlint:disable:next function_parameter_count
     public func joinedConversation(
         verificationDuration: Float,
         memberCount: Int?,
         hasAssistant: Bool?,
         source: ConversationSource,
-        isSuccess: Bool
+        isSuccess: Bool,
+        failureReason: JoinFailureReason?,
+        creatorReason: String?,
+        attemptNumber: Int
     ) async {}
 
-    public func invitedToConversation(memberCount: Int, hasAssistant: Bool) async {}
+    public func invitedToConversation(memberCount: Int, hasAssistant: Bool, isSuccess: Bool) async {}
 
     public func addedAssistant(memberCount: Int) async {}
 

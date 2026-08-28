@@ -14,12 +14,16 @@ struct ConvosApp: App {
     let metricsDelegate: PostHogCollector
     let coreActions: any CoreActions
     let conversationsViewModel: ConversationsViewModel
+    let agentRelayDependencies: AgentRelayDependencies?
     let profileSettingsViewModel: ProfileSettingsViewModel = .shared
     /// Guards the opportunistic agent-timezone republish to once per foreground
     /// session, so background-foregrounding the app repeatedly does not re-run
     /// it. A reference type so the flag survives across `onChange` invocations
     /// of the value-type App.
     private let timezoneForegroundGuard: ForegroundOnceGuard = ForegroundOnceGuard()
+    /// The launch task owns the initial recovery pass. Starting consumed keeps
+    /// SwiftUI's first active transition from scheduling the same pass again.
+    private let agentRelayForegroundGuard: ForegroundOnceGuard = ForegroundOnceGuard(initiallyConsumed: true)
 
     /// Deletes the cache the home's snapshot cover used to write.
     ///
@@ -88,6 +92,13 @@ struct ConvosApp: App {
             Client.setLibXMTPNativeLogLevel(libXMTPLogLevel)
             Log.info("LibXMTP native log level set to \(libXMTPLogLevel)")
         }
+
+        // libxmtp reports its own errors and spans into the same Sentry project
+        // as the app, so a protocol-layer failure shows up next to the app-side
+        // event it caused. Enabled after the log writer is scheduled so both
+        // native sinks are configured before any client work starts.
+        LibxmtpSentry.configure(environment: environment)
+
         Log.info("App starting with environment: \(environment)")
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
@@ -139,7 +150,16 @@ struct ConvosApp: App {
         }
         self.coreActions = coreMetrics.actions
         self.conversationsViewModel = .init(session: convos.session, coreActions: coreMetrics.actions)
+        let relayDependencies = try? AgentRelayDependencies(environment: environment)
+        self.agentRelayDependencies = relayDependencies
         appDelegate.session = convos.session
+        let relaySession = convos.session
+        appDelegate.agentRelayPushCollector = { payload in
+            await relayDependencies?.collectForegroundPush(payload, session: relaySession)
+        }
+        Task {
+            await relayDependencies?.recoverOnLaunch(session: relaySession)
+        }
         // Runs when a share-extension upload wakes the app in the background:
         // publish whatever the extension staged but never got to send.
         let drainWriter = convos.databaseWriter
@@ -192,7 +212,15 @@ struct ConvosApp: App {
             do {
                 let messagingService = session.messagingService()
                 let inboxReady = try await messagingService.sessionStateManager.waitForInboxReadyResult()
-                coreMetrics.identify(privateKey: Data(inboxReady.client.inboxId.utf8))
+                let inboxKey = Data(inboxReady.client.inboxId.utf8)
+                coreMetrics.identify(privateKey: inboxKey)
+                // Deriving the id the same way PostHog does makes the Sentry
+                // user and the product-analytics person the same identifier,
+                // so an error and the session it broke can be lined up without
+                // either side carrying the inbox id.
+                LibxmtpSentry.setUser(
+                    stableId: PostHogConfiguration.stableIdEncoder.derive(privateKey: inboxKey)
+                )
                 // The backend accountId (not the XMTP inbox id) lets product
                 // analytics cross-link to backend records. Backend SIWE auth
                 // caches it in the keychain before the session reaches inbox
@@ -244,16 +272,11 @@ struct ConvosApp: App {
     /// the surfaces refresh again on appear.
     private static func configureAbilities(session: any SessionManagerProtocol, environment: AppEnvironment) {
         AbilitiesServices.configure(session: session, environment: environment)
-        // Auto-enable mirrors the v1 connections toggle, so it runs exactly
-        // when that surface renders: whenever the abilities v2 flag is off.
-        // The flag is re-read on every agent add, so a debug-menu flip takes
-        // effect without a relaunch.
-        session.configureAutoEnableAbilities {
-            await MainActor.run { !FeatureFlags.shared.isAbilitiesV2Enabled }
-        }
-        if FeatureFlags.shared.isAbilitiesV2Enabled {
-            Task { await AbilitiesServices.refreshCatalogInBackground() }
-        }
+        // Auto-enable was the v1 connections behavior; leaving the service
+        // unconfigured keeps it disabled. Which services a conversation can
+        // use is decided per environment by the backend and agent runtime,
+        // not by the client enabling connections on every conversation.
+        Task { await AbilitiesServices.refreshCatalogInBackground() }
     }
 
     /// Tints the unselected tab items tertiary. The selected color is
@@ -306,14 +329,18 @@ struct ConvosApp: App {
             )
             .additionalTopSafeArea(DesignConstants.Spacing.stepX)
             .withSafeAreaEnvironment()
+            .environment(\.agentRelayDependencies, agentRelayDependencies)
             .onChange(of: scenePhase) { _, newPhase in
                 switch newPhase {
                 case .active:
                     handleScenePhaseActive()
                 case .background:
-                    // Re-arm the once-per-foreground guard so the next time the
-                    // app comes back to the foreground it republishes again.
+                    // Push whatever libxmtp has buffered out now; a suspended
+                    // process may never get another chance to send it.
+                    LibxmtpSentry.flush()
+                    // Re-arm once-per-foreground work for the next active session.
                     timezoneForegroundGuard.reset()
+                    agentRelayForegroundGuard.reset()
                 default:
                     break
                 }
@@ -322,6 +349,12 @@ struct ConvosApp: App {
     }
 
     private func handleScenePhaseActive() {
+        if agentRelayForegroundGuard.tryConsume() {
+            let session = convos.session
+            Task {
+                await agentRelayDependencies?.recoverOnForeground(session: session)
+            }
+        }
         // Foreground refresh — TTL-debounced inside both services, so this is a
         // cheap no-op if we were just active. Catches the case where credits
         // changed server-side while the app was backgrounded (agent runtime
@@ -336,12 +369,10 @@ struct ConvosApp: App {
             )
         }
 
-        // Abilities V2 foreground refresh: updates the live service's
+        // Abilities foreground refresh: updates the live service's
         // last-known catalog so the next screen-appear fetch merges against
-        // fresh state. No-op in mock mode or with the flag off.
-        if FeatureFlags.shared.isAbilitiesV2Enabled {
-            Task { await AbilitiesServices.refreshCatalogInBackground() }
-        }
+        // fresh state. No-op in mock mode.
+        Task { await AbilitiesServices.refreshCatalogInBackground() }
 
         // Messages the share extension wrote to the shared database from its
         // own process are invisible to this process's GRDB observation (it
@@ -382,12 +413,16 @@ struct ConvosApp: App {
     }
 }
 
-/// Single-shot guard for the once-per-foreground-session timezone republish.
+/// Single-shot guard for once-per-foreground-session work.
 /// `tryConsume()` returns true exactly once until `reset()` re-arms it on the
 /// next background transition.
-private final class ForegroundOnceGuard: @unchecked Sendable {
+final class ForegroundOnceGuard: @unchecked Sendable {
     private let lock: NSLock = NSLock()
-    private var consumed: Bool = false
+    private var consumed: Bool
+
+    init(initiallyConsumed: Bool = false) {
+        consumed = initiallyConsumed
+    }
 
     func tryConsume() -> Bool {
         lock.lock()

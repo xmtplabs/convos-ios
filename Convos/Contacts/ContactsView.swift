@@ -29,6 +29,10 @@ struct ContactsView: View {
     /// keeps it (committed visible, marked shared); a cancelled share discards
     /// the still-hidden claimed row so it doesn't linger empty in the chats list.
     @State private var sharedInviteViewModel: NewConversationViewModel?
+    /// The invite actually handed to the share sheet, kept alongside
+    /// `sharedInviteViewModel` so the share outcome can be reported once the
+    /// sheet closes - by which point `invite` has moved on.
+    @State private var sharedInvite: Invite?
     /// Set when "Send an invite" was tapped before an invite exists (the
     /// on-demand claim is still hydrating). Shows a spinner on the row and
     /// lets the `invite?.urlSlug` observer pop the share sheet the moment the
@@ -112,8 +116,8 @@ struct ContactsView: View {
         .shareSheet(
             isPresented: $presentingInviteShareSheet,
             items: inviteShareItems,
-            onCompletion: { _, completed, _ in
-                handleInviteShareCompleted(completed: completed)
+            onCompletion: { activityType, completed, _ in
+                handleInviteShareCompleted(activityType: activityType, completed: completed)
             }
         )
     }
@@ -205,9 +209,6 @@ struct ContactsView: View {
             rowContent: { (row: ContactsViewModel.Row) in
                 contactRow(for: row)
             },
-            sectionHeader: { (section: ContactsListSection<ContactsViewModel.Row>) in
-                contactsSectionHeader(for: section)
-            },
             leadingContent: inviteActionsContent,
             listBackground: { Color.colorBackgroundRaisedSecondary }
         )
@@ -248,11 +249,6 @@ struct ContactsView: View {
         NavigationLink(value: row.contact) {
             ContactRowView(contact: row.contact, subtitle: row.subtitle)
         }
-    }
-
-    @ViewBuilder
-    private func contactsSectionHeader(for section: ContactsListSection<ContactsViewModel.Row>) -> some View {
-        ContactsListSectionHeader(title: section.title)
     }
 
     /// Detail pushed when a contact row is tapped. Built here (rather than
@@ -296,7 +292,6 @@ struct ContactsView: View {
         ContactsPickerView(
             mode: .newConversation,
             contactsRepository: contactsRepository,
-            suggestedAgentsService: SuggestedAgentsService.live(),
             onConfirm: handlePickerConfirm
         )
     }
@@ -429,6 +424,7 @@ struct ContactsView: View {
     private func presentInviteShareSheet() {
         guard let invite, let sharedViewModel = inviteConversationViewModel else { return }
         inviteShareURL = invite.inviteURLString
+        sharedInvite = invite
         inviteConversationViewModel = nil
         sharedInviteViewModel = sharedViewModel
         presentingInviteShareSheet = true
@@ -438,9 +434,22 @@ struct ContactsView: View {
     /// closes. A completed share commits it visible and marks its invite shared
     /// so the empty-convo teardown keeps it; a cancelled share discards the
     /// still-hidden claimed row so it doesn't linger empty in the chats list.
-    private func handleInviteShareCompleted(completed: Bool) {
+    private func handleInviteShareCompleted(activityType: UIActivity.ActivityType?, completed: Bool) {
         guard let sharedViewModel = sharedInviteViewModel else { return }
         sharedInviteViewModel = nil
+        // A nil session can't have produced an invite to share in the first
+        // place - the invite rows only appear with a live one.
+        if let sharedInvite, let session {
+            ConversationShareReporter.report(
+                activityType: activityType,
+                completed: completed,
+                invite: sharedInvite,
+                conversation: sharedViewModel.conversationViewModel?.conversation,
+                coreActions: coreActions,
+                session: session
+            )
+        }
+        sharedInvite = nil
         guard completed else {
             sharedViewModel.cleanUpEmptyEmbeddedInviteIfNeeded()
             return

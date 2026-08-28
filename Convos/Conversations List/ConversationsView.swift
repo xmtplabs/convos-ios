@@ -168,6 +168,7 @@ struct ConversationsView: View {
                 messagesTextFieldEnabled: !convoVM.conversation.isPendingInvite,
                 isReadOnly: isReadOnly,
                 initialAgentDmInboxId: viewModel.selectedInitialAgentDmInboxId,
+                initialTabOverride: viewModel.selectedInitialTab,
                 bottomBarContent: { EmptyView() }
             )
         }
@@ -235,6 +236,12 @@ struct ConversationsView: View {
             isBootSettled: viewModel.bootSettlement.isSettled,
             onSelectConversation: { conversation in
                 viewModel.select(conversation)
+            },
+            onOpenAgentDm: { conversation in
+                viewModel.selectAgentDm(conversation)
+            },
+            onOpenThings: { conversation in
+                viewModel.selectThings(conversation)
             },
             onConfirmedDeleteConversation: { conversation in
                 viewModel.leave(conversation: conversation)

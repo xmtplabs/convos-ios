@@ -49,8 +49,6 @@ struct DebugViewSection: View {
     @State private var creditsPresetSelection: CreditsStatePreset = FeatureFlags.shared.mockCreditsPreset
     @State private var useRealStoreKit: Bool = SubscriptionServices.useRealStoreKit
     @State private var useRealCredits: Bool = CreditsServices.useRealBackend
-    @State private var abilitiesV1ShimEnabled: Bool = AbilitiesServices.isV1AwarenessShimEnabled
-    @State private var abilitiesEscalationMockEnabled: Bool = AbilitiesServices.isEscalationMockEnabled
     @State private var identity: DeviceIdentitySnapshot?
 
     var body: some View {
@@ -79,11 +77,11 @@ struct DebugViewSection: View {
         Section("Features") {
             Toggle("Debug injector button", isOn: Bindable(FeatureFlags.shared).isDebugInjectorEnabled)
             agentVariantToggles
-            Toggle("Listen (agent participation)", isOn: Bindable(FeatureFlags.shared).isListenParticipationEnabled)
             Toggle("XMTP bidi streaming (applies next launch)", isOn: Bindable(FeatureFlags.shared).isXMTPBidiStreamsEnabled)
             Toggle("Share Space (copy import link)", isOn: Bindable(FeatureFlags.shared).isSpaceShareEnabled)
             Toggle("Web inspector (space/browser web views)", isOn: Bindable(FeatureFlags.shared).isWebInspectorEnabled)
-            abilitiesFeatureToggles
+            Toggle("Enable Relay (BYOA)", isOn: Bindable(FeatureFlags.shared).agentRelayEnabled)
+            Toggle("Agent model picker", isOn: Bindable(FeatureFlags.shared).isAgentModelPickerEnabled)
 
             let showInfoAction = { showingAgentsInfoSheet = true }
             Button(action: showInfoAction) {
@@ -104,39 +102,14 @@ struct DebugViewSection: View {
         }
     }
 
-    /// The agent-variant flag with its picker. The dropdown only renders while
-    /// the flag is on, mirroring the abilities sub-toggles below. The pick is
-    /// stored globally (`FeatureFlags.selectedAgentVariant`) and read at agent-
-    /// join time, so it applies to conversations created after it is set.
+    /// The agent-variant flag. The toggle gates where variants are actually
+    /// picked: the sheet at conversation creation and the dropdown in the
+    /// make-an-agent composer. There is deliberately no picker here — a
+    /// variant belongs to one conversation, chosen as that conversation is
+    /// made, not set globally from Settings for whatever comes next.
     @ViewBuilder
     private var agentVariantToggles: some View {
         Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
-        if FeatureFlags.shared.isAgentVariantSelectorEnabled {
-            AgentVariantDebugPicker()
-        }
-    }
-
-    /// The Abilities V2 flag with its sub-toggles: the V1 awareness shim
-    /// (default off) and the mock consent flow (default off). There is
-    /// deliberately no separate mock/live backend toggle here -- enabling
-    /// V2 always enables the live backend (`FeatureFlags.isAbilitiesV2Enabled`
-    /// and `AbilitiesServices.useLiveBackend` are coupled in both directions
-    /// so that combination can't be split), so "Abilities v2" is the single
-    /// control for both. Sub-toggles only render while the flag is on; all
-    /// take effect on the next read (no relaunch needed).
-    @ViewBuilder
-    private var abilitiesFeatureToggles: some View {
-        Toggle("Connections v2", isOn: Bindable(FeatureFlags.shared).isAbilitiesV2Enabled)
-        if FeatureFlags.shared.isAbilitiesV2Enabled {
-            Toggle("Connections: v1 awareness shim", isOn: $abilitiesV1ShimEnabled)
-                .onChange(of: abilitiesV1ShimEnabled) { _, newValue in
-                    AbilitiesServices.setV1AwarenessShimEnabled(newValue)
-                }
-            Toggle("Connections: consent flow (mock)", isOn: $abilitiesEscalationMockEnabled)
-                .onChange(of: abilitiesEscalationMockEnabled) { _, newValue in
-                    AbilitiesServices.setEscalationMockEnabled(newValue)
-                }
-        }
     }
 
     @ViewBuilder

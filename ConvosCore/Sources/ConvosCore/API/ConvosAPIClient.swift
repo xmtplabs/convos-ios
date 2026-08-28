@@ -23,6 +23,18 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
                  method: String,
                  queryParameters: [String: String]?) throws -> URLRequest
 
+    /// Builds a request with the JWT attached (override token first, then
+    /// the keychain slots) and returns it for the caller to execute on its
+    /// own session. The agent relay uses this so long-poll responses never
+    /// pass through the client's body-logging path.
+    func authorizedRequest(for endpoint: String,
+                           method: String,
+                           queryParameters: [String: String]?) async throws -> URLRequest
+
+    /// Executes a request through the client's 401 re-authentication and
+    /// retry path.
+    func performAuthenticatedRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
+
     /// Register device with AppCheck authentication (no JWT required - device-level operation)
     func registerDevice(deviceId: String, pushToken: String?) async throws
 
@@ -127,6 +139,34 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
         variantId: String?
     ) async throws -> ConvosAPI.AgentParticipationResponse
 
+    /// Sets the model one agent runs on. Same control-plane hop and variant
+    /// routing as participation, but keyed by agent instance: the model
+    /// belongs to the assistant, not to the room it sits in.
+    ///
+    /// Succeeds even when the agent is asleep — the choice is recorded and
+    /// applied at its next start. Throws when the agent cannot run the model.
+    func setAgentModel(
+        instanceId: String,
+        model: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse
+
+    /// The model an agent is set to run on, or nil when nobody has switched it.
+    /// Answered upstream from a stored row without waking the agent.
+    func getAgentModel(
+        instanceId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse
+
+    /// Stops the turn the conversation's agents are running right now, without
+    /// injecting a chat message — the stop button, not a message the user
+    /// sends. Same control-plane hop and variant routing as participation.
+    /// Idempotent: an agent with no turn running is a successful no-op.
+    func interruptAgent(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentInterruptResponse
+
     /// Mints the paste-ready Space share message for a conversation: one
     /// sentence naming the receiving agent's import skill plus a clone URL
     /// carrying an expiring read-only repository credential. The caller puts
@@ -143,19 +183,11 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// published templates to anonymous callers, but drafts are only returned to authenticated owners.
     func getAgentTemplate(idOrUrlSlug: String) async throws -> ConvosAPI.AgentTemplate
 
-    /// Lists featured (curated) published agent templates, cursor-paginated.
-    /// Backs the contacts picker's "Suggested agents" section. Pass `nil`
-    /// `cursor` for the first page, then thread `AgentTemplatesPage.nextCursor`
-    /// back for each following page until `hasMore` is `false`.
-    /// Unauthenticated: featured templates are published, so the backend
-    /// serves them to anonymous callers (mirrors `getAgentTemplate`).
-    func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage
-
     /// Lists curated agent prompt hints (`GET /v2/agent-prompt-hints`) -- a flat
     /// array of short prompt strings used to seed the agent builder's composer
     /// via the dice control. Unauthenticated: the hints are public, so
     /// `request(for:)` builds a bare GET (no auth header), mirroring
-    /// `getFeaturedAgentTemplates`.
+    /// `getAgentTemplate`.
     func getAgentPromptHints() async throws -> [String]
 
     /// Lists registered dev-only agent variants (`GET /v2/agent-variants`).
@@ -307,6 +339,12 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     /// Withdraws one agent's opt-in
     /// (`DELETE /v2/conversations/{conversationId}/abilities/{abilityId}?agentInboxId=`).
     func deleteConversationAbility(conversationId: String, abilityId: String, agentInboxId: String) async throws
+}
+
+public extension ConvosAPIClientProtocol {
+    func performAuthenticatedRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        throw APIError.notAuthenticated
+    }
 }
 
 extension ConvosAPIClientProtocol {
@@ -679,6 +717,12 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         return attachingAuthHeader(to: request)
     }
 
+    func authorizedRequest(for endpoint: String,
+                           method: String,
+                           queryParameters: [String: String]?) async throws -> URLRequest {
+        try authenticatedRequest(for: endpoint, method: method, queryParameters: queryParameters)
+    }
+
     /// Attaches the auth header to a prebuilt request. Split from
     /// `authenticatedRequest` so the abilities endpoints, which build their
     /// URLs through URLComponents (strict per-segment percent-encoding that
@@ -780,41 +824,6 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             // Unhandled statuses remain generic server errors.
             throw APIError.serverError(parseErrorMessage(from: data))
         }
-    }
-
-    func performAuthenticatedRequest(
-        _ request: URLRequest,
-        retryCount: Int = 0
-    ) async throws -> (Data, HTTPURLResponse) {
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.invalidResponse
-        }
-
-        guard httpResponse.statusCode == 401 else {
-            return (data, httpResponse)
-        }
-
-        guard overrideJWTToken == nil else {
-            Log.error("Authentication failed in JWT override mode - cannot re-authenticate without AppCheck")
-            throw APIError.notAuthenticated
-        }
-
-        guard retryCount < maxRetryCount else {
-            Log.error("Max retry count (\(maxRetryCount)) exceeded for request")
-            throw APIError.notAuthenticated
-        }
-
-        Log.info("Attempting re-authentication (attempt \(retryCount + 1) of \(maxRetryCount))")
-        let freshJWT = try await reAuthenticate()
-        guard !freshJWT.isEmpty else {
-            throw APIError.notAuthenticated
-        }
-
-        var newRequest = request
-        newRequest.setValue(freshJWT, forHTTPHeaderField: "X-Convos-AuthToken")
-        return try await performAuthenticatedRequest(newRequest, retryCount: retryCount + 1)
     }
 
     func uploadAttachment(
@@ -1068,21 +1077,6 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // no-op for published templates fetched via share links.
         let encoded = idOrUrlSlug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? idOrUrlSlug
         let request = try authenticatedRequest(for: "v2/agent-templates/\(encoded)")
-        return try await performRequest(request)
-    }
-
-    func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage {
-        // Public, unauthenticated GET -- featured templates are published, so
-        // the list endpoint serves them to anonymous callers. `request(for:)`
-        // builds a bare GET (no auth header).
-        var queryParameters: [String: String] = [
-            "featured": "true",
-            "limit": String(limit),
-        ]
-        if let cursor, !cursor.isEmpty {
-            queryParameters["cursor"] = cursor
-        }
-        let request = try request(for: "v2/agent-templates", queryParameters: queryParameters)
         return try await performRequest(request)
     }
 
@@ -1343,6 +1337,27 @@ extension ConvosAPIClient {
         variantId.map { ["variantId": $0] }
     }
 
+    /// Lives in an extension (not the main class body) only to keep
+    /// `ConvosAPIClient` under SwiftLint's `type_body_length`; behaviorally it
+    /// is a sibling of `setAgentParticipation`.
+    func interruptAgent(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentInterruptResponse {
+        // Same worker-routing constraint as participation: an agent provisioned
+        // on a variant worker only exists there, so a stop that omits the
+        // variantId lands on the default worker and stops nothing.
+        var request = try authenticatedRequest(
+            for: "v2/conversations/\(participationPathComponent(conversationId))/interrupt",
+            method: "POST",
+            queryParameters: prodSafeVariantId(variantId).map { ["variantId": $0] }
+        )
+        // No body: the stop carries no state, it just signals whatever is
+        // running now. Bounded so a stuck call cannot leave the control spinning.
+        request.timeoutInterval = 20
+        return try await performRequest(request)
+    }
+
     func requestAgentJoin(
         _ joinRequest: ConvosAPI.AgentJoinRequest,
         forceErrorCode: Int? = nil
@@ -1491,6 +1506,47 @@ extension ConvosAPIClient {
     }
 }
 
+extension ConvosAPIClient {
+    func performAuthenticatedRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        try await performAuthenticatedRequest(request, retryCount: 0)
+    }
+
+    private func performAuthenticatedRequest(
+        _ request: URLRequest,
+        retryCount: Int
+    ) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 401 else {
+            return (data, httpResponse)
+        }
+
+        guard overrideJWTToken == nil else {
+            Log.error("Authentication failed in JWT override mode - cannot re-authenticate without AppCheck")
+            throw APIError.notAuthenticated
+        }
+
+        guard retryCount < maxRetryCount else {
+            Log.error("Max retry count (\(maxRetryCount)) exceeded for request")
+            throw APIError.notAuthenticated
+        }
+
+        Log.info("Attempting re-authentication (attempt \(retryCount + 1) of \(maxRetryCount))")
+        let freshJWT = try await reAuthenticate()
+        guard !freshJWT.isEmpty else {
+            throw APIError.notAuthenticated
+        }
+
+        var newRequest = request
+        newRequest.setValue(freshJWT, forHTTPHeaderField: "X-Convos-AuthToken")
+        return try await performAuthenticatedRequest(newRequest, retryCount: retryCount + 1)
+    }
+}
+
 // MARK: - Error Handling
 
 public enum APIError: Error {
@@ -1595,5 +1651,52 @@ extension TimeInterval {
         let exponentialDelay = baseDelay * pow(2.0, Double(retryCount))
         let jitter = Double.random(in: 0...0.1) * exponentialDelay
         return min(exponentialDelay + jitter, 30.0) // Cap at 30 seconds
+    }
+}
+
+// The model surface lives in its own extension rather than in the class body:
+// `ConvosAPIClient` is at the type-length ceiling, and these two calls are one
+// self-contained feature. Same file, so the file-private request helpers above
+// stay reachable.
+extension ConvosAPIClient {
+    func setAgentModel(
+        instanceId: String,
+        model: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse {
+        // Same worker-routing constraint as participation: an agent
+        // provisioned on a variant worker only exists there, so a write that
+        // omits the variantId lands on the default worker and switches nothing.
+        var request = try authenticatedRequest(
+            for: "v2/agents/\(participationPathComponent(instanceId))/model",
+            method: "PATCH",
+            queryParameters: prodSafeVariantId(variantId).map { ["variantId": $0] }
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // The write reaches a container only when one is already awake; a
+        // sleeping agent is recorded and told later. Bounded either way so a
+        // stuck call cannot leave the menu waiting.
+        request.timeoutInterval = 20
+        request.httpBody = try JSONEncoder().encode(
+            ConvosAPI.AgentModelRequest(model: model)
+        )
+        return try await performRequest(request)
+    }
+
+    func getAgentModel(
+        instanceId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse {
+        // Read and write must resolve to the same worker (see setAgentModel),
+        // or the picker renders a model that isn't the agent's.
+        var request = try authenticatedRequest(
+            for: "v2/agents/\(participationPathComponent(instanceId))/model",
+            method: "GET",
+            queryParameters: prodSafeVariantId(variantId).map { ["variantId": $0] }
+        )
+        // Read on open; the picker holds its place rather than the view, so
+        // this must not block rendering.
+        request.timeoutInterval = 10
+        return try await performRequest(request)
     }
 }

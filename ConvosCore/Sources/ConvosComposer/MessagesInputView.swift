@@ -24,6 +24,13 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
     var isShowingAgentShareChip: Bool = false
     let sendButtonEnabled: Bool
+    /// When true the send button shows a pause glyph in the disabled visual but
+    /// stays tappable, sending is blocked, and taps fire `onPausedSendTap`. Used
+    /// in the agent DM when the agent's participation is paused.
+    var sendButtonPaused: Bool = false
+    /// Fired when a send is attempted while `sendButtonPaused` - the send button
+    /// tap and the return key both route here instead of `onSendMessage`.
+    var onPausedSendTap: () -> Void = {}
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let messagesTextFieldEnabled: Bool
     private let focused: MessagesViewInputFocus = .message
@@ -32,6 +39,9 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
     /// When set, an empty composer (no text, no attachments) swaps the send
     /// button for a voice-memo button that fires this; typing swaps back.
     var onVoiceMemoTapWhenEmpty: (() -> Void)?
+    /// When set, an empty composer (no text, no attachments) turns the send
+    /// button into a stop-waiting control that fires this; typing swaps back.
+    var onStopWaitingWhenEmpty: (() -> Void)?
     var onClearLinkPreview: (() -> Void)?
     var onClearMediaAttachment: ((UUID) -> Void)?
     /// App-provided content for a staged (not-yet-sent) file attachment chip.
@@ -48,6 +58,7 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
     private let attachmentPreviewSize: CGFloat = 80.0
     @State private var poofingAttachmentIds: Set<UUID> = []
     @State private var isPoofingInvite: Bool = false
+    @State private var stopCount: Int = 0
 
     public init(
         displayName: Binding<String>,
@@ -66,11 +77,14 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
         onInviteConvoNameEditingEnded: ((String) -> Void)? = nil,
         isShowingAgentShareChip: Bool = false,
         sendButtonEnabled: Bool,
+        sendButtonPaused: Bool = false,
+        onPausedSendTap: @escaping () -> Void = {},
         focusState: FocusState<MessagesViewInputFocus?>.Binding,
         messagesTextFieldEnabled: Bool,
         onSendMessage: @escaping () -> Void,
         onClearInvite: @escaping () -> Void,
         onVoiceMemoTapWhenEmpty: (() -> Void)? = nil,
+        onStopWaitingWhenEmpty: (() -> Void)? = nil,
         onClearLinkPreview: (() -> Void)? = nil,
         onClearMediaAttachment: ((UUID) -> Void)? = nil,
         @ViewBuilder fileAttachmentPreview: @escaping (PendingFileAttachment) -> FilePreview,
@@ -93,11 +107,14 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
         self.onInviteConvoNameEditingEnded = onInviteConvoNameEditingEnded
         self.isShowingAgentShareChip = isShowingAgentShareChip
         self.sendButtonEnabled = sendButtonEnabled
+        self.sendButtonPaused = sendButtonPaused
+        self.onPausedSendTap = onPausedSendTap
         _focusState = focusState
         self.messagesTextFieldEnabled = messagesTextFieldEnabled
         self.onSendMessage = onSendMessage
         self.onClearInvite = onClearInvite
         self.onVoiceMemoTapWhenEmpty = onVoiceMemoTapWhenEmpty
+        self.onStopWaitingWhenEmpty = onStopWaitingWhenEmpty
         self.onClearLinkPreview = onClearLinkPreview
         self.onClearMediaAttachment = onClearMediaAttachment
         self.fileAttachmentPreview = fileAttachmentPreview
@@ -120,16 +137,18 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
             || composerLinkPreview != nil
     }
 
-    /// Send, or the voice-memo entry while the composer is empty and the
-    /// host opted in.
+    /// Send, or the empty-composer action the host opted into. Stop waiting
+    /// takes precedence when both optional actions are present.
     @ViewBuilder
     private var trailingButton: some View {
-        if let onVoiceMemoTapWhenEmpty,
-           messageText.isEmpty,
-           !hasAttachments {
+        // Paused takes precedence: never offer the empty-composer voice memo, so
+        // the paused send button always shows and blocks the send.
+        let showsStopWaiting: Bool = onStopWaitingWhenEmpty != nil && messageText.isEmpty && !hasAttachments
+        let showsVoiceMemo: Bool = !sendButtonPaused && !showsStopWaiting && messageText.isEmpty && !hasAttachments
+        if let onVoiceMemoTapWhenEmpty, showsVoiceMemo {
             voiceMemoButton(action: onVoiceMemoTapWhenEmpty)
         } else {
-            sendButton
+            sendOrStopButton
         }
     }
 
@@ -151,24 +170,69 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
         .accessibilityIdentifier("voice-memo-send-button")
     }
 
-    private var sendButton: some View {
-        Button {
-            onSendMessage()
-        } label: {
-            Image(systemName: "arrow.up")
+    private var sendOrStopButton: some View {
+        // Paused outranks stop-waiting and send: the button stays tappable but
+        // routes to the paused alert instead of sending.
+        let isStopWaiting: Bool = !sendButtonPaused
+            && onStopWaitingWhenEmpty != nil
+            && messageText.allSatisfy(\.isWhitespace)
+            && !hasAttachments
+        let isEnabled: Bool = sendButtonPaused || isStopWaiting || sendButtonEnabled
+        let systemImage: String
+        let iconTint: Color
+        let backgroundFill: Color
+        let accessibilityLabel: String
+        let accessibilityIdentifier: String
+        if sendButtonPaused {
+            systemImage = "pause.fill"
+            iconTint = .colorFillMinimal
+            backgroundFill = .colorFillTertiary
+            accessibilityLabel = "Agent paused"
+            accessibilityIdentifier = "send-message-button"
+        } else if isStopWaiting {
+            systemImage = "square.fill"
+            iconTint = .colorTextPrimaryInverted
+            backgroundFill = .colorFillPrimary
+            accessibilityLabel = "Stop waiting"
+            accessibilityIdentifier = "agent-turn-stop-waiting"
+        } else {
+            systemImage = "arrow.up"
+            iconTint = sendButtonEnabled ? .colorTextPrimaryInverted : .colorTextPrimary
+            backgroundFill = sendButtonEnabled ? .colorFillPrimary : .colorFillMinimal
+            accessibilityLabel = "Send message"
+            accessibilityIdentifier = "send-message-button"
+        }
+        let minimumTouchTarget: CGFloat = 44.0
+        let touchInset: CGFloat = (minimumTouchTarget - sendButtonSize) / 2.0
+        let action: () -> Void = {
+            if sendButtonPaused {
+                onPausedSendTap()
+            } else if isStopWaiting {
+                stopCount += 1
+                onStopWaitingWhenEmpty?()
+            } else {
+                onSendMessage()
+            }
+        }
+        return Button(action: action) {
+            Image(systemName: systemImage)
                 .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
+                .contentTransition(.symbolEffect(.replace))
+                .animation(.snappy(duration: 0.2), value: systemImage)
                 .frame(width: sendButtonSize, height: sendButtonSize, alignment: .center)
-                .tint(sendButtonEnabled ? .colorTextPrimaryInverted : .colorTextPrimary)
+                .tint(iconTint)
                 .font(.callout.weight(.medium))
         }
-        .background(sendButtonEnabled ? .colorFillPrimary : .colorFillMinimal)
+        .background(backgroundFill)
         .mask(Circle())
         .frame(width: sendButtonSize, height: sendButtonSize, alignment: .bottomLeading)
+        .contentShape(.interaction, Circle().inset(by: -touchInset))
         .hoverEffect(.lift)
-        .hoverEffectDisabled(!sendButtonEnabled)
-        .disabled(!sendButtonEnabled)
-        .accessibilityLabel("Send message")
-        .accessibilityIdentifier("send-message-button")
+        .hoverEffectDisabled(!isEnabled)
+        .disabled(!isEnabled)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityIdentifier(accessibilityIdentifier)
+        .sensoryFeedback(.impact(weight: .light), trigger: stopCount)
     }
 
     private var messageTextField: some View {
@@ -190,8 +254,12 @@ public struct MessagesInputView<FilePreview: View, AgentChip: View, AttachmentsB
             .accessibilityIdentifier("message-text-field")
         }
         .onSubmit {
-            onSendMessage()
-            focusState = .message
+            if sendButtonPaused {
+                onPausedSendTap()
+            } else {
+                onSendMessage()
+                focusState = .message
+            }
         }
         .frame(maxHeight: .infinity, alignment: .center)
     }

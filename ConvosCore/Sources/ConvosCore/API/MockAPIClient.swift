@@ -11,17 +11,40 @@ enum MockAPIError: Error {
 }
 
 final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
-    let overrideJWTToken: String?
+    typealias AuthenticatedRequestExecutor = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
 
-    init(overrideJWTToken: String? = nil) {
+    let overrideJWTToken: String?
+    private let authenticatedRequestExecutor: AuthenticatedRequestExecutor
+
+    init(
+        overrideJWTToken: String? = nil,
+        authenticatedRequestExecutor: AuthenticatedRequestExecutor? = nil
+    ) {
         self.overrideJWTToken = overrideJWTToken
+        self.authenticatedRequestExecutor = authenticatedRequestExecutor ?? Self.defaultAuthenticatedResponse
     }
 
     func request(for path: String, method: String, queryParameters: [String: String]?) throws -> URLRequest {
-        guard let url = URL(string: "http://example.com") else {
+        let normalizedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard var components = URLComponents(string: "https://mock-api.example.com/api/\(normalizedPath)") else {
             throw MockAPIError.invalidURL
         }
+        components.queryItems = queryParameters?.sorted { $0.key < $1.key }.map {
+            URLQueryItem(name: $0.key, value: $0.value)
+        }
+        guard let url = components.url else { throw MockAPIError.invalidURL }
         return URLRequest(url: url)
+    }
+
+    func authorizedRequest(for endpoint: String, method: String, queryParameters: [String: String]?) async throws -> URLRequest {
+        var request = try request(for: endpoint, method: method, queryParameters: queryParameters)
+        request.httpMethod = method
+        request.setValue(overrideJWTToken ?? "mock-jwt-token", forHTTPHeaderField: "X-Convos-AuthToken")
+        return request
+    }
+
+    func performAuthenticatedRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        try await authenticatedRequestExecutor(request)
     }
 
     func registerDevice(deviceId: String, pushToken: String?) async throws {
@@ -132,6 +155,28 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         .init(success: true, conversationId: conversationId, mode: "speak")
     }
 
+    func interruptAgent(
+        conversationId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentInterruptResponse {
+        .init(success: true, conversationId: conversationId, interrupted: 0)
+    }
+
+    func setAgentModel(
+        instanceId: String,
+        model: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse {
+        .init(success: true, instanceId: instanceId, model: model, available: [])
+    }
+
+    func getAgentModel(
+        instanceId: String,
+        variantId: String?
+    ) async throws -> ConvosAPI.AgentModelResponse {
+        .init(success: true, instanceId: instanceId, model: nil, available: [])
+    }
+
     func shareSpace(
         conversationId: String,
         variantId: String?
@@ -154,15 +199,6 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
             emoji: "🤖",
             avatarUrl: nil
         )
-    }
-
-    func getFeaturedAgentTemplates(limit: Int, cursor: String?) async throws -> ConvosAPI.AgentTemplatesPage {
-        let templates: [ConvosAPI.AgentTemplate] = [
-            .init(id: "tmpl-trip", status: "published", publishedUrl: nil, slug: "trip", agentName: "Trip", description: "Travel agent", emoji: "🧳", avatarUrl: nil),
-            .init(id: "tmpl-champ", status: "published", publishedUrl: nil, slug: "champ", agentName: "Champ", description: "Team manager", emoji: "🏆", avatarUrl: nil),
-            .init(id: "tmpl-chef", status: "published", publishedUrl: nil, slug: "chef", agentName: "Chef", description: "Meal and nutrition partner", emoji: "🍽️", avatarUrl: nil),
-        ]
-        return .init(data: templates, hasMore: false, nextCursor: nil)
     }
 
     func getAgentPromptHints() async throws -> [String] {
@@ -195,6 +231,47 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
                 status: "building"
             ),
         ]
+    }
+
+    private static func defaultAuthenticatedResponse(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        guard let url = request.url else { throw MockAPIError.invalidURL }
+        let method = request.httpMethod ?? "GET"
+        let responseData: Data
+        let statusCode: Int
+
+        if url.path.hasSuffix("/ack"), method == "POST" {
+            responseData = Data()
+            statusCode = 204
+        } else if url.path.hasSuffix("/v2/agent-relay/requests"),
+                  URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: {
+                      $0.name == "status" && $0.value == "completed"
+                  }) == true {
+            responseData = Data("{\"requests\":[]}".utf8)
+            statusCode = 200
+        } else if url.path.hasSuffix("/v2/agent-relay/requests"), method == "POST" {
+            responseData = Data(
+                "{\"requestId\":\"request_mock\",\"returnToken\":\"return_mock\",\"mcpUrl\":\"https://mock-api.example.com/api/v2/agent-relay/mcp\",\"expiresAt\":\"2099-12-31T23:59:59Z\"}".utf8
+            )
+            statusCode = 201
+        } else if url.path.contains("/v2/agent-relay/requests/"), method == "GET" {
+            responseData = Data(
+                "{\"result\":{\"message\":\"Mock agent response\",\"links\":[],\"completedAt\":\"2026-01-01T00:00:00Z\"}}".utf8
+            )
+            statusCode = 200
+        } else {
+            responseData = Data("{}".utf8)
+            statusCode = 200
+        }
+
+        guard let response = HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"]
+        ) else {
+            throw APIError.invalidResponse
+        }
+        return (responseData, response)
     }
 
     func createAgentTemplateGeneration(

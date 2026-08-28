@@ -11,13 +11,25 @@ import SwiftUI
 /// `AbilitiesListScreen`.
 struct AbilityDetailScreen: View {
     @State private var viewModel: AbilityDetailViewModel
+    /// App-wide actions, injected only by the App Settings entry point. Nil
+    /// from the in-convo browser, where disconnect stays out of reach (see
+    /// `AbilitiesListView.navigableEntitledRow` and the composerModal push).
+    private let onDisconnect: (() -> Void)?
+    private let onReconnect: (() -> Void)?
 
-    init(ability: AbilitiesAPI.Ability, usageSource: any ConnectionUsageSourcing) {
+    init(
+        ability: AbilitiesAPI.Ability,
+        usageSource: any ConnectionUsageSourcing,
+        onDisconnect: (() -> Void)? = nil,
+        onReconnect: (() -> Void)? = nil
+    ) {
         _viewModel = State(initialValue: AbilityDetailViewModel(ability: ability, usageSource: usageSource))
+        self.onDisconnect = onDisconnect
+        self.onReconnect = onReconnect
     }
 
     var body: some View {
-        AbilityDetailView(viewModel: viewModel)
+        AbilityDetailView(viewModel: viewModel, onDisconnect: onDisconnect, onReconnect: onReconnect)
     }
 }
 
@@ -44,10 +56,17 @@ struct AbilityDetailScreen: View {
 /// which reads as a card in light mode and as nothing at all in dark.
 struct AbilityDetailView: View {
     @Bindable var viewModel: AbilityDetailViewModel
+    /// App-wide disconnect/reconnect, injected only from App Settings. Nil
+    /// hides the action section, keeping the in-convo browser read-only.
+    var onDisconnect: (() -> Void)?
+    var onReconnect: (() -> Void)?
+    @Environment(\.dismiss) private var dismiss: DismissAction
+    @State private var showDisconnectConfirmation: Bool = false
 
     var body: some View {
         List {
             headerSection
+            actionSection
             agentsSection
             peopleSection
             conversationsSection
@@ -58,6 +77,17 @@ struct AbilityDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .overlay { loadingOverlay }
         .task { await viewModel.refresh() }
+        .confirmationDialog(
+            "Disconnect \(viewModel.ability.displayName.resolved())?",
+            isPresented: $showDisconnectConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Disconnect", role: .destructive) {
+                onDisconnect?()
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         .accessibilityIdentifier("ability-detail-\(viewModel.ability.id)")
     }
 
@@ -77,17 +107,80 @@ struct AbilityDetailView: View {
                         .lineLimit(2)
                 }
                 Spacer()
-                if let entitlement = viewModel.ability.entitlement {
-                    AbilityStatusBadge(status: entitlement.status)
-                }
             }
-            // One element, read in the order it is laid out: as three
-            // separate texts the status landed between the name and the
-            // subtitle.
+            // Name and subtitle read as one element rather than two texts.
             .accessibilityElement(children: .combine)
         }
         .listRowBackground(Color.colorBackgroundRaised)
         .listSectionMargins(.top, DesignConstants.Spacing.step3x)
+        // Pull the action buttons up close under the card.
+        .listSectionSpacing(DesignConstants.Spacing.step2x)
+    }
+
+    /// App-wide actions, directly under the identity card. Present only when
+    /// the App Settings entry point injected `onDisconnect`; the in-convo
+    /// browser leaves it off. Reconnect leads only when the connection is
+    /// broken, where the removed list menu used to offer it.
+    @ViewBuilder
+    private var actionSection: some View {
+        if showsActions {
+            Section {
+                VStack(spacing: DesignConstants.Spacing.step3x) {
+                    reconnectButton
+                    disconnectButton
+                }
+            }
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            // Zero the row insets so the full-width buttons span the same
+            // width as the cards, whose backgrounds fill the whole cell.
+            .listRowInsets(EdgeInsets())
+            .listSectionMargins(.top, 0)
+        }
+    }
+
+    @ViewBuilder
+    private var reconnectButton: some View {
+        if showsReconnect {
+            let reconnectAction: () -> Void = {
+                onReconnect?()
+                dismiss()
+            }
+            Button("Reconnect", action: reconnectAction)
+                .convosButtonStyle(.rounded(fullWidth: true))
+                .accessibilityIdentifier("ability-detail-reconnect")
+        }
+    }
+
+    private var disconnectButton: some View {
+        let disconnectAction: () -> Void = { showDisconnectConfirmation = true }
+        return Button("Disconnect", action: disconnectAction)
+            .buttonStyle(RoundedDestructiveButtonStyle(fullWidth: true))
+            .accessibilityIdentifier("ability-detail-disconnect")
+    }
+
+    /// The section is App Settings only: the in-convo browser injects no
+    /// actions, so it stays read-only.
+    private var showsActions: Bool {
+        onDisconnect != nil
+    }
+
+    /// Reconnect leads only for a repairable connection the caller can
+    /// actually restart.
+    private var showsReconnect: Bool {
+        needsReconnect && onReconnect != nil
+    }
+
+    /// The states that repair in place. `revoked` is routed to Discover
+    /// (see `AbilitiesListViewModel.section(for:)`), so it never reaches
+    /// this screen and offers no Reconnect.
+    private var needsReconnect: Bool {
+        switch viewModel.ability.entitlement?.status {
+        case .expired, .needsReauth:
+            true
+        default:
+            false
+        }
     }
 
     @ViewBuilder
@@ -143,11 +236,11 @@ struct AbilityDetailView: View {
     /// A read that reached no conversation cannot claim the connection is
     /// unused: it says what it knows, which is nothing.
     private var agentsEmptyTitle: String {
-        viewModel.isUnavailable ? Constant.unavailableTitle : "No agents are using this yet"
+        viewModel.isUnavailable ? Constant.unavailableTitle : "None"
     }
 
     private var conversationsEmptyTitle: String {
-        viewModel.isUnavailable ? Constant.unavailableTitle : "Not turned on in any convo yet"
+        viewModel.isUnavailable ? Constant.unavailableTitle : "None"
     }
 
     // MARK: - Rows
@@ -167,7 +260,7 @@ struct AbilityDetailView: View {
 
     private func emptyRow(_ title: String, identifier: String) -> some View {
         Text(title)
-            .font(.footnote)
+            .font(.body)
             .foregroundStyle(.colorTextSecondary)
             .accessibilityIdentifier(identifier)
     }
@@ -190,7 +283,12 @@ struct AbilityDetailView: View {
     let gcal = MockAbilitiesService.standardCatalog().first { $0.id == "googlecalendar" }
     if let gcal {
         NavigationStack {
-            AbilityDetailScreen(ability: gcal, usageSource: PreviewConnectionUsageSource())
+            AbilityDetailScreen(
+                ability: gcal,
+                usageSource: PreviewConnectionUsageSource(),
+                onDisconnect: {},
+                onReconnect: {}
+            )
         }
     }
 }

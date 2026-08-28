@@ -59,6 +59,12 @@ final class ConversationsViewModel {
     /// the destination builder; nil means open on the group page.
     private(set) var selectedInitialAgentDmInboxId: String?
 
+    /// An explicit page to open the pushed conversation on, set when a
+    /// context-menu action ("Open Agent DM" / "Open Things") picks the page
+    /// directly instead of letting the unread heuristic choose. Read by the
+    /// destination builder; nil for a normal tap, where the heuristic decides.
+    private(set) var selectedInitialTab: ConversationTab?
+
     @ObservationIgnored
     private var updateSelectionTask: Task<Void, Never>?
 
@@ -66,8 +72,45 @@ final class ConversationsViewModel {
     /// agent-DM page when the most-recent unread message lives in the DM (and to
     /// the group otherwise).
     func select(_ conversation: Conversation) {
+        selectedInitialTab = nil
         selectedInitialAgentDmInboxId = agentDmInboxIdForMostRecentUnread(in: conversation)
         selectedConversationId = conversation.id
+    }
+
+    /// Selects a conversation and opens it on the agent's DM page, regardless of
+    /// which lane holds the most-recent unread. Backs the "Open Agent DM"
+    /// context-menu action. The `.agent` tab override drives the open on its own,
+    /// so this does not depend on the volatile folded-in `agentDm` summary; the
+    /// Agent tab resolves its DM from the conversation's own members.
+    func selectAgentDm(_ conversation: Conversation) {
+        selectedInitialTab = .agent
+        selectedInitialAgentDmInboxId = nil
+        selectedConversationId = conversation.id
+        requestTab(.agent, for: conversation.id)
+    }
+
+    /// Selects a conversation and opens it on the Things (Space) page. Backs the
+    /// "Open Things" context-menu action.
+    func selectThings(_ conversation: Conversation) {
+        selectedInitialTab = .context
+        selectedInitialAgentDmInboxId = nil
+        selectedConversationId = conversation.id
+        requestTab(.context, for: conversation.id)
+    }
+
+    /// Switches an already-open conversation's pager to `tab`. A fresh open seeds
+    /// the tab from `selectedInitialTab`, but reselecting the conversation already
+    /// showing in a side-by-side layout is a no-op (the id setter's equality guard
+    /// suppresses it and the mounted view has latched its initial tab), so that
+    /// case is routed through the notification the detail view listens for. Posted
+    /// unconditionally: when nothing is on screen for this id yet, no one is
+    /// listening and the fresh-open seed takes over.
+    private func requestTab(_ tab: ConversationTab, for conversationId: String) {
+        NotificationCenter.default.post(
+            name: .selectConversationTabRequested,
+            object: nil,
+            userInfo: ["conversationId": conversationId, "tab": tab.rawValue]
+        )
     }
 
     /// Returns the agent inbox id to open the DM page for, when the DM holds the
@@ -83,6 +126,12 @@ final class ConversationsViewModel {
     private func updateSelectionState() {
         let conversation = selectedConversation
         let previousViewModelId = selectedConversationViewModel?.conversation.id
+        // An explicit Agent-DM or Things opening (selectedInitialTab set) must not
+        // clear the Group lane's unread - neither on open nor when the session ends.
+        // Only the Group tab actually showing marks the group read, via the detail
+        // view's read-lane machinery. The normal tap path leaves selectedInitialTab
+        // nil and keeps marking the group read here.
+        let opensGroupTab: Bool = selectedInitialTab == nil
 
         if let conversation = conversation {
             if selectedConversationViewModel?.conversation.id != conversation.id {
@@ -93,11 +142,22 @@ final class ConversationsViewModel {
                     coreActions: coreActions
                 )
                 selectedConversationViewModel = viewModel
-                markConversationAsRead(conversation)
+                if opensGroupTab {
+                    markConversationAsRead(conversation)
+                }
             }
         } else {
             if let previousViewModel = selectedConversationViewModel {
-                markConversationAsRead(previousViewModel.conversation)
+                if opensGroupTab {
+                    markConversationAsRead(previousViewModel.conversation)
+                }
+                // A real open session is ending: reset the per-open tab overrides
+                // so a closed Agent-DM/Things session can't leave its intent on the
+                // view model. Gated on an actual view model (not just a nil id) so a
+                // select() whose conversation isn't in the loaded page yet - which
+                // also lands here - keeps the intent it just set for the pushed view.
+                selectedInitialTab = nil
+                selectedInitialAgentDmInboxId = nil
             }
             updateSelectionTask?.cancel()
             selectedConversationViewModel = nil
@@ -780,7 +840,8 @@ final class ConversationsViewModel {
         if conversationInPage(id: id) == nil {
             outOfWindowSelectedConversation = conversation
         }
-        selectedInitialAgentDmInboxId = agentDmInboxIdForMostRecentUnread(in: conversation)
+        selectedInitialTab = nil
+        selectedInitialAgentDmInboxId = nil
         selectedConversationId = id
         return true
     }
@@ -1677,6 +1738,7 @@ extension ConversationsViewModel {
             }
             // Seeds the DM page when the parent opens fresh (or from a different
             // conversation)...
+            selectedInitialTab = nil
             selectedInitialAgentDmInboxId = routing.agentInboxId
             selectedConversationId = routing.originConversationId
             // ...and switches the page when the parent is already on screen (where
@@ -1692,13 +1754,9 @@ extension ConversationsViewModel {
             return true
         }
 
-        // A group (or any listed conversation): open it on the group page.
-        guard let conversation = conversations.first(where: { $0.id == conversationId }) else {
-            return false
-        }
-        selectedInitialAgentDmInboxId = nil
-        selectedConversation = conversation
-        return true
+        // A group (or any listed conversation): resolve it by id so a picker,
+        // deep link, or notification can open a row beyond the loaded page.
+        return selectConversation(id: conversationId)
     }
 
     /// Replays a notification tap that was parked because its destination hadn't

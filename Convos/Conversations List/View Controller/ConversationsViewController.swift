@@ -103,6 +103,8 @@ final class ConversationsViewController: UIViewController {
     // MARK: - Callbacks
 
     var onSelectConversation: ((Conversation) -> Void)?
+    var onOpenAgentDm: ((Conversation) -> Void)?
+    var onOpenThings: ((Conversation) -> Void)?
     var onConfirmedDeleteConversation: ((Conversation) -> Void)?
     var onExplodeConversation: ((Conversation) -> Void)?
     var onToggleMute: ((Conversation) -> Void)?
@@ -805,7 +807,7 @@ extension ConversationsViewController: UICollectionViewDelegate {
 
         // Pin/Unpin
         let pinTitle = conversation.isPinned ? "Unfav" : "Fav"
-        let pinImage = UIImage(systemName: conversation.isPinned ? "star.slash.fill" : "star.fill")
+        let pinImage = UIImage(systemName: conversation.isPinned ? "star.slash" : "star")
         let pinAction = UIAction(title: pinTitle, image: pinImage) { [weak self] _ in
             self?.onTogglePin?(conversation)
         }
@@ -822,11 +824,36 @@ extension ConversationsViewController: UICollectionViewDelegate {
 
             // Mute/Unmute
             let muteTitle = conversation.isMuted ? "Unmute" : "Mute"
-            let muteImage = UIImage(systemName: conversation.isMuted ? "bell.fill" : "bell.slash.fill")
+            let muteImage = UIImage(systemName: conversation.isMuted ? "bell" : "bell.slash")
             let muteAction = UIAction(title: muteTitle, image: muteImage) { [weak self] _ in
                 self?.onToggleMute?(conversation)
             }
             quickActions.append(muteAction)
+        }
+
+        // Open a specific tab, rendered as the menu's top row: two icon-over-label
+        // tiles side by side. Only for conversations that have an agent. Gated on
+        // the sticky `hasHadVerifiedAgent` flag rather than the volatile folded-in
+        // `agentDm` summary, which comes and goes as member sync rewrites the
+        // group's roster.
+        if !conversation.isPendingInvite && conversation.hasHadVerifiedAgent {
+            let openAgentDmAction = UIAction(
+                title: "Agent",
+                image: UIImage(systemName: "a.circle")
+            ) { [weak self] _ in
+                self?.onOpenAgentDm?(conversation)
+            }
+            let openThingsAction = UIAction(
+                title: "Things",
+                image: UIImage(systemName: "square.grid.2x2")
+            ) { [weak self] _ in
+                self?.onOpenThings?(conversation)
+            }
+            let openMenu = UIMenu(title: "", options: .displayInline, children: [openAgentDmAction, openThingsAction])
+            // Lays the two out as a row of icon-over-label tiles rather than
+            // full-width rows.
+            openMenu.preferredElementSize = .medium
+            actions.append(openMenu)
         }
 
         let quickMenu = UIMenu(title: "", options: .displayInline, children: quickActions)

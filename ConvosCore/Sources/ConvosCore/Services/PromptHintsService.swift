@@ -3,7 +3,7 @@ import Foundation
 /// Fetches curated agent prompt hints for the agent builder's dice control.
 /// A narrow seam over `ConvosAPIClientProtocol` so the in-memory cache model
 /// can be driven by a stub in previews and tests without conforming to the
-/// full API client surface. Mirrors `SuggestedAgentsServiceProtocol`.
+/// full API client surface.
 public protocol PromptHintsServiceProtocol: Sendable {
     func promptHints() async throws -> [String]
 }
