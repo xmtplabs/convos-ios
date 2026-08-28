@@ -33,7 +33,7 @@ let package = Package(
         // fails to resolve two revisions of the same package.
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
-            revision: "ios-4.12.0-dev.de26965"
+            revision: "ios-4.12.0-pre.20260828090205.nightly.cc87802"
         ),
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
         .package(url: "https://github.com/ra1028/DifferenceKit.git", from: "1.3.0"),
