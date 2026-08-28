@@ -35,6 +35,8 @@ struct LinkPreviewCardView: View {
     @State private var ogImageURL: String?
     @State private var ogSiteName: String?
     @State private var cachedImage: UIImage?
+    @State private var spaceSnapshot: UIImage?
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var imageAspectRatio: CGFloat?
     @State private var hasFetchedMetadata: Bool = false
 
@@ -56,7 +58,16 @@ struct LinkPreviewCardView: View {
     /// of the placeholder after it had been measured. A Space page names no
     /// image today, so that was every card an agent posts.
     private var expectsImage: Bool {
-        preview.imageURL != nil || ogImageURL != nil
+        // A Space page always has a picture coming - its own - so the slot is
+        // held from the first layout rather than appearing under the title
+        // once the capture lands.
+        isSpacePage || preview.imageURL != nil || ogImageURL != nil
+    }
+
+    /// The picture to draw: a Space page's own capture, or whatever the
+    /// link's metadata pointed at.
+    private var displayImage: UIImage? {
+        isSpacePage ? spaceSnapshot : cachedImage
     }
 
     /// Whether this card points at the group's own Space, which is the page
@@ -84,7 +95,7 @@ struct LinkPreviewCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0.0) {
             ZStack {
-                if let image = cachedImage {
+                if let image = displayImage {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
@@ -100,7 +111,10 @@ struct LinkPreviewCardView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .modifier(ImageAreaModifier(hasKnownRatio: cachedImage != nil || preview.imageAspectRatio != nil, aspectRatio: clampedAspectRatio))
+            .modifier(ImageAreaModifier(
+                hasKnownRatio: isSpacePage || displayImage != nil || preview.imageAspectRatio != nil,
+                aspectRatio: clampedAspectRatio
+            ))
             .clipped()
             .background(.colorBackgroundMedia)
 
@@ -134,6 +148,32 @@ struct LinkPreviewCardView: View {
         .accessibilityHint(isSpacePage ? "Opens this page in the group's space" : "Opens \(preview.displayHost)")
         .task {
             await fetchOpenGraphMetadata()
+        }
+        .task(id: spaceSnapshotIdentity) {
+            await loadSpaceSnapshot()
+        }
+    }
+
+    /// Re-captures when the page or the appearance changes, and not otherwise.
+    private var spaceSnapshotIdentity: String? {
+        guard isSpacePage, let url = preview.resolvedURL else { return nil }
+        return url.absoluteString + (colorScheme == .dark ? "-dark" : "-light")
+    }
+
+    /// Draws the Space page itself rather than an image it declares.
+    ///
+    /// The cached capture is taken synchronously first so a card that has one
+    /// draws it on its first layout, then the renderer is asked - which returns
+    /// that same capture immediately and refreshes behind it if it has aged.
+    private func loadSpaceSnapshot() async {
+        guard isSpacePage, let url = preview.resolvedURL else { return }
+        let appearance: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
+
+        if let cached = SpacePageSnapshotRenderer.shared.cachedSnapshot(for: url, appearance: appearance) {
+            spaceSnapshot = cached
+        }
+        if let image = await SpacePageSnapshotRenderer.shared.snapshot(for: url, appearance: appearance) {
+            spaceSnapshot = image
         }
     }
 
