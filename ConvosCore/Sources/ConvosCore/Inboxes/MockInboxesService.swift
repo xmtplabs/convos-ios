@@ -5,12 +5,17 @@ import GRDB
 
 public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendable {
     private let mockMessagingService: MockMessagingService
+    private let preparedConversationId: String?
     /// Single shared registry so providers registered through this mock are visible to
     /// the resolver `capabilityResolver()` returns.
     private let mockCapabilityRegistry: any CapabilityProviderRegistry = InMemoryCapabilityProviderRegistry()
 
-    public init(mockMessagingService: MockMessagingService = MockMessagingService()) {
+    public init(
+        mockMessagingService: MockMessagingService = MockMessagingService(),
+        preparedConversationId: String? = nil
+    ) {
         self.mockMessagingService = mockMessagingService
+        self.preparedConversationId = preparedConversationId
     }
 
     // MARK: - Inbox Management
@@ -51,7 +56,7 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
     }
 
     public nonisolated func peekPreparedConversationId() -> String? {
-        nil
+        preparedConversationId
     }
 
     public func deleteAllInboxes() async throws {
@@ -127,7 +132,7 @@ public final class MockInboxesService: SessionManagerProtocol, @unchecked Sendab
     ) async throws -> ConvosAPI.AgentJoinResponse {
         if let forceErrorCode {
             switch forceErrorCode {
-            case 502: throw APIError.agentProvisionFailed
+            case 502: throw APIError.agentProvisionFailed(nil)
             case 503: throw APIError.noAgentsAvailable
             case 504: throw APIError.agentPoolTimeout
             default: throw APIError.serverError("Mock forced error \(forceErrorCode)")

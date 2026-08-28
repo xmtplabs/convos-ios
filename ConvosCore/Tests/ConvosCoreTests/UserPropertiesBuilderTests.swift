@@ -54,6 +54,16 @@ private final class StubConversationsRepository: ConversationsRepositoryProtocol
         subject.eraseToAnyPublisher()
     }
 
+    func conversationsPublisher(containingMemberInboxId inboxId: String) -> AnyPublisher<[Conversation], Never> {
+        subject
+            .map { conversations in
+                conversations.filter { conversation in
+                    conversation.members.contains { $0.profile.inboxId == inboxId }
+                }
+            }
+            .eraseToAnyPublisher()
+    }
+
     func fetchAll() throws -> [Conversation] {
         subject.value
     }

@@ -1,12 +1,38 @@
 import Foundation
 import GRDB
 
+public struct DefaultAgentProvisionFailure: Equatable, Sendable {
+    public let conversationId: String
+    public let reason: String?
+
+    public init(conversationId: String, reason: String?) {
+        self.conversationId = conversationId
+        self.reason = reason
+    }
+}
+
+public extension Notification.Name {
+    static let defaultAgentProvisionDidFail: Notification.Name = Notification.Name(
+        "org.convos.defaultAgentProvisionDidFail"
+    )
+}
+
 /// Per-conversation bookkeeping for the default-agent flow: dedupes concurrent
 /// provisions (cache-time vs claim-time) by sharing one task per conversation
 /// and keeps the join's idempotency key stable across retries.
 actor DefaultConversationAgentCoordinator {
     private var provisionTasks: [String: Task<Void, Never>] = [:]
     private var joinKeys: [String: ConvosAPI.JoinIdempotencyKey] = [:]
+    private let defaults: UserDefaults
+
+    init(defaultsSuiteName: String? = nil) {
+        if let defaultsSuiteName,
+           let suiteDefaults = UserDefaults(suiteName: defaultsSuiteName) {
+            defaults = suiteDefaults
+        } else {
+            defaults = .standard
+        }
+    }
 
     /// Returns the in-flight (or completed) provision task for the
     /// conversation, creating it from `operation` on first call. Callers await
@@ -38,14 +64,22 @@ actor DefaultConversationAgentCoordinator {
     }
 
     /// The idempotency key for the conversation's current logical join,
-    /// minted on first use and stable across retries so the backend adopts
-    /// the in-flight instance instead of provisioning a duplicate.
+    /// minted on first use and stable across retries and relaunches so the
+    /// backend adopts the in-flight instance instead of provisioning a
+    /// duplicate.
     func joinKey(for conversationId: String) -> ConvosAPI.JoinIdempotencyKey {
         if let existing = joinKeys[conversationId] {
             return existing
         }
+        let storageKey = joinKeyStorageKey(for: conversationId)
+        if let rawValue = defaults.string(forKey: storageKey),
+           let persisted = ConvosAPI.JoinIdempotencyKey(rawValue: rawValue) {
+            joinKeys[conversationId] = persisted
+            return persisted
+        }
         let key = ConvosAPI.JoinIdempotencyKey.mint()
         joinKeys[conversationId] = key
+        defaults.set(key.rawValue, forKey: storageKey)
         return key
     }
 
@@ -54,6 +88,15 @@ actor DefaultConversationAgentCoordinator {
     /// old key, so reusing it can only fail again.
     func clearJoinKey(for conversationId: String) {
         joinKeys[conversationId] = nil
+        defaults.removeObject(forKey: joinKeyStorageKey(for: conversationId))
+    }
+
+    private func joinKeyStorageKey(for conversationId: String) -> String {
+        "\(Constant.joinKeyPrefix).\(conversationId.lowercased())"
+    }
+
+    private enum Constant {
+        static let joinKeyPrefix: String = "defaultAgentJoinKey.v1"
     }
 }
 
@@ -87,13 +130,11 @@ extension SessionManager {
 
     /// Hook the app layer installs to hold the warm cache's default-agent
     /// provision until the conversation is adopted. The cache provisions at
-    /// preparation time, which is before a creation flow exists to pick a
-    /// variant, so a prepared conversation's agent would always be built on
-    /// whatever runtime was current when the row was minted — the pick could
-    /// never apply to the one agent the conversation ships with. Holding it
-    /// costs the pre-warm latency, so only the dev variant selector asks for
-    /// it; `commitClaimedConversation` ensures the agent at adoption, after the
-    /// variant is bound.
+    /// preparation time, which is before a creation flow exists to pick or
+    /// resolve a variant, so a prepared conversation's agent could be built on
+    /// the wrong runtime. Variant-selecting and Doc-capable app flows hold this
+    /// work; `commitClaimedConversation` ensures the agent at adoption, after
+    /// the variant is bound.
     public nonisolated(unsafe) static var deferCacheTimeDefaultAgent: (@Sendable () async -> Bool)?
 
     /// Hook the app layer installs to record which variant a freshly claimed
@@ -152,13 +193,15 @@ extension SessionManager {
                 // Nothing is in flight, so nothing should read as in flight.
                 // Leaving the task cached is what pinned the Agent tab in its
                 // "preparing" state until the app relaunched.
+                await defaultAgentCoordinator.clearJoinKey(for: conversationId)
                 await defaultAgentCoordinator.clearProvisionTask(for: conversationId)
                 return
             }
             let variantId = await Self.defaultAgentVariantIdProvider?(conversationId)
             let ownerProfileName = await currentOwnerProfileName()
+            let response: ConvosAPI.AgentJoinResponse
             do {
-                try await provisionDefaultAgent(
+                response = try await provisionDefaultAgent(
                     conversationId: conversationId,
                     variantId: variantId,
                     ownerProfileName: ownerProfileName
@@ -172,13 +215,20 @@ extension SessionManager {
                     await defaultAgentCoordinator.clearJoinKey(for: conversationId)
                 }
                 Log.error("Default agent: provision attempt failed for conversation \(conversationId), retrying once: \(error)")
-                try await provisionDefaultAgent(
+                response = try await provisionDefaultAgent(
                     conversationId: conversationId,
                     variantId: variantId,
                     ownerProfileName: ownerProfileName
                 )
             }
-            await defaultAgentCoordinator.clearJoinKey(for: conversationId)
+            if response.joined {
+                await defaultAgentCoordinator.clearJoinKey(for: conversationId)
+            }
+            monitorDefaultAgentJoinCompletion(
+                response: response,
+                conversationId: conversationId,
+                variantId: variantId
+            )
             Log.info("Default agent: provisioned into conversation \(conversationId)")
         } catch {
             // An ambiguous terminal failure keeps the join key so a later
@@ -191,6 +241,7 @@ extension SessionManager {
             }
             Log.error("Default agent: provisioning failed for conversation \(conversationId): \(error)")
             await defaultAgentCoordinator.clearProvisionTask(for: conversationId)
+            publishDefaultAgentProvisionFailure(conversationId: conversationId, error: error)
         }
     }
 
@@ -198,9 +249,9 @@ extension SessionManager {
         conversationId: String,
         variantId: String?,
         ownerProfileName: String?
-    ) async throws {
+    ) async throws -> ConvosAPI.AgentJoinResponse {
         let idempotencyKey = await defaultAgentCoordinator.joinKey(for: conversationId)
-        _ = try await addAgentToConversation(
+        return try await addAgentToConversation(
             conversationId: conversationId,
             templateId: nil,
             options: .defaultConversationAgent(variantId: variantId),
@@ -209,6 +260,47 @@ extension SessionManager {
             ownerProfileName: ownerProfileName,
             grantAdmin: true
         )
+    }
+
+    private func monitorDefaultAgentJoinCompletion(
+        response: ConvosAPI.AgentJoinResponse,
+        conversationId: String,
+        variantId: String?
+    ) {
+        guard !response.joined, let instanceId = response.instanceId else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await awaitAgentJoinCompletion(
+                    instanceId: instanceId,
+                    variantId: variantId
+                )
+                await defaultAgentCoordinator.clearJoinKey(for: conversationId)
+            } catch is CancellationError {
+                return
+            } catch {
+                await defaultAgentCoordinator.clearJoinKey(for: conversationId)
+                await defaultAgentCoordinator.clearProvisionTask(for: conversationId)
+                publishDefaultAgentProvisionFailure(conversationId: conversationId, error: error)
+            }
+        }
+    }
+
+    private func publishDefaultAgentProvisionFailure(
+        conversationId: String,
+        error: Error
+    ) {
+        let reason: String?
+        if case APIError.agentProvisionFailed(let failureReason) = error {
+            reason = failureReason
+        } else {
+            reason = nil
+        }
+        let failure = DefaultAgentProvisionFailure(
+            conversationId: conversationId,
+            reason: reason
+        )
+        NotificationCenter.default.post(name: .defaultAgentProvisionDidFail, object: failure)
     }
 
     /// The user's own profile name, nil when unset or unreadable. A brand-new

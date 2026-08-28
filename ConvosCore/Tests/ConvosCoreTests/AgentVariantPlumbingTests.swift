@@ -83,6 +83,43 @@ struct AgentVariantPlumbingTests {
         #expect(object["onboarding"] as? String == "agent-builder")
     }
 
+    @Test("Join response decodes the backend-confirmed variant result")
+    func joinResponseDecodesVariantResult() throws {
+        let data = Data(#"{"success":true,"joined":true,"variant":{"slug":"pr-3655","commit":"abc123"},"variantDropped":null}"#.utf8)
+        let response = try JSONDecoder().decode(ConvosAPI.AgentJoinResponse.self, from: data)
+
+        #expect(response.variant == .init(slug: "pr-3655", commit: "abc123"))
+        #expect(response.variantDropped == nil)
+    }
+
+    @Test("Join diagnostics persist the actual result per conversation")
+    func joinDiagnosticsPersistPerConversation() throws {
+        let suiteName = "AgentJoinDiagnosticsStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = AgentJoinDiagnosticsStore(defaults: defaults)
+        let response = ConvosAPI.AgentJoinResponse(
+            success: true,
+            joined: true,
+            variant: .init(slug: "pr-3655", commit: "abc123"),
+            variantDropped: nil
+        )
+
+        store.record(
+            conversationId: "Conversation-1",
+            requestedVariantId: "pr-3655",
+            response: response
+        )
+
+        let diagnostic = try #require(store.diagnostic(for: "conversation-1"))
+        #expect(diagnostic.requestedVariantId == "pr-3655")
+        #expect(diagnostic.variant == response.variant)
+        #expect(diagnostic.variantDropped == nil)
+
+        store.clear(conversationId: "CONVERSATION-1")
+        #expect(store.diagnostic(for: "conversation-1") == nil)
+    }
+
     // MARK: - Join-status poll query param
 
     @Test("Join-status poll query carries the persisted variantId, omitted when nil")

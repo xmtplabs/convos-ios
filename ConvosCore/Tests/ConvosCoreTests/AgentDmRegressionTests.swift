@@ -48,14 +48,19 @@ struct AgentDmRegressionTests {
         ).save(db)
     }
 
-    private func makeConversation(id: String, isAgentDm: Bool) -> DBConversation {
+    private func makeConversation(
+        id: String,
+        isAgentDm: Bool,
+        consent: Consent = .allowed,
+        hasHadVerifiedAgent: Bool = true
+    ) -> DBConversation {
         DBConversation(
             id: id,
             clientConversationId: id,
             inviteTag: "tag-\(id)",
             creatorId: Self.selfInbox,
             kind: .group,
-            consent: .allowed,
+            consent: consent,
             createdAt: Date(),
             name: nil,
             description: nil,
@@ -71,8 +76,37 @@ struct AgentDmRegressionTests {
             conversationEmoji: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            hasHadVerifiedAgent: true,
+            hasHadVerifiedAgent: hasHadVerifiedAgent,
             isAgentDm: isAgentDm
+        )
+    }
+
+    private func makePreparedConversation(
+        id: String,
+        isAgentDm: Bool,
+        consent: Consent,
+        originConversationId: String?,
+        otherInboxId: String = AgentDmRegressionTests.agentInbox
+    ) -> ConversationWriter.PreparedConversation {
+        ConversationWriter.PreparedConversation(
+            dbConversation: makeConversation(
+                id: id,
+                isAgentDm: isAgentDm,
+                consent: consent,
+                hasHadVerifiedAgent: isAgentDm
+            ),
+            dbMembers: [Self.selfInbox, otherInboxId].map { inboxId in
+                DBConversationMember(
+                    conversationId: id,
+                    inboxId: inboxId,
+                    role: .member,
+                    consent: .allowed,
+                    createdAt: Date(),
+                    invitedByInboxId: nil
+                )
+            },
+            memberProfiles: [],
+            originConversationId: originConversationId
         )
     }
 
@@ -235,6 +269,95 @@ struct AgentDmRegressionTests {
         let repository = ConversationsRepository(dbReader: dbQueue, consent: [.allowed])
         let found = try repository.findOneToOne(with: Self.agentInbox, excluding: nil)
         #expect(found == nil)
+    }
+
+    @Test("profile import promotes an already-persisted marked DM")
+    func profileImportPromotesPersistedMarkedDm() async throws {
+        let dbQueue = try makeDatabase()
+        let writer = ConversationWriter(
+            identityStore: MockKeychainIdentityStore(),
+            databaseWriter: dbQueue,
+            messageWriter: MockIncomingMessageWriter()
+        )
+        try await dbQueue.write { db in
+            try seedInbox(db)
+            try seedConversation(db, id: "origin-1", isAgentDm: false, otherInboxId: "human-peer")
+        }
+
+        let initiallyHasVerifiedAgent = try await dbQueue.read { db in
+            try ConversationWriter.containsVerifiedAgentProfile(
+                db,
+                inboxIds: [Self.selfInbox, Self.agentInbox]
+            )
+        }
+        let initialClassification = ConversationWriter.qualifiesAsAgentDm(
+            hasMarker: true,
+            memberCount: 2,
+            hasVerifiedAgentMember: initiallyHasVerifiedAgent
+        )
+        #expect(!initialClassification)
+
+        let initial = makePreparedConversation(
+            id: "dm-late-profile",
+            isAgentDm: initialClassification,
+            consent: .unknown,
+            originConversationId: nil
+        )
+        try await dbQueue.write { db in
+            _ = try writer.persist(initial, in: db)
+        }
+        try await dbQueue.read { db in
+            let row = try DBConversation.fetchOne(db, id: "dm-late-profile")
+            let persisted = try #require(row)
+            #expect(!persisted.isAgentDm)
+        }
+
+        try await dbQueue.write { db in
+            try ProfileInboundApplier.apply(
+                db: db,
+                conversationId: "dm-late-profile",
+                event: ProfileInboundApplier.Incoming(
+                    inboxId: Self.agentInbox,
+                    source: .profileUpdate,
+                    name: "Doc",
+                    avatar: .fillIfPresent(nil),
+                    memberKind: .verifiedConvos,
+                    metadata: nil,
+                    receivedAt: Date()
+                ),
+                selfInboxId: Self.selfInbox,
+                fallbackEncryptionKey: nil
+            )
+        }
+
+        let hasVerifiedAgent = try await dbQueue.read { db in
+            try ConversationWriter.conversationHasVerifiedAgentMember(
+                db,
+                conversationId: "dm-late-profile"
+            )
+        }
+        let refreshedClassification = ConversationWriter.qualifiesAsAgentDm(
+            hasMarker: true,
+            memberCount: 2,
+            hasVerifiedAgentMember: hasVerifiedAgent
+        )
+        #expect(refreshedClassification)
+
+        let refreshed = makePreparedConversation(
+            id: "dm-late-profile",
+            isAgentDm: refreshedClassification,
+            consent: .allowed,
+            originConversationId: "origin-1"
+        )
+        #expect(try await writer.persistAgentDmClassificationRefreshIfNeeded(refreshed))
+        try await dbQueue.read { db in
+            let row = try DBConversation.fetchOne(db, id: "dm-late-profile")
+            let persisted = try #require(row)
+            #expect(persisted.isAgentDm)
+            #expect(persisted.consent == .allowed)
+            #expect(try DBAgentDmOrigin.originConversationId(for: "dm-late-profile", in: db) == "origin-1")
+        }
+        #expect(try await writer.persistAgentDmClassificationRefreshIfNeeded(refreshed) == false)
     }
 
     @Test("one-way latch: extraction reading false must not un-mark a live DM")

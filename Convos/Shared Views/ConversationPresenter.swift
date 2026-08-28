@@ -138,11 +138,22 @@ struct ConversationPresenter<Content: View>: View {
 
     @ViewBuilder
     private var indicatorOverlay: some View {
-        if let viewModel = viewModel, viewModel.showsInfoView, rendersConversationIndicator {
-            conversationIndicatorView(for: viewModel)
+        if let viewModel, rendersConversationIndicator {
+            if FeatureFlags.shared.isDocExperienceEnabled {
+                docIdentityView
+            } else if viewModel.showsInfoView {
+                conversationIndicatorView(for: viewModel)
+            }
         } else if viewModel == nil, let appContext = appIndicatorContext {
             appIndicatorView(for: appContext)
         }
+    }
+
+    private var docIdentityView: some View {
+        DocTranscriptIdentityChip()
+            .padding(.top, indicatorTopInset)
+            .padding(.leading, indicatorLeadingInset)
+            .transition(.blurReplace.combined(with: .hitTestGate))
     }
 
     @ViewBuilder

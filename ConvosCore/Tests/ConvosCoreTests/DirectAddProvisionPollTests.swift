@@ -89,7 +89,8 @@ struct DirectAddProvisionPollTests {
     @Test("`failed` status is terminal — throws immediately, no spin to deadline")
     func failedIsTerminal() async throws {
         let statusCalls = Box(0)
-        await #expect(throws: APIError.self) {
+        var caught: APIError?
+        do {
             _ = try await SessionManager.awaitProvisionedAgentInbox(
                 sleep: { _ in },
                 requestJoin: { self.provisionResponse(inboxId: nil) },
@@ -98,8 +99,58 @@ struct DirectAddProvisionPollTests {
                     return self.statusResponse(joinStatus: "failed", joinFailureReason: "boom")
                 }
             )
+        } catch let error as APIError {
+            caught = error
         }
+        guard case .agentProvisionFailed(let reason) = caught else {
+            Issue.record("Expected APIError.agentProvisionFailed, got \(String(describing: caught))")
+            return
+        }
+        #expect(reason == "boom")
         #expect(statusCalls.get() == 1, "A terminal status must stop the poll on the first observation")
+    }
+
+    @Test("Post-add monitoring reports a late terminal failure with its reason")
+    func completionMonitorReportsLateFailure() async throws {
+        let statusCalls = Box(0)
+        var caught: APIError?
+        do {
+            try await SessionManager.awaitAgentJoinCompletion(
+                instanceId: "instance-1",
+                sleep: { _ in },
+                fetchStatus: { _ in
+                    let count = statusCalls.mutate { $0 += 1; return $0 }
+                    return count == 1
+                        ? self.statusResponse(joinStatus: "starting", inboxId: "agent-inbox")
+                        : self.statusResponse(joinStatus: "failed", joinFailureReason: "workflow stopped")
+                }
+            )
+        } catch let error as APIError {
+            caught = error
+        }
+
+        guard case .agentProvisionFailed(let reason) = caught else {
+            Issue.record("Expected APIError.agentProvisionFailed, got \(String(describing: caught))")
+            return
+        }
+        #expect(reason == "workflow stopped")
+        #expect(statusCalls.get() == 2)
+    }
+
+    @Test("Post-add monitoring completes when the join becomes ready")
+    func completionMonitorStopsAtReady() async throws {
+        let statusCalls = Box(0)
+        try await SessionManager.awaitAgentJoinCompletion(
+            instanceId: "instance-1",
+            sleep: { _ in },
+            fetchStatus: { _ in
+                let count = statusCalls.mutate { $0 += 1; return $0 }
+                return count == 1
+                    ? self.statusResponse(joinStatus: "starting", inboxId: "agent-inbox")
+                    : self.statusResponse(joinStatus: "ready", inboxId: "agent-inbox")
+            }
+        )
+        #expect(statusCalls.get() == 2)
     }
 
     @Test("`no_agents_available` surfaces as noAgentsAvailable, not a timeout")

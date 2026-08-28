@@ -2970,16 +2970,12 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
         grantedToInboxId: String,
         eventWriter: any ConnectionEventWriterProtocol
     ) async {
-        for providerId in providerIds {
-            guard providerId.cloudServiceId != nil,
-                  newlyApprovedProviderIds.contains(providerId) else { continue }
-            try? await eventWriter.sendGranted(
-                providerId: providerId.rawValue,
-                capability: capability,
-                grantedToInboxId: grantedToInboxId,
-                in: conversationId
-            )
-        }
+        try? await eventWriter.sendCloudGrantedEvents(
+            providerIds: providerIds.filter(newlyApprovedProviderIds.contains),
+            capability: capability,
+            grantedToInboxIds: [grantedToInboxId],
+            in: conversationId
+        )
     }
 
     private static func capabilityActionParameter(
@@ -3675,6 +3671,30 @@ extension ConversationViewModel {
         let endingDictation = isLikelyDictating
         focusCoordinator.withSettledKeyboardInput(endingInputSession: endingDictation) {
             sendComposerContents(focusCoordinator: focusCoordinator, endedDictation: endingDictation)
+        }
+    }
+
+    /// Sends Doc protocol text with a caller-owned id so Doc surfaces can
+    /// observe delivery independently of the regular conversation composer.
+    func sendDocProtocolText(_ text: String, clientMessageId: String) async throws {
+        try await cachedMessageWriter.send(text: text, clientMessageId: clientMessageId)
+    }
+
+    /// Sends a Doc composer draft without borrowing the transcript composer's
+    /// staged text or attachments. Home and individual rooms can therefore
+    /// keep independent catch-up drafts while sharing the same agent DM.
+    func sendDocComposerDraft(
+        text: String?,
+        photos: [UIImage],
+        onPhotoSent: (Int) -> Void
+    ) async throws {
+        let messageWriter = cachedMessageWriter
+        for (index, photo) in photos.enumerated() {
+            try await messageWriter.send(image: photo)
+            onPhotoSent(index)
+        }
+        if let text, !text.isEmpty {
+            try await messageWriter.send(text: text)
         }
     }
 

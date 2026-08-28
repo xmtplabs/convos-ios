@@ -117,10 +117,244 @@ final class AgentVariantResolutionTests: XCTestCase {
         XCTAssertEqual(AgentVariantAssignmentStore.shared.slug(for: prepared), "second-pick")
     }
 
-    private func variant(slug: String) -> ConvosAPI.AgentVariant {
+    func testDocModeChoosesNewestExactLabelMatchFromRegistryOrder() throws {
+        let newestDoc = variant(slug: "doc-newest", label: "Doc")
+        let variants = [
+            variant(slug: "other", label: "Other"),
+            newestDoc,
+            variant(slug: "doc-older", label: "Doc"),
+            variant(slug: "wrong-case", label: "doc"),
+        ]
+
+        let resolved = AgentVariantRegistry.mostRecentlyRegisteredVariant(
+            labeled: "Doc",
+            in: variants
+        )
+
+        XCTAssertEqual(try XCTUnwrap(resolved), newestDoc)
+    }
+
+    func testDocModeReportsNoVariantWhenRegistryHasNoExactLabelMatch() {
+        let resolved = AgentVariantRegistry.mostRecentlyRegisteredVariant(
+            labeled: "Doc",
+            in: [variant(slug: "wrong-case", label: "doc")]
+        )
+
+        XCTAssertNil(resolved)
+    }
+
+    func testDocModeResolutionFailuresBlockEnablementWithRecoveryCopy() {
+        XCTAssertNotNil(DocModeResolutionPolicy.enablementError(for: .notRegistered))
+        XCTAssertNotNil(DocModeResolutionPolicy.enablementError(for: .unavailable))
+        XCTAssertNil(DocModeResolutionPolicy.enablementError(
+            for: .resolved(variant(slug: "doc", label: "Doc"))
+        ))
+    }
+
+    func testDocCapableBuildDefersCacheTimeDefaultAgentBeforeDocModeIsEnabled() {
+        XCTAssertTrue(DefaultAgentCacheProvisionPolicy.shouldDefer(
+            isDocExperienceEnabled: false,
+            isDocExperienceAvailable: true,
+            isAgentVariantSelectorEnabled: false
+        ))
+        XCTAssertTrue(DefaultAgentCacheProvisionPolicy.shouldDefer(
+            isDocExperienceEnabled: true,
+            isDocExperienceAvailable: false,
+            isAgentVariantSelectorEnabled: false
+        ))
+    }
+
+    func testNonDocBuildCanWarmDefaultAgentWithoutASelector() {
+        XCTAssertFalse(DefaultAgentCacheProvisionPolicy.shouldDefer(
+            isDocExperienceEnabled: false,
+            isDocExperienceAvailable: false,
+            isAgentVariantSelectorEnabled: false
+        ))
+        XCTAssertTrue(DefaultAgentCacheProvisionPolicy.shouldDefer(
+            isDocExperienceEnabled: false,
+            isDocExperienceAvailable: false,
+            isAgentVariantSelectorEnabled: true
+        ))
+    }
+
+    func testDocModeKeepsAgentBoundToExpectedVariant() {
+        let diagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "doc-runtime", commit: "abc123"),
+            variantDropped: nil
+        )
+
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: "conversation-1",
+                diagnostic: diagnostic,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .keep
+        )
+    }
+
+    func testDocModeReplacesAgentWithoutConfirmedExpectedVariant() {
+        let defaultDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: nil,
+            variant: nil,
+            variantDropped: nil
+        )
+        let droppedDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "doc-runtime", commit: "abc123"),
+            variantDropped: "pr-3655"
+        )
+        let wrongRequestDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "other-runtime",
+            variant: .init(slug: "doc-runtime", commit: "abc123"),
+            variantDropped: nil
+        )
+        let unconfirmedDropDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "doc-runtime", commit: "abc123"),
+            variantDropped: nil
+        )
+        let wrongRuntimeDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "other-runtime", commit: "abc123"),
+            variantDropped: nil
+        )
+
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: "conversation-1",
+                diagnostic: defaultDiagnostic,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .replace
+        )
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: "conversation-1",
+                diagnostic: droppedDiagnostic,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .replace
+        )
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: "conversation-1",
+                diagnostic: wrongRequestDiagnostic,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .replace
+        )
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: "conversation-1",
+                diagnostic: unconfirmedDropDiagnostic,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .replace
+        )
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: "conversation-1",
+                diagnostic: wrongRuntimeDiagnostic,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .replace
+        )
+        XCTAssertEqual(
+            DocAgentConvergenceAction.resolve(
+                conversationId: nil,
+                diagnostic: nil,
+                expectedVariantSlug: "doc-runtime"
+            ),
+            .create
+        )
+    }
+
+    func testDocRuntimeWarningSurfacesDroppedOrMissingVariants() {
+        let droppedDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "doc-runtime", commit: "abc123"),
+            variantDropped: "pr-3655"
+        )
+        let missingVariantDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-2",
+            requestedVariantId: "doc-runtime",
+            variant: nil,
+            variantDropped: nil
+        )
+        let wrongRuntimeDiagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-3",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "other-runtime", commit: "abc123"),
+            variantDropped: nil
+        )
+
+        XCTAssertEqual(
+            DocRuntimeFallbackWarning.resolve(
+                isDocModeEnabled: true,
+                diagnostic: droppedDiagnostic
+            )?.requestedSlug,
+            "doc-runtime"
+        )
+        XCTAssertEqual(
+            DocRuntimeFallbackWarning.resolve(
+                isDocModeEnabled: true,
+                configuredSlug: "doc-runtime",
+                diagnostic: .init(
+                    conversationId: "conversation-3",
+                    requestedVariantId: nil,
+                    variant: nil,
+                    variantDropped: nil
+                )
+            )?.requestedSlug,
+            "doc-runtime"
+        )
+        XCTAssertEqual(
+            DocRuntimeFallbackWarning.resolve(
+                isDocModeEnabled: true,
+                diagnostic: missingVariantDiagnostic
+            )?.requestedSlug,
+            "doc-runtime"
+        )
+        XCTAssertEqual(
+            DocRuntimeFallbackWarning.resolve(
+                isDocModeEnabled: true,
+                diagnostic: wrongRuntimeDiagnostic
+            )?.requestedSlug,
+            "doc-runtime"
+        )
+    }
+
+    func testDocRuntimeWarningStaysHiddenForTheRequestedRuntime() {
+        let diagnostic = AgentJoinDiagnostic(
+            conversationId: "conversation-1",
+            requestedVariantId: "doc-runtime",
+            variant: .init(slug: "doc-runtime", commit: "abc123"),
+            variantDropped: nil
+        )
+
+        XCTAssertNil(DocRuntimeFallbackWarning.resolve(
+            isDocModeEnabled: true,
+            diagnostic: diagnostic
+        ))
+        XCTAssertNil(DocRuntimeFallbackWarning.resolve(
+            isDocModeEnabled: false,
+            diagnostic: diagnostic
+        ))
+    }
+
+    private func variant(slug: String, label: String? = nil) -> ConvosAPI.AgentVariant {
         ConvosAPI.AgentVariant(
             slug: slug,
-            label: slug,
+            label: label ?? slug,
             whatToTest: "",
             status: "ready"
         )

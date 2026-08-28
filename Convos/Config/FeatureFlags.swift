@@ -65,6 +65,31 @@ final class FeatureFlags {
         }
     }
 
+    /// Dev-only shell switch for exercising the first-party Doc experience.
+    /// Variant selection is configured as part of enabling this switch, so
+    /// turning it off always returns to the standard app without clearing the
+    /// selected runtime or any conversations.
+    var isDocModeEnabled: Bool {
+        get {
+            access(keyPath: \.isDocModeEnabled)
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            if ProcessInfo.processInfo.arguments.contains("-DocMode") {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: Constant.docModeEnabledKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            withMutation(keyPath: \.isDocModeEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.docModeEnabledKey)
+            }
+        }
+    }
+
+    var isDocExperienceEnabled: Bool {
+        isDocModeEnabled
+    }
+
     /// Off by default -- opts libxmtp streams onto the shared bidi wire by
     /// exporting `XMTP_BIDI_STREAMS_ENABLED` at launch (see `ConvosApp.init`;
     /// flips take effect on the next launch). Deliberately not prod-locked
@@ -227,6 +252,7 @@ final class FeatureFlags {
         static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"
         static let selectedAgentVariantKey: String = "featureFlags.selectedAgentVariant"
         static let agentVariantSelectorEnabledKey: String = "featureFlags.agentVariantSelectorEnabled"
+        static let docModeEnabledKey: String = "featureFlags.docModeEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
         static let spaceShareEnabledKey: String = "featureFlags.spaceShareEnabled"
         static let webInspectorEnabledKey: String = "featureFlags.webInspectorEnabled"

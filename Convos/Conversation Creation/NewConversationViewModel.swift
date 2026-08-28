@@ -25,6 +25,17 @@ struct IdentifiableError: Identifiable {
     }
 }
 
+struct AutomaticConversationCreationRetryPolicy {
+    let maximumRetryCount: Int
+
+    static let disabled: Self = .init(maximumRetryCount: 0)
+    static let docStartup: Self = .init(maximumRetryCount: 2)
+
+    func shouldRetry(failureCount: Int, isTransient: Bool) -> Bool {
+        isTransient && failureCount < maximumRetryCount
+    }
+}
+
 /// Synchronous keep-signals for a minted conversation, latched by
 /// `NewConversationViewModel` at action time. Any set latch means the
 /// dismiss-time cleanup keeps the conversation.
@@ -264,6 +275,12 @@ class NewConversationViewModel: Identifiable, Hashable {
     /// follow-on work like inviting an agent once the conversation
     /// has an invite slug.
     var onReachedReady: (() -> Void)?
+    /// Wrapping startup flows use this after their bounded automatic retries
+    /// are exhausted so the failure appears on the surface they own.
+    var onCreationFailed: ((Error) -> Void)?
+    /// Wrapping startup flows use this when the agent's server-side startup
+    /// ends after the conversation itself is already ready.
+    var onAgentProvisionFailed: ((DefaultAgentProvisionFailure) -> Void)?
     /// Invoked when a scanned QR resolves into a conversation the user should be
     /// taken into: a joined invite, or the fresh conversation a scanned agent is
     /// being added to. The presenter dismisses the scanner and navigates into the
@@ -366,7 +383,15 @@ class NewConversationViewModel: Identifiable, Hashable {
     @ObservationIgnored
     private var resetTask: Task<Void, Never>?
     @ObservationIgnored
+    private let automaticCreationRetryPolicy: AutomaticConversationCreationRetryPolicy
+    @ObservationIgnored
+    private var automaticCreationFailureCount: Int = 0
+    @ObservationIgnored
+    private var isWaitingForAutomaticCreationRetry: Bool = false
+    @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
+    @ObservationIgnored
+    private var defaultAgentProvisionFailureCancellable: AnyCancellable?
     @ObservationIgnored
     private var stateObservationTask: Task<Void, Never>?
     @ObservationIgnored
@@ -381,11 +406,13 @@ class NewConversationViewModel: Identifiable, Hashable {
         mode: NewConversationMode,
         defersInviteVisibilityUntilEntered: Bool = false,
         coreActions: any CoreActions = NoOpCoreActions(),
-        agentVariantSlug: String? = nil
+        agentVariantSlug: String? = nil,
+        automaticCreationRetryPolicy: AutomaticConversationCreationRetryPolicy = .disabled
     ) {
         self.session = session
         self.coreActions = coreActions
         self.agentVariantSlug = agentVariantSlug
+        self.automaticCreationRetryPolicy = automaticCreationRetryPolicy
         self.qrScannerViewModel = QRScannerViewModel()
         switch mode {
         case .scanner:
@@ -456,6 +483,7 @@ class NewConversationViewModel: Identifiable, Hashable {
 
         self.isCreatingConversation = mode.isNewConversation
         self.messagesTopBarTrailingItem = .share
+        setupDefaultAgentProvisionFailureObservation()
         createPlaceholderConversationViewModel()
         acquireInbox(mode: mode)
         resolveOptimisticAgentIdentityIfNeeded()
@@ -488,6 +516,7 @@ class NewConversationViewModel: Identifiable, Hashable {
         self.session = session
         self.coreActions = coreActions
         self.agentVariantSlug = nil
+        self.automaticCreationRetryPolicy = .disabled
         self.qrScannerViewModel = QRScannerViewModel()
         self.autoCreateConversation = autoCreateConversation
         self.startedWithFullscreenScanner = showingFullScreenScanner
@@ -728,6 +757,27 @@ class NewConversationViewModel: Identifiable, Hashable {
         }
     }
 
+    private func setupDefaultAgentProvisionFailureObservation() {
+        guard wantsDefaultAgent else { return }
+        defaultAgentProvisionFailureCancellable = NotificationCenter.default.publisher(
+            for: .defaultAgentProvisionDidFail
+        )
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                guard let self,
+                      let failure = notification.object as? DefaultAgentProvisionFailure else {
+                    return
+                }
+                let activeConversationIds = [
+                    conversationStateManager?.conversationId,
+                    claimedConversationId,
+                    conversationViewModel?.conversation.id,
+                ]
+                guard activeConversationIds.contains(failure.conversationId) else { return }
+                onAgentProvisionFailed?(failure)
+            }
+    }
+
     /// Persist `hidesInviteCard = true` on the conversation's local state
     /// when this VM was launched via the contacts picker
     /// (`.newConversationWithMembers`). Survives navigating away and
@@ -746,7 +796,7 @@ class NewConversationViewModel: Identifiable, Hashable {
 
     // MARK: - Actions
 
-    /// Pivots a scanner-mode flow into the agent-template spawn path when
+    /// Switches a scanner-mode flow into the agent-template spawn path when
     /// the user scans a template QR. Mirrors the
     /// `.newConversationWithTemplate` deeplink mode: create a fresh
     /// conversation, then request an instance of the template into it
@@ -862,11 +912,18 @@ class NewConversationViewModel: Identifiable, Hashable {
         switch action {
         case .createConversation:
             guard let conversationStateManager else { return }
+            let pendingReset = resetTask
             newConversationTask?.cancel()
             let actions: any CoreActions = coreActions
             let startsUnused: Bool = defersVisibilityUntilCommit
             newConversationTask = Task { [weak self, conversationStateManager] in
                 guard self != nil else { return }
+                guard !Task.isCancelled else { return }
+                if let pendingReset {
+                    await pendingReset.value
+                } else {
+                    await conversationStateManager.resetFromError()
+                }
                 guard !Task.isCancelled else { return }
                 if delay > 0 {
                     try? await Task.sleep(for: .seconds(delay))
@@ -898,6 +955,13 @@ class NewConversationViewModel: Identifiable, Hashable {
                 joinConversation(inviteCode: inviteCode)
             }
         }
+    }
+
+    func retryConversationCreation() {
+        automaticCreationFailureCount = 0
+        isWaitingForAutomaticCreationRetry = false
+        consecutiveFailureCount = 0
+        retryAction(.createConversation)
     }
 
     private var retryDelay: TimeInterval {
@@ -1063,6 +1127,7 @@ extension NewConversationViewModel {
     private func handleCreationError(_ error: Error) {
         currentError = error
         isCreatingConversation = false
+        handleAutomaticCreationRetryIfNeeded(error)
     }
 
     /// The trailing toolbar item for an interactive new conversation.
@@ -1206,7 +1271,7 @@ extension NewConversationViewModel {
     }
 
     /// Routes a scanned QR payload. A `convos://template/<id>` code
-    /// pivots the scanner into the agent-template spawn flow; anything
+    /// switches the scanner into the agent-template spawn flow; anything
     /// else is treated as a conversation invite, exactly as before.
     func handleScannedCode(_ code: String) {
         // A scan should land the user in the resulting conversation once it is
@@ -1314,6 +1379,7 @@ extension NewConversationViewModel {
     /// a late `.ready` shouldn't promote the conversation into the chats
     /// list.
     private func tearDownAbandonedFlowTasks() {
+        inboxAcquisitionTask?.cancel()
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
         joinTimeoutTask?.cancel()
@@ -1447,6 +1513,7 @@ extension NewConversationViewModel {
             isCreatingConversation = true
             conversationViewModel?.isWaitingForInviteAcceptance = false
             currentError = nil
+            isWaitingForAutomaticCreationRetry = false
 
         case .validating(let inviteCode):
             cachedInviteCode = inviteCode
@@ -1476,6 +1543,8 @@ extension NewConversationViewModel {
 
         case .ready(let result):
             consecutiveFailureCount = 0
+            automaticCreationFailureCount = 0
+            isWaitingForAutomaticCreationRetry = false
             conversationViewModel?.startOnboarding()
 
             if result.origin == .joined {
@@ -1634,6 +1703,7 @@ extension NewConversationViewModel {
             if startedWithFullscreenScanner {
                 showingFullScreenScanner = true
             }
+            handleAutomaticCreationRetryIfNeeded(error)
             return
         }
 
@@ -1643,6 +1713,24 @@ extension NewConversationViewModel {
         default:
             displayError = IdentifiableError(error: stateMachineError)
         }
+        handleAutomaticCreationRetryIfNeeded(error)
+    }
+
+    private func handleAutomaticCreationRetryIfNeeded(_ error: Error) {
+        guard autoCreateConversation, !isWaitingForAutomaticCreationRetry else { return }
+        let stateMachineError = (error as? ConversationStateMachineError)
+            ?? ConversationStateMachineError.stateMachineError(error)
+        let isTransient = stateMachineError.networkErrorKind != nil
+        guard automaticCreationRetryPolicy.shouldRetry(
+            failureCount: automaticCreationFailureCount,
+            isTransient: isTransient
+        ) else {
+            onCreationFailed?(error)
+            return
+        }
+        automaticCreationFailureCount += 1
+        isWaitingForAutomaticCreationRetry = true
+        retryAction(.createConversation)
     }
 
     @MainActor

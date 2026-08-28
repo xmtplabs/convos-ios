@@ -17,6 +17,9 @@ public struct AgentDmTapRouting: Equatable, Sendable {
 
 public protocol ConversationsRepositoryProtocol {
     var conversationsPublisher: AnyPublisher<[Conversation], Never> { get }
+    /// Every persisted conversation containing `inboxId`, including agent-DM
+    /// rows that the standard conversations list folds into their origins.
+    func conversationsPublisher(containingMemberInboxId inboxId: String) -> AnyPublisher<[Conversation], Never>
     func fetchAll() throws -> [Conversation]
     /// Async variant of `fetchAll()`. Runs the read on GRDB's reader pool
     /// instead of blocking the calling thread, so main-actor callers can
@@ -136,6 +139,26 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
         }
     }
 
+    func conversationsPublisher(containingMemberInboxId inboxId: String) -> AnyPublisher<[Conversation], Never> {
+        ValueObservation
+            .tracking { [consent] db in
+                do {
+                    return try db.composeConversations(
+                        containingMemberInboxId: inboxId,
+                        consent: consent
+                    )
+                } catch {
+                    Log.error("Error composing conversations for member inbox: \(error)")
+                    throw error
+                }
+            }
+            .removeDuplicates()
+            .publisher(in: dbReader)
+            .replaceError(with: [])
+            .throttle(for: .seconds(0.3), scheduler: DispatchQueue.main, latest: true)
+            .eraseToAnyPublisher()
+    }
+
     func agentDmTapRouting(forConversationId conversationId: String) throws -> AgentDmTapRouting? {
         try dbReader.read { db in
             guard let conversation = try DBConversation.fetchOne(db, key: conversationId),
@@ -243,6 +266,32 @@ extension Database {
             .fetchAll(self)
         let conversations = try dbConversationDetails.composeConversations(from: self)
         return try foldAgentDms(into: conversations, consent: consent, resortByActivity: true)
+    }
+
+    fileprivate func composeConversations(
+        containingMemberInboxId inboxId: String,
+        consent: [Consent]
+    ) throws -> [Conversation] {
+        let memberPredicate: SQL = """
+            EXISTS (
+                SELECT 1 FROM conversation_members AS matching_member
+                WHERE matching_member.conversationId = conversation.id
+                AND matching_member.inboxId = \(inboxId)
+            )
+            """
+        let details = try DBConversation
+            .filter(
+                !DBConversation.Columns.id.like("draft-%")
+                    || (DBConversation.Columns.inviteTag != nil
+                        && length(DBConversation.Columns.inviteTag) > 0)
+            )
+            .filter(consent.contains(DBConversation.Columns.consent))
+            .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
+            .joining(required: DBConversation.localState.filter(ConversationLocalState.Columns.wasRemoved == false))
+            .filter(literal: memberPredicate)
+            .detailedConversationQuery()
+            .fetchAll(self)
+        return try details.composeConversations(from: self)
     }
 
     /// Fold each group's separate agent DM into its row so the list can

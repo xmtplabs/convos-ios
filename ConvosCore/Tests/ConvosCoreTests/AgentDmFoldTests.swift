@@ -85,6 +85,53 @@ struct AgentDmFoldTests {
         #expect(counter.count == 0, "the per-row one-to-one lookup must not run at all")
     }
 
+    @Test("Member publisher includes the agent DM lane")
+    func memberPublisherIncludesAgentDmLane() async throws {
+        let queue = try Self.migratedQueue()
+        try await queue.write { try Self.seed($0) }
+        let repository = ConversationsRepository(dbReader: queue, consent: [.allowed, .unknown])
+
+        let conversations = await repository
+            .conversationsPublisher(containingMemberInboxId: Self.agentInboxId)
+            .values
+            .first { !$0.isEmpty }
+
+        #expect(Set(conversations?.map(\.id) ?? []) == [Self.groupId, Self.dmId])
+    }
+
+    @Test("Member publisher includes an unused agent lane")
+    func memberPublisherIncludesUnusedAgentLane() async throws {
+        let queue = try Self.migratedQueue()
+        let unusedId = "unused-agent-lane"
+        try await queue.write { db in
+            try Self.seed(db)
+            try Self.makeConversation(
+                id: unusedId,
+                isAgentDm: false,
+                isUnused: true
+            ).insert(db)
+            try Self.makeLocalState(for: unusedId).insert(db)
+            try Self.member(
+                conversationId: unusedId,
+                inboxId: Self.currentInboxId,
+                role: .superAdmin
+            ).insert(db)
+            try Self.member(
+                conversationId: unusedId,
+                inboxId: Self.agentInboxId,
+                role: .member
+            ).insert(db)
+        }
+        let repository = ConversationsRepository(dbReader: queue, consent: [.allowed, .unknown])
+
+        let conversations = await repository
+            .conversationsPublisher(containingMemberInboxId: Self.agentInboxId)
+            .values
+            .first { !$0.isEmpty }
+
+        #expect(Set(conversations?.map(\.id) ?? []) == [Self.groupId, Self.dmId, unusedId])
+    }
+
     // MARK: - Helpers
 
     /// Counts the one-to-one membership lookups the legacy fallback issues, so
@@ -224,7 +271,11 @@ struct AgentDmFoldTests {
         )
     }
 
-    private static func makeConversation(id: String, isAgentDm: Bool) -> DBConversation {
+    private static func makeConversation(
+        id: String,
+        isAgentDm: Bool,
+        isUnused: Bool = false
+    ) -> DBConversation {
         DBConversation(
             id: id,
             clientConversationId: "client-\(id)",
@@ -246,7 +297,7 @@ struct AgentDmFoldTests {
             imageEncryptionKey: nil,
             conversationEmoji: nil,
             imageLastRenewed: nil,
-            isUnused: false,
+            isUnused: isUnused,
             hasHadVerifiedAgent: false,
             isAgentDm: isAgentDm
         )

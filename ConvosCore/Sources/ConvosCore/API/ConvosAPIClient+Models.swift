@@ -309,6 +309,16 @@ public enum ConvosAPI {
     }
 
     public struct AgentJoinResponse: Codable {
+        public struct Variant: Codable, Sendable, Equatable {
+            public let slug: String
+            public let commit: String
+
+            public init(slug: String, commit: String) {
+                self.slug = slug
+                self.commit = commit
+            }
+        }
+
         public let success: Bool
         public let joined: Bool
         /// Populated on every dispatch; required for the join-status poll.
@@ -317,12 +327,28 @@ public enum ConvosAPI {
         /// Nil when registration outlasted the backend's wait budget — poll
         /// GET /v2/agents/join/:instanceId until it lands.
         public let inboxId: String?
+        /// The variant the backend actually dispatched, rather than only the
+        /// client request. Nil means the default runtime handled the join.
+        public let variant: Variant?
+        /// The requested variant id when the backend could not use it and
+        /// deliberately fell back to the default runtime; nil when the variant
+        /// applied (or none was requested).
+        public let variantDropped: String?
 
-        public init(success: Bool, joined: Bool, instanceId: String? = nil, inboxId: String? = nil) {
+        public init(
+            success: Bool,
+            joined: Bool,
+            instanceId: String? = nil,
+            inboxId: String? = nil,
+            variant: Variant? = nil,
+            variantDropped: String? = nil
+        ) {
             self.success = success
             self.joined = joined
             self.instanceId = instanceId
             self.inboxId = inboxId
+            self.variant = variant
+            self.variantDropped = variantDropped
         }
     }
 

@@ -90,11 +90,104 @@ final class AgentVariantRegistry {
         return variants.first { $0.slug == slug }
     }
 
+    /// The backend returns the registry newest-first, so the first exact label
+    /// match is the most recently registered live variant for that product.
+    func mostRecentlyRegisteredVariant(labeled label: String) -> ConvosAPI.AgentVariant? {
+        Self.mostRecentlyRegisteredVariant(labeled: label, in: variants)
+    }
+
+    static func mostRecentlyRegisteredVariant(
+        labeled label: String,
+        in variants: [ConvosAPI.AgentVariant]
+    ) -> ConvosAPI.AgentVariant? {
+        variants.first { $0.label == label }
+    }
+
     /// Drops a persisted selection whose slug no longer exists in the live
     /// registry, so a retired variant can't silently keep routing builds.
     private func reconcileSelection(against fetched: [ConvosAPI.AgentVariant]) {
         guard let slug = FeatureFlags.shared.selectedAgentVariant?.slug else { return }
         guard !fetched.contains(where: { $0.slug == slug }) else { return }
         FeatureFlags.shared.selectedAgentVariant = nil
+    }
+}
+
+@MainActor
+enum DocModeVariantResolver {
+    enum Resolution: Equatable {
+        case resolved(ConvosAPI.AgentVariant)
+        case notRegistered
+        case unavailable
+    }
+
+    static func resolve(
+        registry: AgentVariantRegistry = .shared,
+        forceRefresh: Bool = false
+    ) async -> Resolution {
+        if forceRefresh {
+            await registry.reload()
+        } else {
+            await registry.loadIfNeeded()
+        }
+
+        guard registry.loadState == .loaded else { return .unavailable }
+        guard let variant = registry.mostRecentlyRegisteredVariant(labeled: "Doc") else {
+            FeatureFlags.shared.isAgentVariantSelectorEnabled = true
+            FeatureFlags.shared.selectedAgentVariant = nil
+            return .notRegistered
+        }
+
+        FeatureFlags.shared.isAgentVariantSelectorEnabled = true
+        FeatureFlags.shared.selectedAgentVariant = variant
+        return .resolved(variant)
+    }
+}
+
+enum DocModeResolutionPolicy {
+    static func enablementError(
+        for resolution: DocModeVariantResolver.Resolution
+    ) -> String? {
+        switch resolution {
+        case .resolved:
+            nil
+        case .notRegistered:
+            "No Doc variant is registered. Try again after the preview is available."
+        case .unavailable:
+            "Couldn't load the Doc variant registry. Check your connection and try again."
+        }
+    }
+}
+
+enum DefaultAgentCacheProvisionPolicy {
+    static func shouldDefer(
+        isDocExperienceEnabled: Bool,
+        isDocExperienceAvailable: Bool,
+        isAgentVariantSelectorEnabled: Bool
+    ) -> Bool {
+        isDocExperienceEnabled ||
+            isDocExperienceAvailable ||
+            isAgentVariantSelectorEnabled
+    }
+}
+
+enum DocAgentConvergenceAction: Equatable {
+    case create
+    case keep
+    case replace
+
+    static func resolve(
+        conversationId: String?,
+        diagnostic: AgentJoinDiagnostic?,
+        expectedVariantSlug: String
+    ) -> Self {
+        guard let conversationId else { return .create }
+        guard let diagnostic,
+              diagnostic.conversationId.caseInsensitiveCompare(conversationId) == .orderedSame,
+              diagnostic.requestedVariantId == expectedVariantSlug,
+              diagnostic.variantDropped == nil,
+              diagnostic.variant?.slug == expectedVariantSlug else {
+            return .replace
+        }
+        return .keep
     }
 }

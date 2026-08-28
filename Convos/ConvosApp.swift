@@ -305,11 +305,19 @@ struct ConvosApp: App {
         SessionManager.defaultAgentVariantIdProvider = { conversationId in
             await MainActor.run { AgentVariantResolution.slug(for: conversationId) }
         }
-        // With the selector on, a conversation's agent has to wait for the pick
-        // that conversation was created under; the warm cache would otherwise
-        // build it before the picker is even on screen.
+        // A build that can enter Doc holds the warm-cache join until a
+        // conversation is adopted. Doc resolves and binds its labeled variant
+        // before that claim-time provision can run.
         SessionManager.deferCacheTimeDefaultAgent = {
-            await MainActor.run { FeatureFlags.shared.isAgentVariantSelectorEnabled }
+            await MainActor.run {
+                DefaultAgentCacheProvisionPolicy.shouldDefer(
+                    isDocExperienceEnabled: FeatureFlags.shared.isDocExperienceEnabled,
+                    isDocExperienceAvailable: DebugMenuGate.showsFullDebugMenu(
+                        for: ConfigManager.shared.currentEnvironment
+                    ),
+                    isAgentVariantSelectorEnabled: FeatureFlags.shared.isAgentVariantSelectorEnabled
+                )
+            }
         }
         // Records the pick against the conversation the claim actually handed
         // back, while that conversation's agent is still unprovisioned.

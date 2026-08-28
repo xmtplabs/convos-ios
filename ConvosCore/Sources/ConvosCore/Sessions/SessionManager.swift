@@ -1583,6 +1583,7 @@ extension SessionManager {
     /// How long to keep polling for the agent's inboxId when registration
     /// outlasts the backend's synchronous wait budget.
     private static var agentRegistrationDeadline: TimeInterval { 30 }
+    private static var agentCompletionDeadline: TimeInterval { 90 }
     private static var agentRegistrationPollInterval: TimeInterval { 1 }
     /// Bounded retries of the local member add for an already-provisioned
     /// agent. The add can fail transiently (MLS commit race, key package not
@@ -1770,7 +1771,7 @@ extension SessionManager {
     ) async throws -> ProvisionedAgent {
         let response = try await requestJoin()
         guard let instanceId = response.instanceId else {
-            throw APIError.agentProvisionFailed
+            throw APIError.agentProvisionFailed(nil)
         }
 
         // Fast path: registration completed within the provision call itself.
@@ -1789,7 +1790,7 @@ extension SessionManager {
                     "Direct-add: provision failed for instance \(instanceId): "
                         + "\(status.joinFailureReason ?? "no reason given")"
                 )
-                throw APIError.agentProvisionFailed
+                throw APIError.agentProvisionFailed(status.joinFailureReason)
             case .noAgentsAvailable:
                 Log.error("Direct-add: no agents available for instance \(instanceId)")
                 throw APIError.noAgentsAvailable
@@ -1808,6 +1809,71 @@ extension SessionManager {
         }
         Log.error("Direct-add: timed out awaiting agent inbox for instance \(instanceId)")
         throw APIError.agentPoolTimeout
+    }
+
+    /// Keeps observing the same join after the inbox has been added to the
+    /// conversation. The runtime can become available before its startup
+    /// workflow reaches a terminal state, so returning the inbox is not proof
+    /// that the agent will remain alive.
+    static func awaitAgentJoinCompletion(
+        instanceId: String,
+        deadline: TimeInterval = agentCompletionDeadline,
+        pollInterval: TimeInterval = agentRegistrationPollInterval,
+        now: @Sendable () -> Date = { Date() },
+        sleep: @Sendable (TimeInterval) async throws -> Void = {
+            try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000))
+        },
+        fetchStatus: @Sendable (_ instanceId: String) async throws -> ConvosAPI.AgentJoinStatusResponse
+    ) async throws {
+        let deadlineDate = now().addingTimeInterval(deadline)
+        while now() < deadlineDate {
+            try await sleep(pollInterval)
+            let status: ConvosAPI.AgentJoinStatusResponse
+            do {
+                status = try await fetchStatus(instanceId)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                Log.warning(
+                    "Direct-add: couldn't refresh join status for instance \(instanceId): "
+                        + error.localizedDescription
+                )
+                continue
+            }
+
+            switch status.provisionStatus {
+            case .joined, .ready:
+                return
+            case .failed:
+                Log.error(
+                    "Direct-add: agent startup failed for instance \(instanceId): "
+                        + "\(status.joinFailureReason ?? "no reason given")"
+                )
+                throw APIError.agentProvisionFailed(status.joinFailureReason)
+            case .noAgentsAvailable:
+                throw APIError.noAgentsAvailable
+            case .starting, .pendingAcceptance:
+                break
+            case .unknown(let raw):
+                Log.warning("Direct-add: unexpected join status \"\(raw)\" for instance \(instanceId)")
+            }
+        }
+        Log.warning("Direct-add: stopped monitoring agent startup for instance \(instanceId) after the deadline")
+    }
+
+    func awaitAgentJoinCompletion(
+        instanceId: String,
+        variantId: String?
+    ) async throws {
+        try await Self.awaitAgentJoinCompletion(
+            instanceId: instanceId,
+            fetchStatus: {
+                try await self.apiClient.getAgentJoinStatus(
+                    instanceId: $0,
+                    variantId: variantId
+                )
+            }
+        )
     }
 }
 

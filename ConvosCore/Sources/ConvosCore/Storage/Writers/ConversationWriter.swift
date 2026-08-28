@@ -864,7 +864,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let members = (try? await conversation.members) ?? []
         let memberCount = members.count
         let hasVerifiedAgentMember = try await anyMemberIsVerifiedAgent(inboxIds: members.map(\.inboxId))
-        let isAgentDm = hasAgentDmMarker && memberCount == 2 && hasVerifiedAgentMember
+        let isAgentDm = Self.qualifiesAsAgentDm(
+            hasMarker: hasAgentDmMarker,
+            memberCount: memberCount,
+            hasVerifiedAgentMember: hasVerifiedAgentMember
+        )
         // Only meaningful for a DM; read the parent link the creating device
         // stamped. Backs both DM-notification tap routing (open the parent
         // group's DM page) and the auto-allow gate (user still shares the
@@ -912,6 +916,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         try DBProfile
             .fetchAll(db, inboxIds: inboxIds)
             .contains { $0.agentVerification.isVerified }
+    }
+
+    static func qualifiesAsAgentDm(
+        hasMarker: Bool,
+        memberCount: Int,
+        hasVerifiedAgentMember: Bool
+    ) -> Bool {
+        hasMarker && memberCount == 2 && hasVerifiedAgentMember
     }
 
     static func conversationHasVerifiedAgentMember(_ db: Database, conversationId: String) throws -> Bool {
@@ -972,6 +984,48 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             return incoming
         }
         return incoming.with(isAgentDm: true)
+    }
+
+    /// Persists a post-profile reclassification only when classification,
+    /// its automatic consent promotion, or the mirrored origin would change.
+    /// Kept internal so the event-order regression can exercise the same
+    /// transaction seam without constructing a live XMTP group.
+    @discardableResult
+    func persistAgentDmClassificationRefreshIfNeeded(
+        _ prepared: PreparedConversation
+    ) async throws -> Bool {
+        try await databaseWriter.write { [self] db in
+            guard let existing = try DBConversation.fetchOne(db, id: prepared.dbConversation.id) else {
+                return false
+            }
+            let hasVerifiedAgentMember = try Self.containsVerifiedAgentProfile(
+                db,
+                inboxIds: prepared.dbMembers.map(\.inboxId)
+            )
+            let effectiveConversation = Self.applyingAgentDmLatch(
+                incoming: prepared.dbConversation,
+                existing: existing,
+                memberCount: prepared.dbMembers.count,
+                otherMemberIsVerifiedAgent: hasVerifiedAgentMember
+            )
+            let classificationChanged = effectiveConversation.isAgentDm != existing.isAgentDm
+            let consentShouldAutoAllow = effectiveConversation.isAgentDm &&
+                existing.consent == .unknown &&
+                effectiveConversation.consent == .allowed
+            let originChanged = if let originConversationId = prepared.originConversationId {
+                try DBAgentDmOrigin.originConversationId(
+                    for: prepared.dbConversation.id,
+                    in: db
+                ) != originConversationId
+            } else {
+                false
+            }
+            guard classificationChanged || consentShouldAutoAllow || originChanged else {
+                return false
+            }
+            _ = try persist(prepared, in: db)
+            return true
+        }
     }
 
     /// A resolved adder is write-once: it records who invited us, which never
@@ -1512,6 +1566,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
             let resolvedUpdates = latestUpdates
             let resolvedSnapshot = latestSnapshot
+            let profileCount = resolvedUpdates.count + (resolvedSnapshot?.snapshot.profiles.count ?? 0)
+            guard profileCount > 0 else { return }
 
             try await databaseWriter.write { db in
                 let selfInboxId = try DBInbox.currentInboxId(db)
@@ -1561,12 +1617,33 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 }
             }
 
-            let profileCount = latestUpdates.count + (latestSnapshot?.snapshot.profiles.count ?? 0)
-            if profileCount > 0 {
-                Log.debug("Processed \(profileCount) profile messages from history for \(conversationId)")
-            }
+            try await refreshAgentDmClassificationAfterProfileImport(conversation: conversation)
+            Log.debug("Processed \(profileCount) profile messages from history for \(conversationId)")
         } catch {
             Log.warning("Failed to process profile messages from history: \(error.localizedDescription)")
+        }
+    }
+
+    private func refreshAgentDmClassificationAfterProfileImport(
+        conversation: XMTPiOS.Group
+    ) async throws {
+        let context = try await databaseWriter.read { db -> (inboxId: String, clientConversationId: String)? in
+            guard let inboxId = try DBInbox.currentInboxId(db),
+                  let existing = try DBConversation.fetchOne(db, id: conversation.id) else {
+                return nil
+            }
+            return (inboxId, existing.clientConversationId)
+        }
+        guard let context else { return }
+        let prepared = try await prepare(
+            conversation: conversation,
+            inboxId: context.inboxId,
+            clientConversationId: context.clientConversationId,
+            syncFirst: false
+        )
+        let refreshed = try await persistAgentDmClassificationRefreshIfNeeded(prepared)
+        if refreshed {
+            Log.info("Refreshed agent DM classification after profile import for \(conversation.id)")
         }
     }
 

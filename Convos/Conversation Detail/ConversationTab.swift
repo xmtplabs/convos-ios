@@ -44,6 +44,10 @@ enum ConversationTab: String, CaseIterable, Identifiable, Hashable {
         hostsTranscript
     }
 
+    static func presentationTabs(docModeEnabled: Bool) -> [ConversationTab] {
+        docModeEnabled ? [.agent] : allCases
+    }
+
     /// The tab a conversation opens on. A tap that specifically asked for the
     /// agent DM (a DM notification, or a list row whose most recent unread is
     /// in the DM) gets it; everything else opens on the group.
@@ -61,10 +65,13 @@ enum ConversationTab: String, CaseIterable, Identifiable, Hashable {
         agentDmRequested: Bool,
         agentDmHoldsTheUnread: Bool = false
     ) -> ConversationTab {
-        guard available.contains(.agent) else { return .group }
+        if available.count == 1, let onlyTab = available.first {
+            return onlyTab
+        }
+        guard available.contains(.agent) else { return available.first ?? .group }
         if agentDmRequested || agentDmHoldsTheUnread {
             return .agent
         }
-        return .group
+        return available.contains(.group) ? .group : available.first ?? .group
     }
 }

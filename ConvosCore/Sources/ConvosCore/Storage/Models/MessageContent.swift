@@ -84,6 +84,8 @@ public enum MessageContent: Hashable, Codable, Sendable {
 
     public var showsInMessagesList: Bool {
         switch self {
+        case .text(let text):
+            return !DocWireMessage.isHiddenText(text)
         case .update(let update):
             return update.showsInMessagesList
         default:

@@ -14,6 +14,7 @@ extension View {
     func shareSheet(
         isPresented: Binding<Bool>,
         items: [Any],
+        applicationActivities: [UIActivity]? = nil,
         onPresented: (() -> Void)? = nil,
         onDismiss: (() -> Void)? = nil,
         onCompletion: ((UIActivity.ActivityType?, Bool, Error?) -> Void)? = nil
@@ -22,6 +23,7 @@ extension View {
             ShareSheetPresenter(
                 isPresented: isPresented,
                 items: items,
+                applicationActivities: applicationActivities,
                 onPresented: onPresented,
                 onDismiss: onDismiss,
                 onCompletion: onCompletion
@@ -33,6 +35,7 @@ extension View {
 private struct ShareSheetPresenter: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
     let items: [Any]
+    let applicationActivities: [UIActivity]?
     let onPresented: (() -> Void)?
     let onDismiss: (() -> Void)?
     let onCompletion: ((UIActivity.ActivityType?, Bool, Error?) -> Void)?
@@ -68,7 +71,7 @@ private struct ShareSheetPresenter: UIViewControllerRepresentable {
 
         let activityViewController = UIActivityViewController(
             activityItems: items,
-            applicationActivities: nil
+            applicationActivities: applicationActivities
         )
         coordinator.activityViewController = activityViewController
         if let popover = activityViewController.popoverPresentationController {

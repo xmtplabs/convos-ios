@@ -15,6 +15,15 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
         Just(mockConversations).eraseToAnyPublisher()
     }
 
+    public func conversationsPublisher(containingMemberInboxId inboxId: String) -> AnyPublisher<[Conversation], Never> {
+        let matching = mockConversations.filter { conversation in
+            conversation.members.contains { member in
+                member.profile.inboxId == inboxId
+            }
+        }
+        return Just(matching).eraseToAnyPublisher()
+    }
+
     public func fetchAll() throws -> [Conversation] {
         mockConversations
     }

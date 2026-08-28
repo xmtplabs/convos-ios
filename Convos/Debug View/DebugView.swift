@@ -50,10 +50,19 @@ struct DebugViewSection: View {
     @State private var useRealStoreKit: Bool = SubscriptionServices.useRealStoreKit
     @State private var useRealCredits: Bool = CreditsServices.useRealBackend
     @State private var identity: DeviceIdentitySnapshot?
+    @State private var docAgentBindingId: String?
+    @State private var docAgentDiagnostic: AgentJoinDiagnostic?
+    @State private var didResetDocAgent: Bool = false
+    @State private var isResettingDocAgent: Bool = false
+    @State private var docVariantResolution: DocModeVariantResolver.Resolution?
+    @State private var isResolvingDocMode: Bool = false
+    @State private var isDocModeEnabled: Bool = FeatureFlags.shared.isDocModeEnabled
+    @State private var docModeErrorMessage: String?
 
     var body: some View {
         Group {
             featuresSection
+            docSection
             subscriptionSection
             pushNotificationsSection
             debugSection
@@ -69,6 +78,15 @@ struct DebugViewSection: View {
             logStorageInfo = DebugLogExporter.getStorageInfo(environment: environment)
             let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
             identity = await DeviceIdentitySnapshot.current(identityStore: identityStore)
+            refreshDocAgentDiagnostic()
+            await refreshDocVariantResolution()
+        }
+        .onReceive(
+            NotificationCenter.default
+                .publisher(for: .agentJoinDiagnosticsDidChange)
+                .receive(on: DispatchQueue.main)
+        ) { _ in
+            refreshDocAgentDiagnostic()
         }
     }
 
@@ -102,14 +120,70 @@ struct DebugViewSection: View {
         }
     }
 
-    /// The agent-variant flag. The toggle gates where variants are actually
-    /// picked: the sheet at conversation creation and the dropdown in the
-    /// make-an-agent composer. There is deliberately no picker here — a
-    /// variant belongs to one conversation, chosen as that conversation is
-    /// made, not set globally from Settings for whatever comes next.
+    /// The agent-variant flag. The toggle gates the picker at conversation
+    /// creation, including the Doc launch below, and the dropdown in the
+    /// make-an-agent composer.
     @ViewBuilder
     private var agentVariantToggles: some View {
         Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
+    }
+
+    @ViewBuilder
+    private var docSection: some View {
+        Section("Doc") {
+            Toggle("Doc mode", isOn: $isDocModeEnabled)
+                .disabled(isResolvingDocMode)
+                .onChange(of: isDocModeEnabled) { _, enabled in
+                    setDocMode(enabled)
+                }
+
+            if let docModeErrorMessage {
+                Text(docModeErrorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("doc-mode-error")
+            }
+
+            LabeledContent("Variant") {
+                Text(selectedDocVariantDescription)
+                    .foregroundStyle(.colorTextSecondary)
+                    .multilineTextAlignment(.trailing)
+                    .textSelection(.enabled)
+            }
+
+            LabeledContent("Runtime") {
+                VStack(alignment: .trailing, spacing: DesignConstants.Spacing.stepHalf) {
+                    Text(docAgentVariantDescription)
+                        .foregroundStyle(.colorTextSecondary)
+                        .multilineTextAlignment(.trailing)
+                        .textSelection(.enabled)
+                    Text(docAgentVariantDroppedDescription)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+
+            let resetDocAgentAction = { resetDocAgent() }
+            Button(action: resetDocAgentAction) {
+                HStack(spacing: DesignConstants.Spacing.stepX) {
+                    if isResettingDocAgent {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                    Text(isResettingDocAgent ? "Resetting Doc agent…" : "Reset Doc agent")
+                }
+                    .foregroundStyle(.colorTextPrimary)
+            }
+            .disabled(!canResetDocAgent || isResettingDocAgent)
+
+            if didResetDocAgent {
+                Label("Reset — reopen Doc to start over", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                    .accessibilityIdentifier("doc-agent-reset-confirmation")
+            }
+        }
     }
 
     @ViewBuilder
@@ -408,6 +482,136 @@ struct DebugViewSection: View {
                     .foregroundStyle(.colorTextPrimary)
             }
         }
+    }
+
+    private var docAgentVariantDescription: String {
+        guard let variant = docAgentDiagnostic?.variant else { return "none — default agent" }
+        let commit = variant.commit.isEmpty ? "unknown" : String(variant.commit.prefix(10))
+        return "\(variant.slug) @ \(commit)"
+    }
+
+    private var selectedDocVariantDescription: String {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-DocDiagnosticPreview") {
+            return "Doc · pr-3655"
+        }
+        #endif
+        if isResolvingDocMode { return "Checking registry…" }
+        switch docVariantResolution {
+        case .notRegistered:
+            return "No Doc variant registered"
+        case .unavailable:
+            return "Registry unavailable"
+        case .resolved(let variant):
+            return "\(variant.label) · \(variant.slug)"
+        case nil:
+            guard let variant = FeatureFlags.shared.selectedAgentVariant,
+                  variant.label == "Doc" else {
+                return "No Doc variant selected"
+            }
+            return "\(variant.label) · \(variant.slug)"
+        }
+    }
+
+    private var docAgentVariantDroppedDescription: String {
+        guard let docAgentDiagnostic else { return "No join response recorded" }
+        let requested = docAgentDiagnostic.requestedVariantId ?? "none"
+        let dropped = docAgentDiagnostic.variantDropped ?? "none"
+        return "requested: \(requested) · variantDropped: \(dropped)"
+    }
+
+    private func refreshDocAgentDiagnostic() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-DocDiagnosticPreview") {
+            docAgentBindingId = "doc-preview-conversation"
+            docAgentDiagnostic = AgentJoinDiagnostic(
+                conversationId: "doc-preview-conversation",
+                requestedVariantId: "pr-3655",
+                variant: .init(slug: "pr-3655", commit: "abc123def456"),
+                variantDropped: nil
+            )
+            return
+        }
+        #endif
+        docAgentBindingId = DocExperienceViewModel.storedOriginConversationId(session: session)
+        docAgentDiagnostic = docAgentBindingId.flatMap {
+            AgentJoinDiagnosticsStore.shared.diagnostic(for: $0)
+        }
+    }
+
+    private func resetDocAgent() {
+        guard !isResettingDocAgent else { return }
+        didResetDocAgent = false
+        isResettingDocAgent = true
+        Task {
+            await DocExperienceViewModel.resetAgentBinding(session: session)
+            docAgentBindingId = nil
+            docAgentDiagnostic = nil
+            isResettingDocAgent = false
+            didResetDocAgent = true
+        }
+    }
+
+    private func setDocMode(_ enabled: Bool) {
+        if !enabled {
+            FeatureFlags.shared.isDocModeEnabled = false
+            return
+        }
+        guard !isResolvingDocMode else { return }
+        docModeErrorMessage = nil
+        isResolvingDocMode = true
+        Task {
+            let resolution = await DocModeVariantResolver.resolve(forceRefresh: true)
+            docVariantResolution = resolution
+            if let errorMessage = DocModeResolutionPolicy.enablementError(for: resolution) {
+                docModeErrorMessage = errorMessage
+                FeatureFlags.shared.isDocModeEnabled = false
+                isDocModeEnabled = false
+            } else if case .resolved(let variant) = resolution {
+                await convergeDocAgent(to: variant)
+                FeatureFlags.shared.isDocModeEnabled = true
+            }
+            isResolvingDocMode = false
+        }
+    }
+
+    private func refreshDocVariantResolution() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-DocDiagnosticPreview") {
+            return
+        }
+        #endif
+        if FeatureFlags.shared.isDocModeEnabled {
+            docVariantResolution = await DocModeVariantResolver.resolve()
+            return
+        }
+        await AgentVariantRegistry.shared.loadIfNeeded()
+        guard AgentVariantRegistry.shared.loadState == .loaded else {
+            docVariantResolution = .unavailable
+            return
+        }
+        if let variant = AgentVariantRegistry.shared.mostRecentlyRegisteredVariant(labeled: "Doc") {
+            docVariantResolution = .resolved(variant)
+        } else {
+            docVariantResolution = .notRegistered
+        }
+    }
+
+    private func convergeDocAgent(to variant: ConvosAPI.AgentVariant) async {
+        let action = DocAgentConvergenceAction.resolve(
+            conversationId: docAgentBindingId,
+            diagnostic: docAgentDiagnostic,
+            expectedVariantSlug: variant.slug
+        )
+        guard action == .replace else { return }
+        await DocExperienceViewModel.resetAgentBindingForVariantConvergence(session: session)
+        docAgentBindingId = nil
+        docAgentDiagnostic = nil
+        didResetDocAgent = false
+    }
+
+    private var canResetDocAgent: Bool {
+        docAgentBindingId != nil || session.peekPreparedConversationId() != nil
     }
 }
 

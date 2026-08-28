@@ -21,6 +21,7 @@ final class CloudConnectionGrantRequestSheetViewModel {
     let serviceId: String
     let conversationId: String
     let conversation: Conversation?
+    let isPreviewingDisconnectedService: Bool
 
     private let session: any SessionManagerProtocol
     private let cloudConnectionManager: any CloudConnectionManagerProtocol
@@ -31,18 +32,25 @@ final class CloudConnectionGrantRequestSheetViewModel {
         serviceId: String,
         conversationId: String,
         conversation: Conversation?,
-        session: any SessionManagerProtocol
+        session: any SessionManagerProtocol,
+        previewingDisconnectedService: Bool = false
     ) {
         self.serviceId = serviceId
         self.conversationId = conversationId
         self.conversation = conversation
         self.session = session
+        self.isPreviewingDisconnectedService = previewingDisconnectedService
 
         let callbackScheme = ConfigManager.shared.appUrlScheme
         self.cloudConnectionManager = session.cloudConnectionManager(
             callbackURLScheme: callbackScheme
         )
         self.cloudConnectionRepository = session.cloudConnectionRepository()
+
+        if previewingDisconnectedService {
+            isLoading = false
+            return
+        }
 
         cancellable = cloudConnectionRepository.connectionsPublisher()
             .receive(on: DispatchQueue.main)
@@ -82,7 +90,7 @@ final class CloudConnectionGrantRequestSheetViewModel {
     }
 
     func share() {
-        guard let connection else { return }
+        guard !isPreviewingDisconnectedService, let connection else { return }
         isBusy = true
         error = nil
         let agents = agentInboxIds
@@ -105,6 +113,7 @@ final class CloudConnectionGrantRequestSheetViewModel {
     }
 
     func connectAndShare() {
+        guard !isPreviewingDisconnectedService else { return }
         isBusy = true
         error = nil
         let agents = agentInboxIds
@@ -273,13 +282,13 @@ struct CloudConnectionGrantRequestSheet: View {
                 }
                 Text(title)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(.white)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, DesignConstants.Spacing.step3x)
-            .background(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular).fill(Color.colorFillPrimary))
         }
-        .disabled(isLoading)
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .frame(minHeight: 44.0)
+        .disabled(isLoading || viewModel.isPreviewingDisconnectedService)
     }
 
     @ViewBuilder
