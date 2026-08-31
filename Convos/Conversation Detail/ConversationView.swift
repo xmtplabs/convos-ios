@@ -57,7 +57,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// is pushed this view puts its own back button in the leading slot, so a
     /// host that renders one too (the new-convo sheet's close) hides its own
     /// and the bar keeps a single leading button.
-    var onHomeBrowsingChanged: ((Bool) -> Void)?
     /// Replaces the window safe-area inset used to position the floating top
     /// chrome. Standalone sheets pass the same fixed inset as their locally
     /// rendered conversation indicator.
@@ -120,7 +119,17 @@ struct ConversationView<MessagesBottomBar: View>: View {
     /// While non-empty, the top bar swaps the system back button for one
     /// that pops pages, and hides the add-members item.
     @State private var groupEmptyStateSettled: Bool = false
-    @State private var homeBrowserEntries: [HomeBrowserEntry] = []
+    /// The Space page a tap opened, presented as a sheet. Pages open over the
+    /// conversation rather than inside it, so the tab underneath keeps its
+    /// place and its scroll position.
+    @State private var spaceSheetRoot: HomeBrowserEntry?
+    /// The sheet's own navigation stack, for links followed inside it.
+    @State private var spaceSheetPath: [HomeBrowserEntry] = []
+    /// The group's member list, opened from the Home's directory tile.
+    @State private var presentingMembersList: Bool = false
+    /// How far the Context page has scrolled up under the chrome, which decides
+    /// whether the wash behind the segmented control is drawn at all.
+    @State private var contextScrolledUnderChrome: CGFloat = 0
     @State private var showingDebugInjector: Bool = false
     @State private var presentingAddFromContactsPicker: Bool = false
     /// Non-nil presents the Connections browser modal, carrying the
@@ -539,7 +548,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         // moving the user somewhere they did not ask to go.
         .onChange(of: viewModel.conversation.spaceURL) { _, newURL in
             if newURL == nil {
-                homeBrowserEntries.removeAll()
+                dismissSpaceSheet()
             }
         }
         // The new-convo flow swaps a placeholder view model for the real
@@ -629,10 +638,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ContentPopGestureDisabler()
                 .frame(width: 0, height: 0)
         }
-        // While browser pages are showing, the pop-a-page back button in
-        // `topBarTrailing` stands in for the system one.
-        .navigationBarBackButtonHidden(isBrowsingHome)
-        .modifier(HomeBrowsingReporter(isBrowsing: isBrowsingHome, onChanged: onHomeBrowsingChanged))
         .modifier(metricsObserversPart1)
         .modifier(metricsObserversPart2)
         .modifier(metricsObserversPart3)
@@ -1092,11 +1097,11 @@ private extension ConversationView {
         }
         showContextForSpaceLink()
         if SpaceLink.isRoot(url, space: spaceURL) {
-            // The root *is* the Home. Walk any open chain back to it rather
-            // than stacking a second copy on top of itself.
-            homeBrowserEntries.removeAll()
-        } else if !isShowingHomeBrowserPage(for: url) {
-            pushHomeBrowserPage(for: url)
+            // The root *is* the Home, and the Home is the tab itself. Close
+            // whatever is open over it rather than presenting a second copy.
+            dismissSpaceSheet()
+        } else if !isShowingSpacePage(for: url) {
+            presentSpacePage(for: url, title: nil)
         }
         return true
     }
@@ -1122,20 +1127,32 @@ private extension ConversationView {
     /// places in it, and nothing here can scroll a page that is already open -
     /// so a link to the anchor is pushed, and lands on it, rather than being
     /// swallowed as somewhere the reader already is.
-    private func isShowingHomeBrowserPage(for url: URL) -> Bool {
-        guard let current = homeBrowserEntries.last else { return false }
+    private func isShowingSpacePage(for url: URL) -> Bool {
+        guard let current = spaceSheetPath.last ?? spaceSheetRoot else {
+            return false
+        }
         return SpaceLink.isSameLocation(current.url, as: url)
     }
 
-    private func pushHomeBrowserPage(for url: URL) {
-        homeBrowserEntries.append(HomeBrowserEntry(url: url))
+    /// Opens a Space page over the conversation.
+    ///
+    /// A page opened from the Home is a place a reader goes and comes back
+    /// from, not a step deeper into the conversation — so it is presented,
+    /// with a stack of its own for links followed inside it, and dismissing
+    /// returns to the Home exactly as it was left.
+    private func presentSpacePage(for url: URL, title: String?) {
+        let entry = HomeBrowserEntry(url: url, title: title)
+        if spaceSheetRoot == nil {
+            spaceSheetPath = []
+            spaceSheetRoot = entry
+        } else {
+            spaceSheetPath.append(entry)
+        }
     }
 
-    /// Walks one page back. The stack animates it, and an edge swipe does the
-    /// same thing without coming through here at all.
-    private func popHomeBrowserPage() {
-        guard !homeBrowserEntries.isEmpty else { return }
-        homeBrowserEntries.removeLast()
+    private func dismissSpaceSheet() {
+        spaceSheetRoot = nil
+        spaceSheetPath = []
     }
 
     /// Promotes focus onto the tab whose composer just took it.
@@ -1170,39 +1187,11 @@ private extension ConversationView {
         scrollTranscriptToBottom(selectedTab, animated: animated)
     }
 
-    /// True while the Context tab is showing an open browsing chain: the top bar
-    /// pops pages instead of the conversation, and the add-members item hides.
-    ///
-    /// Scoped to the selected tab, not just to the chain. The Space used to sit
-    /// behind the sheet where it was always the thing on screen, so an open
-    /// chain always meant the user was in it. It is a tab now: leaving Context
-    /// with pages still pushed would keep the bar in browser mode over a
-    /// transcript, where its Back button pops a stack nobody can see instead of
-    /// leaving the conversation. The chain is kept rather than cleared, so
-    /// coming back to Context returns to the page they were on.
-    private var isBrowsingHome: Bool {
-        selectedTab == .context && !homeBrowserEntries.isEmpty
-    }
-
     @ToolbarContentBuilder
     private var topBarTrailing: some ToolbarContent {
-        // Swap the system back button for one that pops browser pages while
-        // the home browsing chain is showing, walking home to the root
-        // home view.
-        if isBrowsingHome {
-            ToolbarItem(placement: .topBarLeading) {
-                Button(action: popHomeBrowserPage) {
-                    Image(systemName: "chevron.left")
-                        .fontWeight(.semibold)
-                }
-                .accessibilityLabel("Back")
-                .accessibilityIdentifier("home-browser-back")
-            }
-        }
         // The embedded Scan/Invite toggle owns scanning, so the lone viewfinder
-        // toolbar item is dropped for that flow. Browser pages hide the
-        // trailing item entirely.
-        if !topBarTrailingHidden && !isBrowsingHome {
+        // toolbar item is dropped for that flow.
+        if !topBarTrailingHidden {
             ToolbarItem(placement: .topBarTrailing) {
                 if viewModel.isLocked {
                     lockedInfoButton
@@ -1388,6 +1377,8 @@ private extension ConversationView {
             // The wash is its own layer, not the chrome's background: it runs
             // taller than the chrome's frame and a background would clip it.
             ConversationChromeScrim(topSafeAreaInset: topChromeInset)
+                .opacity(chromeScrimOpacity)
+                .animation(.easeOut(duration: 0.15), value: chromeScrimOpacity)
             ConversationTopChrome(topSafeAreaInset: topChromeInset) {
                 ConversationSegmentedControl(
                     selectedTab: $selectedTab,
@@ -1397,6 +1388,12 @@ private extension ConversationView {
             }
         }
         .overlay { messageContextMenuOverlay }
+        .sheet(item: $spaceSheetRoot) { root in
+            spaceSheet(root: root)
+        }
+        .sheet(isPresented: $presentingMembersList) {
+            membersListSheet
+        }
         // The agent composer's own state mirrors its own coordinator. Without
         // it, `FocusCoordinator.moveFocus` still runs and still updates the
         // coordinator, but nothing takes first responder. The group composer
@@ -1585,18 +1582,28 @@ private extension ConversationView {
         }
     }
 
+    /// How strongly to wash behind the segmented control.
+    ///
+    /// The wash exists to keep the control readable over content moving beneath
+    /// it. The transcripts always have something under it, so they always get
+    /// it. The Context page does not: at rest its own heading sits below the
+    /// control with nothing overlapping, and washing that reads as the page
+    /// starting greyed and pushed down rather than as chrome. So it fades in
+    /// over the first few points of scroll and is simply absent before that.
+    private var chromeScrimOpacity: CGFloat {
+        guard selectedTab == .context else { return 1.0 }
+        let ramp: CGFloat = ConversationChromeMetrics.controlBottomPadding
+        return min(1.0, max(0.0, contextScrolledUnderChrome / ramp))
+    }
+
     /// The Context tab: the conversation's Space page, in a navigation stack of
     /// its own so a link tapped inside it pushes without leaving the
     /// conversation. The stack wraps this page only - the chrome is a sibling
     /// above it, so pushing a page never slides the segmented control away.
     @ViewBuilder
     private var contextPage: some View {
-        HomeBrowserNavigationHost(
-            entries: $homeBrowserEntries,
-            root: { AnyView(spaceSurface) },
-            page: { entry in AnyView(homeBrowserPage(for: entry)) }
-        )
-        .ignoresSafeArea()
+        spaceSurface
+            .ignoresSafeArea()
     }
 
     /// One page in the Context tab's browsing chain.
@@ -1605,10 +1612,93 @@ private extension ConversationView {
         HomeBrowserPageView(
             entry: entry,
             onNavigationRequest: { url in
-                pushHomeBrowserPage(for: url)
+                spaceSheetPath.append(HomeBrowserEntry(url: url, title: nil))
             },
             bridgeNavigation: homeBridgeNavigation
         )
+    }
+
+    /// A Space page and everything reachable from it, over the conversation.
+    @ViewBuilder
+    private func spaceSheet(root: HomeBrowserEntry) -> some View {
+        NavigationStack(path: $spaceSheetPath) {
+            spaceSheetPage(root, isRoot: true)
+                .navigationDestination(for: HomeBrowserEntry.self) { entry in
+                    spaceSheetPage(entry, isRoot: false)
+                }
+        }
+    }
+
+    /// One page inside the sheet, under a bar naming what was tapped.
+    ///
+    /// The page draws its own heading once it loads, but the bar is there
+    /// before that and stays while a reader scrolls — and the tile's caption is
+    /// the name they just chose, so it is the one they expect to see.
+    @ViewBuilder
+    private func spaceSheetPage(
+        _ entry: HomeBrowserEntry,
+        isRoot: Bool
+    ) -> some View {
+        homeBrowserPage(for: entry)
+            .navigationTitle(entry.title ?? "")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Only the page the sheet opened on closes it. A page reached
+                // by a link has the stack's own back button, and two ways out
+                // sharing one corner reads as a mistake — which it was.
+                if isRoot {
+                    sheetCloseItem(
+                        identifier: "space-sheet-close",
+                        action: dismissSpaceSheet
+                    )
+                }
+            }
+    }
+
+    /// The close button every sheet opened from the Home carries.
+    ///
+    /// The wash goes on the button, not on the label inside it: put on the
+    /// label, the toolbar draws its own background around the result and the
+    /// circle reads as a rounded rect. Toolbar items also share one glass
+    /// background whose shape the bar chooses, which squares it off again —
+    /// hence opting this item out of it.
+    @ToolbarContentBuilder
+    private func sheetCloseItem(
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button(action: action) {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(
+                        width: SpaceSheetMetrics.closeButtonSize,
+                        height: SpaceSheetMetrics.closeButtonSize
+                    )
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .accessibilityLabel("Close")
+            .accessibilityIdentifier(identifier)
+        }
+        .sharedBackgroundVisibility(.hidden)
+    }
+
+    /// The group's own member list, presented rather than pushed — the same
+    /// view the conversation's info view opens, so the Home's directory tile
+    /// and that path arrive at one members list rather than two.
+    @ViewBuilder
+    private var membersListSheet: some View {
+        NavigationStack {
+            ConversationMembersListView(viewModel: viewModel)
+                .toolbar {
+                    sheetCloseItem(identifier: "members-sheet-close") {
+                        presentingMembersList = false
+                    }
+                }
+        }
     }
 
     /// The Context tab's root: the conversation's Space web surface.
@@ -1633,15 +1723,46 @@ private extension ConversationView {
                 .ignoresSafeArea()
             }
             .accessibilityIdentifier("context-no-agent")
-        } else {
-            HomeLayoutView(
-                webURL: viewModel.conversation.spaceURL,
-                onNavigationRequest: { url in
-                    pushHomeBrowserPage(for: url)
+        } else if FeatureFlags.shared.isNativeSpaceEnabled {
+            // The document carries the same page the web surface would draw, so
+            // a tapped tile still opens the real page in the browsing chain
+            // rather than a second native screen that does not exist yet. A
+            // Space whose deployment predates the document route falls back to
+            // that page wholesale.
+            //
+            // Drawn with or without a URL. A Space is published only once it has
+            // been forked, built and activated, and the page it opens with is
+            // the same for every group — so the tab draws that page immediately
+            // and swaps to the served one when it lands, rather than holding a
+            // spinner over a wait a reader can do nothing about.
+            NativeSpaceView(
+                spaceURL: viewModel.conversation.spaceURL,
+                memberNames: viewModel.conversation.members.map(\.displayName),
+                topSafeAreaInset: topChromeInset,
+                onOpen: { url, title in
+                    presentSpacePage(for: url, title: title)
                 },
-                bridgeNavigation: homeBridgeNavigation
+                onOpenMembers: { presentingMembersList = true },
+                onInvite: homeBridgeNavigation.showInvitePicker,
+                onAsk: homeBridgeNavigation.showAgentDm,
+                onScrollUnderChrome: { contextScrolledUnderChrome = $0 },
+                webFallback: AnyView(spaceWebSurface)
             )
+        } else {
+            spaceWebSurface
         }
+    }
+
+    /// The Context tab's Space page, drawn in the web view.
+    @ViewBuilder
+    private var spaceWebSurface: some View {
+        HomeLayoutView(
+            webURL: viewModel.conversation.spaceURL,
+            onNavigationRequest: { url in
+                presentSpacePage(for: url, title: nil)
+            },
+            bridgeNavigation: homeBridgeNavigation
+        )
     }
 
     /// Native destinations for the home page's `window.convos` invite/chat
@@ -2181,4 +2302,11 @@ private extension ConversationView {
         }
         .animation(.spring(duration: 0.4, bounce: 0.2), value: bottomBarSlot)
     }
+}
+
+/// Metrics for the sheet a Space page opens in.
+private enum SpaceSheetMetrics {
+    /// Sized like the conversation's own round chrome buttons, so the two read
+    /// as the same control.
+    static let closeButtonSize: CGFloat = 44.0
 }

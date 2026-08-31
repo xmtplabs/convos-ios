@@ -65,6 +65,31 @@ final class FeatureFlags {
         }
     }
 
+    /// On by default outside production -- draws the Context tab from the Space
+    /// document instead of its web page. Toggle from App Settings -> Debug.
+    ///
+    /// Unlike the flags above this one is an opt-*out*: the native surface is
+    /// what a dev build should be exercising, and the toggle exists to drop back
+    /// to the web page when something is missing from it. An unset key therefore
+    /// reads true rather than false. Still hard-locked off in production, where
+    /// the tiles are not finished enough to face an end user.
+    var isNativeSpaceEnabled: Bool {
+        get {
+            access(keyPath: \.isNativeSpaceEnabled)
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return false }
+            guard UserDefaults.standard.object(forKey: Constant.nativeSpaceEnabledKey) != nil else {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: Constant.nativeSpaceEnabledKey)
+        }
+        set {
+            guard !ConfigManager.shared.currentEnvironment.isProduction else { return }
+            withMutation(keyPath: \.isNativeSpaceEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.nativeSpaceEnabledKey)
+            }
+        }
+    }
+
     /// Off by default -- opts libxmtp streams onto the shared bidi wire by
     /// exporting `XMTP_BIDI_STREAMS_ENABLED` at launch (see `ConvosApp.init`;
     /// flips take effect on the next launch). Deliberately not prod-locked
@@ -227,6 +252,7 @@ final class FeatureFlags {
         static let mockCreditsPresetKey: String = "featureFlags.mockCreditsPreset"
         static let selectedAgentVariantKey: String = "featureFlags.selectedAgentVariant"
         static let agentVariantSelectorEnabledKey: String = "featureFlags.agentVariantSelectorEnabled"
+        static let nativeSpaceEnabledKey: String = "featureFlags.nativeSpaceEnabled"
         static let xmtpBidiStreamsEnabledKey: String = "featureFlags.xmtpBidiStreamsEnabled"
         static let spaceShareEnabledKey: String = "featureFlags.spaceShareEnabled"
         static let webInspectorEnabledKey: String = "featureFlags.webInspectorEnabled"

@@ -110,6 +110,7 @@ struct DebugViewSection: View {
     @ViewBuilder
     private var agentVariantToggles: some View {
         Toggle("Agent variant selector", isOn: Bindable(FeatureFlags.shared).isAgentVariantSelectorEnabled)
+        Toggle("Native space (Things tab)", isOn: Bindable(FeatureFlags.shared).isNativeSpaceEnabled)
     }
 
     @ViewBuilder
