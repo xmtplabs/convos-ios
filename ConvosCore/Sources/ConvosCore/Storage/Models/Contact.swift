@@ -58,6 +58,13 @@ public struct Contact: Hashable, Identifiable, Sendable {
     /// runtime assigned addresses. Drives the contact card's Contact Info
     /// section.
     public let agentEmail: String?
+    /// The agent's SMS number in E.164, read from the per-conversation
+    /// member profile metadata at resolution time. Not persisted on
+    /// `DBContact`; overlaid via `with(agentPhone:)` in
+    /// `Contact.resolved(member:...)`. nil for human contacts and for
+    /// agents whose runtime has not provisioned SMS. Drives the Text
+    /// row in the contact card's Contact Info section.
+    public let agentPhone: String?
     /// The agent's published attestation signature, read from the
     /// per-conversation member profile metadata at resolution time. Not
     /// persisted on `DBContact`. Surfaced on the contact card behind a
@@ -88,6 +95,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
         profileEmoji: String? = nil,
         agentInstanceId: String? = nil,
         agentEmail: String? = nil,
+        agentPhone: String? = nil,
         agentAttestation: String? = nil,
         agentDescription: String? = nil
     ) {
@@ -106,6 +114,7 @@ public struct Contact: Hashable, Identifiable, Sendable {
         self.profileEmoji = profileEmoji
         self.agentInstanceId = agentInstanceId
         self.agentEmail = agentEmail
+        self.agentPhone = agentPhone
         self.agentAttestation = agentAttestation
         self.agentDescription = agentDescription
     }
@@ -202,7 +211,8 @@ extension Contact {
         agentTemplatePublishedURL: String? = nil,
         profileEmoji: String? = nil,
         agentInstanceId: String? = nil,
-        agentEmail: String? = nil
+        agentEmail: String? = nil,
+        agentPhone: String? = nil
     ) -> Contact {
         Contact(
             inboxId: inboxId,
@@ -219,7 +229,8 @@ extension Contact {
             agentTemplatePublishedURL: agentTemplatePublishedURL,
             profileEmoji: profileEmoji,
             agentInstanceId: agentInstanceId,
-            agentEmail: agentEmail
+            agentEmail: agentEmail,
+            agentPhone: agentPhone
         )
     }
 
@@ -243,7 +254,8 @@ extension Contact {
             agentTemplatePublishedURL: agentTemplatePublishedURL,
             profileEmoji: profileEmoji,
             agentInstanceId: agentInstanceId,
-            agentEmail: agentEmail
+            agentEmail: agentEmail,
+            agentPhone: agentPhone
         )
     }
 
@@ -267,7 +279,8 @@ extension Contact {
             agentTemplatePublishedURL: agentTemplatePublishedURL,
             profileEmoji: profileEmoji,
             agentInstanceId: agentInstanceId,
-            agentEmail: agentEmail
+            agentEmail: agentEmail,
+            agentPhone: agentPhone
         )
     }
 
@@ -295,7 +308,8 @@ extension Contact {
             agentTemplatePublishedURL: agentTemplatePublishedURL,
             profileEmoji: profileEmoji,
             agentInstanceId: agentInstanceId,
-            agentEmail: agentEmail
+            agentEmail: agentEmail,
+            agentPhone: agentPhone
         )
     }
 
@@ -319,7 +333,8 @@ extension Contact {
             agentTemplatePublishedURL: agentTemplatePublishedURL,
             profileEmoji: profileEmoji,
             agentInstanceId: agentInstanceId,
-            agentEmail: agentEmail
+            agentEmail: agentEmail,
+            agentPhone: agentPhone
         )
     }
 
@@ -341,6 +356,7 @@ extension Contact {
             profileEmoji: profileEmoji,
             agentInstanceId: agentInstanceId,
             agentEmail: agentEmail,
+            agentPhone: agentPhone,
             agentAttestation: agentAttestation
         )
     }
@@ -366,6 +382,32 @@ extension Contact {
             profileEmoji: profileEmoji,
             agentInstanceId: agentInstanceId,
             agentEmail: agentEmail,
+            agentPhone: agentPhone,
+            agentAttestation: agentAttestation
+        )
+    }
+
+    /// Returns a copy with `agentPhone` overlaid. Mirrors `with(agentEmail:)`:
+    /// the number comes from a live per-conversation member profile and is not
+    /// persisted on `DBContact`.
+    public func with(agentPhone: String?) -> Contact {
+        Contact(
+            inboxId: inboxId,
+            displayName: displayName,
+            avatarURL: avatarURL,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
+            addedAt: addedAt,
+            addedViaConversationId: addedViaConversationId,
+            isBlocked: isBlocked,
+            agentVerification: agentVerification,
+            agentTemplateId: agentTemplateId,
+            agentTemplatePublishedURL: agentTemplatePublishedURL,
+            profileEmoji: profileEmoji,
+            agentInstanceId: agentInstanceId,
+            agentEmail: agentEmail,
+            agentPhone: agentPhone,
             agentAttestation: agentAttestation
         )
     }
@@ -391,6 +433,7 @@ extension Contact {
             profileEmoji: profileEmoji,
             agentInstanceId: agentInstanceId,
             agentEmail: agentEmail,
+            agentPhone: agentPhone,
             agentAttestation: agentAttestation
         )
     }
