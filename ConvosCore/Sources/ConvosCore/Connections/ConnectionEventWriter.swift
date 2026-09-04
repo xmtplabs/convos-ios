@@ -37,7 +37,15 @@ public enum ConnectionEventWriterError: Error, LocalizedError {
     }
 }
 
-final class ConnectionEventWriter: ConnectionEventWriterProtocol, Sendable {
+/// The raw single-conversation send underneath the writer protocol. Split out
+/// so `ConnectionEventRouter` can fan a fully-formed event (including the
+/// `notice` copy) into a specific conversation without re-deriving it from the
+/// protocol's granted/revoked parameters.
+protocol ConnectionEventSending: Sendable {
+    func send(_ event: ConnectionEvent, in conversationId: String) async throws
+}
+
+final class ConnectionEventWriter: ConnectionEventWriterProtocol, ConnectionEventSending, Sendable {
     private let sessionStateManager: any SessionStateManagerProtocol
 
     init(sessionStateManager: any SessionStateManagerProtocol) {
@@ -50,11 +58,13 @@ final class ConnectionEventWriter: ConnectionEventWriterProtocol, Sendable {
         grantedToInboxId: String?,
         in conversationId: String
     ) async throws {
-        try await sendEvent(
-            .granted,
-            providerId: providerId,
-            capability: capability,
-            grantedToInboxId: grantedToInboxId,
+        try await send(
+            ConnectionEvent(
+                providerId: providerId,
+                action: .granted,
+                capability: capability,
+                grantedToInboxId: grantedToInboxId
+            ),
             in: conversationId
         )
     }
@@ -65,22 +75,18 @@ final class ConnectionEventWriter: ConnectionEventWriterProtocol, Sendable {
         grantedToInboxId: String?,
         in conversationId: String
     ) async throws {
-        try await sendEvent(
-            .revoked,
-            providerId: providerId,
-            capability: capability,
-            grantedToInboxId: grantedToInboxId,
+        try await send(
+            ConnectionEvent(
+                providerId: providerId,
+                action: .revoked,
+                capability: capability,
+                grantedToInboxId: grantedToInboxId
+            ),
             in: conversationId
         )
     }
 
-    private func sendEvent(
-        _ action: ConnectionEvent.Action,
-        providerId: String,
-        capability: ConnectionCapability?,
-        grantedToInboxId: String?,
-        in conversationId: String
-    ) async throws {
+    func send(_ event: ConnectionEvent, in conversationId: String) async throws {
         let inboxReady = try await sessionStateManager.waitForInboxReadyResult()
         let client = inboxReady.client
 
@@ -88,12 +94,6 @@ final class ConnectionEventWriter: ConnectionEventWriterProtocol, Sendable {
             throw ConnectionEventWriterError.conversationNotFound(conversationId: conversationId)
         }
 
-        let event = ConnectionEvent(
-            providerId: providerId,
-            action: action,
-            capability: capability,
-            grantedToInboxId: grantedToInboxId
-        )
         let encoded = try ConnectionEventCodec().encode(content: event)
         try await conversation.send(encodedContent: encoded)
     }

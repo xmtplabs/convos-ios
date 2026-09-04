@@ -449,7 +449,10 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     }
 
     func connectionEventWriter() -> any ConnectionEventWriterProtocol {
-        ConnectionEventWriter(sessionStateManager: sessionStateManager)
+        ConnectionEventRouter(
+            sender: ConnectionEventWriter(sessionStateManager: sessionStateManager),
+            databaseReader: databaseReader
+        )
     }
 
     func capabilityRequestResultWriter() -> any CapabilityRequestResultWriterProtocol {

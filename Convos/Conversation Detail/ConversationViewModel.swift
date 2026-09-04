@@ -2510,13 +2510,13 @@ class ConversationViewModel: Identifiable, Hashable { // swiftlint:disable:this 
             }
             revokedServiceIds.append(serviceId)
             let providerId = ProviderID(rawValue: "composio.\(serviceId)")
-            // Revoke text is a complete sentence ("Calendar connection
-            // removed") rendered conversation-level, so grantedToInboxId
-            // stays nil — same as the conversation-info revoke path.
+            // The agent inbox id is what lets the event route to the agent's
+            // DM instead of the shared group transcript; when no DM exists the
+            // router falls back to sending here, conversation-level.
             try? await eventWriter.sendRevoked(
                 providerId: providerId.rawValue,
                 capability: nil,
-                grantedToInboxId: nil,
+                grantedToInboxId: grantedToInboxId,
                 in: conversationId
             )
             do {

@@ -139,4 +139,54 @@ struct AgentDmTapRoutingTests {
             #expect(try DBAgentDmOrigin.originConversationId(for: "unknown", in: db) == nil)
         }
     }
+
+    @Test("The reverse lookup resolves the agent's DM under an origin group")
+    func reverseLookupResolvesDm() throws {
+        let queue = try Self.migratedQueue()
+        try queue.write { try Self.seed($0) }
+
+        let resolved = try queue.read { db in
+            try DBAgentDmOrigin.dmConversationId(
+                forOrigin: Self.parentId, agentInboxId: Self.agentInboxId, in: db
+            )
+        }
+        #expect(resolved == Self.dmId)
+    }
+
+    @Test("The reverse lookup rejects a non-member agent and an unknown origin")
+    func reverseLookupRejectsMismatches() throws {
+        let queue = try Self.migratedQueue()
+        try queue.write { try Self.seed($0) }
+
+        let nonMember = try queue.read { db in
+            try DBAgentDmOrigin.dmConversationId(
+                forOrigin: Self.parentId, agentInboxId: "inbox-other", in: db
+            )
+        }
+        #expect(nonMember == nil)
+
+        let unknownOrigin = try queue.read { db in
+            try DBAgentDmOrigin.dmConversationId(
+                forOrigin: "unknown-group", agentInboxId: Self.agentInboxId, in: db
+            )
+        }
+        #expect(unknownOrigin == nil)
+    }
+
+    @Test("The reverse lookup ignores a link whose conversation is no longer an agent DM")
+    func reverseLookupIgnoresNonDmLink() throws {
+        let queue = try Self.migratedQueue()
+        try queue.write { db in
+            try Self.seed(db, withOrigin: false)
+            // A stale link pointing at a plain group must not route events there.
+            try DBAgentDmOrigin.record(conversationId: Self.parentId, originConversationId: "some-group", in: db)
+        }
+
+        let resolved = try queue.read { db in
+            try DBAgentDmOrigin.dmConversationId(
+                forOrigin: "some-group", agentInboxId: Self.agentInboxId, in: db
+            )
+        }
+        #expect(resolved == nil)
+    }
 }

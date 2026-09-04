@@ -58,6 +58,28 @@ struct ConnectionEventCodecTests {
         }
         #expect(!json.contains("capability"))
     }
+
+    @Test("round-trips the notice marker and omits it when nil")
+    func roundTripsNotice() throws {
+        let codec = ConnectionEventCodec()
+        let notice = ConnectionEvent(
+            providerId: "composio.googlecalendar",
+            action: .granted,
+            notice: true
+        )
+        let decoded = try codec.decode(content: codec.encode(content: notice))
+        #expect(decoded.notice == true)
+        #expect(decoded == notice)
+
+        let plain = ConnectionEvent(providerId: "composio.googlecalendar", action: .granted)
+        let data = try JSONEncoder().encode(plain)
+        guard let json = String(data: data, encoding: .utf8) else {
+            Issue.record("Failed to decode JSON output")
+            return
+        }
+        #expect(!json.contains("notice"), "Normal events must stay byte-identical for old receivers")
+        #expect(try JSONDecoder().decode(ConnectionEvent.self, from: data).notice == nil)
+    }
 }
 
 @Suite("ConnectionMessageSummaryFormatter capability text")

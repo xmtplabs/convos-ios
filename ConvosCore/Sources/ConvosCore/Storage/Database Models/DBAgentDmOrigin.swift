@@ -33,6 +33,31 @@ extension DBAgentDmOrigin {
         try fetchOne(db, key: conversationId)?.originConversationId
     }
 
+    /// The reverse mapping: the agent DM a given agent owns under a given
+    /// origin group, or nil when no such DM is known locally. Verifies the
+    /// candidate is still classified as an agent DM and that the agent is a
+    /// member, so a stale link never routes an event into the wrong
+    /// conversation.
+    static func dmConversationId(
+        forOrigin originConversationId: String,
+        agentInboxId: String,
+        in db: Database
+    ) throws -> String? {
+        let links = try DBAgentDmOrigin
+            .filter(Columns.originConversationId == originConversationId)
+            .fetchAll(db)
+        for link in links {
+            guard let conversation = try DBConversation.fetchOne(db, key: link.conversationId),
+                  conversation.isAgentDm else { continue }
+            let isMember = try DBConversationMember
+                .filter(DBConversationMember.Columns.conversationId == link.conversationId)
+                .filter(DBConversationMember.Columns.inboxId == agentInboxId)
+                .fetchCount(db) > 0
+            if isMember { return link.conversationId }
+        }
+        return nil
+    }
+
     /// Records (or replaces) the DM -> parent link. No-op when `originConversationId`
     /// is nil or empty so a marker written without an origin never clears a good one.
     static func record(conversationId: String, originConversationId: String?, in db: Database) throws {
