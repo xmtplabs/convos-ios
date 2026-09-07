@@ -11,6 +11,10 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Convos uses Apple Health when an agent asks about your activity, workouts, or sleep.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Convos uses Apple Health when an agent logs a workout or activity for you.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Convos needs access to your Photo Library to save photos from conversations.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

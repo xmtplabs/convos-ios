@@ -79,6 +79,11 @@ let package = Package(
             name: "ConvosCoreiOS",
             dependencies: [
                 .target(name: "ConvosCore", condition: .when(platforms: [.iOS])),
+                .product(
+                    name: "ConvosConnectionsHealth",
+                    package: "ConvosConnections",
+                    condition: .when(platforms: [.iOS])
+                ),
             ],
             path: "Sources/ConvosCoreiOS",
             swiftSettings: [
