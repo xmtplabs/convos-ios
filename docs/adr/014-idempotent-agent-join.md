@@ -1,6 +1,6 @@
 # ADR 014: Idempotent Agent Join
 
-> **Status**: Proposed (2026-07-02).
+> **Status**: Accepted (shipped 2026-07-14, convos-ios #1171).
 > **Scope**: Cross-repo decision driven by the iOS/messaging team. Client
 > changes land in `convos-ios`; the passthrough lands in `convos-backend`; the
 > deduplicating change lands in `convos-assistants`.

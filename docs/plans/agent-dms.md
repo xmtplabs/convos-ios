@@ -1,6 +1,6 @@
 # Agent DMs — Implementation Plan
 
-> **Status**: Draft (spike output for CON-761)
+> **Status**: Draft (spike output for CON-761). **DM creation here is superseded.** Sections 4 and 6.4.2 describe a client-side DM creator that was replaced by agent-owned creation — the current design is [`agent-owned-dm-creation.md`](./agent-owned-dm-creation.md) and [ADR 015 — Agent-Owned DM Creation](../adr/015-agent-owned-dm-creation.md). The 2-member group transport, the DM registry + atomic per-peer reserve, and revocation described below remain current (they are reused unchanged).
 > **Author**: jarod
 > **Created**: 2026-07-22
 > **Ticket**: [CON-761 — Spike: Agent DM Viability](https://linear.app/convos/issue/CON-761/spike-agent-dm-viability)

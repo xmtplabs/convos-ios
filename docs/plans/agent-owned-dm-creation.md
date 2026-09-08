@@ -1,9 +1,10 @@
 # Agent-owned DM creation — design + as-built (CON-761)
 
-> **Status**: Implemented across 5 PRs (below), on top of latest `dev`. Sections 1-3 are the design rationale; **section 0 (As-built) is authoritative** for what actually shipped.
+> **Status**: Merged to `dev` (2026-08-12) across all 5 PRs (below). Sections 1-3 are the design rationale; **section 0 (As-built) is authoritative** for what actually shipped.
 > **Author**: jarod
 > **Created**: 2026-08-04
 > **Ticket**: CON-761 (Agent DMs)
+> **Decision record**: [ADR 015 — Agent-Owned DM Creation (iOS Reflector)](../adr/015-agent-owned-dm-creation.md) (iOS) and `convos-assistants` ADR 015 (backend). This plan doc holds the full cross-repo design + build notes.
 > **Amends**: [`agent-dms.md`](./agent-dms.md) — changes **who creates the DM** (the flow in agent-dms.md section 4 and section 6.4.2). The 2-member group transport (D4), the DM registry + atomic per-peer reserve (5.2.1), revocation (5.5), and the shared-brain stance (5.6) are reused unchanged.
 
 ## 0. As-built (authoritative)
