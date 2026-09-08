@@ -1,0 +1,19 @@
+# Devin repo blueprint for convos-ios
+# Bootstraps the macOS Outpost devbox (pool: namespace-convos-ios-dev-macos)
+# so coding-run sessions build + QA the app the validated way.
+# See the outpost-ios-qa runbook for the full procedure.
+
+# One-time setup on a fresh Outpost box.
+initialize: |
+  set -e
+  if [ "$(uname)" = "Darwin" ]; then
+    Scripts/outpost-bootstrap.sh
+    Scripts/outpost-bootstrap.sh --env >> ~/.bashrc
+    brew install ffmpeg
+  else
+    echo "skipping macOS-only QA bootstrap (snapshot build host is Linux)"
+  fi
+
+# Refreshed at the start of each session.
+maintenance: |
+  make ensure-secrets
