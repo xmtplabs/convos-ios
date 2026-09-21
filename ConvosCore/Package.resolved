@@ -160,7 +160,7 @@
       "location" : "https://github.com/xmtp/libxmtp.git",
       "state" : {
         "branch" : "ios-4.12.0-dev.e7edced",
-        "revision" : "b57464b7e0cbabf1a7fc4b4d89091bf814a9a340"
+        "revision" : "b2dc79ee9907da558962f5d4829668f31f222e95"
       }
     },
     {
