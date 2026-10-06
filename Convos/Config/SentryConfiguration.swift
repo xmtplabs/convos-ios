@@ -70,7 +70,11 @@ enum SentryConfiguration {
         let override = ProcessInfo.processInfo.environment["SAZABI_SENTRY_DSN"] ?? ""
         let sazabiOptions = Options()
         sazabiOptions.dsn = override.isEmpty ? Constant.sazabiDsn : override
-        return SentryClient(options: sazabiOptions)
+        guard let client = SentryClient(options: sazabiOptions) else {
+            Log.warning("Sazabi Sentry client could not be created; events go to Sentry only")
+            return nil
+        }
+        return client
     }
 
     /// The environment events report under. Non-production builds get a
