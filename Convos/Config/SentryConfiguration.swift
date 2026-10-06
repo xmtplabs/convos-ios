@@ -21,6 +21,8 @@ enum SentryConfiguration {
         let sentryEnvironment = environmentName(for: environment)
         Log.info("Initializing Sentry for environment: \(envName)")
 
+        let sazabiClient = makeSazabiClient()
+
         SentrySDK.start { options in
             options.dsn = dsn
             options.debug = !isProduction
@@ -49,9 +51,26 @@ enum SentryConfiguration {
                 options.attachViewHierarchy = true
                 options.sendDefaultPii = true
             }
+
+            // Also send every event to Sazabi. The event is returned as is,
+            // so Sentry keeps receiving it.
+            options.beforeSend = { event in
+                sazabiClient?.capture(event: event)
+                return event
+            }
         }
 
         Log.info("Sentry initialized successfully")
+    }
+
+    /// A second Sentry client for Sazabi's Sentry-compatible intake, fed from
+    /// the primary client's `beforeSend`. The `SAZABI_SENTRY_DSN` environment
+    /// variable overrides the default DSN.
+    private static func makeSazabiClient() -> SentryClient? {
+        let override = ProcessInfo.processInfo.environment["SAZABI_SENTRY_DSN"] ?? ""
+        let sazabiOptions = Options()
+        sazabiOptions.dsn = override.isEmpty ? Constant.sazabiDsn : override
+        return SentryClient(options: sazabiOptions)
     }
 
     /// The environment events report under. Non-production builds get a
@@ -75,5 +94,9 @@ enum SentryConfiguration {
             // DEBUG for debugging Swift packages, and that is intentional.
             return true
         }
+    }
+
+    private enum Constant {
+        static let sazabiDsn: String = "https://sazabi@00cf3862ab1926bc0762398c3b4ad6e0.us-east-2.intake.sazabi.com/0"
     }
 }
